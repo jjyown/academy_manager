@@ -944,7 +944,21 @@ window.renderDayEvents = function(dateStr) {
         const isMerged = ev.members.length > 1;
         const blockId = isMerged ? `group-${ev.startMin}-${ev.duration}` : ev.members[0].id;
         const block = document.createElement('div');
-        block.className = isMerged ? 'event-block merged-group' : `event-block ${getGradeColorClass(ev.members[0].grade)}`;
+        
+        // Merged 그룹도 학년별 색상 적용
+        if (isMerged) {
+            const grades = ev.members.map(m => {
+                if (m.grade.includes('초')) return 'cho';
+                if (m.grade.includes('중')) return 'jung';
+                if (m.grade.includes('고')) return 'go';
+                return 'default';
+            });
+            const uniqueGrades = [...new Set(grades)];
+            const gradeClass = uniqueGrades.length === 1 ? `merged-grade-${uniqueGrades[0]}` : 'merged-grade-mixed';
+            block.className = `event-block ${gradeClass}`;
+        } else {
+            block.className = `event-block ${getGradeColorClass(ev.members[0].grade)}`;
+        }
         block.style.top = (ev.startMin * pxPerMin) + 'px';
         block.style.height = (ev.duration * pxPerMin) + 'px'; 
         block.style.left = (savedPositions[blockId] !== undefined ? savedPositions[blockId] : ev.colIndex * defaultSlotWidth) + '%';
@@ -1341,9 +1355,9 @@ window.togglePeriodDeleteStudent = function() {
     const studentGroup = document.getElementById('period-del-student-group');
     if (scope === 'student') {
         studentGroup.style.display = 'block';
-        // 현재 선생님의 활성 학생만 표시
+        // 전체 활성 학생 표시
         const studentSelect = document.getElementById('period-del-student');
-        const activeStudents = currentTeacherStudents.filter(s => s.status === 'active');
+        const activeStudents = students.filter(s => s.status === 'active');
         studentSelect.innerHTML = '<option value="">학생을 선택하세요</option>' +
             activeStudents.map(s => `<option value="${s.id}">${s.name} (${s.grade})</option>`).join('');
     } else {
@@ -1662,8 +1676,8 @@ window.renderDrawerList = function() {
     const showInactiveOnly = document.getElementById('show-archived').checked;
     const searchQuery = document.getElementById('drawer-search-input').value.toLowerCase();
     
-    // 현재 선생님의 학생만 필터링
-    let filtered = currentTeacherStudents.filter(s => {
+    // 전체 학생 목록 표시 (모든 선생님의 학생)
+    let filtered = students.filter(s => {
         if (showInactiveOnly) return s.status === 'archived' || s.status === 'paused';
         else return s.status === 'active';
     });
@@ -1721,8 +1735,8 @@ window.openModal = function(id) {
         const dropdown = document.getElementById('sch-student-dropdown');
         const hiddenSelect = document.getElementById('sch-student-select');
         
-        // 현재 선생님의 활성 학생만 필터링
-        const activeStudents = currentTeacherStudents.filter(s => s.status === 'active');
+        // 전체 활성 학생 표시 (모든 선생님이 등록 가능)
+        const activeStudents = students.filter(s => s.status === 'active');
         
         // 검색 입력 초기화
         searchInput.value = '';

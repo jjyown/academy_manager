@@ -205,10 +205,16 @@ body {
 .evt-grade-go { background-color: #fee2e2; border-left: 4px solid #ef4444; } /* Light red */
 .evt-color-default { background-color: #e5e7eb; border-left: 4px solid #6b7280; } /* Gray default */
 
-.sub-item-cho { background-color: #eff6ff; border-left: 3px solid #60a5fa; }
-.sub-item-jung { background-color: #fffbeb; border-left: 3px solid #fbbf24; }
-.sub-item-go { background-color: #fef2f2; border-left: 3px solid #f87171; }
-.sub-item-default { background-color: #f3f4f6; border-left: 3px solid #9ca3af; }
+/* Merged group grade colors */
+.merged-grade-cho { background-color: #bfdbfe; border-left: 4px solid #3b82f6; } /* Blue */
+.merged-grade-jung { background-color: #fde68a; border-left: 4px solid #f59e0b; } /* Orange */
+.merged-grade-go { background-color: #fecaca; border-left: 4px solid #ef4444; } /* Red */
+.merged-grade-mixed { background-color: #d1d5db; border-left: 4px solid #6b7280; } /* Gray for mixed */
+
+.sub-grade-cho { background-color: #eff6ff; border-left: 3px solid #60a5fa; }
+.sub-grade-jung { background-color: #fffbeb; border-left: 3px solid #fbbf24; }
+.sub-grade-go { background-color: #fef2f2; border-left: 3px solid #f87171; }
+.sub-color-default { background-color: #f3f4f6; border-left: 3px solid #9ca3af; }
 
 
 /* Timetable specific styles */
@@ -273,12 +279,6 @@ body {
 .event-block:hover {
     box-shadow: 0 2px 4px rgba(0,0,0,0.15);
     z-index: 2; /* Bring hovered block to front */
-}
-
-.event-block.merged-group {
-    background-color: var(--group-color);
-    color: var(--white);
-    border-left: 4px solid var(--primary); /* Group color */
 }
 
 .merged-header {
