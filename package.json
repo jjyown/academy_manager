@@ -1,0 +1,31 @@
+{
+  "name": "academy-manager",
+  "version": "2.0.0",
+  "description": "클라우드 기반 학원 관리 시스템 - Supabase 연동",
+  "main": "index.html",
+  "scripts": {
+    "start": "python -m http.server 8000",
+    "dev": "Live Server 사용하기 (VS Code 확장)"
+  },
+  "keywords": [
+    "academy",
+    "management",
+    "supabase",
+    "attendance"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "supabase-js": "^2.0.0"
+  },
+  "notes": {
+    "1-setup": "supabase-config.js에 URL과 API 키를 입력하세요",
+    "2-database": "Supabase 대시보드의 SQL Editor에서 SQL 명령 실행",
+    "3-features": [
+      "로그인/회원가입 기능",
+      "다중 사용자 지원",
+      "실시간 데이터 동기화",
+      "클라우드 저장소"
+    ]
+  }
+}

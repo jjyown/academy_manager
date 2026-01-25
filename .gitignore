@@ -1,0 +1,30 @@
+# Node.js & npm
+node_modules/
+npm-debug.log
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Build outputs
+dist/
+build/
+
+# Dependencies
+package-lock.json
+yarn.lock
+
+# Academy manager subdirectory
+academy_manager/
