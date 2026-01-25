@@ -70,10 +70,19 @@
                     <h2>선생님 선택</h2>
                     <div class="form-group">
                         <label>등록된 선생님</label>
-                        <select id="teacher-dropdown" class="auth-input">
+                        <select id="teacher-dropdown" class="auth-input" onchange="onTeacherSelected()">
                             <option value="">선생님을 선택해주세요</option>
                         </select>
                     </div>
+                    
+                    <!-- 모든 선생님 비밀번호 입력 -->
+                    <div id="teacher-password-section" style="display: none;">
+                        <div class="form-group">
+                            <label>비밀번호</label>
+                            <input type="password" id="teacher-select-password" class="auth-input" placeholder="비밀번호">
+                        </div>
+                    </div>
+                    
                     <button class="auth-btn" onclick="confirmTeacher()">입장</button>
                     <button class="auth-btn" style="background-color:#b91c1c; margin-top:8px;" onclick="adminDeleteTeacher()">선생님 삭제</button>
                     <p class="auth-toggle">아직 등록된 선생님이 없으신가요? <a href="#" onclick="toggleTeacherForm(); return false;">선생님 등록</a></p>
@@ -89,6 +98,35 @@
                     <div class="form-group">
                         <label>연락처</label>
                         <input type="text" id="new-teacher-phone" class="auth-input" placeholder="전화번호 (선택)">
+                    </div>
+                    <div class="form-group">
+                        <label>역할</label>
+                        <select id="new-teacher-role" class="auth-input" onchange="handleNewTeacherRoleChange()">
+                            <option value="admin">관리자</option>
+                            <option value="teacher">선생님</option>
+                            <option value="staff">직원</option>
+                        </select>
+                    </div>
+                    
+                    <!-- 관리자 이메일 입력 -->
+                    <div id="register-admin-email-section" style="display: none;">
+                        <div class="form-group">
+                            <label>이메일 (관리자 인증용)</label>
+                            <input type="email" id="register-admin-email" class="auth-input" placeholder="관리자 이메일">
+                        </div>
+                    </div>
+                    
+                    <!-- 관리자 비밀번호 입력 -->
+                    <div id="register-admin-password-section" style="display: none;">
+                        <div class="form-group">
+                            <label>이메일 비밀번호 (관리자 인증용)</label>
+                            <input type="password" id="register-admin-auth-password" class="auth-input" placeholder="이메일 비밀번호">
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>비밀번호 (개인 프라이버시)</label>
+                        <input type="password" id="register-teacher-password" class="auth-input" placeholder="비밀번호">
                     </div>
                     <button class="auth-btn" onclick="registerTeacher()">등록하기</button>
                     <p class="auth-toggle">이미 등록된 선생님이 있으신가요? <a href="#" onclick="toggleTeacherForm(); return false;">선생님 선택</a></p>
@@ -181,7 +219,7 @@
             <button class="feature-main-btn" onclick="toggleStudentList(); closeFeaturePanel();">
                 <i class="fas fa-users"></i> 학생 관리
             </button>
-            <button class="feature-main-btn" onclick="openTeacherModal(); closeFeaturePanel();">
+            <button class="feature-main-btn" id="teacher-menu-btn" onclick="openTeacherModal(); closeFeaturePanel();">
                 <i class="fas fa-chalkboard-user"></i> 선생님
             </button>
         </div>
@@ -553,6 +591,46 @@
                     <input type="password" id="grant-admin-password" class="m-input" placeholder="관리자 비밀번호">
                 </div>
                 <button class="btn-save-main" onclick="confirmGrantAdmin()">권한 부여</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 선생님 비밀번호 인증 모달 (일반 선생님/직원용) -->
+    <div id="teacher-password-modal" class="modal" style="display: none;">
+        <div class="modal-card" style="max-width: 400px;">
+            <div class="modal-header">
+                <h2>비밀번호 인증</h2>
+                <button class="btn-close-x" onclick="closeModal('teacher-password-modal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body-scrollable custom-scroll" style="padding: 20px;">
+                <p style="margin-bottom: 20px; color: var(--gray);">선생님의 비밀번호를 입력해주세요.</p>
+                <div class="input-group">
+                    <label>비밀번호</label>
+                    <input type="password" id="teacher-login-password" class="m-input" placeholder="비밀번호">
+                </div>
+                <button class="btn-save-main" onclick="confirmTeacherPasswordLogin()">인증</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 관리자 인증 모달 (관리자용) -->
+    <div id="admin-teacher-login-modal" class="modal" style="display: none;">
+        <div class="modal-card" style="max-width: 400px;">
+            <div class="modal-header">
+                <h2>관리자 인증</h2>
+                <button class="btn-close-x" onclick="closeModal('admin-teacher-login-modal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body-scrollable custom-scroll" style="padding: 20px;">
+                <p style="margin-bottom: 20px; color: var(--gray);">관리자의 이메일과 비밀번호를 입력해주세요.</p>
+                <div class="input-group">
+                    <label>이메일</label>
+                    <input type="email" id="admin-login-email" class="m-input" placeholder="관리자 이메일">
+                </div>
+                <div class="input-group">
+                    <label>비밀번호</label>
+                    <input type="password" id="admin-login-password" class="m-input" placeholder="관리자 비밀번호">
+                </div>
+                <button class="btn-save-main" onclick="confirmAdminTeacherLogin()">인증</button>
             </div>
         </div>
     </div>

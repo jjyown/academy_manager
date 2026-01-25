@@ -312,6 +312,34 @@ window.toggleTeacherForm = function() {
     } else {
         selectForm.style.display = 'none';
         registerForm.style.display = 'flex';
+        // 등록 폼을 표시할 때 현재 역할에 따라 필드 초기화
+        handleNewTeacherRoleChange();
+    }
+}
+
+// 새 선생님 등록 폼에서 역할 선택 시 인증 필드 표시
+window.handleNewTeacherRoleChange = function() {
+    console.log('[handleNewTeacherRoleChange] 시작');
+    const role = document.getElementById('new-teacher-role').value;
+    const adminEmailSection = document.getElementById('register-admin-email-section');
+    const adminPasswordSection = document.getElementById('register-admin-password-section');
+    
+    console.log('[handleNewTeacherRoleChange] 역할:', role);
+    console.log('[handleNewTeacherRoleChange] adminEmailSection:', adminEmailSection);
+    console.log('[handleNewTeacherRoleChange] adminPasswordSection:', adminPasswordSection);
+    
+    if (role === 'admin') {
+        // 관리자: 이메일 + 비밀번호 입력 필드 표시
+        console.log('[handleNewTeacherRoleChange] 관리자 필드 표시');
+        adminEmailSection.style.display = 'flex';
+        adminPasswordSection.style.display = 'flex';
+        document.getElementById('register-admin-email').value = '';
+        document.getElementById('register-admin-auth-password').value = '';
+    } else {
+        // 일반 선생님/직원: 인증 필드 숨기기
+        console.log('[handleNewTeacherRoleChange] 관리자 필드 숨기기');
+        adminEmailSection.style.display = 'none';
+        adminPasswordSection.style.display = 'none';
     }
 }
 
@@ -397,6 +425,7 @@ async function setCurrentTeacher(teacher) {
         // 8단계: 권한 메뉴 및 역할 라벨 업데이트
         console.log('[setCurrentTeacher] 8단계: 권한 메뉴 및 역할 라벨 업데이트...');
         updatePaymentMenuVisibility();
+        updateTeacherMenuVisibility();
         updateUserRoleLabel();
         
         console.log('[setCurrentTeacher] 완료 - 선생님:', teacher.name);
@@ -407,11 +436,55 @@ async function setCurrentTeacher(teacher) {
     }
 }
 
+// 선생님 선택 변경 시 비밀번호 필드 표시
+window.onTeacherSelected = function() {
+    const teacherId = document.getElementById('teacher-dropdown').value;
+    const teacherPasswordSection = document.getElementById('teacher-password-section');
+    
+    console.log('[onTeacherSelected] teacherId:', teacherId);
+    
+    if (!teacherId) {
+        // 선생님을 선택하지 않았으면 비밀번호 필드 숨기기
+        teacherPasswordSection.style.display = 'none';
+        return;
+    }
+    
+    const teacher = teacherList.find(t => t.id === teacherId);
+    if (!teacher) return;
+    
+    // 모든 선생님(관리자 포함)은 비밀번호 입력 필요
+    console.log('[onTeacherSelected] 비밀번호 필드 표시');
+    teacherPasswordSection.style.display = 'flex';
+    document.getElementById('teacher-select-password').value = '';
+}
+
 window.confirmTeacher = async function() {
+    console.log('[confirmTeacher] 시작');
     const teacherId = document.getElementById('teacher-dropdown').value;
     if (!teacherId) return alert('선생님을 선택해주세요.');
+    
     const teacher = teacherList.find(t => t.id === teacherId);
     if (!teacher) return alert('선택한 선생님을 찾을 수 없습니다.');
+    
+    console.log('[confirmTeacher] 선택된 선생님:', teacher.name);
+    
+    // 모든 선생님(관리자 포함)은 개인 비밀번호로 인증
+    const password = document.getElementById('teacher-select-password').value.trim();
+    
+    if (!password) {
+        return alert('비밀번호를 입력해주세요');
+    }
+    
+    const storedPassword = localStorage.getItem('teacher_' + teacher.name + '_password');
+    console.log('[confirmTeacher] 입력된 비밀번호:', password);
+    console.log('[confirmTeacher] 저장된 비밀번호:', storedPassword);
+    console.log('[confirmTeacher] 선생님:', teacher.name);
+    
+    if (password !== storedPassword) {
+        return alert('비밀번호가 일치하지 않습니다.');
+    }
+    
+    console.log('[confirmTeacher] 비밀번호 인증 성공');
     await setCurrentTeacher(teacher);
 }
 
@@ -508,10 +581,45 @@ window.registerTeacher = async function() {
         console.log('[registerTeacher] 시작');
         const name = document.getElementById('new-teacher-name').value.trim();
         const phone = document.getElementById('new-teacher-phone').value.trim();
+        const role = document.getElementById('new-teacher-role').value;
+        const teacherPassword = document.getElementById('register-teacher-password').value.trim();
         
-        console.log('[registerTeacher] 입력 값 - name:', name, ', phone:', phone);
+        console.log('[registerTeacher] 입력 값 - name:', name, ', phone:', phone, ', role:', role);
         
         if (!name) return alert('선생님 이름은 필수입니다.');
+        
+        // 모든 선생님은 비밀번호가 필수 (개인 프라이버시)
+        if (!teacherPassword) {
+            return alert('비밀번호는 필수입니다.');
+        }
+        
+        // 관리자로 등록하는 경우 이메일과 비밀번호 인증 필요
+        if (role === 'admin') {
+            const adminEmail = document.getElementById('register-admin-email').value.trim();
+            const adminPassword = document.getElementById('register-admin-auth-password').value.trim();
+            
+            if (!adminEmail || !adminPassword) {
+                return alert('관리자로 등록하려면 이메일과 비밀번호를 입력해주세요.');
+            }
+            
+            try {
+                console.log('[registerTeacher] 관리자 인증 시작');
+                const { data, error } = await supabase.auth.signInWithPassword({
+                    email: adminEmail,
+                    password: adminPassword
+                });
+                
+                if (error) {
+                    console.error('[registerTeacher] 관리자 인증 실패:', error);
+                    return alert('관리자 인증 실패: 이메일 또는 비밀번호가 올바르지 않습니다.');
+                }
+                
+                console.log('[registerTeacher] 관리자 인증 성공');
+            } catch (authError) {
+                console.error('[registerTeacher] 인증 에러:', authError);
+                return alert('인증 실패: ' + authError.message);
+            }
+        }
         
         // 저장된 현재 관리자 ID 확인
         const ownerId = localStorage.getItem('current_owner_id');
@@ -539,9 +647,19 @@ window.registerTeacher = async function() {
         
         console.log('[registerTeacher] 등록 성공:', data);
         
+        // 로컬스토리지에 역할과 비밀번호 저장
+        localStorage.setItem('teacher_' + name + '_role', role);
+        localStorage.setItem('teacher_' + name + '_password', teacherPassword);
+        
+        console.log('[registerTeacher] 저장됨 - 역할:', role, ', 비밀번호:', teacherPassword);
+        
         // 입력 필드 초기화
         document.getElementById('new-teacher-name').value = '';
         document.getElementById('new-teacher-phone').value = '';
+        document.getElementById('new-teacher-role').value = 'teacher';
+        document.getElementById('register-teacher-password').value = '';
+        document.getElementById('register-admin-email').value = '';
+        document.getElementById('register-admin-auth-password').value = '';
         
         alert('선생님이 등록되었습니다!');
         
@@ -708,7 +826,9 @@ function createCell(date, activeStudents) {
 
     let dailyEvents = [];
     activeStudents.forEach(student => {
-        if (student && student.events && student.events.includes(dateStr)) {
+        // 현재 선생님의 schedule 데이터에서만 확인 (다른 선생님의 일정은 제외)
+        if (student && teacherScheduleData[currentTeacherId] && teacherScheduleData[currentTeacherId][student.id] && 
+            teacherScheduleData[currentTeacherId][student.id][dateStr]) {
             dailyEvents.push(student);
         }
     });
@@ -767,9 +887,10 @@ window.renderDayEvents = function(dateStr) {
     let rawEvents = [];
     const teacherSchedule = teacherScheduleData[currentTeacherId] || {};
     activeStudents.forEach((s) => {
-        if(s.events && s.events.includes(dateStr)) {
-            const studentSchedule = teacherSchedule[s.id] || {};
-            const detail = (studentSchedule && studentSchedule[dateStr]) || { start: '16:00', duration: 90 };
+        // 현재 선생님의 schedule 데이터에서만 확인
+        if(teacherSchedule[s.id] && teacherSchedule[s.id][dateStr]) {
+            const studentSchedule = teacherSchedule[s.id];
+            const detail = studentSchedule[dateStr] || { start: '16:00', duration: 90 };
             const [h, m] = detail.start.split(':').map(Number);
             let startMin = (h * 60) + m; // Calculate start minutes from 00:00
             // Ensure startMin is within bounds, though it should be if time input is valid
@@ -1035,7 +1156,6 @@ window.generateSchedule = function() {
     if (!sid || !startVal || !startTime || !durationMin) return alert("필수 정보를 모두 입력해주세요.");
     const sIdx = students.findIndex(s => String(s.id) === String(sid));
     if (sIdx === -1) return alert("학생 정보를 찾을 수 없습니다.");
-    if (!students[sIdx].events) students[sIdx].events = [];
     
     // 선생님별 일정 데이터 초기화
     if(!teacherScheduleData[currentTeacherId]) teacherScheduleData[currentTeacherId] = {};
@@ -1048,8 +1168,8 @@ window.generateSchedule = function() {
     if (days.length === 0) {
         const off = startObj.getTimezoneOffset() * 60000;
         const dStr = new Date(startObj.getTime() - off).toISOString().split('T')[0];
-        if (!students[sIdx].events.includes(dStr)) {
-            students[sIdx].events.push(dStr); teacherScheduleData[currentTeacherId][sid][dStr] = { start: startTime, duration: durInt }; count++;
+        if (!teacherScheduleData[currentTeacherId][sid][dStr]) {
+            teacherScheduleData[currentTeacherId][sid][dStr] = { start: startTime, duration: durInt }; count++;
         } else {
             if(!confirm(`${dStr}에 이미 일정이 있습니다. 덮어씌우시겠습니까?`)) return;
             teacherScheduleData[currentTeacherId][sid][dStr] = { start: startTime, duration: durInt }; count++;
@@ -1064,8 +1184,8 @@ window.generateSchedule = function() {
             if (days.includes(cur.getDay())) {
                 const off = cur.getTimezoneOffset() * 60000;
                 const dStr = new Date(cur.getTime() - off).toISOString().split('T')[0];
-                if (!students[sIdx].events.includes(dStr)) {
-                    students[sIdx].events.push(dStr); teacherScheduleData[currentTeacherId][sid][dStr] = { start: startTime, duration: durInt }; count++;
+                if (!teacherScheduleData[currentTeacherId][sid][dStr]) {
+                    teacherScheduleData[currentTeacherId][sid][dStr] = { start: startTime, duration: durInt }; count++;
                 }
             }
         }
@@ -1087,7 +1207,6 @@ window.generateScheduleWithoutHolidays = function() {
     if (!sid || !startVal || !startTime || !durationMin) return alert("필수 정보를 모두 입력해주세요.");
     const sIdx = students.findIndex(s => String(s.id) === String(sid));
     if (sIdx === -1) return alert("학생 정보를 찾을 수 없습니다.");
-    if (!students[sIdx].events) students[sIdx].events = [];
     
     // 선생님별 일정 데이터 초기화
     if(!teacherScheduleData[currentTeacherId]) teacherScheduleData[currentTeacherId] = {};
@@ -1102,12 +1221,12 @@ window.generateScheduleWithoutHolidays = function() {
         const off = startObj.getTimezoneOffset() * 60000;
         const dStr = new Date(startObj.getTime() - off).toISOString().split('T')[0];
         const holidayInfo = getHolidayInfo(dStr);
-        if (!holidayInfo && !students[sIdx].events.includes(dStr)) {
-            students[sIdx].events.push(dStr); teacherScheduleData[currentTeacherId][sid][dStr] = { start: startTime, duration: durInt }; count++;
+        if (!holidayInfo && !teacherScheduleData[currentTeacherId][sid][dStr]) {
+            teacherScheduleData[currentTeacherId][sid][dStr] = { start: startTime, duration: durInt }; count++;
         } else if (holidayInfo) {
             if(!confirm(`${dStr}은 ${holidayInfo.name}입니다. 계속 진행하시겠습니까?`)) return;
-            if(!students[sIdx].events.includes(dStr)) {
-                students[sIdx].events.push(dStr); teacherScheduleData[currentTeacherId][sid][dStr] = { start: startTime, duration: durInt }; count++;
+            if(!teacherScheduleData[currentTeacherId][sid][dStr]) {
+                teacherScheduleData[currentTeacherId][sid][dStr] = { start: startTime, duration: durInt }; count++;
             } else {
                 teacherScheduleData[currentTeacherId][sid][dStr] = { start: startTime, duration: durInt }; count++;
             }
@@ -1123,8 +1242,8 @@ window.generateScheduleWithoutHolidays = function() {
                 const off = cur.getTimezoneOffset() * 60000;
                 const dStr = new Date(cur.getTime() - off).toISOString().split('T')[0];
                 const holidayInfo = getHolidayInfo(dStr);
-                if (!holidayInfo && !students[sIdx].events.includes(dStr)) {
-                    students[sIdx].events.push(dStr); teacherScheduleData[currentTeacherId][sid][dStr] = { start: startTime, duration: durInt }; count++;
+                if (!holidayInfo && !teacherScheduleData[currentTeacherId][sid][dStr]) {
+                    teacherScheduleData[currentTeacherId][sid][dStr] = { start: startTime, duration: durInt }; count++;
                 }
             }
         }
@@ -1155,11 +1274,21 @@ window.executeBulkDelete = function() {
     if(sIdx === -1) return;
     if(!confirm("선택한 기간의 일정을 삭제하시겠습니까?")) return;
     const startDate = new Date(startStr); const endDate = new Date(endStr);
-    const oldEventCount = students[sIdx].events.length;
-    students[sIdx].events = students[sIdx].events.filter(dStr => { const d = new Date(dStr); return !(d >= startDate && d <= endDate); });
-    const deletedCount = oldEventCount - students[sIdx].events.length;
-    saveData(); closeModal('bulk-delete-modal'); renderCalendar();
-    alert(`총 ${deletedCount}개의 일정이 삭제되었습니다.`);
+    
+    // 현재 선생님의 schedule 데이터에서만 삭제
+    if(teacherScheduleData[currentTeacherId] && teacherScheduleData[currentTeacherId][sid]) {
+        const deleteDates = Object.keys(teacherScheduleData[currentTeacherId][sid]).filter(dStr => {
+            const d = new Date(dStr);
+            return d >= startDate && d <= endDate;
+        });
+        deleteDates.forEach(dStr => delete teacherScheduleData[currentTeacherId][sid][dStr]);
+    }
+    
+    saveData(); 
+    saveTeacherScheduleData();
+    closeModal('bulk-delete-modal'); 
+    renderCalendar();
+    alert(`일정이 삭제되었습니다.`);
 }
 function handleDragOver(e) { e.preventDefault(); e.currentTarget.classList.add('drag-over'); }
 function handleDragLeave(e) { e.currentTarget.classList.remove('drag-over'); }
@@ -1171,12 +1300,9 @@ function handleDrop(e) {
     if (!sid || !oldD || !newD || oldD === newD) return;
     const idx = students.findIndex(s => String(s.id) === String(sid));
     if (idx > -1) {
-        if(!students[idx].events) students[idx].events = [];
-        students[idx].events = students[idx].events.filter(d => d !== oldD);
-        if (!students[idx].events.includes(newD)) students[idx].events.push(newD);
         if(students[idx].attendance && students[idx].attendance[oldD]) { students[idx].attendance[newD] = students[idx].attendance[oldD]; delete students[idx].attendance[oldD]; }
         if(students[idx].records && students[idx].records[oldD]) { students[idx].records[newD] = students[idx].records[oldD]; delete students[idx].records[oldD]; }
-        // 선생님별 일정 데이터 이동
+        // 선생님별 일정 데이터 이동 (현재 선생님의 데이터만 이동)
         if(teacherScheduleData[currentTeacherId] && teacherScheduleData[currentTeacherId][sid]) {
             if(teacherScheduleData[currentTeacherId][sid][oldD]) {
                 teacherScheduleData[currentTeacherId][sid][newD] = teacherScheduleData[currentTeacherId][sid][oldD];
@@ -1195,10 +1321,9 @@ window.deleteSingleSchedule = function() {
     if(!confirm("이 날짜의 일정을 삭제하시겠습니까?")) return;
     const sIdx = students.findIndex(s => String(s.id) === String(sid));
     if(sIdx > -1) {
-        students[sIdx].events = students[sIdx].events.filter(d => d !== dateStr);
         if(students[sIdx].attendance) delete students[sIdx].attendance[dateStr]; 
         if(students[sIdx].records) delete students[sIdx].records[dateStr];
-        // 선생님별 일정 데이터 삭제
+        // 현재 선생님의 일정 데이터 삭제
         if(teacherScheduleData[currentTeacherId] && teacherScheduleData[currentTeacherId][sid]) {
             delete teacherScheduleData[currentTeacherId][sid][dateStr];
         }
@@ -1216,9 +1341,9 @@ window.togglePeriodDeleteStudent = function() {
     const studentGroup = document.getElementById('period-del-student-group');
     if (scope === 'student') {
         studentGroup.style.display = 'block';
-        // 학생 목록 채우기
+        // 현재 선생님의 활성 학생만 표시
         const studentSelect = document.getElementById('period-del-student');
-        const activeStudents = students.filter(s => s.status === 'active');
+        const activeStudents = currentTeacherStudents.filter(s => s.status === 'active');
         studentSelect.innerHTML = '<option value="">학생을 선택하세요</option>' +
             activeStudents.map(s => `<option value="${s.id}">${s.name} (${s.grade})</option>`).join('');
     } else {
@@ -1267,26 +1392,22 @@ window.executePeriodDelete = function() {
         const sIdx = students.findIndex(s => String(s.id) === String(sid));
         if (sIdx === -1) return;
         
-        // 기간 내 이벤트 필터링
-        const eventsToDelete = (student.events || []).filter(dateStr => {
-            if (dateStr < startDate || dateStr > endDate) return false;
-            // 출석 체크가 없는 일정만 삭제
-            const hasAttendance = student.attendance && student.attendance[dateStr];
-            return !hasAttendance;
-        });
-        
-        if (eventsToDelete.length > 0) {
-            // events 배열에서 제거
-            students[sIdx].events = students[sIdx].events.filter(d => !eventsToDelete.includes(d));
+        // 현재 선생님의 일정 데이터에서 기간 내 이벤트 필터링
+        if (teacherScheduleData[currentTeacherId] && teacherScheduleData[currentTeacherId][sid]) {
+            const eventsToDelete = Object.keys(teacherScheduleData[currentTeacherId][sid]).filter(dateStr => {
+                if (dateStr < startDate || dateStr > endDate) return false;
+                // 출석 체크가 없는 일정만 삭제
+                const hasAttendance = student.attendance && student.attendance[dateStr];
+                return !hasAttendance;
+            });
             
-            // 선생님별 일정 데이터에서 제거
-            if (teacherScheduleData[currentTeacherId] && teacherScheduleData[currentTeacherId][sid]) {
+            if (eventsToDelete.length > 0) {
+                // 선생님별 일정 데이터에서 제거
                 eventsToDelete.forEach(dateStr => {
                     delete teacherScheduleData[currentTeacherId][sid][dateStr];
                 });
+                deletedCount += eventsToDelete.length;
             }
-            
-            deletedCount += eventsToDelete.length;
         }
     });
     
@@ -1314,7 +1435,13 @@ window.openHistoryModal = function() {
     const container = document.getElementById('history-timeline');
     container.innerHTML = "";
     const monthPrefix = `${curYear}-${String(curMonth).padStart(2, '0')}`;
-    const allDates = new Set([...(s.events || [])]);
+    
+    // 현재 선생님의 schedule 데이터에서만 확인
+    const teacherSchedule = teacherScheduleData[currentTeacherId] || {};
+    const studentSchedule = teacherSchedule[sid] || {};
+    const scheduleDates = Object.keys(studentSchedule);
+    
+    const allDates = new Set([...scheduleDates]);
     if(s.attendance) Object.keys(s.attendance).forEach(d => allDates.add(d));
     if(s.records) Object.keys(s.records).forEach(d => allDates.add(d));
     const monthlyEvents = Array.from(allDates).filter(date => date.startsWith(monthPrefix)).sort();
@@ -1322,9 +1449,6 @@ window.openHistoryModal = function() {
     monthlyEvents.forEach(date => {
         const status = (s.attendance && s.attendance[date]) || 'none';
         const record = (s.records && s.records[date]) || "";
-        // 선생님별 일정 데이터에서 확인
-        const teacherSchedule = teacherScheduleData[currentTeacherId] || {};
-        const studentSchedule = teacherSchedule[sid] || {};
         const isScheduled = studentSchedule && studentSchedule[date];
         let statusText = "미처리", statusClass = "bg-none", dotClass = "t-dot-none";
         if(status === 'present') { statusText = '출석'; statusClass = 'bg-present'; dotClass = 't-dot-present'; }
@@ -1538,7 +1662,8 @@ window.renderDrawerList = function() {
     const showInactiveOnly = document.getElementById('show-archived').checked;
     const searchQuery = document.getElementById('drawer-search-input').value.toLowerCase();
     
-    let filtered = students.filter(s => {
+    // 현재 선생님의 학생만 필터링
+    let filtered = currentTeacherStudents.filter(s => {
         if (showInactiveOnly) return s.status === 'archived' || s.status === 'paused';
         else return s.status === 'active';
     });
@@ -1596,8 +1721,8 @@ window.openModal = function(id) {
         const dropdown = document.getElementById('sch-student-dropdown');
         const hiddenSelect = document.getElementById('sch-student-select');
         
-        // 재원 학생만 필터링
-        const activeStudents = students.filter(s => s.status === 'active');
+        // 현재 선생님의 활성 학생만 필터링
+        const activeStudents = currentTeacherStudents.filter(s => s.status === 'active');
         
         // 검색 입력 초기화
         searchInput.value = '';
@@ -2100,11 +2225,33 @@ function updatePaymentMenuVisibility() {
     }
 }
 
+// 선생님 관리 메뉴 버튼 가시성 업데이트
+function updateTeacherMenuVisibility() {
+    const btn = document.getElementById('teacher-menu-btn');
+    if (btn) {
+        // 현재 선택된 선생님의 역할 확인
+        const currentTeacherName = localStorage.getItem('current_teacher_name');
+        const role = localStorage.getItem('teacher_' + currentTeacherName + '_role') || 'teacher';
+        
+        // 관리자만 선생님 관리 버튼 표시
+        btn.style.display = role === 'admin' ? 'flex' : 'none';
+    }
+}
+
 // ============================================
 // 선생님 관리 모달 함수
 // ============================================
 
 window.openTeacherModal = function() {
+    // 관리자만 선생님 관리 가능
+    const currentTeacherName = localStorage.getItem('current_teacher_name');
+    const role = localStorage.getItem('teacher_' + currentTeacherName + '_role') || 'teacher';
+    
+    if (role !== 'admin') {
+        alert('관리자만 선생님을 관리할 수 있습니다.');
+        return;
+    }
+    
     const modal = document.getElementById('teacher-modal');
     if (!modal) {
         console.error('teacher-modal 요소를 찾을 수 없습니다');
@@ -2269,6 +2416,14 @@ window.confirmGrantAdmin = async function() {
         document.getElementById('grant-admin-password').value = '';
         closeModal('grant-admin-modal');
         
+        // 현재 선택된 선생님이 권한을 받은 경우 UI 업데이트
+        const currentTeacherName = localStorage.getItem('current_teacher_name');
+        if (currentTeacherName === teacherName) {
+            updatePaymentMenuVisibility();
+            updateTeacherMenuVisibility();
+            updateUserRoleLabel();
+        }
+        
         // 목록 새로고침
         await loadTeachers();
         renderTeacherListModal();
@@ -2277,3 +2432,6 @@ window.confirmGrantAdmin = async function() {
         alert('권한 부여 실패: ' + error.message);
     }
 }
+
+// 관리자 선생님 로그인 인증
+// 일반 선생님/직원 비밀번호 인증
