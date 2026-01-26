@@ -8,7 +8,19 @@ window.getCurrentUser = async function() {
     try {
         const { data: { session } } = await supabase.auth.getSession();
         if (session) {
-            currentUser = session.user;
+            // users 테이블에서 role 정보 포함하여 조회
+            const { data: userData, error: userError } = await supabase
+                .from('users')
+                .select('id, email, name, role')
+                .eq('id', session.user.id)
+                .single();
+            
+            if (userError) {
+                console.error('사용자 정보 조회 실패:', userError);
+                currentUser = { ...session.user, role: 'user' };
+            } else {
+                currentUser = userData;
+            }
             return currentUser;
         }
         return null;

@@ -7,8 +7,11 @@
     <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.8/dist/web/static/pretendard.css" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="mobile.css">
     <!-- Supabase 라이브러리 -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- 다음 주소 검색 API -->
+    <script src="//t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js"></script>
 </head>
 <body>
 
@@ -29,9 +32,9 @@
                         <label>비밀번호</label>
                         <input type="password" id="login-password" class="auth-input" placeholder="비밀번호를 입력하세요">
                     </div>
-                    <div class="form-group" style="flex-direction: row; align-items: center; gap: 8px;">
-                        <input type="checkbox" id="remember-me" style="width: auto; margin: 0;">
-                        <label for="remember-me" style="margin: 0; cursor: pointer;">로그인 유지</label>
+                    <div class="form-group" style="display: flex; flex-direction: row; align-items: center; gap: 8px; margin-top: 8px; padding: 10px 12px; background: #f5f7ff; border-radius: 10px; align-self: flex-start;">
+                        <input type="checkbox" id="remember-me" style="width: 18px; height: 18px; margin: 0; cursor: pointer; accent-color: #4f46e5;">
+                        <label for="remember-me" style="margin: 0; cursor: pointer; font-weight: 600; color: #4f46e5;">로그인 유지</label>
                     </div>
                     <button class="auth-btn" onclick="signIn()">로그인</button>
                     <p class="auth-toggle">계정이 없으신가요? <a href="#" onclick="toggleAuthForm(); return false;">회원가입</a></p>
@@ -97,35 +100,21 @@
                     </div>
                     <div class="form-group">
                         <label>연락처</label>
-                        <input type="text" id="new-teacher-phone" class="auth-input" placeholder="전화번호 (선택)">
+                        <input type="text" id="new-teacher-phone" class="auth-input" placeholder="010-0000-0000" maxlength="13" oninput="formatPhoneNumber(this)">
                     </div>
                     <div class="form-group">
-                        <label>역할</label>
-                        <select id="new-teacher-role" class="auth-input" onchange="handleNewTeacherRoleChange()">
-                            <option value="admin">관리자</option>
-                            <option value="teacher">선생님</option>
-                            <option value="staff">직원</option>
-                        </select>
-                    </div>
-                    
-                    <!-- 관리자 이메일 입력 -->
-                    <div id="register-admin-email-section" style="display: none;">
-                        <div class="form-group">
-                            <label>이메일 (관리자 인증용)</label>
-                            <input type="email" id="register-admin-email" class="auth-input" placeholder="관리자 이메일">
+                        <label>주소</label>
+                        <div style="display: flex; gap: 8px;">
+                            <input type="text" id="new-teacher-address" class="auth-input" placeholder="주소를 검색하세요" readonly style="flex: 1; cursor: pointer;" onclick="searchAddress()">
+                            <button type="button" onclick="searchAddress()" style="padding: 12px 20px; background: #6366f1; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 500;">검색</button>
                         </div>
                     </div>
-                    
-                    <!-- 관리자 비밀번호 입력 -->
-                    <div id="register-admin-password-section" style="display: none;">
-                        <div class="form-group">
-                            <label>이메일 비밀번호 (관리자 인증용)</label>
-                            <input type="password" id="register-admin-auth-password" class="auth-input" placeholder="이메일 비밀번호">
-                        </div>
-                    </div>
-                    
                     <div class="form-group">
-                        <label>비밀번호 (개인 프라이버시)</label>
+                        <label>상세주소 (동/호수)</label>
+                        <input type="text" id="new-teacher-address-detail" class="auth-input" placeholder="예: 101동 1202호">
+                    </div>
+                    <div class="form-group">
+                        <label>비밀번호</label>
                         <input type="password" id="register-teacher-password" class="auth-input" placeholder="비밀번호">
                     </div>
                     <button class="auth-btn" onclick="registerTeacher()">등록하기</button>
@@ -250,21 +239,24 @@
                     </div>
                 </div>
                 <div class="input-group">
-                    <label>연락처</label>
-                    <input type="text" id="reg-student-phone" class="m-input" placeholder="학생 전화번호" style="margin-bottom: 8px;">
-                    <input type="text" id="reg-parent-phone" class="m-input" placeholder="학부모 전화번호">
+                    <label>학생 연락처</label>
+                    <input type="text" id="reg-student-phone" class="m-input" placeholder="010-0000-0000" maxlength="13" oninput="formatPhoneNumber(this)">
+                </div>
+                <div class="input-group">
+                    <label>학부모 연락처</label>
+                    <input type="text" id="reg-parent-phone" class="m-input" placeholder="010-0000-0000" maxlength="13" oninput="formatPhoneNumber(this)">
                 </div>
                 <div class="input-group">
                     <label>기본 수강료 (원)</label>
-                    <input type="number" id="reg-default-fee" class="m-input" placeholder="예: 250000">
+                    <input type="text" id="reg-default-fee" class="m-input" placeholder="250,000" oninput="formatNumberWithComma(this)">
                 </div>
                 <div class="input-group">
                     <label>특강비 (원)</label>
-                    <input type="number" id="reg-special-fee" class="m-input" placeholder="예: 100000">
+                    <input type="text" id="reg-special-fee" class="m-input" placeholder="100,000" oninput="formatNumberWithComma(this)">
                 </div>
                 <div class="input-group">
                     <label>기본 교재비 (원)</label>
-                    <input type="number" id="reg-default-textbook-fee" class="m-input" placeholder="예: 30000">
+                    <input type="text" id="reg-default-textbook-fee" class="m-input" placeholder="30,000" oninput="formatNumberWithComma(this)">
                 </div>
                 <div class="input-group">
                     <label>메모</label>
@@ -570,27 +562,38 @@
         </div>
     </div>
 
-    <!-- 관리자 권한 부여 모달 -->
-    <div id="grant-admin-modal" class="modal" style="display: none;">
-        <div class="modal-card" style="max-width: 400px;">
+    <!-- 선생님 상세 정보 모달 -->
+    <div id="teacher-detail-modal" class="modal" style="display: none;">
+        <div class="modal-card" style="max-width: 500px;">
             <div class="modal-header">
-                <h2>관리자 권한 부여</h2>
-                <button class="btn-close-x" onclick="closeModal('grant-admin-modal')"><i class="fas fa-times"></i></button>
+                <h2>선생님 상세 정보</h2>
+                <button class="btn-close-x" onclick="closeModal('teacher-detail-modal')"><i class="fas fa-times"></i></button>
             </div>
             <div class="modal-body-scrollable custom-scroll" style="padding: 20px;">
                 <div class="input-group">
-                    <label>선생님 이름</label>
-                    <input type="text" id="grant-admin-name" class="m-input" disabled style="background: #f0f0f0;">
+                    <label>이름</label>
+                    <input type="text" id="detail-teacher-name" class="m-input" readonly style="background: #f0f0f0;">
                 </div>
                 <div class="input-group">
-                    <label>관리자 이메일</label>
-                    <input type="email" id="grant-admin-email" class="m-input" placeholder="관리자 이메일">
+                    <label>전화번호</label>
+                    <input type="text" id="detail-teacher-phone" class="m-input" placeholder="010-0000-0000" maxlength="13" oninput="formatPhoneNumber(this)">
                 </div>
                 <div class="input-group">
-                    <label>관리자 비밀번호</label>
-                    <input type="password" id="grant-admin-password" class="m-input" placeholder="관리자 비밀번호">
+                    <label>주소</label>
+                    <div style="display: flex; gap: 8px;">
+                        <input type="text" id="detail-teacher-address" class="m-input" placeholder="주소를 검색하세요" readonly style="flex: 1; cursor: pointer;" onclick="searchAddressForDetail()">
+                        <button type="button" onclick="searchAddressForDetail()" style="padding: 12px 20px; background: #6366f1; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 500;">검색</button>
+                    </div>
                 </div>
-                <button class="btn-save-main" onclick="confirmGrantAdmin()">권한 부여</button>
+                <div class="input-group">
+                    <label>상세주소 (동/호수)</label>
+                    <input type="text" id="detail-teacher-address-detail" class="m-input" placeholder="예: 101동 1202호">
+                </div>
+                <div class="input-group">
+                    <label>메모</label>
+                    <textarea id="detail-teacher-memo" class="m-input" rows="5" placeholder="선생님에 대한 메모를 입력하세요" style="resize: vertical; min-height: 100px;"></textarea>
+                </div>
+                <button class="btn-save-main" onclick="saveTeacherDetail()">저장</button>
             </div>
         </div>
     </div>

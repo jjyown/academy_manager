@@ -69,6 +69,25 @@ window.signIn = async function() {
             return;
         }
 
+        // 사용자의 role 확인
+        console.log('[signIn] 사용자 role 확인 중...');
+        const { data: userData, error: userError } = await supabase
+            .from('users')
+            .select('role')
+            .eq('id', data.user.id)
+            .single();
+
+        if (userError) {
+            console.warn('[signIn] users 테이블 조회 실패:', userError);
+            console.warn('[signIn] 계속 진행합니다');
+        } else if (userData?.role === 'admin') {
+            console.log('[signIn] admin 권한 확인됨');
+        } else if (userData?.role !== 'admin') {
+            await supabase.auth.signOut();
+            alert('관리자 권한이 없습니다');
+            return;
+        }
+
         // 로그인 성공 - 현재 사용자(관리자) ID 저장
         console.log('[signIn] 로그인 성공, current_owner_id 저장');
         localStorage.setItem('current_owner_id', data.user.id);
@@ -104,6 +123,7 @@ window.signOut = async function() {
     localStorage.removeItem('remember_login');
     localStorage.removeItem('current_teacher_id');
     localStorage.removeItem('current_teacher_name');
+    localStorage.removeItem('current_teacher_role');
     localStorage.removeItem('active_page');
     
     // 로그인 페이지로 이동 및 페이지 상태 초기화
@@ -226,6 +246,28 @@ window.initializeAuth = async function() {
         }
         
         console.log('[initializeAuth] 세션 존재 여부:', !!session);
+
+        // remember_me 상태를 체크박스에 반영
+        const rememberFlag = localStorage.getItem('remember_login') === 'true';
+        if (document.getElementById('remember-me')) {
+            document.getElementById('remember-me').checked = rememberFlag;
+        }
+
+        // 세션이 있는데 remember_me가 꺼져 있으면 강제 로그아웃
+        if (session && !rememberFlag) {
+            console.log('[initializeAuth] remember_login 꺼짐 → 세션 정리 및 로그인 페이지 이동');
+            localStorage.removeItem('current_owner_id');
+            localStorage.removeItem('current_user_role');
+            localStorage.removeItem('current_user_name');
+            localStorage.removeItem('remember_login');
+            localStorage.removeItem('current_teacher_id');
+            localStorage.removeItem('current_teacher_name');
+            localStorage.removeItem('current_teacher_role');
+            localStorage.removeItem('active_page');
+            await supabase.auth.signOut();
+            navigateToPage('AUTH');
+            return;
+        }
 
         if (session) {
             // 세션이 있으면 사용자 ID 저장

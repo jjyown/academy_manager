@@ -260,20 +260,30 @@ body {
     min-height: 1440px; /* 24 hours * 60px per hour */
 }
 
+
 .event-block {
     position: absolute;
-    right: 0;
-    padding: 8px;
-    border-radius: 6px;
-    font-size: 12px;
-    font-weight: 600;
+    left: 4px;
+    right: 4px;
+    min-height: 60px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 700;
     color: var(--text);
-    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
-    transition: box-shadow 0.1s ease;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+    transition: box-shadow 0.1s ease, transform 0.1s ease;
     z-index: 1;
     display: flex;
     flex-direction: column;
+    gap: 4px;
     overflow: hidden;
+}
+
+.event-block:hover {
+    box-shadow: 0 3px 10px rgba(0,0,0,0.18);
+    transform: translateY(-1px);
+    z-index: 2;
 }
 
 .event-block:hover {
@@ -451,6 +461,10 @@ body {
 .att-btn.present { color: var(--teal); border-color: #99f6e4; }
 .att-btn.absent { color: var(--red); border-color: #fecaca; }
 .att-btn.etc { color: var(--orange); border-color: #fed7aa; }
+
+.att-btn.present.active { background: #ccfbf1; border-color: var(--teal); border-width: 2px; }
+.att-btn.absent.active { background: #fee2e2; border-color: var(--red); border-width: 2px; }
+.att-btn.etc.active { background: #ffedd5; border-color: var(--orange); border-width: 2px; }
 
 .att-btn:hover {
     transform: translateY(-2px);
@@ -1572,9 +1586,9 @@ button, select, input, textarea { font-family: 'Pretendard', sans-serif; }
 .p-detail-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; min-width: 600px; /* Adjust as needed */ }
 .p-detail-item { background: white; border: 1px solid var(--border); border-radius: 6px; padding: 8px; }
 .p-detail-item .d-title { font-size: 11px; font-weight: 700; color: var(--gray); margin-bottom: 4px; }
-.p-detail-item .d-input-group { display: flex; gap: 4px; margin-bottom: 4px; }
-.p-detail-item .money-input { flex: 1; }
-.p-detail-item .date-input { width: 90px; /* Further narrower */ }
+.p-detail-item .d-input-group { display: flex; gap: 6px; margin-bottom: 4px; }
+.p-detail-item .money-input { flex: 0 0 100px; max-width: 120px; }
+.p-detail-item .date-input { width: 110px; }
 .d-action-row { display: flex; gap: 4px; }
 .d-btn { flex: 1; padding: 4px 6px; border-radius: 4px; font-weight: 700; font-size: 11px; cursor: pointer; border: 1px solid var(--border); background: white; }
 .d-btn.paid { color: var(--teal); border-color: #99f6e4; }

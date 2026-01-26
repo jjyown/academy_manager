@@ -127,6 +127,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     
     // 권한 메뉴 가시성 및 역할 라벨 업데이트
     updatePaymentMenuVisibility();
+    updateStudentMenuVisibility();
     updateUserRoleLabel();
     
     console.log('[DOMContentLoaded] 페이지 로드 완료');
@@ -242,7 +243,7 @@ async function loadTeachers() {
         console.log('[loadTeachers] Supabase에서 선생님 조회 중...');
         const { data, error } = await supabase
             .from('teachers')
-            .select('id, name, phone, pin_hash')
+            .select('*')
             .eq('owner_user_id', ownerId)
             .order('created_at', { ascending: true });
         
@@ -259,7 +260,7 @@ async function loadTeachers() {
         
         teacherList = (data || []).map(t => ({
             ...t,
-            role: t.role || 'teacher'  // role이 없으면 기본값 'teacher' 설정
+            role: t.role || t.teacher_role || 'teacher'  // role/teacher_role이 없으면 기본값 'teacher'
         }));
         renderTeacherDropdown();
         
@@ -294,7 +295,13 @@ function renderTeacherDropdown() {
     teacherList.forEach(t => {
         const opt = document.createElement('option');
         opt.value = t.id;
-        opt.textContent = t.name + (t.phone ? ` (${t.phone})` : '');
+        // 전화번호 뒤 4자리만 표시
+        let displayText = t.name;
+        if (t.phone) {
+            const last4 = t.phone.replace(/[^0-9]/g, '').slice(-4);
+            displayText += last4 ? ` (${last4})` : '';
+        }
+        opt.textContent = displayText;
         dropdown.appendChild(opt);
         console.log('[renderTeacherDropdown] 추가됨:', t.name);
     });
@@ -312,36 +319,9 @@ window.toggleTeacherForm = function() {
     } else {
         selectForm.style.display = 'none';
         registerForm.style.display = 'flex';
-        // 등록 폼을 표시할 때 현재 역할에 따라 필드 초기화
-        handleNewTeacherRoleChange();
     }
 }
 
-// 새 선생님 등록 폼에서 역할 선택 시 인증 필드 표시
-window.handleNewTeacherRoleChange = function() {
-    console.log('[handleNewTeacherRoleChange] 시작');
-    const role = document.getElementById('new-teacher-role').value;
-    const adminEmailSection = document.getElementById('register-admin-email-section');
-    const adminPasswordSection = document.getElementById('register-admin-password-section');
-    
-    console.log('[handleNewTeacherRoleChange] 역할:', role);
-    console.log('[handleNewTeacherRoleChange] adminEmailSection:', adminEmailSection);
-    console.log('[handleNewTeacherRoleChange] adminPasswordSection:', adminPasswordSection);
-    
-    if (role === 'admin') {
-        // 관리자: 이메일 + 비밀번호 입력 필드 표시
-        console.log('[handleNewTeacherRoleChange] 관리자 필드 표시');
-        adminEmailSection.style.display = 'flex';
-        adminPasswordSection.style.display = 'flex';
-        document.getElementById('register-admin-email').value = '';
-        document.getElementById('register-admin-auth-password').value = '';
-    } else {
-        // 일반 선생님/직원: 인증 필드 숨기기
-        console.log('[handleNewTeacherRoleChange] 관리자 필드 숨기기');
-        adminEmailSection.style.display = 'none';
-        adminPasswordSection.style.display = 'none';
-    }
-}
 
 async function setCurrentTeacher(teacher) {
     try {
@@ -365,6 +345,21 @@ async function setCurrentTeacher(teacher) {
             return;
         }
         
+        // Supabase에서 최신 role 정보 조회
+        console.log('[setCurrentTeacher] Supabase에서 최신 role 정보 조회 중...');
+        const { data: latestTeacher, error } = await supabase
+            .from('teachers')
+            .select('role')
+            .eq('id', teacher.id)
+            .single();
+        
+        if (error) {
+            console.error('[setCurrentTeacher] role 조회 실패:', error);
+        } else if (latestTeacher) {
+            teacher.role = latestTeacher.role;
+            console.log('[setCurrentTeacher] 최신 role 반영:', teacher.role);
+        }
+        
         // 전역 변수 설정
         currentTeacher = teacher;
         currentTeacherId = teacher.id;
@@ -372,7 +367,8 @@ async function setCurrentTeacher(teacher) {
         // 선택된 선생님을 로컬 저장해 새로고침 후에도 유지
         localStorage.setItem('current_teacher_id', teacher.id);
         localStorage.setItem('current_teacher_name', teacher.name || '');
-        console.log('[setCurrentTeacher] 로컬 저장 완료, teacherId:', teacher.id);
+        localStorage.setItem('current_teacher_role', teacher.role || 'teacher');
+        console.log('[setCurrentTeacher] 로컬 저장 완료, teacherId:', teacher.id, '역할:', teacher.role);
         
         // 1단계: 관리자별 모든 학생 로드
         console.log('[setCurrentTeacher] 1단계: 학생 데이터 로드 중...');
@@ -475,12 +471,12 @@ window.confirmTeacher = async function() {
         return alert('비밀번호를 입력해주세요');
     }
     
-    const storedPassword = localStorage.getItem('teacher_' + teacher.name + '_password');
-    console.log('[confirmTeacher] 입력된 비밀번호:', password);
-    console.log('[confirmTeacher] 저장된 비밀번호:', storedPassword);
-    console.log('[confirmTeacher] 선생님:', teacher.name);
+    // Supabase에서 해시를 가져와 비교
+    const passwordHash = await hashPin(password);
+    console.log('[confirmTeacher] 입력된 비밀번호 해시:', passwordHash);
+    console.log('[confirmTeacher] 저장된 해시:', teacher.pin_hash);
     
-    if (password !== storedPassword) {
+    if (passwordHash !== teacher.pin_hash) {
         return alert('비밀번호가 일치하지 않습니다.');
     }
     
@@ -581,44 +577,17 @@ window.registerTeacher = async function() {
         console.log('[registerTeacher] 시작');
         const name = document.getElementById('new-teacher-name').value.trim();
         const phone = document.getElementById('new-teacher-phone').value.trim();
-        const role = document.getElementById('new-teacher-role').value;
+        const address = document.getElementById('new-teacher-address').value.trim();
+        const addressDetail = document.getElementById('new-teacher-address-detail').value.trim();
         const teacherPassword = document.getElementById('register-teacher-password').value.trim();
         
-        console.log('[registerTeacher] 입력 값 - name:', name, ', phone:', phone, ', role:', role);
+        console.log('[registerTeacher] 입력 값 - name:', name, ', phone:', phone, ', address:', address);
         
         if (!name) return alert('선생님 이름은 필수입니다.');
         
-        // 모든 선생님은 비밀번호가 필수 (개인 프라이버시)
+        // 모든 선생님은 비밀번호가 필수
         if (!teacherPassword) {
             return alert('비밀번호는 필수입니다.');
-        }
-        
-        // 관리자로 등록하는 경우 이메일과 비밀번호 인증 필요
-        if (role === 'admin') {
-            const adminEmail = document.getElementById('register-admin-email').value.trim();
-            const adminPassword = document.getElementById('register-admin-auth-password').value.trim();
-            
-            if (!adminEmail || !adminPassword) {
-                return alert('관리자로 등록하려면 이메일과 비밀번호를 입력해주세요.');
-            }
-            
-            try {
-                console.log('[registerTeacher] 관리자 인증 시작');
-                const { data, error } = await supabase.auth.signInWithPassword({
-                    email: adminEmail,
-                    password: adminPassword
-                });
-                
-                if (error) {
-                    console.error('[registerTeacher] 관리자 인증 실패:', error);
-                    return alert('관리자 인증 실패: 이메일 또는 비밀번호가 올바르지 않습니다.');
-                }
-                
-                console.log('[registerTeacher] 관리자 인증 성공');
-            } catch (authError) {
-                console.error('[registerTeacher] 인증 에러:', authError);
-                return alert('인증 실패: ' + authError.message);
-            }
         }
         
         // 저장된 현재 관리자 ID 확인
@@ -633,9 +602,22 @@ window.registerTeacher = async function() {
         }
         
         console.log('[registerTeacher] Supabase insert 시작...');
+        
+        // 비밀번호 해시 생성
+        const passwordHash = await hashPin(teacherPassword);
+        
         const { data, error } = await supabase
             .from('teachers')
-            .insert({ owner_user_id: ownerId, name, phone: phone || null, pin_hash: '' })
+            .insert({ 
+                owner_user_id: ownerId, 
+                name, 
+                phone: phone || null, 
+                address: address || null,
+                address_detail: addressDetail || null,
+                pin_hash: passwordHash, 
+                role: 'teacher', 
+                teacher_role: 'teacher' 
+            })
             .select()
             .single();
         
@@ -647,19 +629,14 @@ window.registerTeacher = async function() {
         
         console.log('[registerTeacher] 등록 성공:', data);
         
-        // 로컬스토리지에 역할과 비밀번호 저장
-        localStorage.setItem('teacher_' + name + '_role', role);
-        localStorage.setItem('teacher_' + name + '_password', teacherPassword);
-        
-        console.log('[registerTeacher] 저장됨 - 역할:', role, ', 비밀번호:', teacherPassword);
+        console.log('[registerTeacher] 저장됨 - 비밀번호:', teacherPassword);
         
         // 입력 필드 초기화
         document.getElementById('new-teacher-name').value = '';
         document.getElementById('new-teacher-phone').value = '';
-        document.getElementById('new-teacher-role').value = 'teacher';
+        document.getElementById('new-teacher-address').value = '';
+        document.getElementById('new-teacher-address-detail').value = '';
         document.getElementById('register-teacher-password').value = '';
-        document.getElementById('register-admin-email').value = '';
-        document.getElementById('register-admin-auth-password').value = '';
         
         alert('선생님이 등록되었습니다!');
         
@@ -962,7 +939,9 @@ window.renderDayEvents = function(dateStr) {
         block.style.top = (ev.startMin * pxPerMin) + 'px';
         block.style.height = (ev.duration * pxPerMin) + 'px'; 
         block.style.left = (savedPositions[blockId] !== undefined ? savedPositions[blockId] : ev.colIndex * defaultSlotWidth) + '%';
-        block.style.width = (savedWidths[blockId] !== undefined ? savedWidths[blockId] : defaultSlotWidth * 0.95) + '%';
+        // 기본은 컬럼 폭의 40%만 사용해 처음 배치 시 더 작게 표시
+        const autoWidth = defaultSlotWidth * 0.4;
+        block.style.width = (savedWidths[blockId] !== undefined ? savedWidths[blockId] : autoWidth) + '%';
         
         
         const endTotalMin = (ev.originalStart.split(':')[0]*60 + parseInt(ev.originalStart.split(':')[1])) + ev.duration;
@@ -1078,6 +1057,14 @@ window.openAttendanceModal = function(sid, dateStr) {
     const memoDiv = document.getElementById('att-memo');
     const savedRecord = (s.records && s.records[dateStr]) || "";
     memoDiv.innerHTML = savedRecord;
+    
+    // 현재 출석 상태 표시
+    document.querySelectorAll('.att-btn').forEach(btn => btn.classList.remove('active'));
+    const currentStatus = s.attendance && s.attendance[dateStr];
+    if (currentStatus) {
+        const activeBtn = document.querySelector(`.att-btn.${currentStatus}`);
+        if (activeBtn) activeBtn.classList.add('active');
+    }
     // 선생님별 일정 데이터 사용
     const teacherSchedule = teacherScheduleData[currentTeacherId] || {};
     const studentSchedule = teacherSchedule[sid] || {};
@@ -1131,10 +1118,37 @@ window.setAttendance = function(status) {
         if(!students[sIdx].records) students[sIdx].records = {};
         students[sIdx].attendance[dateStr] = status;
         students[sIdx].records[dateStr] = memo;
-        saveData(); renderCalendar();
-        if(document.getElementById('day-detail-modal').style.display === 'flex') renderDayEvents(dateStr);
+        
+        // 버튼 active 상태 업데이트 (시각적 피드백)
+        document.querySelectorAll('.att-btn').forEach(btn => btn.classList.remove('active'));
+        const activeBtn = document.querySelector(`.att-btn.${status}`);
+        if (activeBtn) activeBtn.classList.add('active');
+        
+        // 데이터 저장
+        saveData();
+        
+        // currentTeacherStudents 배열도 즉시 업데이트
+        const currentStudentIdx = currentTeacherStudents.findIndex(s => String(s.id) === String(sid));
+        if (currentStudentIdx > -1) {
+            if(!currentTeacherStudents[currentStudentIdx].attendance) currentTeacherStudents[currentStudentIdx].attendance = {};
+            if(!currentTeacherStudents[currentStudentIdx].records) currentTeacherStudents[currentStudentIdx].records = {};
+            currentTeacherStudents[currentStudentIdx].attendance[dateStr] = status;
+            currentTeacherStudents[currentStudentIdx].records[dateStr] = memo;
+        }
+        
+        console.log('[setAttendance] 상태 저장됨:', { sid, dateStr, status, student: students[sIdx].name });
+        
+        // 화면 즉시 업데이트
+        renderCalendar();
+        if(document.getElementById('day-detail-modal').style.display === 'flex') {
+            renderDayEvents(dateStr);
+        }
+        
+        // 짧은 딜레이 후 모달 닫기 (사용자가 선택을 확인할 수 있도록)
+        setTimeout(() => {
+            closeModal('attendance-modal');
+        }, 300);
     }
-    closeModal('attendance-modal');
 }
 window.saveOnlyMemo = function() {
     const sid = document.getElementById('att-student-id').value;
@@ -1807,9 +1821,9 @@ window.prepareEdit = function(id) {
     document.getElementById('reg-grade').value = s.grade;
     document.getElementById('reg-student-phone').value = s.studentPhone || "";
     document.getElementById('reg-parent-phone').value = s.parentPhone || "";
-    document.getElementById('reg-default-fee').value = s.defaultFee || "";
-    document.getElementById('reg-special-fee').value = s.specialLectureFee || "";
-    document.getElementById('reg-default-textbook-fee').value = s.defaultTextbookFee || "";
+    document.getElementById('reg-default-fee').value = s.defaultFee ? s.defaultFee.toLocaleString() : "";
+    document.getElementById('reg-special-fee').value = s.specialLectureFee ? s.specialLectureFee.toLocaleString() : "";
+    document.getElementById('reg-default-textbook-fee').value = s.defaultTextbookFee ? s.defaultTextbookFee.toLocaleString() : "";
     document.getElementById('reg-memo').value = s.memo || "";
     document.getElementById('reg-register-date').value = s.registerDate || "";
     document.getElementById('edit-mode-actions').style.display = 'block'; openModal('register-modal');
@@ -1826,7 +1840,7 @@ window.handleStudentSave = function() {
     const memo = document.getElementById('reg-memo').value;
     const regDate = document.getElementById('reg-register-date').value;
     if (!name.trim()) return alert("이름을 입력해주세요.");
-    const newData = { name, grade, studentPhone: sPhone, parentPhone: pPhone, defaultFee: defaultFee ? parseInt(defaultFee) : 0, specialLectureFee: specialLectureFee ? parseInt(specialLectureFee) : 0, defaultTextbookFee: defaultTextbookFee ? parseInt(defaultTextbookFee) : 0, memo, registerDate: regDate };
+    const newData = { name, grade, studentPhone: sPhone, parentPhone: pPhone, defaultFee: defaultFee ? parseInt(defaultFee.replace(/,/g, '')) : 0, specialLectureFee: specialLectureFee ? parseInt(specialLectureFee.replace(/,/g, '')) : 0, defaultTextbookFee: defaultTextbookFee ? parseInt(defaultTextbookFee.replace(/,/g, '')) : 0, memo, registerDate: regDate };
     if (id) { 
         const idx = students.findIndex(s => String(s.id) === String(id)); 
         if (idx > -1) students[idx] = { ...students[idx], ...newData }; 
@@ -1852,8 +1866,7 @@ window.handleStudentSave = function() {
 
 window.openPaymentModal = function() {
     // 관리자 역할 확인
-    const currentTeacherName = localStorage.getItem('current_teacher_name');
-    const role = localStorage.getItem('teacher_' + currentTeacherName + '_role') || 'teacher';
+    const role = localStorage.getItem('current_teacher_role') || 'teacher';
     
     if (role !== 'admin') {
         alert('수납 관리는 관리자만 접근할 수 있습니다.');
@@ -1955,6 +1968,11 @@ function updateSummary(monthKey, allPaymentData) {
     let paidCount = 0;
     let unpaidCount = 0;
 
+    // allPaymentData가 없는 경우 기본값 설정
+    if (!allPaymentData || !Array.isArray(allPaymentData)) {
+        allPaymentData = [];
+    }
+
     if (currentPaymentFilter === 'all') {
         // 전체 필터: 전체 수납금과 최종 상태 기준
         allPaymentData.forEach(item => {
@@ -2044,6 +2062,7 @@ function getDetailHtml(item) {
                 <div class="d-input-group">
                     <input type="text" class="money-input" id="amount-${type}-${student.id}"
                            value="${fee.amount ? fee.amount.toLocaleString() : ''}" placeholder="금액"
+                           oninput="formatNumberWithComma(this)"
                            onchange="updatePayment('${student.id}', '${monthKey}', '${type}', 'amount', this.value)">
                     <input type="date" class="date-input ${fee.date ? 'has-value' : ''}" id="date-${type}-${student.id}"
                            value="${fee.date || ''}"
@@ -2229,13 +2248,14 @@ function updateUserRoleLabel() {
 // 수납관리 메뉴 버튼 가시성 업데이트
 function updatePaymentMenuVisibility() {
     const btn = document.getElementById('payment-menu-btn');
+    const role = localStorage.getItem('current_teacher_role') || 'teacher';
+    
+    console.log('[updatePaymentMenuVisibility] role:', role, '버튼 존재:', !!btn);
+    
     if (btn) {
-        // 현재 선택된 선생님의 역할 확인
-        const currentTeacherName = localStorage.getItem('current_teacher_name');
-        const role = localStorage.getItem('teacher_' + currentTeacherName + '_role') || 'teacher';
-        
-        // 관리자만 수납관리 버튼 표시
+        // admin만 수납관리 버튼 표시
         btn.style.display = role === 'admin' ? 'flex' : 'none';
+        console.log('[updatePaymentMenuVisibility] 버튼 display 설정:', btn.style.display);
     }
 }
 
@@ -2243,12 +2263,23 @@ function updatePaymentMenuVisibility() {
 function updateTeacherMenuVisibility() {
     const btn = document.getElementById('teacher-menu-btn');
     if (btn) {
-        // 현재 선택된 선생님의 역할 확인
-        const currentTeacherName = localStorage.getItem('current_teacher_name');
-        const role = localStorage.getItem('teacher_' + currentTeacherName + '_role') || 'teacher';
+        // localStorage에서 현재 선택된 선생님의 역할 확인
+        const role = localStorage.getItem('current_teacher_role') || 'teacher';
         
-        // 관리자만 선생님 관리 버튼 표시
+        // admin만 선생님 관리 버튼 표시
         btn.style.display = role === 'admin' ? 'flex' : 'none';
+    }
+}
+
+// 학생 관리 메뉴 버튼 가시성 업데이트
+function updateStudentMenuVisibility() {
+    const btn = document.querySelector('button[onclick="toggleStudentList(); closeFeaturePanel();"]');
+    if (btn) {
+        // localStorage에서 현재 선택된 선생님의 역할 확인
+        const role = localStorage.getItem('current_teacher_role') || 'teacher';
+        
+        // teacher, admin 모두 학생 관리 버튼 표시
+        btn.style.display = (role === 'teacher' || role === 'admin') ? 'flex' : 'none';
     }
 }
 
@@ -2258,8 +2289,7 @@ function updateTeacherMenuVisibility() {
 
 window.openTeacherModal = function() {
     // 관리자만 선생님 관리 가능
-    const currentTeacherName = localStorage.getItem('current_teacher_name');
-    const role = localStorage.getItem('teacher_' + currentTeacherName + '_role') || 'teacher';
+    const role = localStorage.getItem('current_teacher_role') || 'teacher';
     
     if (role !== 'admin') {
         alert('관리자만 선생님을 관리할 수 있습니다.');
@@ -2287,14 +2317,14 @@ window.renderTeacherListModal = function() {
     container.innerHTML = teacherList.map(teacher => {
         // 로컬스토리지에서 role 확인
         const storedRole = localStorage.getItem('teacher_' + teacher.name + '_role');
-        const role = storedRole || teacher.role || 'teacher';
+        const role = storedRole || teacher.teacher_role || teacher.role || 'teacher';
         const roleText = role === 'admin' ? '관리자' : role === 'teacher' ? '선생님' : '직원';
         const roleColor = role === 'admin' ? '#ef4444' : role === 'teacher' ? '#3b82f6' : '#8b5cf6';
         
         return `
         <div style="background: #f9fafb; border-radius: 8px; padding: 12px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;">
-            <div style="flex: 1;">
-                <div style="font-weight: 600; font-size: 14px;">${teacher.name}</div>
+            <div style="flex: 1; cursor: pointer;" onclick="openTeacherDetail('${teacher.id}')">
+                <div style="font-weight: 600; font-size: 14px; color: #6366f1;">${teacher.name}</div>
                 <div style="font-size: 12px; color: var(--gray);">${teacher.phone || '연락처 없음'}</div>
             </div>
             <div style="display: flex; gap: 8px; align-items: center;">
@@ -2361,17 +2391,7 @@ window.deleteTeacherFromModal = async function(teacherId) {
 window.handleRoleChange = function(teacherId, newRole) {
     const teacher = teacherList.find(t => t.id === teacherId);
     if (!teacher) return;
-    
-    if (newRole === 'admin') {
-        // 관리자 권한 부여 시 비밀번호 확인 필요
-        document.getElementById('grant-admin-name').value = teacher.name;
-        openModal('grant-admin-modal');
-        // 역할 선택을 다시 원래대로
-        document.getElementById(`role-${teacherId}`).value = teacher.role;
-    } else {
-        // 일반 역할 변경
-        updateTeacherRole(teacherId, newRole);
-    }
+    updateTeacherRole(teacherId, newRole);
 }
 
 // 선생님 역할 업데이트
@@ -2379,9 +2399,30 @@ async function updateTeacherRole(teacherId, newRole) {
     try {
         const teacher = teacherList.find(t => t.id === teacherId);
         if (!teacher) return;
+        const ownerId = localStorage.getItem('current_owner_id');
+        if (!ownerId) {
+            alert('로그인이 필요합니다. 다시 로그인 해주세요.');
+            return;
+        }
         
-        // 로컬스토리지에 저장
+        const { data, error } = await supabase
+            .from('teachers')
+            .update({ role: newRole, teacher_role: newRole })
+            .eq('id', teacherId)
+            .eq('owner_user_id', ownerId)
+            .select('id, role, teacher_role');
+
+        if (error) throw error;
+
+        if (!data || data.length === 0) {
+            console.warn('[updateTeacherRole] 업데이트 결과 없음. owner_user_id 불일치 가능');
+        }
+
+        // DB 업데이트 성공 시 로컬 데이터와 캐시 동기화
+        teacher.role = newRole;
+        teacher.teacher_role = newRole;
         localStorage.setItem('teacher_' + teacher.name + '_role', newRole);
+        await loadTeachers();
         
         console.log('[updateTeacherRole] 역할 변경 완료:', teacherId, newRole);
         alert('역할이 변경되었습니다.');
@@ -2396,56 +2437,142 @@ async function updateTeacherRole(teacherId, newRole) {
     }
 }
 
-// 관리자 권한 부여 확인
-window.confirmGrantAdmin = async function() {
-    const teacherName = document.getElementById('grant-admin-name').value;
-    const email = document.getElementById('grant-admin-email').value.trim();
-    const password = document.getElementById('grant-admin-password').value.trim();
+// 일반 선생님/직원 비밀번호 인증
+
+// 전화번호 자동 포맷팅
+window.formatPhoneNumber = function(input) {
+    // 숫자만 추출
+    let value = input.value.replace(/[^0-9]/g, '');
+    let formatted = '';
     
-    if (!email || !password) {
-        alert('이메일과 비밀번호를 입력해주세요');
+    if (value.length <= 3) {
+        formatted = value;
+    } else if (value.length <= 7) {
+        formatted = value.slice(0, 3) + '-' + value.slice(3);
+    } else if (value.length <= 11) {
+        formatted = value.slice(0, 3) + '-' + value.slice(3, 7) + '-' + value.slice(7);
+    } else {
+        // 11자리 초과 시 자르기
+        value = value.slice(0, 11);
+        formatted = value.slice(0, 3) + '-' + value.slice(3, 7) + '-' + value.slice(7);
+    }
+    
+    input.value = formatted;
+}
+
+// 금액 자동 쉼표 포맷팅
+window.formatNumberWithComma = function(input) {
+    // 숫자만 추출
+    let value = input.value.replace(/[^0-9]/g, '');
+    
+    // 빈 값이면 그대로 반환
+    if (!value) {
+        input.value = '';
         return;
     }
     
+    // 숫자를 쉼표로 포맷팅
+    let formatted = parseInt(value).toLocaleString();
+    input.value = formatted;
+}
+
+// 선생님 상세 정보 모달 열기
+window.openTeacherDetail = function(teacherId) {
+    const teacher = teacherList.find(t => t.id === teacherId);
+    if (!teacher) return alert('선생님 정보를 찾을 수 없습니다.');
+    
+    // 모달에 현재 정보 채우기
+    document.getElementById('detail-teacher-name').value = teacher.name;
+    document.getElementById('detail-teacher-phone').value = teacher.phone || '';
+    document.getElementById('detail-teacher-address').value = teacher.address || '';
+    document.getElementById('detail-teacher-address-detail').value = teacher.address_detail || '';
+    document.getElementById('detail-teacher-memo').value = teacher.memo || '';
+    
+    // teacherId를 모달에 저장 (저장 시 사용)
+    document.getElementById('teacher-detail-modal').dataset.teacherId = teacherId;
+    
+    openModal('teacher-detail-modal');
+}
+
+// 상세 정보 모달용 주소 검색
+window.searchAddressForDetail = function() {
+    new daum.Postcode({
+        oncomplete: function(data) {
+            let addr = '';
+            if (data.userSelectedType === 'R') {
+                addr = data.roadAddress;
+            } else {
+                addr = data.jibunAddress;
+            }
+            document.getElementById('detail-teacher-address').value = addr;
+            document.getElementById('detail-teacher-address-detail').focus();
+        }
+    }).open();
+}
+
+// 선생님 상세 정보 저장
+window.saveTeacherDetail = async function() {
     try {
-        // 관리자 인증 확인
-        const { data, error } = await supabase.auth.signInWithPassword({
-            email: email,
-            password: password
-        });
+        const modal = document.getElementById('teacher-detail-modal');
+        const teacherId = modal.dataset.teacherId;
         
-        if (error) {
-            alert('관리자 인증 실패: 이메일 또는 비밀번호가 올바르지 않습니다');
+        if (!teacherId) return alert('선생님 정보를 찾을 수 없습니다.');
+        
+        const phone = document.getElementById('detail-teacher-phone').value.trim();
+        const address = document.getElementById('detail-teacher-address').value.trim();
+        const addressDetail = document.getElementById('detail-teacher-address-detail').value.trim();
+        const memo = document.getElementById('detail-teacher-memo').value.trim();
+        
+        const ownerId = localStorage.getItem('current_owner_id');
+        if (!ownerId) {
+            alert('로그인이 필요합니다.');
             return;
         }
         
-        // 인증 성공 - role 컬럼이 없으므로 로컬스토리지에 저장
-        localStorage.setItem('teacher_' + teacherName + '_role', 'admin');
+        const { error } = await supabase
+            .from('teachers')
+            .update({
+                phone: phone || null,
+                address: address || null,
+                address_detail: addressDetail || null,
+                memo: memo || null
+            })
+            .eq('id', teacherId)
+            .eq('owner_user_id', ownerId);
         
-        alert(teacherName + ' 선생님에게 관리자 권한이 부여되었습니다.');
+        if (error) throw error;
         
-        // 모달 초기화 및 닫기
-        document.getElementById('grant-admin-name').value = '';
-        document.getElementById('grant-admin-email').value = '';
-        document.getElementById('grant-admin-password').value = '';
-        closeModal('grant-admin-modal');
+        alert('선생님 정보가 저장되었습니다.');
         
-        // 현재 선택된 선생님이 권한을 받은 경우 UI 업데이트
-        const currentTeacherName = localStorage.getItem('current_teacher_name');
-        if (currentTeacherName === teacherName) {
-            updatePaymentMenuVisibility();
-            updateTeacherMenuVisibility();
-            updateUserRoleLabel();
-        }
-        
-        // 목록 새로고침
+        // 선생님 목록 새로고침
         await loadTeachers();
         renderTeacherListModal();
+        closeModal('teacher-detail-modal');
     } catch (error) {
-        console.error('[confirmGrantAdmin] 에러:', error);
-        alert('권한 부여 실패: ' + error.message);
+        console.error('[saveTeacherDetail] 에러:', error);
+        alert('저장 실패: ' + error.message);
     }
 }
 
-// 관리자 선생님 로그인 인증
-// 일반 선생님/직원 비밀번호 인증
+// 주소 검색 기능
+window.searchAddress = function() {
+    new daum.Postcode({
+        oncomplete: function(data) {
+            // 선택한 주소를 입력 필드에 설정
+            let addr = ''; // 최종 주소
+            
+            // 도로명 주소 또는 지번 주소 선택
+            if (data.userSelectedType === 'R') { // 도로명
+                addr = data.roadAddress;
+            } else { // 지번
+                addr = data.jibunAddress;
+            }
+            
+            // 주소 필드에 값 설정
+            document.getElementById('new-teacher-address').value = addr;
+            
+            // 상세주소 입력칸에 포커스
+            document.getElementById('new-teacher-address-detail').focus();
+        }
+    }).open();
+}
