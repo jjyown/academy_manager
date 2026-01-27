@@ -83,7 +83,13 @@ window.addStudent = async function(studentData) {
                 teacher_id: user.id,
                 name: studentData.name,
                 grade: studentData.grade,
-                phone: studentData.phone,
+                phone: studentData.phone || studentData.studentPhone || '',
+                parent_phone: studentData.parentPhone || '',
+                default_fee: studentData.defaultFee || 0,
+                special_lecture_fee: studentData.specialLectureFee || 0,
+                default_textbook_fee: studentData.defaultTextbookFee || 0,
+                memo: studentData.memo || '',
+                register_date: studentData.registerDate || '',
                 status: studentData.status || 'active'
             }])
             .select();

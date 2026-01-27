@@ -214,7 +214,7 @@
             <button class="feature-main-btn" onclick="showStudentQRList(); closeFeaturePanel();">
                 <i class="fas fa-qrcode"></i> 학생 QR코드
             </button>
-            <button class="feature-main-btn" id="qr-attendance-menu-btn" onclick="openQRAttendanceModal(); closeFeaturePanel();">
+            <button class="feature-main-btn" id="qr-attendance-menu-btn" onclick="openQRScanPage(); closeFeaturePanel();">
                 <i class="fas fa-camera"></i> QR코드 스캔
             </button>
             <button class="feature-main-btn" id="teacher-menu-btn" onclick="openTeacherModal(); closeFeaturePanel();">
@@ -273,12 +273,14 @@
                 </div>
             </div>
             <div id="edit-mode-actions">
-                <button class="btn-save-main" onclick="handleStudentSave()">저장하기</button>
-                <button class="btn-sub-action" onclick="showStudentAttendanceHistory(document.getElementById('edit-id').value)" style="background: #10b981; color: white; display: none;" id="view-attendance-btn">
-                    <i class="fas fa-clipboard-check"></i> 출석 기록 보기
+                <button class="btn-sub-action success" onclick="showStudentAttendanceHistory(document.getElementById('edit-id').value)" id="view-attendance-btn" style="display: none;">
+                    <i class="fas fa-clipboard-check"></i> 출석 조회
                 </button>
                 <button class="btn-sub-action danger" onclick="prepareBulkDelete()" id="bulk-delete-btn" style="display: none;">
-                    <i class="fas fa-calendar-minus"></i> 일정 일괄 삭제
+                    <i class="fas fa-trash"></i> 일정 삭제
+                </button>
+                <button class="btn-save-main" onclick="handleStudentSave()">
+                    <i class="fas fa-check"></i> 저장
                 </button>
             </div>
         </div>
@@ -681,9 +683,14 @@
         <div style="width: 100%; max-width: 600px; padding: 20px;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                 <h2 style="color: white; margin: 0;">QR 코드 스캔</h2>
-                <button onclick="closeQRScanPage()" style="background: #ef4444; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 16px;">
-                    <i class="fas fa-times"></i> 닫기
-                </button>
+                <div style="display: flex; gap: 10px;">
+                    <button onclick="switchCamera()" style="background: #3b82f6; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 16px;">
+                        <i class="fas fa-camera-rotate"></i> 카메라 전환
+                    </button>
+                    <button onclick="closeQRScanPage()" style="background: #ef4444; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 16px;">
+                        <i class="fas fa-times"></i> 닫기
+                    </button>
+                </div>
             </div>
             
             <div id="qr-reader" style="width: 100%; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.3);"></div>
@@ -711,15 +718,18 @@
 
     <!-- 학생별 출석 기록 모달 -->
     <div id="student-attendance-history-modal" class="modal" style="display: none;">
-        <div class="modal-card" style="max-width: 700px;">
-            <div class="modal-header">
-                <h2 id="attendance-history-title">출석 기록</h2>
+        <div class="modal-card" style="max-width: 750px;">
+            <div class="modal-header" style="border-bottom: 2px solid #e2e8f0;">
+                <h2 id="attendance-history-title" style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 24px;">📊</span>
+                    <span id="attendance-student-name-title">출석 기록</span>
+                </h2>
                 <button class="btn-close-x" onclick="closeModal('student-attendance-history-modal')"><i class="fas fa-times"></i></button>
             </div>
-            <div class="modal-body-scrollable custom-scroll">
-                <div style="display: flex; gap: 10px; margin-bottom: 20px;">
-                    <input type="month" id="attendance-history-month" class="m-input" onchange="loadStudentAttendanceHistory()" style="flex: 1;">
-                    <button class="btn-save-main" onclick="loadStudentAttendanceHistory()">조회</button>
+            <div class="modal-body-scrollable custom-scroll" style="padding: 25px;">
+                <div style="margin-bottom: 25px;">
+                    <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #475569; font-size: 14px;">조회 기간</label>
+                    <input type="month" id="attendance-history-month" class="m-input" onchange="loadStudentAttendanceHistory()" style="width: 100%; font-size: 15px; padding: 12px 16px; border: 2px solid #e2e8f0; border-radius: 10px; transition: all 0.2s;" onfocus="this.style.borderColor='#4f46e5'" onblur="this.style.borderColor='#e2e8f0'">
                 </div>
                 <div id="attendance-history-content"></div>
             </div>

@@ -14,6 +14,79 @@
     --unpaid-bg: #fff1f2;
 }
 
+/* QR 스캔 토스트 알림 */
+.qr-scan-toast {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%) translateY(-100px);
+    background: white;
+    border-radius: 16px;
+    padding: 16px 24px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+    z-index: 100000;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 280px;
+    max-width: 90vw;
+    opacity: 0;
+    transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.qr-scan-toast.show {
+    transform: translateX(-50%) translateY(0);
+    opacity: 1;
+}
+
+.qr-toast-icon {
+    font-size: 32px;
+    flex-shrink: 0;
+}
+
+.qr-toast-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.qr-toast-name {
+    font-size: 16px;
+    font-weight: 700;
+    color: #1e293b;
+}
+
+.qr-toast-status {
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.qr-toast-time {
+    font-size: 12px;
+    color: #64748b;
+}
+
+@media (max-width: 768px) {
+    .qr-scan-toast {
+        top: 10px;
+        min-width: 260px;
+        padding: 14px 20px;
+    }
+    
+    .qr-toast-icon {
+        font-size: 28px;
+    }
+    
+    .qr-toast-name {
+        font-size: 15px;
+    }
+    
+    .qr-toast-status {
+        font-size: 13px;
+    }
+}
+
 /* 기본 스타일 */
 * {
     margin: 0;
@@ -1471,10 +1544,16 @@ button, select, input, textarea { font-family: 'Pretendard', sans-serif; }
 
 #register-modal .modal-card .btn-save-main {
     width: auto;
-    padding: 10px 24px;
-    font-size: 13px;
+    padding: 12px 28px;
+    font-size: 14px;
     margin: 0;
     display: inline-block;
+    font-weight: 700;
+    background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%);
+    box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
+    border: none;
+    border-radius: 10px;
+    transition: all 0.2s ease;
 }
 
 #register-modal .modal-card #edit-mode-actions .btn-save-main {
@@ -1482,13 +1561,14 @@ button, select, input, textarea { font-family: 'Pretendard', sans-serif; }
 }
 
 #register-modal .modal-card #edit-mode-actions {
-    padding: 16px 32px;
-    background: white;
+    padding: 20px 32px;
+    background: #f8fafc;
     border-top: 1px solid #e2e8f0;
     display: flex !important;
-    gap: 8px;
+    gap: 12px;
     justify-content: flex-end;
     flex-shrink: 0;
+    align-items: center;
 }
 
 .btn-save-main:hover {
@@ -1504,9 +1584,9 @@ button, select, input, textarea { font-family: 'Pretendard', sans-serif; }
 
 /* New styles for btn-sub-action */
 .btn-sub-action {
-    padding: 10px 16px;
+    padding: 12px 24px;
     border-radius: 10px;
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 600;
     cursor: pointer;
     transition: all 0.2s ease;
@@ -1515,25 +1595,36 @@ button, select, input, textarea { font-family: 'Pretendard', sans-serif; }
     justify-content: center;
     gap: 6px;
     border: none;
-    background: rgba(255, 255, 255, 0.95);
-    color: #4f46e5;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.1);
-    flex: 1;
+    background: #f1f5f9;
+    color: #475569;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.06);
+    flex: 0 0 auto;
     min-width: 0;
+    white-space: nowrap;
 }
 .btn-sub-action:hover {
-    background: #ffffff;
+    background: #e2e8f0;
+    color: #334155;
     transform: translateY(-1px);
-    box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+.btn-sub-action.success {
+    color: white;
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    box-shadow: 0 2px 8px rgba(16, 185, 129, 0.25);
+}
+.btn-sub-action.success:hover {
+    background: linear-gradient(135deg, #059669 0%, #047857 100%);
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.35);
 }
 .btn-sub-action.danger {
-    color: var(--red);
-    border-color: #fecaca;
-    background-color: #fef2f2; /* Light red background */
+    color: white;
+    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+    box-shadow: 0 2px 8px rgba(239, 68, 68, 0.25);
 }
 .btn-sub-action.danger:hover {
-    background-color: var(--red);
-    color: white;
+    background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+    box-shadow: 0 4px 12px rgba(239, 68, 68, 0.35);
 }
 
 /* 수납 관리 모달 스타일 */

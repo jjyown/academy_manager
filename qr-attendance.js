@@ -3,6 +3,7 @@
 // QR 스캐너 인스턴스
 let html5QrcodeScanner = null;
 let currentStudentForAttendance = null;
+let currentFacingMode = "environment"; // "environment" (후방) 또는 "user" (전방)
 
 // ========== QR 코드 생성 ==========
 
@@ -44,8 +45,42 @@ window.openQRScanPage = function() {
     document.getElementById('qr-scan-page').style.display = 'flex';
     document.getElementById('qr-scan-result').style.display = 'none';
     
-    // QR 스캐너 시작
-    startQRScanner();
+    // QR 스캐너 즉시 시작
+    setTimeout(() => {
+        startQRScanner();
+    }, 100);
+}
+
+// 카메라 전환 (전방 ↔ 후방)
+window.switchCamera = async function() {
+    console.log('[switchCamera] 카메라 전환 시작');
+    
+    if (!html5QrcodeScanner) {
+        console.warn('[switchCamera] 실행 중인 스캐너가 없습니다');
+        return;
+    }
+    
+    try {
+        // 현재 스캐너 중지
+        await html5QrcodeScanner.stop();
+        console.log('[switchCamera] 스캐너 중지 완료');
+        
+        // 카메라 모드 전환
+        currentFacingMode = currentFacingMode === "environment" ? "user" : "environment";
+        console.log('[switchCamera] 전환된 카메라 모드:', currentFacingMode);
+        
+        // 스캐너 인스턴스 초기화
+        html5QrcodeScanner = null;
+        
+        // 잠시 대기 후 새 카메라로 시작
+        setTimeout(() => {
+            startQRScanner();
+        }, 100);
+        
+    } catch (err) {
+        console.error('[switchCamera] 카메라 전환 실패:', err);
+        alert('카메라 전환에 실패했습니다.');
+    }
 }
 
 // QR 스캔 페이지 닫기
@@ -67,6 +102,9 @@ window.closeQRScanPage = function() {
         html5QrcodeScanner = null;
     }
     
+    // 카메라 모드 초기화 (다음에 열 때 후방 카메라로)
+    currentFacingMode = "environment";
+    
     // 페이지 숨기기
     document.getElementById('qr-scan-page').style.display = 'none';
 }
@@ -86,7 +124,7 @@ function startQRScanner() {
     html5QrcodeScanner = new Html5Qrcode("qr-reader");
     
     html5QrcodeScanner.start(
-        { facingMode: "environment" }, // 후면 카메라 사용
+        { facingMode: currentFacingMode }, // 현재 설정된 카메라 사용
         config,
         onQRScanSuccess,
         onQRScanFailure
@@ -135,13 +173,21 @@ async function processAttendanceFromQR(qrData) {
         
         // 1. QR 데이터 검증
         if (!qrData || typeof qrData !== 'string' || qrData.trim() === '') {
-            throw new Error('QR 코드를 읽을 수 없습니다.');
+            showQRScanToast(null, 'error', '읽을 수 없는 QR 코드');
+            setTimeout(() => {
+                if (html5QrcodeScanner) html5QrcodeScanner.resume();
+            }, 2000);
+            return;
         }
         
-        // 2. STUDENT_ 접두사 확인
+        // 2. STUDENT_ 접두사 확인 (미등록 QR 코드)
         if (!qrData.startsWith('STUDENT_')) {
             console.error('[processAttendanceFromQR] QR 데이터가 STUDENT_로 시작하지 않음');
-            throw new Error('잘못된 QR 코드입니다.\n\n생성된 학생 QR 코드만 사용해주세요.');
+            showQRScanToast(null, 'unregistered', null);
+            setTimeout(() => {
+                if (html5QrcodeScanner) html5QrcodeScanner.resume();
+            }, 2500);
+            return;
         }
         
         // 3. 학생 ID 추출
@@ -174,7 +220,11 @@ async function processAttendanceFromQR(qrData) {
         if (!student) {
             console.error('[processAttendanceFromQR] 학생을 찾을 수 없음. ID:', studentId);
             console.error('[processAttendanceFromQR] 사용 가능한 학생 IDs:', currentTeacherStudents.map(s => s.id));
-            throw new Error('학생을 찾을 수 없습니다.\n\n학생 QR코드를 다시 생성해주세요.');
+            showQRScanToast(null, 'unregistered', null);
+            setTimeout(() => {
+                if (html5QrcodeScanner) html5QrcodeScanner.resume();
+            }, 2500);
+            return;
         }
         
         console.log('[processAttendanceFromQR] 학생 찾음:', student.name);
@@ -183,6 +233,16 @@ async function processAttendanceFromQR(qrData) {
         const today = new Date();
         const dateStr = formatDateToYYYYMMDD(today);
         console.log('[processAttendanceFromQR] 오늘 날짜:', dateStr);
+        
+        // 5-1. 이미 처리된 출석인지 확인
+        if (student.attendance && student.attendance[dateStr]) {
+            const existingStatus = student.attendance[dateStr];
+            showQRScanToast(student, 'already_processed', existingStatus);
+            setTimeout(() => {
+                if (html5QrcodeScanner) html5QrcodeScanner.resume();
+            }, 2500);
+            return;
+        }
         
         // 6. 수업 일정 확인
         const teacherSchedule = teacherScheduleData[currentTeacherId] || {};
@@ -230,22 +290,29 @@ async function processAttendanceFromQR(qrData) {
         renderCalendar();
         console.log('[processAttendanceFromQR] 화면 업데이트 완료');
         
-        // 11. 결과 표시
-        showQRScanResult(student, attendanceStatus, today);
+        // 11. 결과 표시 (토스트 알림)
+        showQRScanToast(student, attendanceStatus, today);
+        
+        // 스캐너 자동 재개
+        setTimeout(() => {
+            if (html5QrcodeScanner) {
+                html5QrcodeScanner.resume();
+            }
+        }, 2500);
         
         console.log('[processAttendanceFromQR] === 출석 처리 완료 ===');
         
     } catch (error) {
         console.error('[processAttendanceFromQR] 에러:', error);
         console.error('[processAttendanceFromQR] 에러 스택:', error.stack);
-        alert('출석 처리 실패:\n\n' + error.message);
+        showQRScanToast(null, 'error', error.message);
         
         // 스캐너 재개
-        if (html5QrcodeScanner) {
-            setTimeout(() => {
+        setTimeout(() => {
+            if (html5QrcodeScanner) {
                 html5QrcodeScanner.resume();
-            }, 1000);
-        }
+            }
+        }, 2000);
     }
 }
 
@@ -277,55 +344,85 @@ function determineAttendanceStatus(currentTime, scheduledTimeStr) {
     }
 }
 
-// QR 스캔 결과 표시
-function showQRScanResult(student, status, scanTime) {
-    const resultDiv = document.getElementById('qr-scan-result');
-    const detailsDiv = document.getElementById('qr-scan-details');
-    
-    let statusText = '';
-    let statusColor = '';
-    let statusIcon = '';
-    
-    if (status === 'present') {
-        statusText = '출석';
-        statusColor = '#10b981';
-        statusIcon = '✅';
-    } else if (status === 'late') {
-        statusText = '지각';
-        statusColor = '#eab308';
-        statusIcon = '🕐';
-    } else if (status === 'absent') {
-        statusText = '결석';
-        statusColor = '#ef4444';
-        statusIcon = '❌';
-    } else {
-        statusText = status;
-        statusColor = '#64748b';
-        statusIcon = '❓';
+// QR 스캔 토스트 알림 표시
+function showQRScanToast(student, status, extra) {
+    // 기존 토스트 제거
+    const existingToast = document.querySelector('.qr-scan-toast');
+    if (existingToast) {
+        existingToast.remove();
     }
     
-    detailsDiv.innerHTML = `
-        <div style="text-align: center; padding: 20px;">
-            <div style="font-size: 64px; margin-bottom: 15px;">${statusIcon}</div>
-            <h2 style="margin: 0 0 10px 0; font-size: 24px;">${student.name} (${student.grade})</h2>
-            <div style="font-size: 32px; font-weight: bold; color: ${statusColor}; margin-bottom: 15px;">
-                ${statusText}
-            </div>
-            <p style="color: #64748b; margin: 5px 0;">
-                스캔 시간: ${scanTime.toLocaleTimeString('ko-KR')}
-            </p>
+    let icon = '';
+    let name = '';
+    let statusText = '';
+    let statusColor = '';
+    let timeText = '';
+    
+    if (status === 'present') {
+        icon = '✅';
+        name = `${student.name} (${student.grade})`;
+        statusText = '출석 완료';
+        statusColor = '#10b981';
+        timeText = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+    } else if (status === 'late') {
+        icon = '⏰';
+        name = `${student.name} (${student.grade})`;
+        statusText = '지각 처리';
+        statusColor = '#f59e0b';
+        timeText = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+    } else if (status === 'already_processed') {
+        icon = '⚠️';
+        name = `${student.name} (${student.grade})`;
+        statusText = '이미 처리된 QR코드';
+        statusColor = '#8b5cf6';
+        const statusMap = {
+            'present': '출석',
+            'late': '지각',
+            'absent': '결석',
+            'makeup': '보강',
+            'etc': '기타'
+        };
+        timeText = `기존 상태: ${statusMap[extra] || extra}`;
+    } else if (status === 'unregistered') {
+        icon = '❌';
+        name = '미등록 QR코드';
+        statusText = '학생을 찾을 수 없습니다';
+        statusColor = '#ef4444';
+        timeText = 'QR코드를 다시 생성해주세요';
+    } else if (status === 'error') {
+        icon = '❌';
+        name = '오류 발생';
+        statusText = extra || '처리 실패';
+        statusColor = '#ef4444';
+        timeText = '';
+    }
+    
+    // 토스트 생성
+    const toast = document.createElement('div');
+    toast.className = 'qr-scan-toast';
+    toast.innerHTML = `
+        <div class="qr-toast-icon">${icon}</div>
+        <div class="qr-toast-content">
+            <div class="qr-toast-name">${name}</div>
+            <div class="qr-toast-status" style="color: ${statusColor};">${statusText}</div>
+            ${timeText ? `<div class="qr-toast-time">${timeText}</div>` : ''}
         </div>
     `;
     
-    resultDiv.style.display = 'block';
+    document.body.appendChild(toast);
     
-    // 3초 후 자동으로 스캐너 재개
+    // 애니메이션 실행
     setTimeout(() => {
-        resultDiv.style.display = 'none';
-        if (html5QrcodeScanner) {
-            html5QrcodeScanner.resume();
-        }
-    }, 3000);
+        toast.classList.add('show');
+    }, 10);
+    
+    // 2.5초 후 제거
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => {
+            toast.remove();
+        }, 400);
+    }, 2500);
 }
 
 // ========== QR 출석 관리 모달 ==========
@@ -602,28 +699,33 @@ window.loadStudentAttendanceHistory = async function() {
             makeup: records.filter(r => r.status === 'makeup' || r.status === 'etc').length
         };
         
+        const totalDays = stats.present + stats.late + stats.absent + stats.makeup;
+        
         let html = `
-            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 20px;">
-                <div style="background: #10b981; color: white; padding: 15px; border-radius: 10px; text-align: center;">
-                    <div style="font-size: 28px; font-weight: bold;">${stats.present}</div>
-                    <div style="font-size: 14px; margin-top: 5px;">출석</div>
+            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 28px;">
+                <div style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 20px 12px; border-radius: 14px; text-align: center; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);">
+                    <div style="font-size: 32px; font-weight: 700; line-height: 1;">${stats.present}</div>
+                    <div style="font-size: 13px; margin-top: 8px; opacity: 0.95; font-weight: 500;">출석</div>
                 </div>
-                <div style="background: #f59e0b; color: white; padding: 15px; border-radius: 10px; text-align: center;">
-                    <div style="font-size: 28px; font-weight: bold;">${stats.late}</div>
-                    <div style="font-size: 14px; margin-top: 5px;">지각</div>
+                <div style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white; padding: 20px 12px; border-radius: 14px; text-align: center; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.2);">
+                    <div style="font-size: 32px; font-weight: 700; line-height: 1;">${stats.late}</div>
+                    <div style="font-size: 13px; margin-top: 8px; opacity: 0.95; font-weight: 500;">지각</div>
                 </div>
-                <div style="background: #ef4444; color: white; padding: 15px; border-radius: 10px; text-align: center;">
-                    <div style="font-size: 28px; font-weight: bold;">${stats.absent}</div>
-                    <div style="font-size: 14px; margin-top: 5px;">결석</div>
+                <div style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; padding: 20px 12px; border-radius: 14px; text-align: center; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2);">
+                    <div style="font-size: 32px; font-weight: 700; line-height: 1;">${stats.absent}</div>
+                    <div style="font-size: 13px; margin-top: 8px; opacity: 0.95; font-weight: 500;">결석</div>
                 </div>
-                <div style="background: #8b5cf6; color: white; padding: 15px; border-radius: 10px; text-align: center;">
-                    <div style="font-size: 28px; font-weight: bold;">${stats.makeup}</div>
-                    <div style="font-size: 14px; margin-top: 5px;">보강</div>
+                <div style="background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); color: white; padding: 20px 12px; border-radius: 14px; text-align: center; box-shadow: 0 4px 12px rgba(139, 92, 246, 0.2);">
+                    <div style="font-size: 32px; font-weight: 700; line-height: 1;">${stats.makeup}</div>
+                    <div style="font-size: 13px; margin-top: 8px; opacity: 0.95; font-weight: 500;">보강</div>
                 </div>
             </div>
             
-            <h3 style="margin: 20px 0 10px 0;">상세 기록</h3>
-            <div style="display: flex; flex-direction: column; gap: 8px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px;">
+                <h3 style="margin: 0; font-size: 18px; color: #1e293b;">상세 기록</h3>
+                <span style="font-size: 14px; color: #64748b; font-weight: 500;">총 ${totalDays}일</span>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 10px;">
         `;
         
         // 날짜 역순으로 정렬
@@ -637,30 +739,44 @@ window.loadStudentAttendanceHistory = async function() {
                 : '-';
             
             let statusBadge = '';
-            let bgColor = '#f8fafc';
+            let statusColor = '';
+            let bgColor = '#ffffff';
+            let borderColor = '#e2e8f0';
             
             if (record.status === 'present') {
-                statusBadge = '✅ 출석';
+                statusBadge = '출석';
+                statusColor = '#10b981';
                 bgColor = '#f0fdf4';
+                borderColor = '#86efac';
             } else if (record.status === 'late') {
-                statusBadge = '⏰ 지각';
-                bgColor = '#fef3c7';
+                statusBadge = '지각';
+                statusColor = '#f59e0b';
+                bgColor = '#fffbeb';
+                borderColor = '#fcd34d';
             } else if (record.status === 'absent') {
-                statusBadge = '❌ 결석';
-                bgColor = '#fee2e2';
+                statusBadge = '결석';
+                statusColor = '#ef4444';
+                bgColor = '#fef2f2';
+                borderColor = '#fca5a5';
             } else if (record.status === 'makeup' || record.status === 'etc') {
-                statusBadge = '⚠️ 보강';
-                bgColor = '#f3e8ff';
+                statusBadge = '보강';
+                statusColor = '#8b5cf6';
+                bgColor = '#faf5ff';
+                borderColor = '#c4b5fd';
             }
             
             html += `
-                <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px 15px; background: ${bgColor}; border-radius: 8px; border: 1px solid #e2e8f0;">
-                    <div>
-                        <div style="font-weight: 600; margin-bottom: 3px;">${dateStr} (${getDayOfWeek(date)})</div>
-                        <div style="font-size: 13px; color: #64748b;">체크인: ${checkInTime}</div>
-                        ${record.qr_scanned ? '<div style="font-size: 12px; color: #10b981; margin-top: 2px;">📱 QR 스캔</div>' : ''}
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 16px 18px; background: ${bgColor}; border-radius: 12px; border-left: 4px solid ${statusColor}; border-top: 1px solid ${borderColor}; border-right: 1px solid ${borderColor}; border-bottom: 1px solid ${borderColor}; transition: all 0.2s;">
+                    <div style="flex: 1;">
+                        <div style="font-weight: 700; font-size: 15px; color: #1e293b; margin-bottom: 6px;">${dateStr} (${getDayOfWeek(date)})</div>
+                        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                            <span style="font-size: 13px; color: #64748b; display: flex; align-items: center; gap: 4px;">
+                                <span style="opacity: 0.7;">⏰</span> ${checkInTime}
+                            </span>
+                            ${record.qr_scanned ? '<span style="font-size: 12px; color: #10b981; background: #dcfce7; padding: 3px 8px; border-radius: 6px; font-weight: 600;">📱 QR</span>' : ''}
+                        </div>
                     </div>
-                    <div style="font-weight: 600; font-size: 15px;">
+                    <div style="background: ${statusColor}; color: white; padding: 8px 16px; border-radius: 8px; font-weight: 700; font-size: 14px; white-space: nowrap;">
                         ${statusBadge}
                     </div>
                 </div>

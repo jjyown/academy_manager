@@ -372,7 +372,7 @@ async function setCurrentTeacher(teacher) {
         
         // 1단계: 관리자별 모든 학생 로드
         console.log('[setCurrentTeacher] 1단계: 학생 데이터 로드 중...');
-        loadAndCleanData();
+        await loadAndCleanData();
         console.log('[setCurrentTeacher] 1단계 완료, 전체 학생:', students.length);
         
         // 2단계: 현재 선생님의 학생 매핑 키 구성
@@ -1520,37 +1520,68 @@ window.saveDaySettings = function() {
     console.log(`공휴일 저장 (${currentTeacherId}): ${dateStr}`);
     closeModal('day-settings-modal'); renderCalendar();
 }
-function loadAndCleanData() {
+async function loadAndCleanData() {
     try {
-        // 현재 로그인 사용자(관리자) 기준으로 학생 데이터 로드
-        // 형식: academy_students__[owner_user_id]
-        const ownerKey = `academy_students__${localStorage.getItem('current_owner_id') || 'no-owner'}`;
-        const raw = localStorage.getItem(ownerKey);
-        let allStudents = [];
+        console.log('[loadAndCleanData] Supabase에서 학생 데이터 로드 중...');
         
-        if (raw) {
-            try {
-                allStudents = JSON.parse(raw) || [];
-            } catch (e) {
-                console.error('학생 데이터 파싱 실패:', e);
-                allStudents = [];
+        // Supabase에서 모든 학생 조회
+        const supabaseStudents = await getAllStudents();
+        console.log('[loadAndCleanData] Supabase 학생 수:', supabaseStudents.length);
+        
+        if (supabaseStudents && supabaseStudents.length > 0) {
+            // Supabase 데이터를 앱 형식으로 변환
+            students = supabaseStudents.map(s => ({
+                id: s.id,
+                name: s.name,
+                grade: s.grade,
+                studentPhone: s.phone || '',
+                parentPhone: s.parent_phone || '',
+                defaultFee: s.default_fee || 0,
+                specialLectureFee: s.special_lecture_fee || 0,
+                defaultTextbookFee: s.default_textbook_fee || 0,
+                memo: s.memo || '',
+                registerDate: s.register_date || '',
+                status: s.status || 'active',
+                events: [],
+                attendance: {},
+                records: {},
+                payments: {}
+            }));
+            
+            // 로컬 스토리지에도 백업 저장
+            const ownerKey = `academy_students__${localStorage.getItem('current_owner_id') || 'no-owner'}`;
+            localStorage.setItem(ownerKey, JSON.stringify(students));
+            
+            console.log(`[loadAndCleanData] Supabase에서 학생 데이터 로드 완료: ${students.length}명`);
+        } else {
+            // Supabase에 데이터가 없으면 로컬 스토리지에서 로드 (마이그레이션용)
+            const ownerKey = `academy_students__${localStorage.getItem('current_owner_id') || 'no-owner'}`;
+            const raw = localStorage.getItem(ownerKey);
+            let allStudents = [];
+            
+            if (raw) {
+                try {
+                    allStudents = JSON.parse(raw) || [];
+                } catch (e) {
+                    console.error('학생 데이터 파싱 실패:', e);
+                    allStudents = [];
+                }
             }
+            
+            if (!Array.isArray(allStudents)) allStudents = [];
+            students = allStudents.map(s => {
+                if (!s.status) s.status = s.archived ? 'archived' : 'active';
+                if (!s.payments) s.payments = {};
+                if (!s.defaultFee) s.defaultFee = 0;
+                if (!s.specialLectureFee) s.specialLectureFee = 0;
+                if (!s.defaultTextbookFee) s.defaultTextbookFee = 0;
+                return s;
+            });
+            console.log(`[loadAndCleanData] 로컬 스토리지에서 학생 데이터 로드: ${students.length}명`);
         }
-        
-        if (!Array.isArray(allStudents)) allStudents = [];
-        students = allStudents.map(s => {
-            if (!s.status) s.status = s.archived ? 'archived' : 'active';
-            if (!s.payments) s.payments = {};
-            if (!s.defaultFee) s.defaultFee = 0;
-            if (!s.specialLectureFee) s.specialLectureFee = 0;
-            if (!s.defaultTextbookFee) s.defaultTextbookFee = 0;
-            // scheduleDetails는 더 이상 여기서 사용하지 않음
-            return s;
-        });
-        console.log(`로드된 학생 수 (${localStorage.getItem('current_owner_id')}): ${students.length}명`);
-    } catch (e) { 
-        console.error('학생 데이터 로드 실패:', e);
-        students = []; 
+    } catch (error) {
+        console.error('[loadAndCleanData] 학생 데이터 로드 실패:', error);
+        students = [];
     }
     try {
         // 공휴일: 선생님별로 분리 (반드시 currentTeacherId 사용)
@@ -1728,24 +1759,53 @@ window.renderDrawerList = function() {
     }).join('');
     document.getElementById('student-list-count').textContent = `${filtered.length}명`;
 }
-window.updateStudentStatus = function(id, newStatus) {
+window.updateStudentStatus = async function(id, newStatus) {
     const idx = students.findIndex(s => String(s.id) === String(id));
     if (idx === -1) return;
+    
     if (newStatus === 'delete') {
         if (confirm(`정말로 ${students[idx].name} 학생의 모든 데이터를 삭제하시겠습니까?\n(이 작업은 되돌릴 수 없습니다.)`)) {
-            unassignStudentFromTeacher(id);  // 모든 선생님에게서 제거
-            students.splice(idx, 1); 
-            saveData(); 
+            try {
+                // Supabase에서 삭제
+                const deleted = await deleteStudent(id);
+                if (deleted) {
+                    // 메모리와 로컬 스토리지에서 삭제
+                    unassignStudentFromTeacher(id);  // 모든 선생님에게서 제거
+                    students.splice(idx, 1); 
+                    saveData(); 
+                    renderDrawerList(); 
+                    renderCalendar(); 
+                    alert("삭제되었습니다.");
+                } else {
+                    throw new Error('삭제 실패');
+                }
+            } catch (error) {
+                console.error('학생 삭제 실패:', error);
+                alert('학생 삭제에 실패했습니다: ' + error.message);
+                renderDrawerList();
+            }
+        } else { 
             renderDrawerList(); 
-            renderCalendar(); 
-            alert("삭제되었습니다.");
-        } else { renderDrawerList(); }
+        }
         return;
     }
-    students[idx].status = newStatus; 
-    saveData(); 
-    renderDrawerList(); 
-    renderCalendar();
+    
+    try {
+        // 상태 변경을 Supabase에 반영
+        const updated = await updateStudent(id, { status: newStatus });
+        if (updated) {
+            students[idx].status = newStatus; 
+            saveData(); 
+            renderDrawerList(); 
+            renderCalendar();
+        } else {
+            throw new Error('상태 업데이트 실패');
+        }
+    } catch (error) {
+        console.error('학생 상태 업데이트 실패:', error);
+        alert('학생 상태 변경에 실패했습니다: ' + error.message);
+        renderDrawerList();
+    }
 }
 window.openModal = function(id) {
     document.getElementById(id).style.display = 'flex';
@@ -1837,7 +1897,7 @@ window.prepareEdit = function(id) {
     document.getElementById('view-attendance-btn').style.display = 'inline-block';
     openModal('register-modal');
 }
-window.handleStudentSave = function() {
+window.handleStudentSave = async function() {
     const id = document.getElementById('edit-id').value;
     const name = document.getElementById('reg-name').value;
     const grade = document.getElementById('reg-grade').value;
@@ -1849,24 +1909,81 @@ window.handleStudentSave = function() {
     const memo = document.getElementById('reg-memo').value;
     const regDate = document.getElementById('reg-register-date').value;
     if (!name.trim()) return alert("이름을 입력해주세요.");
-    const newData = { name, grade, studentPhone: sPhone, parentPhone: pPhone, defaultFee: defaultFee ? parseInt(defaultFee.replace(/,/g, '')) : 0, specialLectureFee: specialLectureFee ? parseInt(specialLectureFee.replace(/,/g, '')) : 0, defaultTextbookFee: defaultTextbookFee ? parseInt(defaultTextbookFee.replace(/,/g, '')) : 0, memo, registerDate: regDate };
-    if (id) { 
-        const idx = students.findIndex(s => String(s.id) === String(id)); 
-        if (idx > -1) students[idx] = { ...students[idx], ...newData }; 
-    } else { 
-        const newStudentId = Date.now().toString() + Math.random().toString(36).substr(2, 5);
-        students.push({ id: newStudentId, ...newData, status: 'active', events: [], attendance: {}, records: {}, payments: {} }); 
-        // 현재 선생님에게 학생 할당
-        assignStudentToTeacher(newStudentId);
-        // 선생님별 일정 데이터 초기화
-        if(!teacherScheduleData[currentTeacherId]) teacherScheduleData[currentTeacherId] = {};
-        teacherScheduleData[currentTeacherId][newStudentId] = {};
+    
+    const newData = { 
+        name, 
+        grade, 
+        phone: sPhone,  // Supabase 테이블 컬럼명에 맞춤
+        studentPhone: sPhone, 
+        parentPhone: pPhone, 
+        defaultFee: defaultFee ? parseInt(defaultFee.replace(/,/g, '')) : 0, 
+        specialLectureFee: specialLectureFee ? parseInt(specialLectureFee.replace(/,/g, '')) : 0, 
+        defaultTextbookFee: defaultTextbookFee ? parseInt(defaultTextbookFee.replace(/,/g, '')) : 0, 
+        memo, 
+        registerDate: regDate 
+    };
+    
+    try {
+        if (id) {
+            // 학생 수정
+            console.log('학생 수정 중:', id, newData);
+            const updatedStudent = await updateStudent(id, newData);
+            
+            if (updatedStudent) {
+                // 메모리 업데이트
+                const idx = students.findIndex(s => String(s.id) === String(id));
+                if (idx > -1) {
+                    students[idx] = { ...students[idx], ...newData };
+                }
+                console.log('학생 수정 완료:', updatedStudent);
+            } else {
+                throw new Error('학생 수정 실패');
+            }
+        } else {
+            // 학생 추가
+            console.log('학생 추가 중:', newData);
+            const addedStudent = await addStudent(newData);
+            
+            if (addedStudent) {
+                // Supabase에서 생성된 ID 사용
+                const newStudentId = addedStudent.id;
+                
+                // 메모리에 추가
+                students.push({ 
+                    id: newStudentId, 
+                    ...newData, 
+                    status: addedStudent.status || 'active', 
+                    events: [], 
+                    attendance: {}, 
+                    records: {}, 
+                    payments: {} 
+                });
+                
+                // 현재 선생님에게 학생 할당
+                assignStudentToTeacher(newStudentId);
+                
+                // 선생님별 일정 데이터 초기화
+                if(!teacherScheduleData[currentTeacherId]) teacherScheduleData[currentTeacherId] = {};
+                teacherScheduleData[currentTeacherId][newStudentId] = {};
+                
+                console.log('학생 추가 완료:', addedStudent);
+            } else {
+                throw new Error('학생 추가 실패');
+            }
+        }
+        
+        // 로컬 저장소 동기화
+        saveData();
+        saveTeacherScheduleData();
+        
+        closeModal('register-modal');
+        renderDrawerList();
+        renderCalendar();
+        
+    } catch (error) {
+        console.error('학생 저장 중 오류:', error);
+        alert('학생 정보 저장에 실패했습니다: ' + error.message);
     }
-    saveData();
-    saveTeacherScheduleData();
-    closeModal('register-modal');
-    renderDrawerList();
-    renderCalendar();
 }
 
 // ============================================
@@ -2338,9 +2455,9 @@ window.renderTeacherListModal = function() {
             </div>
             <div style="display: flex; gap: 8px; align-items: center;">
                 <select id="role-${teacher.id}" class="m-input" style="width: 100px; padding: 6px 8px; font-size: 12px;" onchange="handleRoleChange('${teacher.id}', this.value)">
+                    <option value="admin" ${role === 'admin' ? 'selected' : ''}>관리자</option>
                     <option value="teacher" ${role === 'teacher' ? 'selected' : ''}>선생님</option>
                     <option value="staff" ${role === 'staff' ? 'selected' : ''}>직원</option>
-                    <option value="admin" ${role === 'admin' ? 'selected' : ''}>관리자</option>
                 </select>
                 <button onclick="deleteTeacherFromModal('${teacher.id}')" style="padding: 6px 12px; background: var(--red); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">삭제</button>
             </div>
