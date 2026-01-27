@@ -253,22 +253,6 @@ window.initializeAuth = async function() {
             document.getElementById('remember-me').checked = rememberFlag;
         }
 
-        // 세션이 있는데 remember_me가 꺼져 있으면 강제 로그아웃
-        if (session && !rememberFlag) {
-            console.log('[initializeAuth] remember_login 꺼짐 → 세션 정리 및 로그인 페이지 이동');
-            localStorage.removeItem('current_owner_id');
-            localStorage.removeItem('current_user_role');
-            localStorage.removeItem('current_user_name');
-            localStorage.removeItem('remember_login');
-            localStorage.removeItem('current_teacher_id');
-            localStorage.removeItem('current_teacher_name');
-            localStorage.removeItem('current_teacher_role');
-            localStorage.removeItem('active_page');
-            await supabase.auth.signOut();
-            navigateToPage('AUTH');
-            return;
-        }
-
         if (session) {
             // 세션이 있으면 사용자 ID 저장
             console.log('[initializeAuth] 세션 있음, current_owner_id 저장:', session.user.id);
