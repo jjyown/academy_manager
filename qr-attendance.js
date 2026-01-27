@@ -1,4 +1,5 @@
 // QR 출석 관리 시스템
+console.log('[qr-attendance.js] 파일 로드 시작');
 
 // QR 스캐너 인스턴스
 let html5QrcodeScanner = null;
@@ -13,7 +14,7 @@ window.generateQRCodeData = function(studentId) {
     return `STUDENT_${studentId}_${Date.now()}`;
 }
 
-// QR 코드 이미지 생성
+// QR 코드 이미지 생성 (흰색 배경 명시)
 window.generateQRCode = function(containerId, qrData, size = 200) {
     const container = document.getElementById(containerId);
     if (!container) return;
@@ -21,14 +22,16 @@ window.generateQRCode = function(containerId, qrData, size = 200) {
     // 기존 QR 코드 제거
     container.innerHTML = '';
     
-    // QRCode.js 라이브러리 사용
+    // QRCode.js 라이브러리 사용 (흰색 배경 명시)
     new QRCode(container, {
         text: qrData,
         width: size,
         height: size,
         colorDark: "#000000",
         colorLight: "#ffffff",
-        correctLevel: QRCode.CorrectLevel.H
+        correctLevel: QRCode.CorrectLevel.H,
+        quietZone: 10,
+        quietZoneColor: "#ffffff"
     });
 }
 
@@ -38,17 +41,35 @@ window.generateQRCode = function(containerId, qrData, size = 200) {
 window.openQRScanPage = function() {
     console.log('[openQRScanPage] QR 스캔 페이지 열기');
     
-    // 모달 닫기
-    closeModal('qr-attendance-modal');
-    
-    // QR 스캔 페이지 표시
-    document.getElementById('qr-scan-page').style.display = 'flex';
-    document.getElementById('qr-scan-result').style.display = 'none';
-    
-    // QR 스캐너 즉시 시작
-    setTimeout(() => {
-        startQRScanner();
-    }, 100);
+    try {
+        // 모달 닫기 (존재하는 경우)
+        if (typeof closeModal === 'function') {
+            closeModal('qr-attendance-modal');
+        }
+        
+        // QR 스캔 페이지 표시
+        const scanPage = document.getElementById('qr-scan-page');
+        if (scanPage) {
+            scanPage.style.display = 'flex';
+        } else {
+            console.error('[openQRScanPage] qr-scan-page 요소를 찾을 수 없습니다');
+            alert('QR 스캔 페이지를 찾을 수 없습니다.');
+            return;
+        }
+        
+        const resultDiv = document.getElementById('qr-scan-result');
+        if (resultDiv) {
+            resultDiv.style.display = 'none';
+        }
+        
+        // QR 스캐너 즉시 시작
+        setTimeout(() => {
+            startQRScanner();
+        }, 100);
+    } catch (error) {
+        console.error('[openQRScanPage] 오류:', error);
+        alert('QR 스캔 페이지를 열 수 없습니다.');
+    }
 }
 
 // 카메라 전환 (전방 ↔ 후방)
@@ -168,8 +189,6 @@ async function processAttendanceFromQR(qrData) {
     try {
         console.log('[processAttendanceFromQR] === 출석 처리 시작 ===');
         console.log('[processAttendanceFromQR] 스캔된 QR 데이터:', qrData);
-        console.log('[processAttendanceFromQR] QR 데이터 타입:', typeof qrData);
-        console.log('[processAttendanceFromQR] QR 데이터 길이:', qrData ? qrData.length : 0);
         
         // 1. QR 데이터 검증
         if (!qrData || typeof qrData !== 'string' || qrData.trim() === '') {
@@ -192,34 +211,29 @@ async function processAttendanceFromQR(qrData) {
         
         // 3. 학생 ID 추출
         const dataWithoutPrefix = qrData.substring(8); // "STUDENT_" 제거
-        console.log('[processAttendanceFromQR] Prefix 제거 후:', dataWithoutPrefix);
-        
         const firstUnderscoreIndex = dataWithoutPrefix.indexOf('_');
         
         if (firstUnderscoreIndex === -1) {
             console.error('[processAttendanceFromQR] 언더스코어를 찾을 수 없음');
-            throw new Error('QR 코드 형식이 올바르지 않습니다.');
+            showQRScanToast(null, 'error', 'QR 코드 형식 오류');
+            setTimeout(() => {
+                if (html5QrcodeScanner) html5QrcodeScanner.resume();
+            }, 2000);
+            return;
         }
         
         const studentId = dataWithoutPrefix.substring(0, firstUnderscoreIndex);
         console.log('[processAttendanceFromQR] 추출된 학생 ID:', studentId);
-        console.log('[processAttendanceFromQR] 현재 선생님 ID:', currentTeacherId);
-        console.log('[processAttendanceFromQR] currentTeacherStudents 수:', currentTeacherStudents.length);
         
         // 4. 학생 정보 조회
         let student = currentTeacherStudents.find(s => String(s.id) === String(studentId));
         
-        console.log('[processAttendanceFromQR] currentTeacherStudents에서 찾기:', !!student);
-        
         if (!student) {
-            // 전체 students 배열에서 찾기
             student = students.find(s => String(s.id) === String(studentId));
-            console.log('[processAttendanceFromQR] students 배열에서 찾기:', !!student);
         }
         
         if (!student) {
-            console.error('[processAttendanceFromQR] 학생을 찾을 수 없음. ID:', studentId);
-            console.error('[processAttendanceFromQR] 사용 가능한 학생 IDs:', currentTeacherStudents.map(s => s.id));
+            console.error('[processAttendanceFromQR] 학생을 찾을 수 없음');
             showQRScanToast(null, 'unregistered', null);
             setTimeout(() => {
                 if (html5QrcodeScanner) html5QrcodeScanner.resume();
@@ -232,11 +246,26 @@ async function processAttendanceFromQR(qrData) {
         // 5. 오늘 날짜
         const today = new Date();
         const dateStr = formatDateToYYYYMMDD(today);
-        console.log('[processAttendanceFromQR] 오늘 날짜:', dateStr);
         
-        // 5-1. 이미 처리된 출석인지 확인
+        // 5-1. 데이터베이스에서 중복 출석 체크
+        try {
+            const existingRecord = await getAttendanceRecordByStudentAndDate(studentId, dateStr);
+            if (existingRecord) {
+                console.log('[processAttendanceFromQR] 이미 처리된 출석 기록 발견:', existingRecord);
+                showQRScanToast(student, 'already_processed', existingRecord.status);
+                setTimeout(() => {
+                    if (html5QrcodeScanner) html5QrcodeScanner.resume();
+                }, 2500);
+                return;
+            }
+        } catch (dbError) {
+            console.error('[processAttendanceFromQR] 데이터베이스 조회 실패:', dbError);
+        }
+        
+        // 5-2. 로컬 메모리에서도 확인 (백업)
         if (student.attendance && student.attendance[dateStr]) {
             const existingStatus = student.attendance[dateStr];
+            console.log('[processAttendanceFromQR] 로컬 메모리에 이미 기록됨:', existingStatus);
             showQRScanToast(student, 'already_processed', existingStatus);
             setTimeout(() => {
                 if (html5QrcodeScanner) html5QrcodeScanner.resume();
@@ -249,13 +278,16 @@ async function processAttendanceFromQR(qrData) {
         const studentSchedule = teacherSchedule[studentId] || {};
         const classInfo = studentSchedule[dateStr];
         
-        console.log('[processAttendanceFromQR] 수업 일정:', classInfo);
-        
         if (!classInfo) {
-            throw new Error(`${student.name} 학생의 오늘(${dateStr}) 수업 일정이 없습니다.\n\n시간표에서 일정을 먼저 등록해주세요.`);
+            console.warn('[processAttendanceFromQR] 수업 일정 없음');
+            showQRScanToast(student, 'no_schedule', dateStr);
+            setTimeout(() => {
+                if (html5QrcodeScanner) html5QrcodeScanner.resume();
+            }, 3000);
+            return;
         }
         
-        // 7. 출석 상태 판단
+        // 7. 출석 상태 판단 (60분 기준)
         const attendanceStatus = determineAttendanceStatus(today, classInfo.start);
         console.log('[processAttendanceFromQR] 출석 상태:', attendanceStatus);
         
@@ -274,7 +306,6 @@ async function processAttendanceFromQR(qrData) {
             console.log('[processAttendanceFromQR] 데이터베이스 저장 완료');
         } catch (dbError) {
             console.error('[processAttendanceFromQR] 데이터베이스 저장 실패:', dbError);
-            // 데이터베이스 저장 실패해도 로컬 저장은 계속 진행
         }
         
         // 9. 로컬 데이터에 반영
@@ -288,7 +319,6 @@ async function processAttendanceFromQR(qrData) {
         
         // 10. 화면 업데이트
         renderCalendar();
-        console.log('[processAttendanceFromQR] 화면 업데이트 완료');
         
         // 11. 결과 표시 (토스트 알림)
         showQRScanToast(student, attendanceStatus, today);
@@ -304,10 +334,8 @@ async function processAttendanceFromQR(qrData) {
         
     } catch (error) {
         console.error('[processAttendanceFromQR] 에러:', error);
-        console.error('[processAttendanceFromQR] 에러 스택:', error.stack);
         showQRScanToast(null, 'error', error.message);
         
-        // 스캐너 재개
         setTimeout(() => {
             if (html5QrcodeScanner) {
                 html5QrcodeScanner.resume();
@@ -316,9 +344,8 @@ async function processAttendanceFromQR(qrData) {
     }
 }
 
-// 출석 상태 판단 (현재 시간과 예정 시간 비교)
+// 출석 상태 판단 (60분 기준)
 function determineAttendanceStatus(currentTime, scheduledTimeStr) {
-    // scheduledTimeStr: "HH:MM" 형식
     const [scheduledHour, scheduledMinute] = scheduledTimeStr.split(':').map(Number);
     
     const scheduledTime = new Date(currentTime);
@@ -327,18 +354,16 @@ function determineAttendanceStatus(currentTime, scheduledTimeStr) {
     const diffMinutes = (currentTime - scheduledTime) / (1000 * 60);
     
     console.log('[determineAttendanceStatus] 시간 차이(분):', diffMinutes);
-    console.log('[determineAttendanceStatus] 예정 시간:', scheduledTimeStr);
-    console.log('[determineAttendanceStatus] 현재 시간:', currentTime.toLocaleTimeString('ko-KR'));
     
-    // 수업 시작 전에 오면: 출석
+    // 수업 시작 시간 또는 그 전에 오면: 출석
     if (diffMinutes <= 0) {
         return 'present';
     } 
-    // 수업 시작 후 30분 이내: 지각
-    else if (diffMinutes > 0 && diffMinutes <= 30) {
+    // 수업 시작 후 1분 ~ 60분 이내: 지각
+    else if (diffMinutes > 0 && diffMinutes <= 60) {
         return 'late';
     } 
-    // 수업 시작 후 30분 이후: 결석
+    // 수업 시작 후 60분 초과: 결석
     else {
         return 'absent';
     }
@@ -346,7 +371,6 @@ function determineAttendanceStatus(currentTime, scheduledTimeStr) {
 
 // QR 스캔 토스트 알림 표시
 function showQRScanToast(student, status, extra) {
-    // 기존 토스트 제거
     const existingToast = document.querySelector('.qr-scan-toast');
     if (existingToast) {
         existingToast.remove();
@@ -383,6 +407,12 @@ function showQRScanToast(student, status, extra) {
             'etc': '기타'
         };
         timeText = `기존 상태: ${statusMap[extra] || extra}`;
+    } else if (status === 'no_schedule') {
+        icon = '📅';
+        name = `${student.name} (${student.grade})`;
+        statusText = '일정 미등록';
+        statusColor = '#f59e0b';
+        timeText = '시간표에서 일정을 먼저 등록해주세요';
     } else if (status === 'unregistered') {
         icon = '❌';
         name = '미등록 QR코드';
@@ -395,9 +425,14 @@ function showQRScanToast(student, status, extra) {
         statusText = extra || '처리 실패';
         statusColor = '#ef4444';
         timeText = '';
+    } else if (status === 'regenerate_success') {
+        icon = '🔄';
+        name = 'QR코드 재발급';
+        statusText = '새로운 QR코드 생성 완료';
+        statusColor = '#4f46e5';
+        timeText = extra ? `${extra}` : '';
     }
     
-    // 토스트 생성
     const toast = document.createElement('div');
     toast.className = 'qr-scan-toast';
     toast.innerHTML = `
@@ -411,12 +446,10 @@ function showQRScanToast(student, status, extra) {
     
     document.body.appendChild(toast);
     
-    // 애니메이션 실행
     setTimeout(() => {
         toast.classList.add('show');
     }, 10);
     
-    // 2.5초 후 제거
     setTimeout(() => {
         toast.classList.remove('show');
         setTimeout(() => {
@@ -425,112 +458,32 @@ function showQRScanToast(student, status, extra) {
     }, 2500);
 }
 
-// ========== QR 출석 관리 모달 ==========
-
-// QR 출석 관리 모달 열기
-window.openQRAttendanceModal = async function() {
-    console.log('[openQRAttendanceModal] QR 출석 관리 모달 열기');
-    
-    // 관리자 권한 확인
-    const userRole = localStorage.getItem('current_user_role');
-    if (userRole !== 'admin') {
-        alert('QR 출석 관리는 관리자만 접근할 수 있습니다.');
-        return;
-    }
-    
-    document.getElementById('qr-attendance-modal').style.display = 'flex';
-    
-    // 오늘의 출석 현황 로드
-    await loadTodayAttendance();
-}
-
-// 오늘의 출석 현황 로드
-async function loadTodayAttendance() {
-    try {
-        const today = formatDateToYYYYMMDD(new Date());
-        const listDiv = document.getElementById('today-attendance-list');
-        
-        listDiv.innerHTML = '<p style="color: #64748b;">로딩 중...</p>';
-        
-        // 오늘 수업이 있는 학생들 조회
-        const todayStudents = currentTeacherStudents.filter(s => 
-            s.events && s.events.includes(today)
-        );
-        
-        if (todayStudents.length === 0) {
-            listDiv.innerHTML = '<p style="color: #64748b;">오늘 수업이 예정된 학생이 없습니다.</p>';
-            return;
-        }
-        
-        // 출석 기록 조회
-        const attendanceRecords = await getAttendanceRecordsByDate(today);
-        
-        let html = '<div style="display: flex; flex-direction: column; gap: 10px;">';
-        
-        for (const student of todayStudents) {
-            const record = attendanceRecords.find(r => String(r.student_id) === String(student.id));
-            const status = student.attendance && student.attendance[today];
-            
-            let statusBadge = '';
-            if (status === 'present') {
-                statusBadge = '<span style="background: #10b981; color: white; padding: 4px 12px; border-radius: 6px; font-size: 12px;">✅ 출석</span>';
-            } else if (status === 'late') {
-                statusBadge = '<span style="background: #f59e0b; color: white; padding: 4px 12px; border-radius: 6px; font-size: 12px;">⏰ 지각</span>';
-            } else if (status === 'absent') {
-                statusBadge = '<span style="background: #ef4444; color: white; padding: 4px 12px; border-radius: 6px; font-size: 12px;">❌ 결석</span>';
-            } else if (status === 'makeup' || status === 'etc') {
-                statusBadge = '<span style="background: #8b5cf6; color: white; padding: 4px 12px; border-radius: 6px; font-size: 12px;">⚠️ 보강</span>';
-            } else {
-                statusBadge = '<span style="background: #64748b; color: white; padding: 4px 12px; border-radius: 6px; font-size: 12px;">-</span>';
-            }
-            
-            const checkInTime = record && record.check_in_time 
-                ? new Date(record.check_in_time).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
-                : '-';
-            
-            html += `
-                <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px; background: #f8fafc; border-radius: 10px; border: 1px solid #e2e8f0;">
-                    <div>
-                        <div style="font-weight: 600; font-size: 16px; margin-bottom: 5px;">
-                            ${student.name} <span style="color: #64748b; font-size: 14px;">(${student.grade})</span>
-                        </div>
-                        <div style="font-size: 13px; color: #64748b;">
-                            체크인: ${checkInTime}
-                        </div>
-                    </div>
-                    <div style="display: flex; align-items: center; gap: 10px;">
-                        ${statusBadge}
-                        <button onclick="showStudentAttendanceHistory('${student.id}')" style="background: #4f46e5; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px;">
-                            기록 보기
-                        </button>
-                    </div>
-                </div>
-            `;
-        }
-        
-        html += '</div>';
-        listDiv.innerHTML = html;
-        
-    } catch (error) {
-        console.error('[loadTodayAttendance] 에러:', error);
-        document.getElementById('today-attendance-list').innerHTML = 
-            '<p style="color: #ef4444;">출석 현황을 불러올 수 없습니다.</p>';
-    }
-}
-
 // ========== 학생 QR 코드 목록 ==========
 
-// 학생 QR 코드 목록 표시
 window.showStudentQRList = function() {
     console.log('[showStudentQRList] 학생 QR 코드 목록 표시');
     
-    closeModal('qr-attendance-modal');
-    document.getElementById('student-qr-list-modal').style.display = 'flex';
-    
-    renderStudentQRList();
+    try {
+        if (typeof closeModal === 'function') {
+            closeModal('qr-attendance-modal');
+        }
+        
+        const modal = document.getElementById('student-qr-list-modal');
+        if (modal) {
+            modal.style.display = 'flex';
+        } else {
+            console.error('[showStudentQRList] student-qr-list-modal 요소를 찾을 수 없습니다');
+            alert('학생 QR코드 모달을 찾을 수 없습니다.');
+            return;
+        }
+        
+        renderStudentQRList();
+    } catch (error) {
+        console.error('[showStudentQRList] 오류:', error);
+        alert('학생 QR코드 목록을 표시할 수 없습니다.');
+    }
 }
 
-// 학생 QR 코드 목록 렌더링
 function renderStudentQRList() {
     const listDiv = document.getElementById('student-qr-list');
     
@@ -542,28 +495,36 @@ function renderStudentQRList() {
     let html = '<div style="display: flex; flex-direction: column; gap: 10px;">';
     
     for (const student of currentTeacherStudents) {
-        // 학생 이름에서 특수문자 제거 (이모지 등)
         const cleanName = student.name.replace(/[^\w\sㄱ-ㅎㅏ-ㅣ가-힣]/g, '');
-        const qrData = `STUDENT_${student.id}_${cleanName}`;
+        const qrData = `STUDENT_${student.id}_${Date.now()}`;
         const qrId = `qr-${student.id}`;
         const accordionId = `accordion-${student.id}`;
         
         html += `
             <div style="border: 2px solid #e2e8f0; border-radius: 12px; overflow: hidden; background: white;">
                 <div onclick="toggleQRAccordion('${accordionId}', '${qrId}', '${qrData}')" 
-                     style="padding: 16px 20px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; background: #f8fafc; transition: background 0.2s;"
+                     style="padding: 14px 18px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; background: #f8fafc; transition: background 0.2s;"
                      onmouseover="this.style.background='#f1f5f9'" 
                      onmouseout="this.style.background='#f8fafc'">
-                    <div>
-                        <h3 style="margin: 0; font-size: 18px; font-weight: 600; color: #1e293b;">${student.name}</h3>
-                        <p style="margin: 5px 0 0 0; color: #64748b; font-size: 14px;">${student.grade}</p>
+                    <div style="display: flex; align-items: baseline; gap: 10px;">
+                        <h3 style="margin: 0; font-size: 17px; font-weight: 700; color: #1e293b;">${student.name}</h3>
+                        <span style="color: #64748b; font-size: 13px; font-weight: 500;">${student.grade}</span>
                     </div>
-                    <i id="icon-${accordionId}" class="fas fa-chevron-down" style="color: #64748b; transition: transform 0.3s;"></i>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <button onclick="event.stopPropagation(); regenerateQRCode('${student.id}', '${qrId}', '${accordionId}', '${cleanName}')" 
+                                style="background: #4f46e5; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.2s; display: flex; align-items: center; gap: 4px;"
+                                onmouseover="this.style.background='#4338ca'" 
+                                onmouseout="this.style.background='#4f46e5'"
+                                title="QR코드 재발급">
+                            <i class="fas fa-sync-alt" style="font-size: 11px;"></i> 재발급
+                        </button>
+                        <i id="icon-${accordionId}" class="fas fa-chevron-down" style="color: #64748b; transition: transform 0.3s; font-size: 14px;"></i>
+                    </div>
                 </div>
                 <div id="${accordionId}" style="max-height: 0; overflow: hidden; transition: max-height 0.3s ease-out;">
                     <div style="padding: 20px; text-align: center; border-top: 1px solid #e2e8f0;">
                         <div id="${qrId}" style="display: flex; justify-content: center; margin-bottom: 15px;"></div>
-                        <button onclick="downloadQRCode('${qrId}', '${student.name}')" style="background: #10b981; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; transition: background 0.2s;"
+                        <button onclick="downloadQRCode('${qrId}', '${student.name}')" style="background: #10b981; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600;"
                                 onmouseover="this.style.background='#059669'"
                                 onmouseout="this.style.background='#10b981'">
                             <i class="fas fa-download"></i> 다운로드
@@ -578,49 +539,52 @@ function renderStudentQRList() {
     listDiv.innerHTML = html;
 }
 
-// QR 아코디언 토글
+// QR 코드 재발급
+window.regenerateQRCode = function(studentId, qrId, accordionId, cleanName) {
+    console.log('[regenerateQRCode] QR 코드 재발급:', studentId);
+    
+    const newQrData = `STUDENT_${studentId}_${Date.now()}`;
+    
+    const qrContainer = document.getElementById(qrId);
+    if (!qrContainer) return;
+    
+    qrContainer.innerHTML = '';
+    
+    generateQRCode(qrId, newQrData, 200);
+    
+    const accordion = document.getElementById(accordionId);
+    if (accordion && accordion.style.maxHeight !== '0px' && accordion.style.maxHeight !== '') {
+        setTimeout(() => {
+            accordion.style.maxHeight = accordion.scrollHeight + 'px';
+        }, 100);
+    }
+    
+    showQRScanToast(null, 'regenerate_success', cleanName);
+    
+    console.log('[regenerateQRCode] QR 코드 재발급 완료');
+}
+
 window.toggleQRAccordion = function(accordionId, qrId, qrData) {
     const accordion = document.getElementById(accordionId);
     const icon = document.getElementById(`icon-${accordionId}`);
     const qrContainer = document.getElementById(qrId);
     
     if (accordion.style.maxHeight && accordion.style.maxHeight !== '0px') {
-        // 닫기
         accordion.style.maxHeight = '0px';
         icon.style.transform = 'rotate(0deg)';
     } else {
-        // 열기
         accordion.style.maxHeight = accordion.scrollHeight + 'px';
         icon.style.transform = 'rotate(180deg)';
         
-        // QR 코드가 아직 생성되지 않았으면 생성
         if (!qrContainer.hasChildNodes()) {
             setTimeout(() => {
                 generateQRCode(qrId, qrData, 200);
-                // QR 생성 후 높이 재조정
                 accordion.style.maxHeight = accordion.scrollHeight + 'px';
             }, 50);
         }
     }
 }
 
-// QR 코드 목록 필터링
-window.filterQRStudentList = function() {
-    const searchText = document.getElementById('qr-student-search').value.toLowerCase();
-    const listDiv = document.getElementById('student-qr-list');
-    const items = listDiv.querySelectorAll('& > div > div');
-    
-    items.forEach(item => {
-        const studentName = item.querySelector('h3').textContent.toLowerCase();
-        if (studentName.includes(searchText)) {
-            item.parentElement.style.display = 'block';
-        } else {
-            item.parentElement.style.display = 'none';
-        }
-    });
-}
-
-// QR 코드 다운로드
 window.downloadQRCode = function(qrId, studentName) {
     const qrContainer = document.getElementById(qrId);
     const canvas = qrContainer.querySelector('canvas');
@@ -630,42 +594,53 @@ window.downloadQRCode = function(qrId, studentName) {
         return;
     }
     
-    // Canvas를 이미지로 변환하여 다운로드
+    // 여백을 포함한 더 큰 캔버스 생성 (각 방향으로 40px 여백)
+    const padding = 40;
+    const newCanvas = document.createElement('canvas');
+    const ctx = newCanvas.getContext('2d');
+    
+    newCanvas.width = canvas.width + (padding * 2);
+    newCanvas.height = canvas.height + (padding * 2);
+    
+    // 전체를 흰색 배경으로 채우기
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, newCanvas.width, newCanvas.height);
+    
+    // QR 코드를 중앙에 그리기
+    ctx.drawImage(canvas, padding, padding);
+    
+    // 다운로드
     const link = document.createElement('a');
     link.download = `QR_${studentName}.png`;
-    link.href = canvas.toDataURL('image/png');
+    link.href = newCanvas.toDataURL('image/png');
     link.click();
 }
 
 // ========== 학생별 출석 기록 ==========
 
-// 학생별 출석 기록 보기
 window.showStudentAttendanceHistory = function(studentId) {
-    console.log('[showStudentAttendanceHistory] 학생 출석 기록:', studentId);
-    
     currentStudentForAttendance = studentId;
     
-    // 현재 월로 초기화
     const now = new Date();
     const monthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     document.getElementById('attendance-history-month').value = monthStr;
     
-    // 학생 이름 표시
     const student = currentTeacherStudents.find(s => String(s.id) === String(studentId));
     if (student) {
-        document.getElementById('attendance-history-title').textContent = 
-            `${student.name}님의 출석 기록`;
+        const titleElement = document.getElementById('attendance-student-name-title');
+        if (titleElement) {
+            titleElement.textContent = `${student.name}님의 출석 기록`;
+        }
     }
     
-    // 모달 표시
-    closeModal('qr-attendance-modal');
+    if (typeof closeModal === 'function') {
+        closeModal('qr-attendance-modal');
+    }
     document.getElementById('student-attendance-history-modal').style.display = 'flex';
     
-    // 출석 기록 로드
     loadStudentAttendanceHistory();
 }
 
-// 학생 출석 기록 로드
 window.loadStudentAttendanceHistory = async function() {
     try {
         if (!currentStudentForAttendance) return;
@@ -681,7 +656,6 @@ window.loadStudentAttendanceHistory = async function() {
         
         contentDiv.innerHTML = '<p style="color: #64748b;">로딩 중...</p>';
         
-        // 해당 월의 출석 기록 조회
         const records = await getStudentAttendanceRecordsByMonth(currentStudentForAttendance, year, month);
         
         if (records.length === 0) {
@@ -691,7 +665,6 @@ window.loadStudentAttendanceHistory = async function() {
             return;
         }
         
-        // 출석, 지각, 결석, 보강 통계
         const stats = {
             present: records.filter(r => r.status === 'present').length,
             late: records.filter(r => r.status === 'late').length,
@@ -728,7 +701,6 @@ window.loadStudentAttendanceHistory = async function() {
             <div style="display: flex; flex-direction: column; gap: 10px;">
         `;
         
-        // 날짜 역순으로 정렬
         records.sort((a, b) => new Date(b.attendance_date) - new Date(a.attendance_date));
         
         for (const record of records) {
@@ -766,7 +738,7 @@ window.loadStudentAttendanceHistory = async function() {
             }
             
             html += `
-                <div style="display: flex; justify-content: space-between; align-items: center; padding: 16px 18px; background: ${bgColor}; border-radius: 12px; border-left: 4px solid ${statusColor}; border-top: 1px solid ${borderColor}; border-right: 1px solid ${borderColor}; border-bottom: 1px solid ${borderColor}; transition: all 0.2s;">
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 16px 18px; background: ${bgColor}; border-radius: 12px; border-left: 4px solid ${statusColor}; border-top: 1px solid ${borderColor}; border-right: 1px solid ${borderColor}; border-bottom: 1px solid ${borderColor};">
                     <div style="flex: 1;">
                         <div style="font-weight: 700; font-size: 15px; color: #1e293b; margin-bottom: 6px;">${dateStr} (${getDayOfWeek(date)})</div>
                         <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
@@ -793,7 +765,6 @@ window.loadStudentAttendanceHistory = async function() {
     }
 }
 
-// 요일 구하기
 function getDayOfWeek(date) {
     const days = ['일', '월', '화', '수', '목', '금', '토'];
     return days[date.getDay()];
@@ -801,7 +772,6 @@ function getDayOfWeek(date) {
 
 // ========== 유틸리티 함수 ==========
 
-// 날짜를 YYYY-MM-DD 형식으로 변환
 function formatDateToYYYYMMDD(date) {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -809,40 +779,15 @@ function formatDateToYYYYMMDD(date) {
     return `${year}-${month}-${day}`;
 }
 
-// 학생 ID로 학생 정보 조회
-async function getStudentById(studentId) {
-    // 먼저 메모리에서 검색
-    let student = students.find(s => String(s.id) === String(studentId));
-    
-    if (student) {
-        return student;
-    }
-    
-    // 데이터베이스에서 검색
-    try {
-        const { data, error } = await supabase
-            .from('students')
-            .select('*')
-            .eq('id', studentId)
-            .single();
-        
-        if (error) throw error;
-        return data;
-    } catch (error) {
-        console.error('[getStudentById] 에러:', error);
-        return null;
-    }
-}
+// ========== 데이터베이스 함수 ==========
 
-// ========== 출석 기록 데이터베이스 함수 ==========
-
-// 출석 기록 저장
 async function saveAttendanceRecord(recordData) {
     try {
         const ownerId = localStorage.getItem('current_owner_id');
+        const numericId = parseInt(recordData.studentId);
         
         const record = {
-            student_id: recordData.studentId,
+            student_id: numericId,
             teacher_id: recordData.teacherId,
             owner_user_id: ownerId,
             attendance_date: recordData.attendanceDate,
@@ -854,9 +799,6 @@ async function saveAttendanceRecord(recordData) {
             memo: recordData.memo || null
         };
         
-        console.log('[saveAttendanceRecord] 저장할 기록:', record);
-        
-        // Upsert (중복 시 업데이트)
         const { data, error } = await supabase
             .from('attendance_records')
             .upsert(record, { 
@@ -867,8 +809,6 @@ async function saveAttendanceRecord(recordData) {
             .single();
         
         if (error) throw error;
-        
-        console.log('[saveAttendanceRecord] 저장 성공:', data);
         return data;
     } catch (error) {
         console.error('[saveAttendanceRecord] 에러:', error);
@@ -876,7 +816,29 @@ async function saveAttendanceRecord(recordData) {
     }
 }
 
-// 날짜별 출석 기록 조회
+async function getAttendanceRecordByStudentAndDate(studentId, dateStr) {
+    try {
+        const numericId = parseInt(studentId);
+        
+        const { data, error } = await supabase
+            .from('attendance_records')
+            .select('*')
+            .eq('student_id', numericId)
+            .eq('attendance_date', dateStr)
+            .maybeSingle();
+        
+        if (error) {
+            console.error('[getAttendanceRecordByStudentAndDate] 에러:', error);
+            return null;
+        }
+        
+        return data;
+    } catch (error) {
+        console.error('[getAttendanceRecordByStudentAndDate] 예외:', error);
+        return null;
+    }
+}
+
 async function getAttendanceRecordsByDate(dateStr) {
     try {
         const ownerId = localStorage.getItem('current_owner_id');
@@ -890,7 +852,6 @@ async function getAttendanceRecordsByDate(dateStr) {
             .order('check_in_time', { ascending: false });
         
         if (error) throw error;
-        
         return data || [];
     } catch (error) {
         console.error('[getAttendanceRecordsByDate] 에러:', error);
@@ -898,30 +859,32 @@ async function getAttendanceRecordsByDate(dateStr) {
     }
 }
 
-// 학생별 월간 출석 기록 조회
 async function getStudentAttendanceRecordsByMonth(studentId, year, month) {
     try {
         const ownerId = localStorage.getItem('current_owner_id');
+        const numericId = parseInt(studentId);
         
-        // 해당 월의 시작일과 종료일
         const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
-        const endDate = new Date(year, month, 0); // 해당 월의 마지막 날
+        const endDate = new Date(year, month, 0);
         const endDateStr = formatDateToYYYYMMDD(endDate);
         
         const { data, error } = await supabase
             .from('attendance_records')
             .select('*')
             .eq('owner_user_id', ownerId)
-            .eq('student_id', studentId)
+            .eq('student_id', numericId)
             .gte('attendance_date', startDate)
             .lte('attendance_date', endDateStr)
             .order('attendance_date', { ascending: true });
         
         if (error) throw error;
-        
         return data || [];
     } catch (error) {
         console.error('[getStudentAttendanceRecordsByMonth] 에러:', error);
         return [];
     }
 }
+
+console.log('[qr-attendance.js] 파일 로드 완료');
+console.log('[qr-attendance.js] openQRScanPage 함수:', typeof window.openQRScanPage);
+console.log('[qr-attendance.js] showStudentQRList 함수:', typeof window.showStudentQRList);

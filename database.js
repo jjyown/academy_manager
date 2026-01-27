@@ -119,18 +119,48 @@ window.updateStudent = async function(studentId, updateData) {
     }
 }
 
-// 학생 삭제
+// 학생 삭제 (관련 출석 기록도 함께 삭제)
 window.deleteStudent = async function(studentId) {
     try {
-        const { error } = await supabase
+        // studentId를 숫자로 변환 (문자열인 경우 대비)
+        const numericId = parseInt(studentId);
+        
+        if (isNaN(numericId)) {
+            console.error('[deleteStudent] 잘못된 학생 ID:', studentId);
+            throw new Error('잘못된 학생 ID');
+        }
+        
+        console.log('[deleteStudent] 학생 삭제 시작 - ID:', numericId, '(원본:', studentId, ')');
+        
+        // 1단계: 해당 학생의 모든 출석 기록 삭제
+        console.log('[deleteStudent] 1단계: 출석 기록 삭제 중...');
+        const { error: attendanceError } = await supabase
+            .from('attendance_records')
+            .delete()
+            .eq('student_id', numericId);
+        
+        if (attendanceError) {
+            console.error('[deleteStudent] 출석 기록 삭제 실패:', attendanceError);
+            throw new Error('출석 기록 삭제 실패: ' + attendanceError.message);
+        }
+        console.log('[deleteStudent] 출석 기록 삭제 완료');
+        
+        // 2단계: 학생 데이터 삭제
+        console.log('[deleteStudent] 2단계: 학생 데이터 삭제 중...');
+        const { error: studentError } = await supabase
             .from('students')
             .delete()
-            .eq('id', studentId);
+            .eq('id', numericId);
 
-        if (error) throw error;
+        if (studentError) {
+            console.error('[deleteStudent] 학생 삭제 실패:', studentError);
+            throw new Error('학생 삭제 실패: ' + studentError.message);
+        }
+        
+        console.log('[deleteStudent] 학생 삭제 완료 - ID:', numericId);
         return true;
     } catch (error) {
-        console.error('학생 삭제 실패:', error);
+        console.error('[deleteStudent] 전체 삭제 프로세스 실패:', error);
         return false;
     }
 }

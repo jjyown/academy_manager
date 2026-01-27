@@ -1695,6 +1695,43 @@ function unassignStudentFromTeacher(studentId) {
     // 메모리에도 반영
     currentTeacherStudents = currentTeacherStudents.filter(s => s.id !== studentId);
 }
+
+// 학생을 모든 선생님에게서 제거
+function unassignStudentFromAllTeachers(studentId) {
+    console.log(`[학생 삭제] 모든 선생님에게서 학생 ${studentId} 제거 시작`);
+    
+    // 모든 teacher_students_mapping 키 찾기
+    const allKeys = Object.keys(localStorage);
+    const mappingKeys = allKeys.filter(key => key.startsWith('teacher_students_mapping__'));
+    
+    mappingKeys.forEach(key => {
+        try {
+            const saved = localStorage.getItem(key);
+            if (saved) {
+                let studentIds = JSON.parse(saved) || [];
+                const beforeLength = studentIds.length;
+                studentIds = studentIds.filter(id => String(id) !== String(studentId));
+                
+                if (beforeLength !== studentIds.length) {
+                    localStorage.setItem(key, JSON.stringify(studentIds));
+                    console.log(`${key}에서 학생 ${studentId} 제거`);
+                }
+            }
+        } catch (e) {
+            console.error(`${key} 처리 실패:`, e);
+        }
+    });
+    
+    // teacherScheduleData에서도 제거
+    Object.keys(teacherScheduleData).forEach(teacherId => {
+        if (teacherScheduleData[teacherId] && teacherScheduleData[teacherId][studentId]) {
+            delete teacherScheduleData[teacherId][studentId];
+            console.log(`teacherScheduleData[${teacherId}]에서 학생 ${studentId} 제거`);
+        }
+    });
+    
+    console.log(`[학생 삭제] 모든 선생님에게서 학생 ${studentId} 제거 완료`);
+}
 window.goToday = function() { currentDate = new Date(); document.getElementById('jump-date-picker').value = ''; renderCalendar(); }
 window.moveDate = function(d) {
     if(currentView === 'month') currentDate.setMonth(currentDate.getMonth() + d);
@@ -1749,7 +1786,7 @@ window.renderDrawerList = function() {
                 <span>${s.studentPhone || '-'}</span>
                 <span style="font-size:11px; color:#aaa;">등록: ${s.registerDate || '-'}</span>
             </div>
-            <select class="status-select ${s.status}" onchange="updateStudentStatus('${s.id}', this.value)">
+            <select id="status-select-${s.id}" class="status-select ${s.status}" data-student-id="${s.id}" data-original-status="${s.status}" onchange="updateStudentStatus('${s.id}', this.value)">
                 <option value="active" ${s.status === 'active' ? 'selected' : ''}>재원</option>
                 <option value="archived" ${s.status === 'archived' ? 'selected' : ''}>퇴원</option>
                 <option value="paused" ${s.status === 'paused' ? 'selected' : ''}>휴원</option>
@@ -1760,50 +1797,93 @@ window.renderDrawerList = function() {
     document.getElementById('student-list-count').textContent = `${filtered.length}명`;
 }
 window.updateStudentStatus = async function(id, newStatus) {
+    console.log(`[updateStudentStatus] 호출 - id: ${id}, newStatus: ${newStatus}`);
+    
     const idx = students.findIndex(s => String(s.id) === String(id));
-    if (idx === -1) return;
+    if (idx === -1) {
+        console.error(`[updateStudentStatus] 학생을 찾을 수 없음 - id: ${id}`);
+        alert('학생을 찾을 수 없습니다.');
+        renderDrawerList();
+        return;
+    }
+    
+    const student = students[idx];
+    const selectElement = document.getElementById(`status-select-${id}`);
+    const originalStatus = selectElement ? selectElement.getAttribute('data-original-status') : student.status;
     
     if (newStatus === 'delete') {
-        if (confirm(`정말로 ${students[idx].name} 학생의 모든 데이터를 삭제하시겠습니까?\n(이 작업은 되돌릴 수 없습니다.)`)) {
+        if (confirm(`정말로 ${student.name} 학생의 모든 데이터를 삭제하시겠습니까?\n(이 작업은 되돌릴 수 없습니다.)`)) {
             try {
+                console.log(`[updateStudentStatus] 학생 삭제 시작 - id: ${id}`);
+                
                 // Supabase에서 삭제
                 const deleted = await deleteStudent(id);
+                console.log(`[updateStudentStatus] deleteStudent 결과:`, deleted);
+                
                 if (deleted) {
+                    // 모든 선생님에게서 제거
+                    unassignStudentFromAllTeachers(id);
+                    
                     // 메모리와 로컬 스토리지에서 삭제
-                    unassignStudentFromTeacher(id);  // 모든 선생님에게서 제거
-                    students.splice(idx, 1); 
+                    students.splice(idx, 1);
+                    
+                    // currentTeacherStudents에서도 제거
+                    currentTeacherStudents = currentTeacherStudents.filter(s => String(s.id) !== String(id));
+                    
                     saveData(); 
                     renderDrawerList(); 
                     renderCalendar(); 
-                    alert("삭제되었습니다.");
+                    
+                    console.log(`[updateStudentStatus] 학생 삭제 성공 - ${student.name}`);
+                    alert(`${student.name} 학생이 삭제되었습니다.`);
                 } else {
-                    throw new Error('삭제 실패');
+                    throw new Error('데이터베이스 삭제 실패');
                 }
             } catch (error) {
-                console.error('학생 삭제 실패:', error);
-                alert('학생 삭제에 실패했습니다: ' + error.message);
+                console.error('[updateStudentStatus] 학생 삭제 실패:', error);
+                alert(`학생 삭제에 실패했습니다: ${error.message}`);
+                
+                // 원래 상태로 복구
+                if (selectElement) {
+                    selectElement.value = originalStatus;
+                }
                 renderDrawerList();
             }
-        } else { 
-            renderDrawerList(); 
+        } else {
+            // 취소 시 원래 상태로 복구
+            console.log('[updateStudentStatus] 사용자가 삭제를 취소함');
+            if (selectElement) {
+                selectElement.value = originalStatus;
+            }
+            renderDrawerList();
         }
         return;
     }
     
     try {
+        console.log(`[updateStudentStatus] 상태 변경 시작 - ${student.name}: ${originalStatus} -> ${newStatus}`);
+        
         // 상태 변경을 Supabase에 반영
         const updated = await updateStudent(id, { status: newStatus });
+        console.log(`[updateStudentStatus] updateStudent 결과:`, updated);
+        
         if (updated) {
             students[idx].status = newStatus; 
             saveData(); 
             renderDrawerList(); 
             renderCalendar();
+            console.log(`[updateStudentStatus] 상태 변경 성공 - ${student.name}: ${newStatus}`);
         } else {
             throw new Error('상태 업데이트 실패');
         }
     } catch (error) {
-        console.error('학생 상태 업데이트 실패:', error);
-        alert('학생 상태 변경에 실패했습니다: ' + error.message);
+        console.error('[updateStudentStatus] 학생 상태 업데이트 실패:', error);
+        alert(`학생 상태 변경에 실패했습니다: ${error.message}`);
+        
+        // 원래 상태로 복구
+        if (selectElement) {
+            selectElement.value = originalStatus;
+        }
         renderDrawerList();
     }
 }
