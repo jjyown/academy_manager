@@ -40,13 +40,12 @@ window.generateQRCode = function(containerId, qrData, size = 200) {
 // QR 스캔 페이지 열기
 window.openQRScanPage = function() {
     console.log('[openQRScanPage] QR 스캔 페이지 열기');
-    console.log('[openQRScanPage] currentTeacherStudents 수:', currentTeacherStudents ? currentTeacherStudents.length : 0);
     console.log('[openQRScanPage] students 수:', students ? students.length : 0);
     
     try {
-        // 학생 데이터 확인
-        if (!currentTeacherStudents || currentTeacherStudents.length === 0) {
-            alert('등록된 학생이 없습니다.\n먼저 학생을 등록하고 선생님에게 배정해주세요.');
+        // 학생 데이터 확인 (전체 학생 배열에서)
+        if (!students || students.length === 0) {
+            alert('등록된 학생이 없습니다.\n먼저 학생을 등록해주세요.');
             return;
         }
         
@@ -236,24 +235,19 @@ async function processAttendanceFromQR(qrData) {
         
         console.log('[processAttendanceFromQR] 추출된 학생 ID:', studentId);
         console.log('[processAttendanceFromQR] 학생 ID 타입:', typeof studentId);
-        console.log('[processAttendanceFromQR] currentTeacherStudents 수:', currentTeacherStudents.length);
-        console.log('[processAttendanceFromQR] 등록된 학생 ID 목록:', currentTeacherStudents.map(s => `${s.id}(${typeof s.id})`).join(', '));
+        console.log('[processAttendanceFromQR] 전체 students 수:', students.length);
+        console.log('[processAttendanceFromQR] 등록된 학생 ID 목록:', students.map(s => `${s.id}(${typeof s.id})`).join(', '));
         
-        // 4. 학생 정보 조회
-        let student = currentTeacherStudents.find(s => String(s.id) === String(studentId));
-        console.log('[processAttendanceFromQR] currentTeacherStudents에서 찾기:', !!student);
-        
-        if (!student) {
-            student = students.find(s => String(s.id) === String(studentId));
-            console.log('[processAttendanceFromQR] students 배열에서 찾기:', !!student);
-        }
+        // 4. 학생 정보 조회 (전체 학생 배열에서)
+        let student = students.find(s => String(s.id) === String(studentId));
+        console.log('[processAttendanceFromQR] students 배열에서 찾기:', !!student);
         
         if (!student) {
             console.error('[processAttendanceFromQR] ❌ 학생을 찾을 수 없음!');
             console.error('[processAttendanceFromQR] 찾으려는 ID:', studentId);
-            console.error('[processAttendanceFromQR] currentTeacherStudents 수:', currentTeacherStudents.length);
-            if (currentTeacherStudents.length > 0) {
-                console.error('[processAttendanceFromQR] 전체 학생 목록:', currentTeacherStudents.map(s => ({ id: s.id, name: s.name })));
+            console.error('[processAttendanceFromQR] 전체 students 수:', students.length);
+            if (students.length > 0) {
+                console.error('[processAttendanceFromQR] 전체 학생 목록:', students.map(s => ({ id: s.id, name: s.name })));
             } else {
                 console.error('[processAttendanceFromQR] ⚠️ 등록된 학생이 없습니다!');
             }

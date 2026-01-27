@@ -955,14 +955,32 @@ window.renderDayEvents = function(dateStr) {
         if (isMerged) {
             contentDiv.innerHTML = `<div class="merged-header"><span>${ev.originalStart}~${endTimeStr}</span><span style="opacity:0.8; font-size:10px;">${ev.members.length}명</span></div><div class="merged-list">${ev.members.map(m => {
                 const status = (m.attendance && m.attendance[dateStr]) || '';
-                let icon = status === 'present' ? '✅' : status === 'late' ? '🕐' : status === 'absent' ? '❌' : (status === 'makeup' || status === 'etc') ? '📚' : '';
-                return `<div class="sub-event-item ${getSubItemColorClass(m.grade)}" onclick="event.stopPropagation(); openAttendanceModal('${m.id}', '${dateStr}')"><div class="sub-info"><span class="sub-name">${m.name}</span><span class="sub-grade">${m.grade}</span></div><span class="sub-icon">${icon}</span></div>`;
+                let statusBadge = '';
+                if (status === 'present') {
+                    statusBadge = '<span style="background:#10b981;color:white;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;">출석</span>';
+                } else if (status === 'late') {
+                    statusBadge = '<span style="background:#f59e0b;color:white;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;">지각</span>';
+                } else if (status === 'absent') {
+                    statusBadge = '<span style="background:#ef4444;color:white;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;">결석</span>';
+                } else if (status === 'makeup' || status === 'etc') {
+                    statusBadge = '<span style="background:#8b5cf6;color:white;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;">보강</span>';
+                }
+                return `<div class="sub-event-item ${getSubItemColorClass(m.grade)}" onclick="event.stopPropagation(); openAttendanceModal('${m.id}', '${dateStr}')"><div class="sub-info"><span class="sub-name">${m.name}</span><span class="sub-grade">${m.grade}</span></div>${statusBadge}</div>`;
             }).join('')}</div>`;
         } else {
             const s = ev.members[0];
             const status = (s.attendance && s.attendance[dateStr]) || 'none';
-            const statusIcon = status === 'present' ? '✅' : status === 'late' ? '🕐' : status === 'absent' ? '❌' : (status === 'makeup' || status === 'etc') ? '📚' : '';
-            contentDiv.innerHTML = `<div class="evt-title">${s.name} <span class="evt-grade">(${s.grade})</span> ${statusIcon}</div><div class="event-time-text">${ev.originalStart} - ${endTimeStr} (${ev.duration}분)</div>`;
+            let statusBadge = '';
+            if (status === 'present') {
+                statusBadge = '<span style="background:#10b981;color:white;padding:3px 8px;border-radius:6px;font-size:11px;font-weight:700;margin-left:8px;">출석</span>';
+            } else if (status === 'late') {
+                statusBadge = '<span style="background:#f59e0b;color:white;padding:3px 8px;border-radius:6px;font-size:11px;font-weight:700;margin-left:8px;">지각</span>';
+            } else if (status === 'absent') {
+                statusBadge = '<span style="background:#ef4444;color:white;padding:3px 8px;border-radius:6px;font-size:11px;font-weight:700;margin-left:8px;">결석</span>';
+            } else if (status === 'makeup' || status === 'etc') {
+                statusBadge = '<span style="background:#8b5cf6;color:white;padding:3px 8px;border-radius:6px;font-size:11px;font-weight:700;margin-left:8px;">보강</span>';
+            }
+            contentDiv.innerHTML = `<div class="evt-title">${s.name} <span class="evt-grade">(${s.grade})</span>${statusBadge}</div><div class="event-time-text">${ev.originalStart} - ${endTimeStr} (${ev.duration}분)</div>`;
             block.onclick = (e) => { 
                 if(block.getAttribute('data-action-status') === 'moved' || block.getAttribute('data-action-status') === 'resized') { e.stopPropagation(); block.setAttribute('data-action-status', 'none'); return; }
                 if(e.target.classList.contains('resize-handle')) return;
