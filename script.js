@@ -955,13 +955,13 @@ window.renderDayEvents = function(dateStr) {
         if (isMerged) {
             contentDiv.innerHTML = `<div class="merged-header"><span>${ev.originalStart}~${endTimeStr}</span><span style="opacity:0.8; font-size:10px;">${ev.members.length}명</span></div><div class="merged-list">${ev.members.map(m => {
                 const status = (m.attendance && m.attendance[dateStr]) || '';
-                let icon = status === 'present' ? '✅' : status === 'absent' ? '❌' : status === 'etc' ? '⚠️' : '';
+                let icon = status === 'present' ? '✅' : status === 'late' ? '🕐' : status === 'absent' ? '❌' : (status === 'makeup' || status === 'etc') ? '📚' : '';
                 return `<div class="sub-event-item ${getSubItemColorClass(m.grade)}" onclick="event.stopPropagation(); openAttendanceModal('${m.id}', '${dateStr}')"><div class="sub-info"><span class="sub-name">${m.name}</span><span class="sub-grade">${m.grade}</span></div><span class="sub-icon">${icon}</span></div>`;
             }).join('')}</div>`;
         } else {
             const s = ev.members[0];
             const status = (s.attendance && s.attendance[dateStr]) || 'none';
-            const statusIcon = status === 'present' ? '✅' : status === 'absent' ? '❌' : status === 'etc' ? '⚠️' : '';
+            const statusIcon = status === 'present' ? '✅' : status === 'late' ? '🕐' : status === 'absent' ? '❌' : (status === 'makeup' || status === 'etc') ? '📚' : '';
             contentDiv.innerHTML = `<div class="evt-title">${s.name} <span class="evt-grade">(${s.grade})</span> ${statusIcon}</div><div class="event-time-text">${ev.originalStart} - ${endTimeStr} (${ev.duration}분)</div>`;
             block.onclick = (e) => { 
                 if(block.getAttribute('data-action-status') === 'moved' || block.getAttribute('data-action-status') === 'resized') { e.stopPropagation(); block.setAttribute('data-action-status', 'none'); return; }
@@ -1062,7 +1062,12 @@ window.openAttendanceModal = function(sid, dateStr) {
     document.querySelectorAll('.att-btn').forEach(btn => btn.classList.remove('active'));
     const currentStatus = s.attendance && s.attendance[dateStr];
     if (currentStatus) {
-        const activeBtn = document.querySelector(`.att-btn.${currentStatus}`);
+        // 'etc' 상태는 'makeup'과 동일하게 처리 (하위 호환성)
+        let btnClass = currentStatus;
+        if (currentStatus === 'makeup') {
+            btnClass = 'etc'; // makeup을 etc 버튼에 매핑
+        }
+        const activeBtn = document.querySelector(`.att-btn.${btnClass}`);
         if (activeBtn) activeBtn.classList.add('active');
     }
     // 선생님별 일정 데이터 사용
@@ -1810,7 +1815,9 @@ window.prepareRegister = function() {
     ['edit-id', 'reg-name', 'reg-student-phone', 'reg-parent-phone', 'reg-memo', 'reg-default-fee', 'reg-special-fee'].forEach(id => document.getElementById(id).value = "");
     const today = new Date(); const off = today.getTimezoneOffset() * 60000;
     document.getElementById('reg-register-date').value = new Date(today.getTime() - off).toISOString().split('T')[0];
-    document.getElementById('edit-mode-actions').style.display = 'none'; openModal('register-modal');
+    document.getElementById('edit-mode-actions').style.display = 'none'; 
+    document.getElementById('view-attendance-btn').style.display = 'none';
+    openModal('register-modal');
 }
 window.prepareEdit = function(id) {
     const s = students.find(x => String(x.id) === String(id));
@@ -1826,7 +1833,9 @@ window.prepareEdit = function(id) {
     document.getElementById('reg-default-textbook-fee').value = s.defaultTextbookFee ? s.defaultTextbookFee.toLocaleString() : "";
     document.getElementById('reg-memo').value = s.memo || "";
     document.getElementById('reg-register-date').value = s.registerDate || "";
-    document.getElementById('edit-mode-actions').style.display = 'block'; openModal('register-modal');
+    document.getElementById('edit-mode-actions').style.display = 'block'; 
+    document.getElementById('view-attendance-btn').style.display = 'inline-block';
+    openModal('register-modal');
 }
 window.handleStudentSave = function() {
     const id = document.getElementById('edit-id').value;

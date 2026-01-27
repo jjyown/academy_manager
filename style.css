@@ -445,30 +445,80 @@ body {
 
 .att-btn {
     flex: 1;
-    padding: 15px 10px;
-    border-radius: 10px;
-    border: 1px solid var(--border);
+    padding: 16px 12px;
+    border-radius: 12px;
+    border: 2px solid transparent;
     background: white;
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 700;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all 0.25s ease;
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
 }
-.att-btn.present { color: var(--teal); border-color: #99f6e4; }
-.att-btn.absent { color: var(--red); border-color: #fecaca; }
-.att-btn.etc { color: var(--orange); border-color: #fed7aa; }
 
-.att-btn.present.active { background: #ccfbf1; border-color: var(--teal); border-width: 2px; }
-.att-btn.absent.active { background: #fee2e2; border-color: var(--red); border-width: 2px; }
-.att-btn.etc.active { background: #ffedd5; border-color: var(--orange); border-width: 2px; }
+.att-btn.present { 
+    color: #10b981; 
+    border-color: #d1fae5;
+    background: #f0fdf4;
+}
+
+.att-btn.late { 
+    color: #eab308; 
+    border-color: #fef08a;
+    background: #fefce8;
+}
+
+.att-btn.absent { 
+    color: #ef4444; 
+    border-color: #fecaca;
+    background: #fef2f2;
+}
+
+.att-btn.etc { 
+    color: #8b5cf6; 
+    border-color: #ddd6fe;
+    background: #f5f3ff;
+}
+
+.att-btn.present.active { 
+    background: #d1fae5; 
+    border-color: #10b981; 
+    transform: scale(1.05);
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+}
+
+.att-btn.late.active { 
+    background: #fef08a; 
+    border-color: #eab308; 
+    transform: scale(1.05);
+    box-shadow: 0 4px 12px rgba(234, 179, 8, 0.3);
+}
+
+.att-btn.absent.active { 
+    background: #fecaca; 
+    border-color: #ef4444; 
+    transform: scale(1.05);
+    box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+}
+
+.att-btn.etc.active { 
+    background: #ddd6fe; 
+    border-color: #8b5cf6; 
+    transform: scale(1.05);
+    box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
+}
 
 .att-btn:hover {
     transform: translateY(-2px);
-    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.att-btn:active {
+    transform: translateY(0);
 }
 
 .att-info {
