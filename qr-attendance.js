@@ -40,8 +40,16 @@ window.generateQRCode = function(containerId, qrData, size = 200) {
 // QR 스캔 페이지 열기
 window.openQRScanPage = function() {
     console.log('[openQRScanPage] QR 스캔 페이지 열기');
+    console.log('[openQRScanPage] currentTeacherStudents 수:', currentTeacherStudents ? currentTeacherStudents.length : 0);
+    console.log('[openQRScanPage] students 수:', students ? students.length : 0);
     
     try {
+        // 학생 데이터 확인
+        if (!currentTeacherStudents || currentTeacherStudents.length === 0) {
+            alert('등록된 학생이 없습니다.\n먼저 학생을 등록하고 선생님에게 배정해주세요.');
+            return;
+        }
+        
         // 모달 닫기 (존재하는 경우)
         if (typeof closeModal === 'function') {
             closeModal('qr-attendance-modal');
@@ -112,15 +120,19 @@ window.closeQRScanPage = function() {
     if (html5QrcodeScanner) {
         html5QrcodeScanner.stop().then(() => {
             console.log('[closeQRScanPage] 스캐너 중지 완료');
-            html5QrcodeScanner.clear().then(() => {
-                console.log('[closeQRScanPage] 스캐너 정리 완료');
-            }).catch(err => {
+            try {
+                if (html5QrcodeScanner && typeof html5QrcodeScanner.clear === 'function') {
+                    html5QrcodeScanner.clear();
+                    console.log('[closeQRScanPage] 스캐너 정리 완료');
+                }
+            } catch (err) {
                 console.error('[closeQRScanPage] 스캐너 정리 실패:', err);
-            });
+            }
+            html5QrcodeScanner = null;
         }).catch(err => {
             console.error('[closeQRScanPage] 스캐너 중지 실패:', err);
+            html5QrcodeScanner = null;
         });
-        html5QrcodeScanner = null;
     }
     
     // 카메라 모드 초기화 (다음에 열 때 후방 카메라로)
@@ -209,31 +221,42 @@ async function processAttendanceFromQR(qrData) {
             return;
         }
         
-        // 3. 학생 ID 추출
+        // 3. 학생 ID 추출 (STUDENT_{ID} 또는 STUDENT_{ID}_{타임스탬프} 형식 모두 지원)
         const dataWithoutPrefix = qrData.substring(8); // "STUDENT_" 제거
-        const firstUnderscoreIndex = dataWithoutPrefix.indexOf('_');
+        let studentId;
         
-        if (firstUnderscoreIndex === -1) {
-            console.error('[processAttendanceFromQR] 언더스코어를 찾을 수 없음');
-            showQRScanToast(null, 'error', 'QR 코드 형식 오류');
-            setTimeout(() => {
-                if (html5QrcodeScanner) html5QrcodeScanner.resume();
-            }, 2000);
-            return;
+        // 언더스코어가 있으면 첫 번째 언더스코어 전까지가 ID (이전 형식 호환)
+        const firstUnderscoreIndex = dataWithoutPrefix.indexOf('_');
+        if (firstUnderscoreIndex !== -1) {
+            studentId = dataWithoutPrefix.substring(0, firstUnderscoreIndex);
+        } else {
+            // 언더스코어가 없으면 전체가 ID (새 형식)
+            studentId = dataWithoutPrefix;
         }
         
-        const studentId = dataWithoutPrefix.substring(0, firstUnderscoreIndex);
         console.log('[processAttendanceFromQR] 추출된 학생 ID:', studentId);
+        console.log('[processAttendanceFromQR] 학생 ID 타입:', typeof studentId);
+        console.log('[processAttendanceFromQR] currentTeacherStudents 수:', currentTeacherStudents.length);
+        console.log('[processAttendanceFromQR] 등록된 학생 ID 목록:', currentTeacherStudents.map(s => `${s.id}(${typeof s.id})`).join(', '));
         
         // 4. 학생 정보 조회
         let student = currentTeacherStudents.find(s => String(s.id) === String(studentId));
+        console.log('[processAttendanceFromQR] currentTeacherStudents에서 찾기:', !!student);
         
         if (!student) {
             student = students.find(s => String(s.id) === String(studentId));
+            console.log('[processAttendanceFromQR] students 배열에서 찾기:', !!student);
         }
         
         if (!student) {
-            console.error('[processAttendanceFromQR] 학생을 찾을 수 없음');
+            console.error('[processAttendanceFromQR] ❌ 학생을 찾을 수 없음!');
+            console.error('[processAttendanceFromQR] 찾으려는 ID:', studentId);
+            console.error('[processAttendanceFromQR] currentTeacherStudents 수:', currentTeacherStudents.length);
+            if (currentTeacherStudents.length > 0) {
+                console.error('[processAttendanceFromQR] 전체 학생 목록:', currentTeacherStudents.map(s => ({ id: s.id, name: s.name })));
+            } else {
+                console.error('[processAttendanceFromQR] ⚠️ 등록된 학생이 없습니다!');
+            }
             showQRScanToast(null, 'unregistered', null);
             setTimeout(() => {
                 if (html5QrcodeScanner) html5QrcodeScanner.resume();
@@ -241,7 +264,7 @@ async function processAttendanceFromQR(qrData) {
             return;
         }
         
-        console.log('[processAttendanceFromQR] 학생 찾음:', student.name);
+        console.log('[processAttendanceFromQR] ✅ 학생 찾음:', student.name);
         
         // 5. 오늘 날짜
         const today = new Date();
@@ -495,10 +518,11 @@ function renderStudentQRList() {
     let html = '<div style="display: flex; flex-direction: column; gap: 10px;">';
     
     for (const student of currentTeacherStudents) {
-        const cleanName = student.name.replace(/[^\w\sㄱ-ㅎㅏ-ㅣ가-힣]/g, '');
-        const qrData = `STUDENT_${student.id}_${Date.now()}`;
+        const qrData = `STUDENT_${student.id}`;
         const qrId = `qr-${student.id}`;
         const accordionId = `accordion-${student.id}`;
+        
+        console.log('[renderStudentQRList] 학생:', student.name, '| ID:', student.id, '| QR 데이터:', qrData);
         
         html += `
             <div style="border: 2px solid #e2e8f0; border-radius: 12px; overflow: hidden; background: white;">
@@ -511,7 +535,7 @@ function renderStudentQRList() {
                         <span style="color: #64748b; font-size: 13px; font-weight: 500;">${student.grade}</span>
                     </div>
                     <div style="display: flex; align-items: center; gap: 8px;">
-                        <button onclick="event.stopPropagation(); regenerateQRCode('${student.id}', '${qrId}', '${accordionId}', '${cleanName}')" 
+                        <button onclick="event.stopPropagation(); regenerateQRCode('${student.id}', '${qrId}', '${accordionId}', '${student.name}')" 
                                 style="background: #4f46e5; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.2s; display: flex; align-items: center; gap: 4px;"
                                 onmouseover="this.style.background='#4338ca'" 
                                 onmouseout="this.style.background='#4f46e5'"
@@ -543,7 +567,8 @@ function renderStudentQRList() {
 window.regenerateQRCode = function(studentId, qrId, accordionId, cleanName) {
     console.log('[regenerateQRCode] QR 코드 재발급:', studentId);
     
-    const newQrData = `STUDENT_${studentId}_${Date.now()}`;
+    const newQrData = `STUDENT_${studentId}`;
+    console.log('[regenerateQRCode] 새 QR 데이터:', newQrData);
     
     const qrContainer = document.getElementById(qrId);
     if (!qrContainer) return;
