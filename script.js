@@ -1523,7 +1523,7 @@ window.openDaySettings = function(dateStr) {
     // 모달이 열릴 때마다 색상 칩 이벤트 다시 설정
     setTimeout(() => setupHolidayColorChips(), 0);
 }
-window.saveDaySettings = function() {
+window.saveDaySettings = async function() {
     const dateStr = document.getElementById('setting-date-str').value;
     const isRed = document.getElementById('is-red-day').checked;
     const name = document.getElementById('day-name').value;
@@ -1531,11 +1531,38 @@ window.saveDaySettings = function() {
     if (isRed) {
         if (!name.trim()) return alert("공휴일 이름을 입력해주세요.");
         customHolidays[dateStr] = { name, color };
-    } else { delete customHolidays[dateStr]; }
+        
+        // 수파베이스에도 저장
+        if (typeof saveHolidayToDatabase === 'function') {
+            try {
+                await saveHolidayToDatabase({
+                    teacherId: currentTeacherId || 'no-teacher',
+                    date: dateStr,
+                    name: name,
+                    color: color
+                });
+                console.log(`공휴일 DB 저장: ${dateStr}`);
+            } catch (dbError) {
+                console.error('휴일 DB 저장 실패:', dbError);
+            }
+        }
+    } else { 
+        delete customHolidays[dateStr];
+        
+        // 수파베이스에서도 삭제
+        if (typeof deleteHolidayFromDatabase === 'function') {
+            try {
+                await deleteHolidayFromDatabase(currentTeacherId || 'no-teacher', dateStr);
+                console.log(`공휴일 DB 삭제: ${dateStr}`);
+            } catch (dbError) {
+                console.error('휴일 DB 삭제 실패:', dbError);
+            }
+        }
+    }
     // 공휴일: 선생님별로 분리 저장 (반드시 currentTeacherId 사용)
     const holKey = `academy_holidays__${currentTeacherId || 'no-teacher'}`;
     localStorage.setItem(holKey, JSON.stringify(customHolidays));
-    console.log(`공휴일 저장 (${currentTeacherId}): ${dateStr}`);
+    console.log(`공휴일 로컬 저장 (${currentTeacherId}): ${dateStr}`);
     closeModal('day-settings-modal'); renderCalendar();
 }
 async function loadAndCleanData() {
@@ -1602,11 +1629,36 @@ async function loadAndCleanData() {
         students = [];
     }
     try {
-        // 공휴일: 선생님별로 분리 (반드시 currentTeacherId 사용)
-        const holKey = `academy_holidays__${currentTeacherId || 'no-teacher'}`;
-        const hol = localStorage.getItem(holKey);
-        customHolidays = hol ? JSON.parse(hol) : {};
-        console.log(`공휴일 로드 (${currentTeacherId}): ${Object.keys(customHolidays).length}개`);
+        // 공휴일: 수파베이스에서 먼저 로드
+        if (typeof getHolidaysByTeacher === 'function') {
+            try {
+                const dbHolidays = await getHolidaysByTeacher(currentTeacherId || 'no-teacher');
+                customHolidays = {};
+                dbHolidays.forEach(h => {
+                    customHolidays[h.holiday_date] = {
+                        name: h.holiday_name,
+                        color: h.color || '#ef4444'
+                    };
+                });
+                console.log(`공휴일 DB 로드 (${currentTeacherId}): ${dbHolidays.length}개`);
+                
+                // 로컬에도 백업
+                const holKey = `academy_holidays__${currentTeacherId || 'no-teacher'}`;
+                localStorage.setItem(holKey, JSON.stringify(customHolidays));
+            } catch (dbError) {
+                console.error('공휴일 DB 로드 실패:', dbError);
+                // DB 실패 시 로컬에서 로드
+                const holKey = `academy_holidays__${currentTeacherId || 'no-teacher'}`;
+                const hol = localStorage.getItem(holKey);
+                customHolidays = hol ? JSON.parse(hol) : {};
+            }
+        } else {
+            // 함수가 없으면 로컬에서만 로드
+            const holKey = `academy_holidays__${currentTeacherId || 'no-teacher'}`;
+            const hol = localStorage.getItem(holKey);
+            customHolidays = hol ? JSON.parse(hol) : {};
+            console.log(`공휴일 로컬 로드 (${currentTeacherId}): ${Object.keys(customHolidays).length}개`);
+        }
     } catch (e) { 
         console.error('공휴일 로드 실패:', e);
         customHolidays = {}; 
@@ -1624,14 +1676,53 @@ async function loadAndCleanData() {
 }
 
 // 선생님별 일정 데이터 로드
-function loadTeacherScheduleData(teacherId) {
+async function loadTeacherScheduleData(teacherId) {
     try {
-        const key = `teacher_schedule_data__${teacherId}`;
-        const raw = localStorage.getItem(key);
-        if (raw) {
-            teacherScheduleData[teacherId] = JSON.parse(raw) || {};
+        // 수파베이스에서 먼저 로드
+        if (typeof getSchedulesByTeacher === 'function') {
+            try {
+                const dbSchedules = await getSchedulesByTeacher(teacherId);
+                teacherScheduleData[teacherId] = {};
+                
+                dbSchedules.forEach(schedule => {
+                    const studentId = String(schedule.student_id);
+                    const date = schedule.schedule_date;
+                    
+                    if (!teacherScheduleData[teacherId][studentId]) {
+                        teacherScheduleData[teacherId][studentId] = {};
+                    }
+                    
+                    teacherScheduleData[teacherId][studentId][date] = {
+                        start: schedule.start_time.substring(0, 5), // HH:MM 형식
+                        duration: schedule.duration
+                    };
+                });
+                
+                console.log(`일정 DB 로드 (${teacherId}): ${dbSchedules.length}개`);
+                
+                // 로컬에도 백업
+                const key = `teacher_schedule_data__${teacherId}`;
+                localStorage.setItem(key, JSON.stringify(teacherScheduleData[teacherId] || {}));
+            } catch (dbError) {
+                console.error('일정 DB 로드 실패:', dbError);
+                // DB 실패 시 로컬에서 로드
+                const key = `teacher_schedule_data__${teacherId}`;
+                const raw = localStorage.getItem(key);
+                if (raw) {
+                    teacherScheduleData[teacherId] = JSON.parse(raw) || {};
+                } else {
+                    teacherScheduleData[teacherId] = {};
+                }
+            }
         } else {
-            teacherScheduleData[teacherId] = {};
+            // 함수가 없으면 로컬에서만 로드
+            const key = `teacher_schedule_data__${teacherId}`;
+            const raw = localStorage.getItem(key);
+            if (raw) {
+                teacherScheduleData[teacherId] = JSON.parse(raw) || {};
+            } else {
+                teacherScheduleData[teacherId] = {};
+            }
         }
         console.log(`선생님 ${teacherId} 일정 데이터 로드 완료: ${Object.keys(teacherScheduleData[teacherId] || {}).length}명`);
     } catch (e) {
@@ -1641,12 +1732,36 @@ function loadTeacherScheduleData(teacherId) {
 }
 
 // 선생님별 일정 데이터 저장
-function saveTeacherScheduleData() {
+async function saveTeacherScheduleData() {
     try {
         if (!currentTeacherId) return;
+        
+        // 로컬 저장
         const key = `teacher_schedule_data__${currentTeacherId}`;
         localStorage.setItem(key, JSON.stringify(teacherScheduleData[currentTeacherId] || {}));
-        console.log(`선생님 ${currentTeacherId} 일정 데이터 저장 완료`);
+        console.log(`선생님 ${currentTeacherId} 일정 데이터 로컬 저장 완료`);
+        
+        // 수파베이스 동기화
+        if (typeof saveScheduleToDatabase === 'function') {
+            const scheduleData = teacherScheduleData[currentTeacherId] || {};
+            for (const studentId in scheduleData) {
+                for (const date in scheduleData[studentId]) {
+                    const schedule = scheduleData[studentId][date];
+                    try {
+                        await saveScheduleToDatabase({
+                            teacherId: currentTeacherId,
+                            studentId: studentId,
+                            date: date,
+                            startTime: schedule.start,
+                            duration: schedule.duration
+                        });
+                    } catch (dbError) {
+                        console.error('일정 DB 저장 실패:', date, dbError);
+                    }
+                }
+            }
+            console.log(`선생님 ${currentTeacherId} 일정 데이터 DB 저장 완료`);
+        }
     } catch (e) {
         console.error('선생님 일정 데이터 저장 실패:', e);
     }

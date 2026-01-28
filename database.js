@@ -80,6 +80,7 @@ window.addStudent = async function(studentData) {
         const { data, error } = await supabase
             .from('students')
             .insert([{
+                owner_user_id: user.id,
                 teacher_id: user.id,
                 name: studentData.name,
                 grade: studentData.grade,
@@ -353,3 +354,246 @@ window.deleteHoliday = async function(holidayId) {
         return false;
     }
 }
+
+// ========== Schedules (일정) 관련 함수 ==========
+
+// 일정 저장/업데이트 (Upsert)
+window.saveScheduleToDatabase = async function(scheduleData) {
+    try {
+        const ownerId = localStorage.getItem('current_owner_id');
+        
+        const schedule = {
+            owner_user_id: ownerId,
+            teacher_id: scheduleData.teacherId,
+            student_id: parseInt(scheduleData.studentId),
+            schedule_date: scheduleData.date,
+            start_time: scheduleData.startTime,
+            duration: parseInt(scheduleData.duration)
+        };
+        
+        const { data, error } = await supabase
+            .from('schedules')
+            .upsert(schedule, {
+                onConflict: 'student_id,schedule_date',
+                ignoreDuplicates: false
+            })
+            .select()
+            .single();
+        
+        if (error) throw error;
+        return data;
+    } catch (error) {
+        console.error('[saveScheduleToDatabase] 에러:', error);
+        throw error;
+    }
+}
+
+// 특정 선생님의 일정 조회
+window.getSchedulesByTeacher = async function(teacherId) {
+    try {
+        const ownerId = localStorage.getItem('current_owner_id');
+        
+        const { data, error } = await supabase
+            .from('schedules')
+            .select('*')
+            .eq('owner_user_id', ownerId)
+            .eq('teacher_id', teacherId)
+            .order('schedule_date', { ascending: true });
+        
+        if (error) throw error;
+        return data || [];
+    } catch (error) {
+        console.error('[getSchedulesByTeacher] 에러:', error);
+        return [];
+    }
+}
+
+// 특정 학생의 일정 조회
+window.getSchedulesByStudent = async function(studentId) {
+    try {
+        const ownerId = localStorage.getItem('current_owner_id');
+        const numericId = parseInt(studentId);
+        
+        const { data, error } = await supabase
+            .from('schedules')
+            .select('*')
+            .eq('owner_user_id', ownerId)
+            .eq('student_id', numericId)
+            .order('schedule_date', { ascending: true });
+        
+        if (error) throw error;
+        return data || [];
+    } catch (error) {
+        console.error('[getSchedulesByStudent] 에러:', error);
+        return [];
+    }
+}
+
+// 일정 삭제
+window.deleteScheduleFromDatabase = async function(studentId, date) {
+    try {
+        const numericId = parseInt(studentId);
+        
+        const { error } = await supabase
+            .from('schedules')
+            .delete()
+            .eq('student_id', numericId)
+            .eq('schedule_date', date);
+        
+        if (error) throw error;
+        return true;
+    } catch (error) {
+        console.error('[deleteScheduleFromDatabase] 에러:', error);
+        throw error;
+    }
+}
+
+// ========== Holidays (커스텀 휴일) 관련 함수 ==========
+
+// 커스텀 휴일 저장/업데이트
+window.saveHolidayToDatabase = async function(holidayData) {
+    try {
+        const ownerId = localStorage.getItem('current_owner_id');
+        
+        const holiday = {
+            owner_user_id: ownerId,
+            teacher_id: holidayData.teacherId,
+            holiday_date: holidayData.date,
+            holiday_name: holidayData.name,
+            color: holidayData.color || '#ef4444'
+        };
+        
+        const { data, error } = await supabase
+            .from('holidays')
+            .upsert(holiday, {
+                onConflict: 'owner_user_id,teacher_id,holiday_date',
+                ignoreDuplicates: false
+            })
+            .select()
+            .single();
+        
+        if (error) throw error;
+        return data;
+    } catch (error) {
+        console.error('[saveHolidayToDatabase] 에러:', error);
+        throw error;
+    }
+}
+
+// 특정 선생님의 커스텀 휴일 조회
+window.getHolidaysByTeacher = async function(teacherId) {
+    try {
+        const ownerId = localStorage.getItem('current_owner_id');
+        
+        const { data, error } = await supabase
+            .from('holidays')
+            .select('*')
+            .eq('owner_user_id', ownerId)
+            .eq('teacher_id', teacherId)
+            .order('holiday_date', { ascending: true });
+        
+        if (error) throw error;
+        return data || [];
+    } catch (error) {
+        console.error('[getHolidaysByTeacher] 에러:', error);
+        return [];
+    }
+}
+
+// 커스텀 휴일 삭제
+window.deleteHolidayFromDatabase = async function(teacherId, date) {
+    try {
+        const ownerId = localStorage.getItem('current_owner_id');
+        
+        const { error } = await supabase
+            .from('holidays')
+            .delete()
+            .eq('owner_user_id', ownerId)
+            .eq('teacher_id', teacherId)
+            .eq('holiday_date', date);
+        
+        if (error) throw error;
+        return true;
+    } catch (error) {
+        console.error('[deleteHolidayFromDatabase] 에러:', error);
+        throw error;
+    }
+}
+
+// ========== Payments (결제) 관련 함수 ==========
+
+// 결제 정보 저장/업데이트
+window.savePaymentToDatabase = async function(paymentData) {
+    try {
+        const ownerId = localStorage.getItem('current_owner_id');
+        
+        const payment = {
+            owner_user_id: ownerId,
+            teacher_id: paymentData.teacherId,
+            student_id: parseInt(paymentData.studentId),
+            payment_month: paymentData.month, // YYYY-MM
+            amount: parseInt(paymentData.amount),
+            paid_amount: parseInt(paymentData.paidAmount || 0),
+            payment_status: paymentData.status || 'unpaid',
+            payment_date: paymentData.paymentDate || null,
+            memo: paymentData.memo || null
+        };
+        
+        const { data, error } = await supabase
+            .from('payments')
+            .upsert(payment, {
+                onConflict: 'student_id,payment_month',
+                ignoreDuplicates: false
+            })
+            .select()
+            .single();
+        
+        if (error) throw error;
+        return data;
+    } catch (error) {
+        console.error('[savePaymentToDatabase] 에러:', error);
+        throw error;
+    }
+}
+
+// 특정 월의 결제 정보 조회
+window.getPaymentsByMonth = async function(teacherId, month) {
+    try {
+        const ownerId = localStorage.getItem('current_owner_id');
+        
+        const { data, error } = await supabase
+            .from('payments')
+            .select('*')
+            .eq('owner_user_id', ownerId)
+            .eq('teacher_id', teacherId)
+            .eq('payment_month', month);
+        
+        if (error) throw error;
+        return data || [];
+    } catch (error) {
+        console.error('[getPaymentsByMonth] 에러:', error);
+        return [];
+    }
+}
+
+// 특정 학생의 결제 정보 조회
+window.getPaymentsByStudent = async function(studentId) {
+    try {
+        const ownerId = localStorage.getItem('current_owner_id');
+        const numericId = parseInt(studentId);
+        
+        const { data, error } = await supabase
+            .from('payments')
+            .select('*')
+            .eq('owner_user_id', ownerId)
+            .eq('student_id', numericId)
+            .order('payment_month', { ascending: false });
+        
+        if (error) throw error;
+        return data || [];
+    } catch (error) {
+        console.error('[getPaymentsByStudent] 에러:', error);
+        return [];
+    }
+}
+
