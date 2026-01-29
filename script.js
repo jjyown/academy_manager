@@ -71,7 +71,6 @@ window.setPaymentFilter = function(filter) {
     });
     document.querySelector(`.p-filter-btn[onclick="setPaymentFilter('${filter}')"]`).classList.add('active');
     renderPaymentList();
-    updateSummary();
 }
 
 const LUNAR_HOLIDAYS_DB = {
@@ -2589,20 +2588,20 @@ function updateSummaryForCurrentUserSet() {
     const paymentData = activeStudents.map(s => {
         const studentMonthData = s.payments?.[monthKey] || {};
         const tuition = { amount: studentMonthData.tuition?.amount ?? s.defaultFee ?? 0, date: studentMonthData.tuition?.date || '' };
-        const textbook = { amount: studentMonthData.textbook?.amount ?? 0, date: studentMonthData.textbook?.date || '' };
+        const textbook = { amount: studentMonthData.textbook?.amount ?? s.defaultTextbookFee ?? 0, date: studentMonthData.textbook?.date || '' };
         const special = { amount: studentMonthData.special?.amount ?? s.specialLectureFee ?? 0, date: studentMonthData.special?.date || '' };
         const totalPaid = (tuition.date ? (tuition.amount || 0) : 0) + (textbook.date ? (textbook.amount || 0) : 0) + (special.date ? (special.amount || 0) : 0);
         const totalDue = (tuition.amount || 0) + (textbook.amount || 0) + (special.amount || 0);
-        
+
         let status;
         if (totalDue === 0) status = 'no_charge';
         else if (totalPaid >= totalDue) status = 'paid';
         else if (totalPaid > 0) status = 'partial';
         else status = 'unpaid';
-        
-        return { summary: { totalPaid, status } };
+
+        return { summary: { totalPaid, totalDue, status } };
     });
-    
+
     updateSummary(monthKey, paymentData);
 }
 
