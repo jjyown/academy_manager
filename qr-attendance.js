@@ -9,9 +9,15 @@ let currentFacingMode = "environment"; // "environment" (후방) 또는 "user" (
 // ========== QR 코드 생성 ==========
 
 // 학생별 고유 QR 코드 데이터 생성
+// QR코드 재발급 시마다 고유 토큰을 생성하여 로컬에 저장
 window.generateQRCodeData = function(studentId) {
-    // 형식: STUDENT_<UUID>_<현재시간타임스탬프>
-    return `STUDENT_${studentId}_${Date.now()}`;
+    // 고유 토큰 생성 (랜덤+시간)
+    const qrToken = `${Date.now()}_${Math.random().toString(36).substr(2,8)}`;
+    // 학생별 토큰 저장 (로컬)
+    let qrTokens = JSON.parse(localStorage.getItem('student_qr_tokens') || '{}');
+    qrTokens[studentId] = qrToken;
+    localStorage.setItem('student_qr_tokens', JSON.stringify(qrTokens));
+    return `STUDENT_${studentId}_${qrToken}`;
 }
 
 // QR 코드 이미지 생성 (흰색 배경 명시)
@@ -220,23 +226,32 @@ async function processAttendanceFromQR(qrData) {
             return;
         }
         
-        // 3. 학생 ID 추출 (STUDENT_{ID} 또는 STUDENT_{ID}_{타임스탬프} 형식 모두 지원)
+        // 3. 학생 ID, QR토큰 추출 (STUDENT_{ID}_{qrToken} 형식)
         const dataWithoutPrefix = qrData.substring(8); // "STUDENT_" 제거
-        let studentId;
-        
-        // 언더스코어가 있으면 첫 번째 언더스코어 전까지가 ID (이전 형식 호환)
+        let studentId, qrToken = null;
         const firstUnderscoreIndex = dataWithoutPrefix.indexOf('_');
         if (firstUnderscoreIndex !== -1) {
             studentId = dataWithoutPrefix.substring(0, firstUnderscoreIndex);
+            qrToken = dataWithoutPrefix.substring(firstUnderscoreIndex + 1);
         } else {
-            // 언더스코어가 없으면 전체가 ID (새 형식)
             studentId = dataWithoutPrefix;
         }
-        
-        console.log('[processAttendanceFromQR] 추출된 학생 ID:', studentId);
+
+        console.log('[processAttendanceFromQR] 추출된 학생 ID:', studentId, 'QR토큰:', qrToken);
         console.log('[processAttendanceFromQR] 학생 ID 타입:', typeof studentId);
         console.log('[processAttendanceFromQR] 전체 students 수:', students.length);
         console.log('[processAttendanceFromQR] 등록된 학생 ID 목록:', students.map(s => `${s.id}(${typeof s.id})`).join(', '));
+
+        // 3-1. QR토큰 유효성 검사 (재발급된 QR만 허용, 구버전 QR도 만료 처리)
+        let qrTokens = JSON.parse(localStorage.getItem('student_qr_tokens') || '{}');
+        const validToken = qrTokens[studentId];
+        if (!qrToken || !validToken || qrToken !== validToken) {
+            showQRScanToast(null, 'expired_qr', null);
+            setTimeout(() => {
+                if (html5QrcodeScanner) html5QrcodeScanner.resume();
+            }, 2500);
+            return;
+        }
         
         // 4. 학생 정보 조회 (전체 학생 배열에서)
         let student = students.find(s => String(s.id) === String(studentId));
@@ -264,7 +279,20 @@ async function processAttendanceFromQR(qrData) {
         const today = new Date();
         const dateStr = formatDateToYYYYMMDD(today);
         
-        // 5-1. 데이터베이스에서 중복 출석 체크
+        // 5-1. QR토큰 만료 체크를 출석 기록 체크보다 먼저 수행
+        if (qrToken) {
+            let qrTokens = JSON.parse(localStorage.getItem('student_qr_tokens') || '{}');
+            const validToken = qrTokens[studentId];
+            if (!validToken || qrToken !== validToken) {
+                showQRScanToast(student, 'expired_qr', null);
+                setTimeout(() => {
+                    if (html5QrcodeScanner) html5QrcodeScanner.resume();
+                }, 2500);
+                return;
+            }
+        }
+
+        // 5-2. 데이터베이스에서 중복 출석 체크
         try {
             const existingRecord = await getAttendanceRecordByStudentAndDate(studentId, dateStr);
             if (existingRecord) {
@@ -279,7 +307,7 @@ async function processAttendanceFromQR(qrData) {
             console.error('[processAttendanceFromQR] 데이터베이스 조회 실패:', dbError);
         }
         
-        // 5-2. 로컬 메모리에서도 확인 (백업)
+        // 5-3. 로컬 메모리에서도 확인 (백업)
         if (student.attendance && student.attendance[dateStr]) {
             const existingStatus = student.attendance[dateStr];
             console.log('[processAttendanceFromQR] 로컬 메모리에 이미 기록됨:', existingStatus);
@@ -389,18 +417,24 @@ function determineAttendanceStatus(currentTime, scheduledTimeStr) {
 
 // QR 스캔 토스트 알림 표시
 function showQRScanToast(student, status, extra) {
-    const existingToast = document.querySelector('.qr-scan-toast');
-    if (existingToast) {
-        existingToast.remove();
-    }
-    
     let icon = '';
     let name = '';
     let statusText = '';
     let statusColor = '';
     let timeText = '';
-    
-    if (status === 'present') {
+
+    const existingToast = document.querySelector('.qr-scan-toast');
+    if (existingToast) {
+        existingToast.remove();
+    }
+
+    if (status === 'expired_qr') {
+        icon = '❌';
+        name = student ? `${student.name} (${student.grade})` : '만료된 QR코드';
+        statusText = '만료된 QR코드';
+        statusColor = '#ef4444';
+        timeText = '재발급된 QR코드를 사용하세요';
+    } else if (status === 'present') {
         icon = '✅';
         name = `${student.name} (${student.grade})`;
         statusText = '출석 완료';
@@ -561,26 +595,26 @@ function renderStudentQRList() {
 // QR 코드 재발급
 window.regenerateQRCode = function(studentId, qrId, accordionId, cleanName) {
     console.log('[regenerateQRCode] QR 코드 재발급:', studentId);
-    
-    const newQrData = `STUDENT_${studentId}`;
+    // 반드시 토큰 포함된 최신 QR 생성
+    const newQrData = generateQRCodeData(studentId);
     console.log('[regenerateQRCode] 새 QR 데이터:', newQrData);
-    
+
     const qrContainer = document.getElementById(qrId);
     if (!qrContainer) return;
-    
+
     qrContainer.innerHTML = '';
-    
+
     generateQRCode(qrId, newQrData, 200);
-    
+
     const accordion = document.getElementById(accordionId);
     if (accordion && accordion.style.maxHeight !== '0px' && accordion.style.maxHeight !== '') {
         setTimeout(() => {
             accordion.style.maxHeight = accordion.scrollHeight + 'px';
         }, 100);
     }
-    
+
     showQRScanToast(null, 'regenerate_success', cleanName);
-    
+
     console.log('[regenerateQRCode] QR 코드 재발급 완료');
 }
 
