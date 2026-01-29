@@ -1895,8 +1895,16 @@ function unassignStudentFromAllTeachers(studentId) {
 }
 window.goToday = function() { currentDate = new Date(); document.getElementById('jump-date-picker').value = ''; renderCalendar(); }
 window.moveDate = function(d) {
-    if(currentView === 'month') currentDate.setMonth(currentDate.getMonth() + d);
-    else currentDate.setDate(currentDate.getDate() + (d * 7));
+    if(currentView === 'month') {
+        // 날짜를 1일로 임시 설정 후 월 이동, 마지막에 일자를 조정
+        const day = currentDate.getDate();
+        currentDate.setDate(1);
+        currentDate.setMonth(currentDate.getMonth() + d);
+        const lastDay = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate();
+        currentDate.setDate(Math.min(day, lastDay));
+    } else {
+        currentDate.setDate(currentDate.getDate() + (d * 7));
+    }
     renderCalendar();
 }
 window.switchView = function(v) {
