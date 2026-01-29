@@ -192,8 +192,10 @@ function restorePageOnLoad() {
         if (label) label.textContent = savedTeacherName || '미선택';
 
         loadAndCleanData();
-        loadTeacherScheduleData(currentTeacherId);
-        renderCalendar();
+        (async () => {
+            await loadTeacherScheduleData(currentTeacherId);
+            renderCalendar();
+        })();
         // 드롭다운 및 목록 동기화는 백그라운드로
         loadTeachers();
         return;
