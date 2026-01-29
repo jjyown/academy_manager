@@ -334,7 +334,8 @@ async function processAttendanceFromQR(qrData) {
             console.log('[processAttendanceFromQR] 로컬 데이터 저장 완료');
         }
         
-        // 10. 화면 업데이트
+        // 10. 화면 업데이트 (QR 출석 학생 ID 저장)
+        lastQrScannedStudentId = studentId;
         renderCalendar();
         
         // 11. 결과 표시 (토스트 알림)

@@ -1,4 +1,6 @@
 let currentDate = new Date();
+// 마지막 QR 출석 학생 ID (캘린더 표시용)
+let lastQrScannedStudentId = null;
 let currentView = 'month';
 let students = [];  // 전역: 모든 학생 (학생목록은 통합)
 let currentTeacherStudents = [];  // 현재 선생님의 학생만 (일정용)
@@ -708,6 +710,11 @@ function getSubItemColorClass(grade) {
 }
 
 window.renderCalendar = function() {
+    // QR 출석 뱃지는 일정 렌더 직후 2.5초간만 표시
+    const qrBadgeStudentId = lastQrScannedStudentId;
+    if (qrBadgeStudentId) {
+        setTimeout(() => { lastQrScannedStudentId = null; renderCalendar(); }, 2500);
+    }
     const grid = document.getElementById('calendar-grid');
     const display = document.getElementById('current-display');
     
@@ -864,10 +871,18 @@ window.renderDayEvents = function(dateStr) {
     // 현재 선생님의 학생만 필터링 (다른 선생님의 일정은 보이지 않음)
     const activeStudents = currentTeacherStudents.filter(s => s.status === 'active');
     let rawEvents = [];
+    // QR 출석 뱃지용 학생ID (전역)
+    const qrBadgeStudentId = typeof lastQrScannedStudentId !== 'undefined' ? lastQrScannedStudentId : null;
     const teacherSchedule = teacherScheduleData[currentTeacherId] || {};
     activeStudents.forEach((s) => {
+        // 디버깅: 날짜 포맷과 데이터 매칭 확인
+        if (teacherSchedule[s.id]) {
+            const allDates = Object.keys(teacherSchedule[s.id]);
+            console.log(`[디버그] 학생:${s.name}(${s.id}) 일정 날짜 목록:`, allDates, '찾는 날짜:', dateStr);
+        }
         // 현재 선생님의 schedule 데이터에서만 확인
         if(teacherSchedule[s.id] && teacherSchedule[s.id][dateStr]) {
+            console.log(`[디버그] 일정 있음:`, s.name, dateStr, teacherSchedule[s.id][dateStr]);
             const studentSchedule = teacherSchedule[s.id];
             const detail = studentSchedule[dateStr] || { start: '16:00', duration: 90 };
             const [h, m] = detail.start.split(':').map(Number);
@@ -875,8 +890,9 @@ window.renderDayEvents = function(dateStr) {
             // Ensure startMin is within bounds, though it should be if time input is valid
             if (startMin < 0) startMin = 0;
             if (startMin >= 24 * 60) startMin = (24 * 60) - 1; // Cap at end of day
-            
             rawEvents.push({ student: s, startMin: startMin, duration: parseInt(detail.duration), originalStart: detail.start });
+        } else {
+            console.log(`[디버그] 일정 없음:`, s.name, dateStr, teacherSchedule[s.id]);
         }
     });
     let groupedEvents = {}; 
@@ -967,7 +983,12 @@ window.renderDayEvents = function(dateStr) {
                 } else if (status === 'makeup' || status === 'etc') {
                     statusBadge = '<span style="background:#8b5cf6;color:white;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;">보강</span>';
                 }
-                return `<div class="sub-event-item ${getSubItemColorClass(m.grade)}" onclick="event.stopPropagation(); openAttendanceModal('${m.id}', '${dateStr}')"><div class="sub-info"><span class="sub-name">${m.name}</span><span class="sub-grade">${m.grade}</span></div>${statusBadge}</div>`;
+                // QR 출석 뱃지 추가
+                let qrBadge = '';
+                if (qrBadgeStudentId && String(m.id) === String(qrBadgeStudentId)) {
+                    qrBadge = '<span style="background:#2563eb;color:white;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;margin-left:4px;">QR</span>';
+                }
+                return `<div class="sub-event-item ${getSubItemColorClass(m.grade)}" onclick="event.stopPropagation(); openAttendanceModal('${m.id}', '${dateStr}')"><div class="sub-info"><span class="sub-name">${m.name}${qrBadge}</span><span class="sub-grade">${m.grade}</span></div>${statusBadge}</div>`;
             }).join('')}</div>`;
         } else {
             const s = ev.members[0];
@@ -982,7 +1003,12 @@ window.renderDayEvents = function(dateStr) {
             } else if (status === 'makeup' || status === 'etc') {
                 statusBadge = '<span style="background:#8b5cf6;color:white;padding:3px 8px;border-radius:6px;font-size:11px;font-weight:700;margin-left:8px;">보강</span>';
             }
-            contentDiv.innerHTML = `<div class="evt-title">${s.name} <span class="evt-grade">(${s.grade})</span>${statusBadge}</div><div class="event-time-text">${ev.originalStart} - ${endTimeStr} (${ev.duration}분)</div>`;
+            // QR 출석 뱃지 추가
+            let qrBadge = '';
+            if (qrBadgeStudentId && String(s.id) === String(qrBadgeStudentId)) {
+                qrBadge = '<span style="background:#2563eb;color:white;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;margin-left:4px;">QR</span>';
+            }
+            contentDiv.innerHTML = `<div class="evt-title">${s.name}${qrBadge} <span class="evt-grade">(${s.grade})</span>${statusBadge}</div><div class="event-time-text">${ev.originalStart} - ${endTimeStr} (${ev.duration}분)</div>`;
             block.onclick = (e) => { 
                 if(block.getAttribute('data-action-status') === 'moved' || block.getAttribute('data-action-status') === 'resized') { e.stopPropagation(); block.setAttribute('data-action-status', 'none'); return; }
                 if(e.target.classList.contains('resize-handle')) return;
