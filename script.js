@@ -2254,7 +2254,12 @@ window.openPaymentModal = function() {
 }
 
 window.movePaymentMonth = function(offset) {
+    // 날짜를 1일로 임시 설정 후 월 이동, 마지막에 일자를 조정
+    const day = currentPaymentDate.getDate();
+    currentPaymentDate.setDate(1);
     currentPaymentDate.setMonth(currentPaymentDate.getMonth() + offset);
+    const lastDay = new Date(currentPaymentDate.getFullYear(), currentPaymentDate.getMonth() + 1, 0).getDate();
+    currentPaymentDate.setDate(Math.min(day, lastDay));
     renderPaymentList();
 }
 
