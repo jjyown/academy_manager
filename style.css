@@ -851,6 +851,8 @@ body {
 .t-dot-present { background-color: var(--teal); box-shadow: 0 0 0 1px #99f6e4; }
 .t-dot-absent { background-color: var(--red); box-shadow: 0 0 0 1px #fecaca; }
 .t-dot-etc { background-color: var(--orange); box-shadow: 0 0 0 1px #fed7aa; }
+.t-dot-late { background-color: #eab308; box-shadow: 0 0 0 1px #fef08a; }
+.t-dot-makeup { background-color: #8b5cf6; box-shadow: 0 0 0 1px #ddd6fe; }
 
 .timeline-date {
     font-size: 14px;
@@ -878,6 +880,8 @@ body {
 .bg-present { background-color: var(--teal); }
 .bg-absent { background-color: var(--red); }
 .bg-etc { background-color: var(--orange); }
+.bg-late { background-color: #eab308; }
+.bg-makeup { background-color: #8b5cf6; }
 .bg-none { background-color: var(--gray); }
 
 /* Custom Scrollbar */

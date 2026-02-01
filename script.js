@@ -1119,7 +1119,7 @@ window.openAttendanceModal = function(sid, dateStr) {
     
     const statusMapDisplay = {
         'present': { text: '✓ 출석', class: 'status-present' },
-        'late': { text: '⏰ 지경', class: 'status-late' },
+        'late': { text: '⏰ 지각', class: 'status-late' },
         'absent': { text: '✕ 결석', class: 'status-absent' },
         'makeup': { text: '🔄 보강', class: 'status-makeup' },
         'etc': { text: '🔄 보강', class: 'status-makeup' }
@@ -1211,7 +1211,7 @@ window.setAttendance = function(status) {
         const statusDisplay = document.getElementById('current-status-display');
         const statusMapDisplay = {
             'present': { text: '✓ 출석', class: 'status-present' },
-            'late': { text: '⏰ 지경', class: 'status-late' },
+            'late': { text: '⏰ 지각', class: 'status-late' },
             'absent': { text: '✕ 결석', class: 'status-absent' },
             'makeup': { text: '🔄 보강', class: 'status-makeup' },
             'etc': { text: '🔄 보강', class: 'status-makeup' }
@@ -1585,8 +1585,10 @@ window.openHistoryModal = function() {
         let statusText = "미처리", statusClass = "bg-none", dotClass = "t-dot-none";
         if(status === 'present') { statusText = '출석'; statusClass = 'bg-present'; dotClass = 't-dot-present'; }
         else if(status === 'absent') { statusText = '결석'; statusClass = 'bg-absent'; dotClass = 't-dot-absent'; }
+        else if(status === 'late') { statusText = '지각'; statusClass = 'bg-late'; dotClass = 't-dot-late'; }
+        else if(status === 'makeup') { statusText = '보강'; statusClass = 'bg-makeup'; dotClass = 't-dot-makeup'; }
         else if(status === 'etc') { statusText = '기타'; statusClass = 'bg-etc'; dotClass = 't-dot-etc'; }
-        else if (!isScheduled && record) { statusText = "기록만 존재"; statusClass = "bg-none"; } 
+        else if (!isScheduled && record) { statusText = "기록만 존재"; statusClass = "bg-none"; }
         const dayNum = date.split('-')[2];
         const contentHtml = record ? record.replace(/\n/g, '<br>') : '<span style="color:#aaa; font-size:12px;">(기록 없음)</span>';
         container.innerHTML += `<div class="timeline-item"><div class="timeline-dot ${dotClass}"></div><div class="timeline-date">${dayNum}일 <span class="status-badge ${statusClass}">${statusText}</span>${!isScheduled ? '<span style="font-size:10px; color:var(--red); margin-left:4px;">(일정삭제됨)</span>' : ''}</div><div class="timeline-content">${contentHtml}</div></div>`;
