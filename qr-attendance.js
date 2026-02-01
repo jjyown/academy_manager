@@ -254,9 +254,21 @@ async function processAttendanceFromQR(qrData) {
         }
         
         // 4. 학생 정보 조회 (전체 학생 배열에서)
-        let student = students.find(s => String(s.id) === String(studentId));
-        console.log('[processAttendanceFromQR] students 배열에서 찾기:', !!student);
-        
+        // 학생 ID 타입 일치 보장 (number/string 혼용 방지)
+        // 학생 ID 타입 일치 보장 (number/string 혼용 방지)
+        let student = students.find(s => String(s.id) === String(studentId) || Number(s.id) === Number(studentId));
+        if (!student) {
+            // 혹시 currentTeacherStudents에도 있는지 추가로 확인
+            student = currentTeacherStudents.find(s => String(s.id) === String(studentId) || Number(s.id) === Number(studentId));
+        }
+        // Supabase에서 불러온 학생 ID가 uuid(문자열)일 경우도 체크
+        if (!student) {
+            student = students.find(s => String(s.id).replace(/-/g, '') === String(studentId).replace(/-/g, ''));
+        }
+        if (!student) {
+            student = currentTeacherStudents.find(s => String(s.id).replace(/-/g, '') === String(studentId).replace(/-/g, ''));
+        }
+        console.log('[processAttendanceFromQR] 최종 학생 찾기:', !!student, student);
         if (!student) {
             console.error('[processAttendanceFromQR] ❌ 학생을 찾을 수 없음!');
             console.error('[processAttendanceFromQR] 찾으려는 ID:', studentId);
@@ -358,6 +370,14 @@ async function processAttendanceFromQR(qrData) {
         if (sIdx > -1) {
             if (!students[sIdx].attendance) students[sIdx].attendance = {};
             students[sIdx].attendance[dateStr] = attendanceStatus;
+            
+            // currentTeacherStudents 배열도 함께 업데이트
+            const ctIdx = currentTeacherStudents.findIndex(s => String(s.id) === String(studentId));
+            if (ctIdx > -1) {
+                if (!currentTeacherStudents[ctIdx].attendance) currentTeacherStudents[ctIdx].attendance = {};
+                currentTeacherStudents[ctIdx].attendance[dateStr] = attendanceStatus;
+            }
+            
             saveData();
             console.log('[processAttendanceFromQR] 로컬 데이터 저장 완료');
         }
@@ -539,20 +559,21 @@ window.showStudentQRList = function() {
 function renderStudentQRList() {
     const listDiv = document.getElementById('student-qr-list');
     
-    if (currentTeacherStudents.length === 0) {
+    if (!Array.isArray(students) || students.length === 0) {
         listDiv.innerHTML = '<p style="color: #64748b; text-align: center;">등록된 학생이 없습니다.</p>';
         return;
     }
-    
+
     let html = '<div style="display: flex; flex-direction: column; gap: 10px;">';
-    
-    for (const student of currentTeacherStudents) {
-        const qrData = `STUDENT_${student.id}`;
+
+    for (const student of students) {
+        // 항상 토큰 포함된 QR코드 데이터 생성 (최초/재발급 동일 패턴)
+        const qrData = generateQRCodeData(student.id);
         const qrId = `qr-${student.id}`;
         const accordionId = `accordion-${student.id}`;
-        
+
         console.log('[renderStudentQRList] 학생:', student.name, '| ID:', student.id, '| QR 데이터:', qrData);
-        
+
         html += `
             <div style="border: 2px solid #e2e8f0; border-radius: 12px; overflow: hidden; background: white;">
                 <div onclick="toggleQRAccordion('${accordionId}', '${qrId}', '${qrData}')" 
@@ -587,7 +608,7 @@ function renderStudentQRList() {
             </div>
         `;
     }
-    
+
     html += '</div>';
     listDiv.innerHTML = html;
 }

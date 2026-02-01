@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS public.schedules (
     duration INTEGER NOT NULL, -- 분 단위
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(student_id, schedule_date)
+    UNIQUE(owner_user_id, teacher_id, student_id, schedule_date)
 );
 
 -- 인덱스 생성

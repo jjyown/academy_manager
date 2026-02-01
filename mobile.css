@@ -383,4 +383,46 @@
     .date-input {
         width: 80px;
     }
-}
+    
+    /* 수업관리 모달 - 모바일 반응형 */
+    .attendance-card {
+        width: 90% !important;
+        max-height: 90vh !important;
+    }
+    
+    .current-attendance-status {
+        padding: 12px 8px !important;
+        margin-bottom: 12px !important;
+    }
+    
+    .attendance-options {
+        gap: 6px !important;
+        margin-bottom: 12px !important;
+    }
+    
+    .att-btn {
+        padding: 12px 8px !important;
+        font-size: 12px !important;
+        gap: 4px !important;
+    }
+    
+    .att-btn i {
+        font-size: 18px !important;
+    }
+    
+    .time-edit-container {
+        gap: 6px !important;
+    }
+    
+    .time-row {
+        gap: 6px !important;
+    }
+    
+    .duration-input-wrapper {
+        flex: 1 !important;
+    }
+    
+    .btn-time-update {
+        padding: 8px 12px !important;
+        font-size: 12px !important;
+    }

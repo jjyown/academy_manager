@@ -424,8 +424,13 @@
             <input type="hidden" id="att-student-id">
             <input type="hidden" id="att-date">
             <div class="attendance-modal-body custom-scroll">
-                <div class="att-info" id="att-info-text"></div>
-                <div class="attendance-options">
+                <div class="att-info" id="att-info-text"></div>                
+                <!-- 현재 출석 상태 표시 -->
+                <div class="current-attendance-status">
+                    <div class="status-label">현재 상태</div>
+                    <div id="current-status-display" class="status-display">미등록</div>
+                </div>
+                                <div class="attendance-options">
                     <button class="att-btn present" onclick="setAttendance('present')"><i class="fas fa-check-circle fa-lg"></i>출석</button>
                     <button class="att-btn late" onclick="setAttendance('late')"><i class="fas fa-clock fa-lg"></i>지각</button>
                     <button class="att-btn absent" onclick="setAttendance('absent')"><i class="fas fa-times-circle fa-lg"></i>결석</button>
@@ -695,10 +700,7 @@
             
             <div id="qr-reader" style="width: 100%; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.3);"></div>
             
-            <div id="qr-scan-result" style="margin-top: 20px; padding: 20px; background: white; border-radius: 12px; display: none;">
-                <h3 style="margin-top: 0; color: #10b981;">스캔 성공!</h3>
-                <div id="qr-scan-details"></div>
-            </div>
+            <!-- 하단 결과 패널 제거: 상단 토스트만 사용 -->
         </div>
     </div>
 

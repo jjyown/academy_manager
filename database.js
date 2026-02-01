@@ -77,6 +77,9 @@ window.addStudent = async function(studentData) {
             return null;
         }
 
+        // 날짜 필드가 빈 문자열이면 null로 변환
+        let regDate = studentData.register_date;
+        if (!regDate || regDate === '' || regDate === '연도-월-일') regDate = null;
         const { data, error } = await supabase
             .from('students')
             .insert([{
@@ -84,13 +87,13 @@ window.addStudent = async function(studentData) {
                 teacher_id: user.id,
                 name: studentData.name,
                 grade: studentData.grade,
-                phone: studentData.phone || studentData.studentPhone || '',
-                parent_phone: studentData.parentPhone || '',
-                default_fee: studentData.defaultFee || 0,
-                special_lecture_fee: studentData.specialLectureFee || 0,
-                default_textbook_fee: studentData.defaultTextbookFee || 0,
+                phone: studentData.phone || '',
+                parent_phone: studentData.parent_phone || '',
+                default_fee: studentData.default_fee || 0,
+                special_lecture_fee: studentData.special_lecture_fee || 0,
+                default_textbook_fee: studentData.default_textbook_fee || 0,
                 memo: studentData.memo || '',
-                register_date: studentData.registerDate || '',
+                register_date: regDate,
                 status: studentData.status || 'active'
             }])
             .select();
@@ -163,6 +166,27 @@ window.deleteStudent = async function(studentId) {
     } catch (error) {
         console.error('[deleteStudent] 전체 삭제 프로세스 실패:', error);
         return false;
+    }
+}
+
+// ========== 출석 기록 조회 (소유자 기준) ==========
+
+window.getAttendanceRecordsByOwner = async function() {
+    try {
+        const ownerId = localStorage.getItem('current_owner_id');
+        if (!ownerId) return [];
+
+        const { data, error } = await supabase
+            .from('attendance_records')
+            .select('*')
+            .eq('owner_user_id', ownerId)
+            .order('attendance_date', { ascending: true });
+
+        if (error) throw error;
+        return data || [];
+    } catch (error) {
+        console.error('[getAttendanceRecordsByOwner] 에러:', error);
+        return [];
     }
 }
 
@@ -374,7 +398,7 @@ window.saveScheduleToDatabase = async function(scheduleData) {
         const { data, error } = await supabase
             .from('schedules')
             .upsert(schedule, {
-                onConflict: 'student_id,schedule_date',
+                onConflict: 'owner_user_id,teacher_id,student_id,schedule_date',
                 ignoreDuplicates: false
             })
             .select()
@@ -430,15 +454,21 @@ window.getSchedulesByStudent = async function(studentId) {
 }
 
 // 일정 삭제
-window.deleteScheduleFromDatabase = async function(studentId, date) {
+window.deleteScheduleFromDatabase = async function(studentId, date, teacherId = null) {
     try {
         const numericId = parseInt(studentId);
+        const effectiveTeacherId = teacherId || (typeof currentTeacherId !== 'undefined' ? currentTeacherId : null);
+        if (!effectiveTeacherId) {
+            console.warn('[deleteScheduleFromDatabase] teacherId가 없어 삭제를 중단합니다.');
+            return false;
+        }
         
         const { error } = await supabase
             .from('schedules')
             .delete()
             .eq('student_id', numericId)
-            .eq('schedule_date', date);
+            .eq('schedule_date', date)
+            .eq('teacher_id', effectiveTeacherId);
         
         if (error) throw error;
         return true;
