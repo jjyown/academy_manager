@@ -352,15 +352,21 @@ async function setCurrentTeacher(teacher) {
         console.log('[setCurrentTeacher] Supabase에서 최신 role 정보 조회 중...');
         const { data: latestTeacher, error } = await supabase
             .from('teachers')
-            .select('role')
+            .select('role, teacher_role')
             .eq('id', teacher.id)
             .single();
         
         if (error) {
             console.error('[setCurrentTeacher] role 조회 실패:', error);
         } else if (latestTeacher) {
-            teacher.role = latestTeacher.role;
+            // role 또는 teacher_role 중 하나 사용 (우선순위: role > teacher_role)
+            teacher.role = latestTeacher.role || latestTeacher.teacher_role || 'teacher';
             console.log('[setCurrentTeacher] 최신 role 반영:', teacher.role);
+        }
+        
+        // 기본값 설정 (role이 없으면 'teacher')
+        if (!teacher.role) {
+            teacher.role = 'teacher';
         }
         
         // 전역 변수 설정
@@ -370,7 +376,7 @@ async function setCurrentTeacher(teacher) {
         // 선택된 선생님을 로컬 저장해 새로고침 후에도 유지
         localStorage.setItem('current_teacher_id', teacher.id);
         localStorage.setItem('current_teacher_name', teacher.name || '');
-        localStorage.setItem('current_teacher_role', teacher.role || 'teacher');
+        localStorage.setItem('current_teacher_role', teacher.role);
         console.log('[setCurrentTeacher] 로컬 저장 완료, teacherId:', teacher.id, '역할:', teacher.role);
         
         // 1단계: 관리자별 모든 학생 로드
@@ -2773,8 +2779,11 @@ function updateTeacherMenuVisibility() {
         // localStorage에서 현재 선택된 선생님의 역할 확인
         const role = localStorage.getItem('current_teacher_role') || 'teacher';
         
+        console.log('[updateTeacherMenuVisibility] 선생님 메뉴 버튼 가시성 업데이트, role:', role);
+        
         // admin만 선생님 관리 버튼 표시
         btn.style.display = role === 'admin' ? 'flex' : 'none';
+        console.log('[updateTeacherMenuVisibility] 버튼 display:', btn.style.display);
     }
 }
 
