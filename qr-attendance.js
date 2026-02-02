@@ -41,6 +41,83 @@ window.generateQRCode = function(containerId, qrData, size = 200) {
     });
 }
 
+// ========== QR 스캔 보조 함수 ==========
+
+// current_owner_id 보장 (모바일/태블릿 세션 복구)
+async function ensureOwnerId() {
+    let ownerId = localStorage.getItem('current_owner_id');
+    if (ownerId) return ownerId;
+
+    try {
+        if (typeof supabase !== 'undefined' && supabase?.auth?.getSession) {
+            const { data: { session }, error } = await supabase.auth.getSession();
+            if (error) {
+                console.error('[ensureOwnerId] 세션 확인 에러:', error);
+            }
+            if (session && session.user && session.user.id) {
+                ownerId = session.user.id;
+                localStorage.setItem('current_owner_id', ownerId);
+                console.log('[ensureOwnerId] 세션에서 current_owner_id 복구:', ownerId);
+                return ownerId;
+            }
+        }
+    } catch (e) {
+        console.error('[ensureOwnerId] 예외:', e);
+    }
+
+    console.warn('[ensureOwnerId] current_owner_id 없음');
+    return null;
+}
+
+// 모든 선생님 일정 로드 (QR 스캔용)
+async function loadAllSchedulesForOwner() {
+    try {
+        const ownerId = await ensureOwnerId();
+        if (!ownerId) return false;
+        if (typeof supabase === 'undefined') return false;
+
+        const { data, error } = await supabase
+            .from('schedules')
+            .select('*')
+            .eq('owner_user_id', ownerId)
+            .order('schedule_date', { ascending: true });
+
+        if (error) {
+            console.error('[loadAllSchedulesForOwner] 에러:', error);
+            return false;
+        }
+
+        const next = {};
+        (data || []).forEach(schedule => {
+            const teacherId = String(schedule.teacher_id);
+            const studentId = String(schedule.student_id);
+            const date = schedule.schedule_date;
+
+            if (!next[teacherId]) next[teacherId] = {};
+            if (!next[teacherId][studentId]) next[teacherId][studentId] = {};
+
+            next[teacherId][studentId][date] = {
+                start: schedule.start_time ? schedule.start_time.substring(0, 5) : schedule.start_time,
+                duration: schedule.duration
+            };
+        });
+
+        teacherScheduleData = next;
+
+        // 로컬 캐시에도 저장
+        Object.keys(teacherScheduleData).forEach(tid => {
+            const key = `teacher_schedule_data__${tid}`;
+            localStorage.setItem(key, JSON.stringify(teacherScheduleData[tid] || {}));
+        });
+
+        console.log('[loadAllSchedulesForOwner] 전체 일정 로드 완료:', (data || []).length, '건');
+        return true;
+    } catch (e) {
+        console.error('[loadAllSchedulesForOwner] 예외:', e);
+        return false;
+    }
+}
+
 // ========== QR 스캔 페이지 ==========
 
 // QR 스캔 페이지 열기
@@ -83,13 +160,10 @@ window.openQRScanPage = async function() {
             }
         }
         
-        // ✅ 일정 데이터 확인 및 재로드 (모바일 네트워크 지연 대응)
+        // ✅ 일정 데이터 확인 및 재로드 (모바일/태블릿 누락 대응)
         if (!teacherScheduleData || Object.keys(teacherScheduleData).length === 0) {
-            console.log('[openQRScanPage] 일정 데이터 없음 - 재로드 시도');
-            if (typeof loadTeacherScheduleData === 'function' && currentTeacherId) {
-                await loadTeacherScheduleData(currentTeacherId);
-                console.log('[openQRScanPage] 일정 데이터 재로드 완료');
-            }
+            console.log('[openQRScanPage] 일정 데이터 없음 - 전체 일정 재로드 시도');
+            await loadAllSchedulesForOwner();
         }
         
         // 모달 닫기 (존재하는 경우)
@@ -353,42 +427,17 @@ async function processAttendanceFromQR(qrData) {
         let scheduleResult = findEarliestScheduleForStudent(studentId, dateStr);
         let { schedule: earliestSchedule, allSchedules } = scheduleResult;
         
-        // ✅ 로컬에 일정이 없으면 Supabase에서 실시간 조회 (모바일 캐시 미스 대응)
-        if (!earliestSchedule && typeof getSchedulesByTeacher === 'function') {
-            console.log('[processAttendanceFromQR] 로컬에 일정 없음 - Supabase 실시간 조회');
+        // ✅ 로컬에 일정이 없으면 전체 일정 재로드 (모바일/태블릿 캐시 미스 대응)
+        if (!earliestSchedule) {
+            console.log('[processAttendanceFromQR] 로컬에 일정 없음 - 전체 일정 재로드 시도');
             try {
-                // 모든 선생님의 일정을 조회하여 임시로 메모리에 로드
-                const allTeacherIds = Object.keys(teacherScheduleData);
-                if (allTeacherIds.length === 0 && currentTeacherId) {
-                    allTeacherIds.push(currentTeacherId);
-                }
-                
-                for (const tId of allTeacherIds) {
-                    const dbSchedules = await getSchedulesByTeacher(tId);
-                    if (!teacherScheduleData[tId]) teacherScheduleData[tId] = {};
-                    
-                    dbSchedules.forEach(schedule => {
-                        const sId = String(schedule.student_id);
-                        const date = schedule.schedule_date;
-                        
-                        if (!teacherScheduleData[tId][sId]) {
-                            teacherScheduleData[tId][sId] = {};
-                        }
-                        
-                        teacherScheduleData[tId][sId][date] = {
-                            start: schedule.start_time.substring(0, 5),
-                            duration: schedule.duration
-                        };
-                    });
-                }
-                
-                console.log('[processAttendanceFromQR] Supabase에서 일정 재로드 완료');
+                await loadAllSchedulesForOwner();
                 // 다시 일정 찾기 시도
                 scheduleResult = findEarliestScheduleForStudent(studentId, dateStr);
                 earliestSchedule = scheduleResult.schedule;
                 allSchedules = scheduleResult.allSchedules;
             } catch (dbError) {
-                console.error('[processAttendanceFromQR] Supabase 일정 조회 실패:', dbError);
+                console.error('[processAttendanceFromQR] 전체 일정 재로드 실패:', dbError);
             }
         }
         
