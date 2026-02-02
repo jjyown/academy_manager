@@ -404,7 +404,8 @@ async function setCurrentTeacher(teacher) {
         
         // 4단계: 현재 선생님의 일정 데이터 로드
         console.log('[setCurrentTeacher] 4단계: 일정 데이터 로드 중...');
-        loadTeacherScheduleData(teacher.id);
+        await loadTeacherScheduleData(teacher.id);
+        console.log('[setCurrentTeacher] 4단계 완료: 일정 데이터 로드 완료');
         
         // 5단계: 페이지를 MAIN_APP으로 전환
         console.log('[setCurrentTeacher] 5단계: 페이지 전환 중...');
