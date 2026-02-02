@@ -852,11 +852,12 @@ function createCell(date, activeStudents) {
 // (하지만 요청하신 전체 코드를 위해 아래 핵심 함수들을 모두 유지합니다)
 
 let currentDetailDate = null;
-window.openDayDetailModal = function(dateStr) {
+window.openDayDetailModal = async function(dateStr) {
     const modal = document.getElementById('day-detail-modal');
     modal.style.display = 'flex';
     document.getElementById('day-detail-title').textContent = `${dateStr} 시간표`;
     currentDetailDate = dateStr;
+    await ensureAttendanceForDate(dateStr);
     renderDayEvents(dateStr);
 }
 
@@ -1107,9 +1108,10 @@ window.renderDayEvents = function(dateStr) {
 
 // ... (기타 모달 Open/Close 및 CRUD 로직 생략 없이 유지) ...
 
-window.openAttendanceModal = function(sid, dateStr) {
+window.openAttendanceModal = async function(sid, dateStr) {
     const s = students.find(x => String(x.id) === String(sid));
     if(!s) return;
+    await ensureAttendanceForDate(dateStr);
     document.getElementById('attendance-modal').style.display = 'flex';
     document.getElementById('att-modal-title').textContent = `${s.name} 수업 관리`;
     document.getElementById('att-info-text').textContent = `${dateStr} (${s.grade})`;
@@ -1847,6 +1849,44 @@ async function loadAndCleanData() {
     } catch (e) { 
         console.error('레이아웃 로드 실패:', e);
         dailyLayouts = {}; 
+    }
+}
+
+// 출석 기록 보강 로드 (날짜별)
+const attendanceLoadedDates = new Set();
+async function ensureAttendanceForDate(dateStr) {
+    if (!dateStr || attendanceLoadedDates.has(dateStr)) return;
+
+    try {
+        // owner_user_id 보장
+        let ownerId = localStorage.getItem('current_owner_id');
+        if (!ownerId && typeof supabase !== 'undefined' && supabase?.auth?.getSession) {
+            const { data: { session }, error } = await supabase.auth.getSession();
+            if (error) console.error('[ensureAttendanceForDate] 세션 확인 에러:', error);
+            if (session?.user?.id) {
+                ownerId = session.user.id;
+                localStorage.setItem('current_owner_id', ownerId);
+            }
+        }
+
+        if (typeof getAttendanceRecordsByDate !== 'function') {
+            attendanceLoadedDates.add(dateStr);
+            return;
+        }
+
+        const records = await getAttendanceRecordsByDate(dateStr);
+        if (records && records.length > 0 && Array.isArray(students)) {
+            records.forEach(r => {
+                const student = students.find(s => String(s.id) === String(r.student_id));
+                if (!student) return;
+                if (!student.attendance) student.attendance = {};
+                student.attendance[r.attendance_date] = r.status;
+            });
+        }
+    } catch (e) {
+        console.error('[ensureAttendanceForDate] 에러:', e);
+    } finally {
+        attendanceLoadedDates.add(dateStr);
     }
 }
 
