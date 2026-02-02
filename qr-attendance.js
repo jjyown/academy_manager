@@ -273,7 +273,25 @@ async function processAttendanceFromQR(qrData) {
             return;
         }
         
-        // 3-2. QR토큰 유효성 검사 (학생 확인 후 수행)
+        console.log('[processAttendanceFromQR] ✅ 학생 찾음:', student.name);
+        
+        // 4. 오늘 날짜
+        const today = new Date();
+        const dateStr = formatDateToYYYYMMDD(today);
+        
+        // 5. 해당 학생의 그날 모든 선생님 일정 중 가장 빠른 일정 찾기 (일정 확인 먼저)
+        const { schedule: earliestSchedule, teacherId: scheduleTeacherId } = findEarliestScheduleForStudent(studentId, dateStr);
+        
+        if (!earliestSchedule) {
+            console.warn('[processAttendanceFromQR] 수업 일정 없음');
+            showQRScanToast(student, 'no_schedule', dateStr);
+            setTimeout(() => {
+                if (html5QrcodeScanner) html5QrcodeScanner.resume();
+            }, 3000);
+            return;
+        }
+        
+        // 6. 이제 QR토큰 유효성 검사 (학생 존재 + 일정 존재 확인 후 수행)
         let qrTokens = JSON.parse(localStorage.getItem('student_qr_tokens') || '{}');
         const validToken = qrTokens[studentId];
         if (!qrToken || !validToken || qrToken !== validToken) {
@@ -284,13 +302,7 @@ async function processAttendanceFromQR(qrData) {
             return;
         }
         
-        console.log('[processAttendanceFromQR] ✅ 학생 찾음:', student.name);
-        
-        // 4. 오늘 날짜
-        const today = new Date();
-        const dateStr = formatDateToYYYYMMDD(today);
-        
-        // 5. 데이터베이스에서 중복 출석 체크
+        // 7. 데이터베이스에서 중복 출석 체크
         try {
             const existingRecord = await getAttendanceRecordByStudentAndDate(studentId, dateStr);
             if (existingRecord) {
@@ -305,7 +317,7 @@ async function processAttendanceFromQR(qrData) {
             console.error('[processAttendanceFromQR] 데이터베이스 조회 실패:', dbError);
         }
         
-        // 5-2. 로컬 메모리에서도 확인 (백업)
+        // 7-2. 로컬 메모리에서도 확인 (백업)
         if (student.attendance && student.attendance[dateStr]) {
             const existingStatus = student.attendance[dateStr];
             console.log('[processAttendanceFromQR] 로컬 메모리에 이미 기록됨:', existingStatus);
@@ -316,26 +328,14 @@ async function processAttendanceFromQR(qrData) {
             return;
         }
         
-        // 6. 해당 학생의 그날 모든 선생님 일정 중 가장 빠른 일정 찾기
-        const { schedule: earliestSchedule, teacherId: scheduleTeacherId } = findEarliestScheduleForStudent(studentId, dateStr);
-        
-        if (!earliestSchedule) {
-            console.warn('[processAttendanceFromQR] 수업 일정 없음');
-            showQRScanToast(student, 'no_schedule', dateStr);
-            setTimeout(() => {
-                if (html5QrcodeScanner) html5QrcodeScanner.resume();
-            }, 3000);
-            return;
-        }
-        
         console.log('[processAttendanceFromQR] 가장 빠른 일정 시간:', earliestSchedule.start);
         console.log('[processAttendanceFromQR] 가장 빠른 일정 선생님:', scheduleTeacherId);
         
-        // 7. 가장 빠른 일정을 기준으로 출석 상태 판단 (60분 기준)
+        // 8. 가장 빠른 일정을 기준으로 출석 상태 판단 (60분 기준)
         const attendanceStatus = determineAttendanceStatus(today, earliestSchedule.start);
         console.log('[processAttendanceFromQR] 출석 상태:', attendanceStatus);
         
-        // 8. 출석 기록 저장 (데이터베이스)
+        // 9. 출석 기록 저장 (데이터베이스)
         // 주의: QR을 스캔한 선생님(currentTeacherId)과 가장 빠른 일정의 선생님(scheduleTeacherId)이 다를 수 있음
         // 출석 판단은 가장 빠른 일정 기준이지만, 기록은 QR을 스캔한 선생님으로 저장
         try {
@@ -357,7 +357,7 @@ async function processAttendanceFromQR(qrData) {
             console.error('[processAttendanceFromQR] 데이터베이스 저장 실패:', dbError);
         }
         
-        // 9. 로컬 데이터에 반영
+        // 10. 로컬 데이터에 반영
         const sIdx = students.findIndex(s => String(s.id) === String(studentId));
         if (sIdx > -1) {
             if (!students[sIdx].attendance) students[sIdx].attendance = {};
@@ -374,11 +374,11 @@ async function processAttendanceFromQR(qrData) {
             console.log('[processAttendanceFromQR] 로컬 데이터 저장 완료');
         }
         
-        // 10. 화면 업데이트 (QR 출석 학생 ID 저장)
+        // 11. 화면 업데이트 (QR 출석 학생 ID 저장)
         lastQrScannedStudentId = studentId;
         renderCalendar();
         
-        // 11. 결과 표시 (토스트 알림)
+        // 12. 결과 표시 (토스트 알림)
         showQRScanToast(student, attendanceStatus, today);
         
         // 스캐너 자동 재개
