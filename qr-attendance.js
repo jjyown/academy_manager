@@ -453,7 +453,22 @@ async function processAttendanceFromQR(qrData) {
         // 6. 이제 QR토큰 유효성 검사 (학생 존재 + 일정 존재 확인 후 수행)
         let qrTokens = JSON.parse(localStorage.getItem('student_qr_tokens') || '{}');
         const validToken = qrTokens[studentId];
-        if (!qrToken || !validToken || qrToken !== validToken) {
+        
+        // ✅ 다른 기기에서 스캔한 경우 localStorage에 토큰이 없을 수 있음
+        // - 로컬에 토큰이 없으면 스캔된 토큰을 저장하고 통과
+        // - 로컬에 토큰이 있는데 불일치하면 만료 처리
+        if (!qrToken) {
+            showQRScanToast(student, 'expired_qr', null);
+            setTimeout(() => {
+                if (html5QrcodeScanner) html5QrcodeScanner.resume();
+            }, 2500);
+            return;
+        }
+        if (!validToken) {
+            qrTokens[studentId] = qrToken;
+            localStorage.setItem('student_qr_tokens', JSON.stringify(qrTokens));
+            console.log('[processAttendanceFromQR] 로컬 토큰 없음 - 스캔 토큰 저장 후 진행');
+        } else if (qrToken !== validToken) {
             showQRScanToast(student, 'expired_qr', null);
             setTimeout(() => {
                 if (html5QrcodeScanner) html5QrcodeScanner.resume();
