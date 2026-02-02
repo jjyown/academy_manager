@@ -80,6 +80,24 @@ const LUNAR_HOLIDAYS_DB = {
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('[DOMContentLoaded] 페이지 로드 시작');
     
+    // ===== 페이지 종료 시 로그인 유지 체크 여부에 따라 세션 정리 =====
+    window.addEventListener('beforeunload', async () => {
+        const rememberLogin = localStorage.getItem('remember_login') === 'true';
+        if (!rememberLogin) {
+            console.log('[beforeunload] 로그인 유지 미체크 - 세션 정리');
+            // 로그인 유지 안 함 → 세션 제거 (비동기 처리는 불가하므로 localStorage만 정리)
+            localStorage.removeItem('current_owner_id');
+            localStorage.removeItem('current_user_role');
+            localStorage.removeItem('current_user_name');
+            // Supabase 세션은 다음 로드 시 initializeAuth에서 정리됨
+        }
+        // 로그인 유지 여부와 관계없이 선생님 선택은 항상 초기화
+        localStorage.removeItem('current_teacher_id');
+        localStorage.removeItem('current_teacher_name');
+        localStorage.removeItem('current_teacher_role');
+        localStorage.removeItem('active_page');
+    });
+    
     // ===== 1단계: 인증 상태 확인 =====
     console.log('[DOMContentLoaded] 인증 초기화 시작...');
     if (typeof initializeAuth === 'function') {

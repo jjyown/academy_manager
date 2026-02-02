@@ -279,7 +279,16 @@ window.initializeAuth = async function() {
         }
 
         if (session) {
-            // ✅ 2단계: 세션이 있으면 users 테이블에서 실제로 사용자가 존재하는지 확인
+            // ✅ 2단계: 로그인 유지 확인 - remember_login이 없으면 세션 무효화
+            const rememberLogin = localStorage.getItem('remember_login') === 'true';
+            if (!rememberLogin) {
+                console.log('[initializeAuth] 로그인 유지 미체크 - 세션 제거');
+                await supabase.auth.signOut();
+                await cleanupAndRedirectToAuth();
+                return;
+            }
+            
+            // ✅ 3단계: 세션이 있으면 users 테이블에서 실제로 사용자가 존재하는지 확인
             console.log('[initializeAuth] 세션 있음, users 테이블 검증 중...');
             try {
                 const { data: userData, error: userError } = await supabase
@@ -303,25 +312,20 @@ window.initializeAuth = async function() {
                 return;
             }
             
-            // ✅ 3단계: 세션이 유효하면 사용자 ID 저장
+            // ✅ 4단계: 세션이 유효하면 사용자 ID 저장
             console.log('[initializeAuth] 세션 유효, current_owner_id 저장:', session.user.id);
             localStorage.setItem('current_owner_id', session.user.id);
             
-            // 이전에 선택한 페이지 확인
-            const lastPage = getActivePage();
-            console.log('[initializeAuth] 이전 활성 페이지:', lastPage);
+            // ✅ 5단계: 선생님 선택은 항상 초기화 (보안 강화)
+            // 로그인 유지여도 선생님 PIN은 다시 입력해야 함
+            localStorage.removeItem('current_teacher_id');
+            localStorage.removeItem('current_teacher_name');
+            localStorage.removeItem('current_teacher_role');
+            localStorage.removeItem('active_page');
+            console.log('[initializeAuth] 선생님 선택 초기화 완료 - 선생님 선택 페이지로 이동');
             
-            // ✅ 4단계: 선생님이 이미 선택되어 있을 때만 자동 복원, 없으면 선생님 선택 페이지로
-            const lastTeacherId = localStorage.getItem('current_teacher_id');
-            if (lastTeacherId) {
-                console.log('[initializeAuth] 이전 선생님 선택 기록 있음:', lastTeacherId);
-                // 선생님이 선택되어 있으면 메인 앱으로 자동 복원
-                await showMainApp();
-            } else {
-                console.log('[initializeAuth] 선생님 미선택 - 선생님 선택 페이지로 이동');
-                // ✅ 선생님을 선택하지 않았으면 선생님 선택 페이지로
-                await showMainApp();
-            }
+            // 항상 선생님 선택 페이지로 이동
+            await showMainApp();
             return;
         }
         
