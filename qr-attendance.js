@@ -242,19 +242,7 @@ async function processAttendanceFromQR(qrData) {
         console.log('[processAttendanceFromQR] 전체 students 수:', students.length);
         console.log('[processAttendanceFromQR] 등록된 학생 ID 목록:', students.map(s => `${s.id}(${typeof s.id})`).join(', '));
 
-        // 3-1. QR토큰 유효성 검사 (재발급된 QR만 허용, 구버전 QR도 만료 처리)
-        let qrTokens = JSON.parse(localStorage.getItem('student_qr_tokens') || '{}');
-        const validToken = qrTokens[studentId];
-        if (!qrToken || !validToken || qrToken !== validToken) {
-            showQRScanToast(null, 'expired_qr', null);
-            setTimeout(() => {
-                if (html5QrcodeScanner) html5QrcodeScanner.resume();
-            }, 2500);
-            return;
-        }
-        
-        // 4. 학생 정보 조회 (전체 학생 배열에서)
-        // 학생 ID 타입 일치 보장 (number/string 혼용 방지)
+        // 3-1. 학생 정보 조회 먼저 수행 (PC/모바일 동일 결과 보장)
         // 학생 ID 타입 일치 보장 (number/string 혼용 방지)
         let student = students.find(s => String(s.id) === String(studentId) || Number(s.id) === Number(studentId));
         if (!student) {
@@ -285,26 +273,24 @@ async function processAttendanceFromQR(qrData) {
             return;
         }
         
+        // 3-2. QR토큰 유효성 검사 (학생 확인 후 수행)
+        let qrTokens = JSON.parse(localStorage.getItem('student_qr_tokens') || '{}');
+        const validToken = qrTokens[studentId];
+        if (!qrToken || !validToken || qrToken !== validToken) {
+            showQRScanToast(student, 'expired_qr', null);
+            setTimeout(() => {
+                if (html5QrcodeScanner) html5QrcodeScanner.resume();
+            }, 2500);
+            return;
+        }
+        
         console.log('[processAttendanceFromQR] ✅ 학생 찾음:', student.name);
         
-        // 5. 오늘 날짜
+        // 4. 오늘 날짜
         const today = new Date();
         const dateStr = formatDateToYYYYMMDD(today);
         
-        // 5-1. QR토큰 만료 체크를 출석 기록 체크보다 먼저 수행
-        if (qrToken) {
-            let qrTokens = JSON.parse(localStorage.getItem('student_qr_tokens') || '{}');
-            const validToken = qrTokens[studentId];
-            if (!validToken || qrToken !== validToken) {
-                showQRScanToast(student, 'expired_qr', null);
-                setTimeout(() => {
-                    if (html5QrcodeScanner) html5QrcodeScanner.resume();
-                }, 2500);
-                return;
-            }
-        }
-
-        // 5-2. 데이터베이스에서 중복 출석 체크
+        // 5. 데이터베이스에서 중복 출석 체크
         try {
             const existingRecord = await getAttendanceRecordByStudentAndDate(studentId, dateStr);
             if (existingRecord) {
@@ -319,7 +305,7 @@ async function processAttendanceFromQR(qrData) {
             console.error('[processAttendanceFromQR] 데이터베이스 조회 실패:', dbError);
         }
         
-        // 5-3. 로컬 메모리에서도 확인 (백업)
+        // 5-2. 로컬 메모리에서도 확인 (백업)
         if (student.attendance && student.attendance[dateStr]) {
             const existingStatus = student.attendance[dateStr];
             console.log('[processAttendanceFromQR] 로컬 메모리에 이미 기록됨:', existingStatus);
