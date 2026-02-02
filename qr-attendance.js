@@ -44,15 +44,52 @@ window.generateQRCode = function(containerId, qrData, size = 200) {
 // ========== QR 스캔 페이지 ==========
 
 // QR 스캔 페이지 열기
-window.openQRScanPage = function() {
+window.openQRScanPage = async function() {
     console.log('[openQRScanPage] QR 스캔 페이지 열기');
     console.log('[openQRScanPage] students 수:', students ? students.length : 0);
     
     try {
-        // 학생 데이터 확인 (전체 학생 배열에서)
+        // ✅ 학생 데이터가 비어있으면 Supabase에서 다시 로드 (모바일 네트워크 지연 대응)
         if (!students || students.length === 0) {
-            alert('등록된 학생이 없습니다.\n먼저 학생을 등록해주세요.');
-            return;
+            console.log('[openQRScanPage] 학생 데이터 없음 - Supabase에서 재로드 시도');
+            if (typeof getAllStudents === 'function') {
+                const supabaseStudents = await getAllStudents();
+                if (supabaseStudents && supabaseStudents.length > 0) {
+                    students = supabaseStudents.map(s => ({
+                        id: s.id,
+                        name: s.name,
+                        grade: s.grade,
+                        studentPhone: s.phone || '',
+                        parentPhone: s.parent_phone || '',
+                        defaultFee: s.default_fee || 0,
+                        specialLectureFee: s.special_lecture_fee || 0,
+                        defaultTextbookFee: s.default_textbook_fee || 0,
+                        memo: s.memo || '',
+                        registerDate: s.register_date || '',
+                        status: s.status || 'active',
+                        events: [],
+                        attendance: {},
+                        records: {},
+                        payments: {}
+                    }));
+                    console.log('[openQRScanPage] Supabase에서 학생 데이터 재로드 완료:', students.length, '명');
+                } else {
+                    alert('등록된 학생이 없습니다.\n먼저 학생을 등록해주세요.');
+                    return;
+                }
+            } else {
+                alert('등록된 학생이 없습니다.\n먼저 학생을 등록해주세요.');
+                return;
+            }
+        }
+        
+        // ✅ 일정 데이터 확인 및 재로드 (모바일 네트워크 지연 대응)
+        if (!teacherScheduleData || Object.keys(teacherScheduleData).length === 0) {
+            console.log('[openQRScanPage] 일정 데이터 없음 - 재로드 시도');
+            if (typeof loadTeacherScheduleData === 'function' && currentTeacherId) {
+                await loadTeacherScheduleData(currentTeacherId);
+                console.log('[openQRScanPage] 일정 데이터 재로드 완료');
+            }
         }
         
         // 모달 닫기 (존재하는 경우)
@@ -256,6 +293,39 @@ async function processAttendanceFromQR(qrData) {
         if (!student) {
             student = currentTeacherStudents.find(s => String(s.id).replace(/-/g, '') === String(studentId).replace(/-/g, ''));
         }
+        
+        // ✅ 로컬 메모리에 없으면 Supabase에서 실시간 조회 (모바일 캐시 미스 대응)
+        if (!student && typeof getAllStudents === 'function') {
+            console.log('[processAttendanceFromQR] 로컬에 학생 없음 - Supabase 실시간 조회');
+            try {
+                const supabaseStudents = await getAllStudents();
+                student = supabaseStudents.find(s => String(s.id) === String(studentId) || Number(s.id) === Number(studentId));
+                if (student) {
+                    // 로컬 students 배열에도 추가 (캐시 갱신)
+                    students.push({
+                        id: student.id,
+                        name: student.name,
+                        grade: student.grade,
+                        studentPhone: student.phone || '',
+                        parentPhone: student.parent_phone || '',
+                        defaultFee: student.default_fee || 0,
+                        specialLectureFee: student.special_lecture_fee || 0,
+                        defaultTextbookFee: student.default_textbook_fee || 0,
+                        memo: student.memo || '',
+                        registerDate: student.register_date || '',
+                        status: student.status || 'active',
+                        events: [],
+                        attendance: {},
+                        records: {},
+                        payments: {}
+                    });
+                    console.log('[processAttendanceFromQR] Supabase에서 학생 조회 성공:', student.name);
+                }
+            } catch (dbError) {
+                console.error('[processAttendanceFromQR] Supabase 학생 조회 실패:', dbError);
+            }
+        }
+        
         console.log('[processAttendanceFromQR] 최종 학생 찾기:', !!student, student);
         if (!student) {
             console.error('[processAttendanceFromQR] ❌ 학생을 찾을 수 없음!');
@@ -280,8 +350,47 @@ async function processAttendanceFromQR(qrData) {
         const dateStr = formatDateToYYYYMMDD(today);
         
         // 5. 해당 학생의 그날 모든 선생님 일정 중 가장 빠른 일정 찾기 (일정 확인 먼저)
-        const scheduleResult = findEarliestScheduleForStudent(studentId, dateStr);
-        const { schedule: earliestSchedule, allSchedules } = scheduleResult;
+        let scheduleResult = findEarliestScheduleForStudent(studentId, dateStr);
+        let { schedule: earliestSchedule, allSchedules } = scheduleResult;
+        
+        // ✅ 로컬에 일정이 없으면 Supabase에서 실시간 조회 (모바일 캐시 미스 대응)
+        if (!earliestSchedule && typeof getSchedulesByTeacher === 'function') {
+            console.log('[processAttendanceFromQR] 로컬에 일정 없음 - Supabase 실시간 조회');
+            try {
+                // 모든 선생님의 일정을 조회하여 임시로 메모리에 로드
+                const allTeacherIds = Object.keys(teacherScheduleData);
+                if (allTeacherIds.length === 0 && currentTeacherId) {
+                    allTeacherIds.push(currentTeacherId);
+                }
+                
+                for (const tId of allTeacherIds) {
+                    const dbSchedules = await getSchedulesByTeacher(tId);
+                    if (!teacherScheduleData[tId]) teacherScheduleData[tId] = {};
+                    
+                    dbSchedules.forEach(schedule => {
+                        const sId = String(schedule.student_id);
+                        const date = schedule.schedule_date;
+                        
+                        if (!teacherScheduleData[tId][sId]) {
+                            teacherScheduleData[tId][sId] = {};
+                        }
+                        
+                        teacherScheduleData[tId][sId][date] = {
+                            start: schedule.start_time.substring(0, 5),
+                            duration: schedule.duration
+                        };
+                    });
+                }
+                
+                console.log('[processAttendanceFromQR] Supabase에서 일정 재로드 완료');
+                // 다시 일정 찾기 시도
+                scheduleResult = findEarliestScheduleForStudent(studentId, dateStr);
+                earliestSchedule = scheduleResult.schedule;
+                allSchedules = scheduleResult.allSchedules;
+            } catch (dbError) {
+                console.error('[processAttendanceFromQR] Supabase 일정 조회 실패:', dbError);
+            }
+        }
         
         if (!earliestSchedule) {
             console.warn('[processAttendanceFromQR] 수업 일정 없음');
@@ -599,10 +708,44 @@ function showQRScanToast(student, status, extra) {
 
 // ========== 학생 QR 코드 목록 ==========
 
-window.showStudentQRList = function() {
+window.showStudentQRList = async function() {
     console.log('[showStudentQRList] 학생 QR 코드 목록 표시');
     
     try {
+        // ✅ 학생 데이터가 비어있으면 Supabase에서 다시 로드 (모바일 네트워크 지연 대응)
+        if (!students || students.length === 0) {
+            console.log('[showStudentQRList] 학생 데이터 없음 - Supabase에서 재로드 시도');
+            if (typeof getAllStudents === 'function') {
+                const supabaseStudents = await getAllStudents();
+                if (supabaseStudents && supabaseStudents.length > 0) {
+                    students = supabaseStudents.map(s => ({
+                        id: s.id,
+                        name: s.name,
+                        grade: s.grade,
+                        studentPhone: s.phone || '',
+                        parentPhone: s.parent_phone || '',
+                        defaultFee: s.default_fee || 0,
+                        specialLectureFee: s.special_lecture_fee || 0,
+                        defaultTextbookFee: s.default_textbook_fee || 0,
+                        memo: s.memo || '',
+                        registerDate: s.register_date || '',
+                        status: s.status || 'active',
+                        events: [],
+                        attendance: {},
+                        records: {},
+                        payments: {}
+                    }));
+                    console.log('[showStudentQRList] Supabase에서 학생 데이터 재로드 완료:', students.length, '명');
+                } else {
+                    alert('등록된 학생이 없습니다.\n먼저 학생을 등록해주세요.');
+                    return;
+                }
+            } else {
+                alert('등록된 학생이 없습니다.\n먼저 학생을 등록해주세요.');
+                return;
+            }
+        }
+        
         if (typeof closeModal === 'function') {
             closeModal('qr-attendance-modal');
         }
