@@ -175,6 +175,31 @@ window.showMainApp = async function() {
     try {
         console.log('[showMainApp] 시작');
 
+        // ✅ 필수: Supabase 세션 재확인
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError) {
+            console.error('[showMainApp] 세션 확인 에러:', sessionError);
+        }
+        
+        if (!session) {
+            console.warn('[showMainApp] 세션 없음 - 로그인 페이지로 강제 이동');
+            // localStorage 정리
+            localStorage.removeItem('current_owner_id');
+            localStorage.removeItem('current_teacher_id');
+            localStorage.removeItem('current_teacher_name');
+            localStorage.removeItem('active_page');
+            navigateToPage('AUTH');
+            return;
+        }
+        
+        // ✅ current_owner_id 확인
+        const ownerId = localStorage.getItem('current_owner_id');
+        if (!ownerId) {
+            console.warn('[showMainApp] current_owner_id 없음 - 로그인 페이지로 이동');
+            navigateToPage('AUTH');
+            return;
+        }
+
         const authPage = document.getElementById('auth-page');
         const teacherPage = document.getElementById('teacher-select-page');
 
@@ -238,7 +263,7 @@ window.initializeAuth = async function() {
     try {
         console.log('[initializeAuth] 시작');
         
-        // Supabase 세션 확인
+        // ✅ 1단계: Supabase 세션 확인
         const { data: { session }, error } = await supabase.auth.getSession();
         
         if (error) {
@@ -254,33 +279,87 @@ window.initializeAuth = async function() {
         }
 
         if (session) {
-            // 세션이 있으면 사용자 ID 저장
-            console.log('[initializeAuth] 세션 있음, current_owner_id 저장:', session.user.id);
+            // ✅ 2단계: 세션이 있으면 users 테이블에서 실제로 사용자가 존재하는지 확인
+            console.log('[initializeAuth] 세션 있음, users 테이블 검증 중...');
+            try {
+                const { data: userData, error: userError } = await supabase
+                    .from('users')
+                    .select('id, email, role')
+                    .eq('id', session.user.id)
+                    .single();
+                
+                if (userError || !userData) {
+                    console.error('[initializeAuth] users 테이블에 사용자 없음 - 세션 무효:', userError);
+                    // 세션은 있지만 users 테이블에 데이터가 없음 (삭제된 계정)
+                    await supabase.auth.signOut();
+                    throw new Error('사용자 계정이 존재하지 않습니다');
+                }
+                
+                console.log('[initializeAuth] 사용자 검증 완료:', userData.email);
+            } catch (validationError) {
+                console.error('[initializeAuth] 사용자 검증 실패:', validationError);
+                // 검증 실패 시 localStorage 정리하고 로그인 페이지로
+                await cleanupAndRedirectToAuth();
+                return;
+            }
+            
+            // ✅ 3단계: 세션이 유효하면 사용자 ID 저장
+            console.log('[initializeAuth] 세션 유효, current_owner_id 저장:', session.user.id);
             localStorage.setItem('current_owner_id', session.user.id);
             
             // 이전에 선택한 페이지 확인
             const lastPage = getActivePage();
             console.log('[initializeAuth] 이전 활성 페이지:', lastPage);
             
-            // 선생님이 이미 선택되어 있으면 메인 앱으로, 아니면 선생님 선택 페이지로
+            // ✅ 4단계: 선생님이 이미 선택되어 있을 때만 자동 복원, 없으면 선생님 선택 페이지로
             const lastTeacherId = localStorage.getItem('current_teacher_id');
             if (lastTeacherId) {
                 console.log('[initializeAuth] 이전 선생님 선택 기록 있음:', lastTeacherId);
-                // 선생님 선택 페이지로 이동 (자동 선택 처리)
+                // 선생님이 선택되어 있으면 메인 앱으로 자동 복원
                 await showMainApp();
             } else {
-                console.log('[initializeAuth] 선생님 선택 페이지로 이동');
-                navigateToPage('TEACHER_SELECT');
+                console.log('[initializeAuth] 선생님 미선택 - 선생님 선택 페이지로 이동');
+                // ✅ 선생님을 선택하지 않았으면 선생님 선택 페이지로
+                await showMainApp();
             }
             return;
         }
         
-        // 세션이 없으면 로그인 페이지 표시
-        console.log('[initializeAuth] 세션 없음, 로그인 페이지 표시');
-        navigateToPage('AUTH');
+        // ✅ 5단계: 세션이 없으면 localStorage 정리하고 로그인 페이지로
+        console.log('[initializeAuth] 세션 없음');
+        await cleanupAndRedirectToAuth();
     } catch (err) {
         console.error('[initializeAuth] 에러:', err);
-        navigateToPage('AUTH');
+        await cleanupAndRedirectToAuth();
     }
 };
+
+// ✅ localStorage 정리 및 로그인 페이지 이동 헬퍼 함수
+async function cleanupAndRedirectToAuth() {
+    console.log('[cleanupAndRedirectToAuth] localStorage 정리 중...');
+    
+    localStorage.removeItem('current_owner_id');
+    localStorage.removeItem('current_user_role');
+    localStorage.removeItem('current_user_name');
+    localStorage.removeItem('current_teacher_id');
+    localStorage.removeItem('current_teacher_name');
+    localStorage.removeItem('current_teacher_role');
+    localStorage.removeItem('active_page');
+    localStorage.removeItem('remember_login');
+    
+    // 선생님별 일정 데이터 정리
+    const keys = Object.keys(localStorage);
+    keys.forEach(key => {
+        if (key.startsWith('teacher_schedule_data__') || 
+            key.startsWith('teacher_students_mapping__') ||
+            key.startsWith('academy_students__') ||
+            key.startsWith('academy_holidays__')) {
+            localStorage.removeItem(key);
+            console.log('[cleanupAndRedirectToAuth] 정리됨:', key);
+        }
+    });
+    
+    console.log('[cleanupAndRedirectToAuth] localStorage 정리 완료, 로그인 페이지로 이동');
+    navigateToPage('AUTH');
+}
 

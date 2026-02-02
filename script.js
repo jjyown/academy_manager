@@ -119,12 +119,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     setupHolidayColorChips();
-    // 새로고침 시 마지막 활성 페이지로 복원
-    try {
-        restorePageOnLoad();
-    } catch (e) {
-        console.error('[DOMContentLoaded] 페이지 복원 중 오류:', e);
-    }
+    
+    // ✅ restorePageOnLoad()는 제거 - initializeAuth()가 이미 모든 페이지 복원 처리
+    // initializeAuth()가 Supabase 세션 기반으로 페이지 라우팅을 완료함
     
     // 권한 메뉴 가시성 및 역할 라벨 업데이트
     updatePaymentMenuVisibility();
@@ -179,8 +176,21 @@ function restorePageOnLoad() {
     const savedPage = getActivePage();
     const savedTeacherId = localStorage.getItem('current_teacher_id');
     const savedTeacherName = localStorage.getItem('current_teacher_name') || '';
+    const savedOwnerId = localStorage.getItem('current_owner_id');
 
-    console.log('[restorePageOnLoad] savedPage:', savedPage, 'savedTeacherId:', savedTeacherId);
+    console.log('[restorePageOnLoad] savedPage:', savedPage, 'savedTeacherId:', savedTeacherId, 'savedOwnerId:', savedOwnerId);
+
+    // ✅ 핵심 검증: current_owner_id가 없으면 모든 사용자 상태 무효화
+    if (!savedOwnerId) {
+        console.warn('[restorePageOnLoad] current_owner_id 없음 - 세션 만료, 로그인 페이지로 이동');
+        // localStorage 사용자 데이터 정리
+        localStorage.removeItem('current_teacher_id');
+        localStorage.removeItem('current_teacher_name');
+        localStorage.removeItem('active_page');
+        localStorage.removeItem('remember_login');
+        navigateToPage('AUTH');
+        return;
+    }
 
     // 선생님이 이미 선택되어 있다면, 어떤 페이지가 저장되어 있더라도 일정 페이지로 복원
     if (savedTeacherId) {
@@ -1398,7 +1408,7 @@ window.prepareBulkDelete = function() {
     document.getElementById('bulk-del-end').value = ""; 
     closeModal('register-modal'); openModal('bulk-delete-modal');
 }
-window.executeBulkDelete = function() {
+window.executeBulkDelete = async function() {
     const sid = document.getElementById('bulk-del-sid').value;
     const startStr = document.getElementById('bulk-del-start').value;
     const endStr = document.getElementById('bulk-del-end').value;
@@ -1408,24 +1418,40 @@ window.executeBulkDelete = function() {
     if(!confirm("선택한 기간의 일정을 삭제하시겠습니까?")) return;
     const startDate = new Date(startStr); const endDate = new Date(endStr);
     
-    // 현재 선생님의 schedule 데이터에서만 삭제
+    let deletedCount = 0;
+    
+    // 현재 선생님의 schedule 데이터에서 삭제할 일정 수집
     if(teacherScheduleData[currentTeacherId] && teacherScheduleData[currentTeacherId][sid]) {
         const deleteDates = Object.keys(teacherScheduleData[currentTeacherId][sid]).filter(dStr => {
             const d = new Date(dStr);
             return d >= startDate && d <= endDate;
         });
-        deleteDates.forEach(dStr => delete teacherScheduleData[currentTeacherId][sid][dStr]);
+        
+        // 1. 데이터베이스에서 각각 삭제
+        for (const dStr of deleteDates) {
+            try {
+                const deleteSuccess = await deleteScheduleFromDatabase(sid, dStr, currentTeacherId);
+                if (deleteSuccess) {
+                    delete teacherScheduleData[currentTeacherId][sid][dStr];
+                    deletedCount++;
+                }
+                console.log('[executeBulkDelete] 삭제 완료:', dStr);
+            } catch (dbError) {
+                console.error('[executeBulkDelete] 데이터베이스 삭제 실패 (' + dStr + '):', dbError);
+            }
+        }
     }
     
+    // 2. 데이터 저장 및 화면 업데이트
     saveData(); 
-    saveTeacherScheduleData();
+    await saveTeacherScheduleData();
     closeModal('bulk-delete-modal'); 
     renderCalendar();
-    alert(`일정이 삭제되었습니다.`);
+    alert(`${deletedCount}개의 일정이 삭제되었습니다.`);
 }
 function handleDragOver(e) { e.preventDefault(); e.currentTarget.classList.add('drag-over'); }
 function handleDragLeave(e) { e.currentTarget.classList.remove('drag-over'); }
-function handleDrop(e) {
+async function handleDrop(e) {
     e.preventDefault(); e.currentTarget.classList.remove('drag-over');
     const sid = e.dataTransfer.getData('studentId');
     const oldD = e.dataTransfer.getData('oldDate');
@@ -1433,37 +1459,79 @@ function handleDrop(e) {
     if (!sid || !oldD || !newD || oldD === newD) return;
     const idx = students.findIndex(s => String(s.id) === String(sid));
     if (idx > -1) {
+        // 기존 출석/기록 이동
         if(students[idx].attendance && students[idx].attendance[oldD]) { students[idx].attendance[newD] = students[idx].attendance[oldD]; delete students[idx].attendance[oldD]; }
         if(students[idx].records && students[idx].records[oldD]) { students[idx].records[newD] = students[idx].records[oldD]; delete students[idx].records[oldD]; }
+        
         // 선생님별 일정 데이터 이동 (현재 선생님의 데이터만 이동)
         if(teacherScheduleData[currentTeacherId] && teacherScheduleData[currentTeacherId][sid]) {
             if(teacherScheduleData[currentTeacherId][sid][oldD]) {
-                teacherScheduleData[currentTeacherId][sid][newD] = teacherScheduleData[currentTeacherId][sid][oldD];
-                delete teacherScheduleData[currentTeacherId][sid][oldD];
+                const scheduleInfo = teacherScheduleData[currentTeacherId][sid][oldD];
+                
+                // 데이터베이스에서 삭제 후 새로 추가
+                try {
+                    // 1. 구 일정 삭제
+                    await deleteScheduleFromDatabase(sid, oldD, currentTeacherId);
+                    console.log('[handleDrop] 구 일정 삭제 완료:', oldD);
+                    
+                    // 2. 신 일정 추가
+                    await saveScheduleToDatabase({
+                        teacherId: currentTeacherId,
+                        studentId: sid,
+                        date: newD,
+                        startTime: scheduleInfo.start,
+                        duration: scheduleInfo.duration
+                    });
+                    console.log('[handleDrop] 신 일정 추가 완료:', newD);
+                    
+                    // 3. 메모리 업데이트
+                    teacherScheduleData[currentTeacherId][sid][newD] = scheduleInfo;
+                    delete teacherScheduleData[currentTeacherId][sid][oldD];
+                    
+                } catch (dbError) {
+                    console.error('[handleDrop] 데이터베이스 동기화 실패:', dbError);
+                    alert('일정 이동 중 오류가 발생했습니다.');
+                    return;
+                }
             }
         }
         saveData();
-        saveTeacherScheduleData();
+        await saveTeacherScheduleData();
         renderCalendar();
         if (document.getElementById('day-detail-modal').style.display === 'flex') closeModal('day-detail-modal');
     }
 }
-window.deleteSingleSchedule = function() {
+window.deleteSingleSchedule = async function() {
     const sid = document.getElementById('att-student-id').value;
     const dateStr = document.getElementById('att-date').value;
     if(!confirm("이 날짜의 일정을 삭제하시겠습니까?")) return;
     const sIdx = students.findIndex(s => String(s.id) === String(sid));
     if(sIdx > -1) {
+        // 1. 데이터베이스에서 먼저 삭제
+        try {
+            const deleteSuccess = await deleteScheduleFromDatabase(sid, dateStr, currentTeacherId);
+            console.log('[deleteSingleSchedule] 데이터베이스 삭제:', deleteSuccess);
+        } catch (dbError) {
+            console.error('[deleteSingleSchedule] 데이터베이스 삭제 실패:', dbError);
+            alert('데이터베이스 삭제 중 오류가 발생했습니다: ' + dbError.message);
+            return;
+        }
+        
+        // 2. 로컬 메모리에서 삭제
         if(students[sIdx].attendance) delete students[sIdx].attendance[dateStr]; 
         if(students[sIdx].records) delete students[sIdx].records[dateStr];
         // 현재 선생님의 일정 데이터 삭제
         if(teacherScheduleData[currentTeacherId] && teacherScheduleData[currentTeacherId][sid]) {
             delete teacherScheduleData[currentTeacherId][sid][dateStr];
         }
+        
+        // 3. 데이터 저장 및 화면 업데이트
         saveData();
-        saveTeacherScheduleData();
+        await saveTeacherScheduleData();
         renderCalendar();
         if (document.getElementById('day-detail-modal').style.display === 'flex') renderDayEvents(dateStr);
+        
+        alert('일정이 삭제되었습니다.');
     }
     closeModal('attendance-modal');
 }
@@ -1485,7 +1553,7 @@ window.togglePeriodDeleteStudent = function() {
 }
 
 // 기간별 일정 삭제 실행
-window.executePeriodDelete = function() {
+window.executePeriodDelete = async function() {
     const scope = document.getElementById('period-del-scope').value;
     const startDate = document.getElementById('period-del-start').value;
     const endDate = document.getElementById('period-del-end').value;
@@ -1520,10 +1588,11 @@ window.executePeriodDelete = function() {
     
     let deletedCount = 0;
     
-    targetStudents.forEach(student => {
+    // 1. 데이터베이스에서 먼저 삭제
+    for (const student of targetStudents) {
         const sid = student.id;
         const sIdx = students.findIndex(s => String(s.id) === String(sid));
-        if (sIdx === -1) return;
+        if (sIdx === -1) continue;
         
         // 현재 선생님의 일정 데이터에서 기간 내 이벤트 필터링
         if (teacherScheduleData[currentTeacherId] && teacherScheduleData[currentTeacherId][sid]) {
@@ -1534,19 +1603,25 @@ window.executePeriodDelete = function() {
                 return !hasAttendance;
             });
             
-            if (eventsToDelete.length > 0) {
-                // 선생님별 일정 데이터에서 제거
-                eventsToDelete.forEach(dateStr => {
-                    delete teacherScheduleData[currentTeacherId][sid][dateStr];
-                });
-                deletedCount += eventsToDelete.length;
+            // 데이터베이스에서 각각 삭제
+            for (const dateStr of eventsToDelete) {
+                try {
+                    const deleteSuccess = await deleteScheduleFromDatabase(sid, dateStr, currentTeacherId);
+                    if (deleteSuccess) {
+                        delete teacherScheduleData[currentTeacherId][sid][dateStr];
+                        deletedCount++;
+                    }
+                    console.log('[executePeriodDelete] 삭제 완료:', dateStr);
+                } catch (dbError) {
+                    console.error('[executePeriodDelete] 데이터베이스 삭제 실패 (' + dateStr + '):', dbError);
+                }
             }
         }
-    });
+    }
     
     if (deletedCount > 0) {
         saveData();
-        saveTeacherScheduleData();
+        await saveTeacherScheduleData();
         renderCalendar();
         alert(`총 ${deletedCount}개의 일정이 삭제되었습니다.`);
     } else {
@@ -1839,6 +1914,13 @@ async function saveTeacherScheduleData() {
     try {
         if (!currentTeacherId) return;
         
+        // ✅ 세션 검증: current_owner_id가 없으면 저장 불가
+        const ownerId = localStorage.getItem('current_owner_id');
+        if (!ownerId) {
+            console.warn('[saveTeacherScheduleData] current_owner_id 없음 - 저장 중단');
+            return;
+        }
+        
         // 로컬 저장
         const key = `teacher_schedule_data__${currentTeacherId}`;
         localStorage.setItem(key, JSON.stringify(teacherScheduleData[currentTeacherId] || {}));
@@ -1870,10 +1952,18 @@ async function saveTeacherScheduleData() {
     }
 }
 function saveData() { 
+    // ✅ 세션 검증: current_owner_id가 없으면 저장 불가
+    const ownerId = localStorage.getItem('current_owner_id');
+    if (!ownerId) {
+        console.warn('[saveData] current_owner_id 없음 - 저장 중단');
+        alert('로그인이 필요합니다');
+        return;
+    }
+    
     // 현재 로그인 사용자(관리자) 기준으로 저장
-    const ownerKey = `academy_students__${localStorage.getItem('current_owner_id') || 'no-owner'}`;
+    const ownerKey = `academy_students__${ownerId}`;
     localStorage.setItem(ownerKey, JSON.stringify(students)); 
-    console.log(`학생 데이터 저장 (${localStorage.getItem('current_owner_id')}): ${students.length}명`);
+    console.log(`학생 데이터 저장 (${ownerId}): ${students.length}명`);
 }
 
 // 선생님 기준 활성 학생 목록 (매핑 + 일정 데이터 병합)

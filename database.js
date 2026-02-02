@@ -386,6 +386,12 @@ window.saveScheduleToDatabase = async function(scheduleData) {
     try {
         const ownerId = localStorage.getItem('current_owner_id');
         
+        // ✅ 세션 검증: owner_user_id가 없으면 저장 불가
+        if (!ownerId) {
+            console.warn('[saveScheduleToDatabase] current_owner_id 없음 - 저장 중단');
+            throw new Error('로그인이 필요합니다');
+        }
+        
         const schedule = {
             owner_user_id: ownerId,
             teacher_id: scheduleData.teacherId,
@@ -485,6 +491,12 @@ window.saveHolidayToDatabase = async function(holidayData) {
     try {
         const ownerId = localStorage.getItem('current_owner_id');
         
+        // ✅ 세션 검증: owner_user_id가 없으면 저장 불가
+        if (!ownerId) {
+            console.warn('[saveHolidayToDatabase] current_owner_id 없음 - 저장 중단');
+            throw new Error('로그인이 필요합니다');
+        }
+        
         const holiday = {
             owner_user_id: ownerId,
             teacher_id: holidayData.teacherId,
@@ -556,6 +568,12 @@ window.deleteHolidayFromDatabase = async function(teacherId, date) {
 window.savePaymentToDatabase = async function(paymentData) {
     try {
         const ownerId = localStorage.getItem('current_owner_id');
+        
+        // ✅ 세션 검증: owner_user_id가 없으면 저장 불가
+        if (!ownerId) {
+            console.warn('[savePaymentToDatabase] current_owner_id 없음 - 저장 중단');
+            throw new Error('로그인이 필요합니다');
+        }
         
         const payment = {
             owner_user_id: ownerId,

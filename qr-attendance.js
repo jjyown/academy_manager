@@ -330,12 +330,10 @@ async function processAttendanceFromQR(qrData) {
             return;
         }
         
-        // 6. 수업 일정 확인
-        const teacherSchedule = teacherScheduleData[currentTeacherId] || {};
-        const studentSchedule = teacherSchedule[studentId] || {};
-        const classInfo = studentSchedule[dateStr];
+        // 6. 해당 학생의 그날 모든 선생님 일정 중 가장 빠른 일정 찾기
+        const { schedule: earliestSchedule, teacherId: scheduleTeacherId } = findEarliestScheduleForStudent(studentId, dateStr);
         
-        if (!classInfo) {
+        if (!earliestSchedule) {
             console.warn('[processAttendanceFromQR] 수업 일정 없음');
             showQRScanToast(student, 'no_schedule', dateStr);
             setTimeout(() => {
@@ -344,23 +342,31 @@ async function processAttendanceFromQR(qrData) {
             return;
         }
         
-        // 7. 출석 상태 판단 (60분 기준)
-        const attendanceStatus = determineAttendanceStatus(today, classInfo.start);
+        console.log('[processAttendanceFromQR] 가장 빠른 일정 시간:', earliestSchedule.start);
+        console.log('[processAttendanceFromQR] 가장 빠른 일정 선생님:', scheduleTeacherId);
+        
+        // 7. 가장 빠른 일정을 기준으로 출석 상태 판단 (60분 기준)
+        const attendanceStatus = determineAttendanceStatus(today, earliestSchedule.start);
         console.log('[processAttendanceFromQR] 출석 상태:', attendanceStatus);
         
         // 8. 출석 기록 저장 (데이터베이스)
+        // 주의: QR을 스캔한 선생님(currentTeacherId)과 가장 빠른 일정의 선생님(scheduleTeacherId)이 다를 수 있음
+        // 출석 판단은 가장 빠른 일정 기준이지만, 기록은 QR을 스캔한 선생님으로 저장
         try {
             await saveAttendanceRecord({
                 studentId: studentId,
-                teacherId: currentTeacherId,
+                teacherId: currentTeacherId,  // QR을 스캔한 선생님
                 attendanceDate: dateStr,
                 checkInTime: today.toISOString(),
-                scheduledTime: classInfo.start,
+                scheduledTime: earliestSchedule.start,  // 가장 빠른 일정 시간
                 status: attendanceStatus,
                 qrScanned: true,
                 qrScanTime: today.toISOString()
             });
             console.log('[processAttendanceFromQR] 데이터베이스 저장 완료');
+            console.log('[processAttendanceFromQR] - 스캔한 선생님:', currentTeacherId);
+            console.log('[processAttendanceFromQR] - 가장 빠른 일정 선생님:', scheduleTeacherId);
+            console.log('[processAttendanceFromQR] - 판단 기준 시간:', earliestSchedule.start);
         } catch (dbError) {
             console.error('[processAttendanceFromQR] 데이터베이스 저장 실패:', dbError);
         }
@@ -408,6 +414,50 @@ async function processAttendanceFromQR(qrData) {
             }
         }, 2000);
     }
+}
+
+// 특정 학생의 특정 날짜에 등록된 모든 선생님 일정 중 가장 빠른 일정을 찾는 함수
+function findEarliestScheduleForStudent(studentId, dateStr) {
+    let earliestSchedule = null;
+    let earliestTime = null;
+    let earliestTeacherId = null;
+    
+    console.log('[findEarliestScheduleForStudent] 학생 ID:', studentId, '날짜:', dateStr);
+    console.log('[findEarliestScheduleForStudent] 전체 teacherScheduleData:', Object.keys(teacherScheduleData));
+    
+    // 모든 선생님의 일정을 순회
+    for (const teacherId in teacherScheduleData) {
+        const teacherSchedule = teacherScheduleData[teacherId] || {};
+        const studentSchedule = teacherSchedule[studentId] || {};
+        const classInfo = studentSchedule[dateStr];
+        
+        if (classInfo && classInfo.start) {
+            console.log(`[findEarliestScheduleForStudent] 선생님 ${teacherId}: ${classInfo.start}`);
+            
+            // 시간 비교를 위해 Date 객체로 변환
+            const [hour, minute] = classInfo.start.split(':').map(Number);
+            const scheduleTime = new Date();
+            scheduleTime.setHours(hour, minute, 0, 0);
+            
+            // 가장 빠른 일정인지 확인
+            if (!earliestTime || scheduleTime < earliestTime) {
+                earliestTime = scheduleTime;
+                earliestSchedule = classInfo;
+                earliestTeacherId = teacherId;
+            }
+        }
+    }
+    
+    if (earliestSchedule) {
+        console.log('[findEarliestScheduleForStudent] 가장 빠른 일정:', earliestSchedule.start, '선생님:', earliestTeacherId);
+    } else {
+        console.log('[findEarliestScheduleForStudent] 해당 날짜에 일정이 없음');
+    }
+    
+    return {
+        schedule: earliestSchedule,
+        teacherId: earliestTeacherId
+    };
 }
 
 // 출석 상태 판단 (60분 기준)
@@ -465,6 +515,12 @@ function showQRScanToast(student, status, extra) {
         name = `${student.name} (${student.grade})`;
         statusText = '지각 처리';
         statusColor = '#f59e0b';
+        timeText = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+    } else if (status === 'absent') {
+        icon = '❌';
+        name = `${student.name} (${student.grade})`;
+        statusText = '결석 처리';
+        statusColor = '#ef4444';
         timeText = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
     } else if (status === 'already_processed') {
         icon = '⚠️';
@@ -859,6 +915,13 @@ function formatDateToYYYYMMDD(date) {
 async function saveAttendanceRecord(recordData) {
     try {
         const ownerId = localStorage.getItem('current_owner_id');
+        
+        // ✅ 세션 검증: owner_user_id가 없으면 저장 불가
+        if (!ownerId) {
+            console.warn('[saveAttendanceRecord] current_owner_id 없음 - 저장 중단');
+            throw new Error('로그인이 필요합니다');
+        }
+        
         const numericId = parseInt(recordData.studentId);
         
         const record = {
