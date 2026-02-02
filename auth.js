@@ -259,9 +259,9 @@ window.showMainApp = async function() {
 };
 
 // 페이지 로드 시 인증 상태 초기화 (script.js의 DOMContentLoaded에서 호출됨)
-window.initializeAuth = async function() {
+window.initializeAuth = async function(isRefresh = false) {
     try {
-        console.log('[initializeAuth] 시작');
+        console.log('[initializeAuth] 시작, 새로고침:', isRefresh);
         
         // ✅ 1단계: Supabase 세션 확인
         const { data: { session }, error } = await supabase.auth.getSession();
@@ -299,7 +299,6 @@ window.initializeAuth = async function() {
                 
                 if (userError || !userData) {
                     console.error('[initializeAuth] users 테이블에 사용자 없음 - 세션 무효:', userError);
-                    // 세션은 있지만 users 테이블에 데이터가 없음 (삭제된 계정)
                     await supabase.auth.signOut();
                     throw new Error('사용자 계정이 존재하지 않습니다');
                 }
@@ -307,7 +306,6 @@ window.initializeAuth = async function() {
                 console.log('[initializeAuth] 사용자 검증 완료:', userData.email);
             } catch (validationError) {
                 console.error('[initializeAuth] 사용자 검증 실패:', validationError);
-                // 검증 실패 시 localStorage 정리하고 로그인 페이지로
                 await cleanupAndRedirectToAuth();
                 return;
             }
@@ -316,16 +314,29 @@ window.initializeAuth = async function() {
             console.log('[initializeAuth] 세션 유효, current_owner_id 저장:', session.user.id);
             localStorage.setItem('current_owner_id', session.user.id);
             
-            // ✅ 5단계: 선생님 선택은 항상 초기화 (보안 강화)
-            // 로그인 유지여도 선생님 PIN은 다시 입력해야 함
-            localStorage.removeItem('current_teacher_id');
-            localStorage.removeItem('current_teacher_name');
-            localStorage.removeItem('current_teacher_role');
-            localStorage.removeItem('active_page');
-            console.log('[initializeAuth] 선생님 선택 초기화 완료 - 선생님 선택 페이지로 이동');
-            
-            // 항상 선생님 선택 페이지로 이동
-            await showMainApp();
+            // ✅ 5단계: 새로고침 vs 창 닫기 구분
+            if (isRefresh) {
+                // 새로고침: 현재 페이지 복원
+                const currentPage = getActivePage();
+                const lastTeacherId = localStorage.getItem('current_teacher_id');
+                
+                console.log('[initializeAuth] 새로고침 - 현재 페이지:', currentPage, '선생님 ID:', lastTeacherId);
+                
+                if (currentPage === 'MAIN_APP' && lastTeacherId) {
+                    // 메인 페이지에서 새로고침 → 메인 페이지 유지
+                    await showMainApp();
+                } else if (currentPage === 'TEACHER_SELECT' || !lastTeacherId) {
+                    // 선생님 선택 페이지에서 새로고침 → 선생님 선택 페이지 유지
+                    await showMainApp();
+                } else {
+                    // 기타 경우 → 선생님 선택 페이지로
+                    await showMainApp();
+                }
+            } else {
+                // 창을 닫았다 다시 열기: 선생님 선택 페이지로 (보안)
+                console.log('[initializeAuth] 새 세션 - 선생님 선택 페이지로 이동');
+                await showMainApp();
+            }
             return;
         }
         
