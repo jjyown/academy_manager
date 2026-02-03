@@ -477,11 +477,7 @@ async function processAttendanceFromQR(qrData) {
         
         console.log('[processAttendanceFromQR] ✅ 학생 찾음:', student.name);
         
-        // 4. 오늘 날짜 (먼저 계산)
-        const today = new Date();
-        const dateStr = formatDateToYYYYMMDD(today);
-        
-        // 5. QR토큰 유효성 검사 (최우선 검증 - 일정 검사보다 먼저!)
+        // 4. QR토큰 유효성 검사 (최우선 검증 - 일정/날짜 검사보다 먼저!)
         // ✅ QR 재발급 시 구 QR코드는 무조건 만료 처리
         
         // QR코드에 토큰이 없으면 구 버전 (만료)
@@ -543,6 +539,10 @@ async function processAttendanceFromQR(qrData) {
         }
         
         console.log('[processAttendanceFromQR] ✅ QR토큰 검증 통과');
+        
+        // 5. 오늘 날짜 (토큰 검증 후에 계산)
+        const today = new Date();
+        const dateStr = formatDateToYYYYMMDD(today);
         
         // 6. 출석 중복 체크 (토큰 검증 후)
         try {
@@ -971,7 +971,7 @@ window.showStudentQRList = async function() {
             return;
         }
         
-        renderStudentQRList();
+        await renderStudentQRList();
     } catch (error) {
         console.error('[showStudentQRList] 오류:', error);
         alert('학생 QR코드 목록을 표시할 수 없습니다.');
