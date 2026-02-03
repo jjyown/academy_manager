@@ -1,0 +1,428 @@
+/* 모바일 반응형 스타일 */
+
+/* 태블릿 이하 */
+@media (max-width: 768px) {
+    .main-header {
+        flex-wrap: wrap;
+        padding: 8px 12px;
+        gap: 8px;
+    }
+    
+    .header-left {
+        order: 1;
+        flex: 0 0 100%;
+        justify-content: space-between;
+    }
+    
+    .header-left h1 {
+        font-size: 16px !important;
+    }
+    
+    .teacher-chip {
+        font-size: 11px;
+        padding: 4px 8px;
+    }
+    
+    .header-center {
+        order: 3;
+        flex: 0 0 100%;
+        justify-content: space-between;
+        gap: 8px;
+        margin-top: 8px;
+    }
+    
+    .header-right {
+        order: 2;
+        flex: 0 0 auto;
+        gap: 8px;
+    }
+    
+    .btn-today {
+        padding: 6px 12px;
+        font-size: 12px;
+    }
+    
+    .date-controller {
+        gap: 8px;
+    }
+    
+    #current-display {
+        font-size: 16px !important;
+    }
+    
+    .nav-arrow {
+        width: 32px;
+        height: 32px;
+        font-size: 14px;
+    }
+    
+    .btn-header-action {
+        padding: 8px 12px !important;
+        font-size: 12px !important;
+    }
+    
+    .btn-header-action i {
+        font-size: 14px;
+    }
+    
+    .jump-date-input {
+        font-size: 11px;
+        padding: 4px 8px;
+    }
+    
+    /* 캘린더 그리드 */
+    .grid-cell {
+        height: 120px;
+        padding: 4px;
+    }
+    
+    .date-num {
+        font-size: 13px;
+    }
+    
+    .holiday-name {
+        font-size: 9px;
+    }
+    
+    .summary-badge {
+        font-size: 10px;
+        padding: 4px 8px;
+    }
+    
+    /* 학생 드로어 */
+    .drawer {
+        width: 90% !important;
+    }
+    
+    /* 모달 */
+    .modal-card {
+        width: 95% !important;
+        max-width: 95% !important;
+        margin: 10px;
+    }
+    
+    .modal-body-scrollable {
+        max-height: 60vh;
+    }
+    
+    /* 수납 관리 모달 */
+    .payment-card {
+        height: 90vh !important;
+        max-height: 90vh;
+    }
+    
+    .payment-controls {
+        padding: 12px;
+    }
+    
+    .payment-controls h3 {
+        font-size: 16px;
+    }
+    
+    .payment-filter-container {
+        padding: 8px 12px;
+        gap: 6px;
+        overflow-x: auto;
+        flex-wrap: nowrap;
+    }
+    
+    .p-filter-btn {
+        padding: 6px 12px;
+        font-size: 12px;
+        white-space: nowrap;
+    }
+    
+    .payment-summary-box {
+        padding: 12px;
+        gap: 8px;
+    }
+    
+    .s-label {
+        font-size: 11px;
+    }
+    
+    .s-value {
+        font-size: 16px;
+    }
+    
+    .payment-list-container {
+        overflow-x: hidden !important;
+    }
+    
+    .p-summary-row {
+        grid-template-columns: 2fr 1fr 1fr 1fr 40px;
+        padding: 10px 12px;
+        min-width: unset;
+        font-size: 13px;
+    }
+    
+    .p-name {
+        font-size: 14px;
+    }
+    
+    .p-grade {
+        font-size: 11px;
+    }
+    
+    .p-cell {
+        font-size: 13px;
+    }
+    
+    .p-details-row {
+        padding: 0 12px;
+    }
+    
+    .p-details-row:not(.hidden) {
+        padding: 16px 12px;
+    }
+    
+    .p-detail-grid {
+        grid-template-columns: 1fr;
+        gap: 12px;
+        min-width: unset;
+    }
+    
+    .p-detail-item {
+        padding: 12px;
+    }
+    
+    .p-detail-item .d-title {
+        font-size: 12px;
+        margin-bottom: 8px;
+    }
+    
+    .money-input,
+    .date-input {
+        font-size: 13px;
+        padding: 8px;
+    }
+    
+    .d-btn {
+        padding: 6px 8px;
+        font-size: 12px;
+    }
+    
+    /* 기능 패널 */
+    .feature-panel {
+        width: 90% !important;
+        right: 5% !important;
+    }
+    
+    /* 뷰 전환 버튼 */
+    .view-btn {
+        padding: 8px 16px;
+        font-size: 13px;
+    }
+    
+    /* 일정 카드 */
+    .event-block {
+        font-size: 11px;
+        padding: 6px 8px;
+    }
+}
+
+/* 모바일 세로 */
+@media (max-width: 480px) {
+    .main-header {
+        padding: 6px 8px;
+    }
+    
+    .header-left h1 {
+        font-size: 14px !important;
+    }
+    
+    .teacher-chip {
+        font-size: 10px;
+        padding: 3px 6px;
+    }
+    
+    .teacher-chip-label,
+    .teacher-chip-name {
+        display: none;
+    }
+    
+    .teacher-switch-btn {
+        padding: 3px 6px;
+        font-size: 10px;
+    }
+    
+    .btn-header-action span {
+        display: none;
+    }
+    
+    .btn-header-action {
+        padding: 8px !important;
+        min-width: 36px;
+    }
+    
+    .btn-header-action i {
+        margin: 0 !important;
+    }
+    
+    #current-display {
+        font-size: 14px !important;
+    }
+    
+    .nav-arrow {
+        width: 28px;
+        height: 28px;
+        font-size: 12px;
+    }
+    
+    .btn-today {
+        padding: 6px 10px;
+        font-size: 11px;
+    }
+    
+    .grid-cell {
+        height: 100px;
+        padding: 3px;
+    }
+    
+    .date-num {
+        font-size: 12px;
+    }
+    
+    .holiday-name {
+        font-size: 8px;
+    }
+    
+    .summary-badge {
+        font-size: 9px;
+        padding: 3px 6px;
+    }
+    
+    .view-btn {
+        padding: 6px 12px;
+        font-size: 12px;
+    }
+    
+    .drawer {
+        width: 95% !important;
+    }
+    
+    .event-block {
+        font-size: 10px;
+        padding: 4px 6px;
+        min-height: 50px;
+    }
+    
+    /* 수납 관리 모달 - 모바일 세로 */
+    .payment-card {
+        height: 95vh !important;
+    }
+    
+    .payment-controls h3 {
+        font-size: 14px;
+    }
+    
+    .p-filter-btn {
+        padding: 5px 10px;
+        font-size: 11px;
+    }
+    
+    .payment-summary-box {
+        padding: 10px 8px;
+        flex-wrap: wrap;
+    }
+    
+    .summary-item {
+        flex: 0 0 auto;
+    }
+    
+    .s-label {
+        font-size: 10px;
+    }
+    
+    .s-value {
+        font-size: 14px;
+    }
+    
+    .p-summary-row {
+        grid-template-columns: 2fr 0.8fr 0.8fr 0.8fr 35px;
+        padding: 8px;
+        font-size: 11px;
+    }
+    
+    .p-name {
+        font-size: 13px;
+    }
+    
+    .p-grade {
+        font-size: 10px;
+    }
+    
+    .p-cell {
+        font-size: 11px;
+    }
+    
+    .status-badge {
+        font-size: 10px !important;
+        padding: 3px 8px !important;
+    }
+    
+    .p-details-row {
+        padding: 0 8px;
+    }
+    
+    .p-details-row:not(.hidden) {
+        padding: 12px 8px;
+        max-height: 800px !important;
+    }
+    
+    .p-detail-item .d-title {
+        font-size: 11px;
+    }
+    
+    .money-input,
+    .date-input {
+        font-size: 12px;
+        padding: 6px;
+    }
+    
+    .date-input {
+        width: 80px;
+    }
+    
+    /* 수업관리 모달 - 모바일 반응형 */
+    .attendance-card {
+        width: 90% !important;
+        max-height: 90vh !important;
+    }
+    
+    .current-attendance-status {
+        padding: 12px 8px !important;
+        margin-bottom: 12px !important;
+    }
+    
+    .attendance-options {
+        gap: 6px !important;
+        margin-bottom: 12px !important;
+    }
+    
+    .att-btn {
+        padding: 12px 8px !important;
+        font-size: 12px !important;
+        gap: 4px !important;
+    }
+    
+    .att-btn i {
+        font-size: 18px !important;
+    }
+    
+    .time-edit-container {
+        gap: 6px !important;
+    }
+    
+    .time-row {
+        gap: 6px !important;
+    }
+    
+    .duration-input-wrapper {
+        flex: 1 !important;
+    }
+    
+    .btn-time-update {
+        padding: 8px 12px !important;
+        font-size: 12px !important;
+    }

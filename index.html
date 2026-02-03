@@ -7,13 +7,65 @@
     <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.8/dist/web/static/pretendard.css" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="mobile.css">
     <!-- Supabase 라이브러리 -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- 다음 주소 검색 API -->
+    <script src="https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js"></script>
+    <!-- QR 코드 라이브러리 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <!-- 환경 변수 로더 (로컬 개발용) -->
+    <script>
+        // .env.local 파일 로드 (로컬 개발 시)
+        (async () => {
+            // file:// 프로토콜에서는 환경 변수 로드 건너뛰기
+            if (window.location.protocol === 'file:') {
+                console.warn('[env-loader] ⚠️ file:// 프로토콜 감지 - 로컬 서버를 실행하세요: python -m http.server 8000');
+                window.env = {}; // 기본값 사용
+                return;
+            }
+            
+            try {
+                const response = await fetch('.env.local');
+                if (response.ok) {
+                    const text = await response.text();
+                    window.env = {};
+                    text.split('\n').forEach(line => {
+                        if (line && !line.startsWith('#')) {
+                            const [key, ...valueParts] = line.split('=');
+                            const value = valueParts.join('=').trim();
+                            if (key.trim()) {
+                                window.env[key.trim()] = value;
+                            }
+                        }
+                    });
+                    console.log('[env-loader] 환경 변수 로드 완료');
+                }
+            } catch (e) {
+                console.log('[env-loader] .env.local 파일 없음 (Vercel 배포 환경)');
+                window.env = {};
+            }
+        })();
+    </script>
 </head>
 <body>
 
+    <!-- 초기 로딩 중 표시 -->
+    <div id="initial-loader" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #ffffff; display: flex; align-items: center; justify-content: center; z-index: 9999;">
+        <div style="text-align: center;">
+            <div style="width: 50px; height: 50px; border: 4px solid #f3f4f6; border-top: 4px solid #4f46e5; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto;"></div>
+        </div>
+    </div>
+    <style>
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+
     <!-- 로그인 페이지 -->
-    <div id="auth-page" class="auth-page" style="display: flex !important; visibility: visible;">
+    <div id="auth-page" class="auth-page" style="display: none; visibility: hidden;">
         <div class="auth-container">
             <div class="auth-box">
                 <h1 class="auth-logo">ACADEMY MANAGER</h1>
@@ -29,9 +81,9 @@
                         <label>비밀번호</label>
                         <input type="password" id="login-password" class="auth-input" placeholder="비밀번호를 입력하세요">
                     </div>
-                    <div class="form-group" style="flex-direction: row; align-items: center; gap: 8px;">
-                        <input type="checkbox" id="remember-me" style="width: auto; margin: 0;">
-                        <label for="remember-me" style="margin: 0; cursor: pointer;">로그인 유지</label>
+                    <div class="form-group" style="display: flex; flex-direction: row; align-items: center; gap: 8px; margin-top: 8px; padding: 10px 12px; background: #f5f7ff; border-radius: 10px; align-self: flex-start;">
+                        <input type="checkbox" id="remember-me" style="width: 18px; height: 18px; margin: 0; cursor: pointer; accent-color: #4f46e5;">
+                        <label for="remember-me" style="margin: 0; cursor: pointer; font-weight: 600; color: #4f46e5;">로그인 유지</label>
                     </div>
                     <button class="auth-btn" onclick="signIn()">로그인</button>
                     <p class="auth-toggle">계정이 없으신가요? <a href="#" onclick="toggleAuthForm(); return false;">회원가입</a></p>
@@ -70,10 +122,19 @@
                     <h2>선생님 선택</h2>
                     <div class="form-group">
                         <label>등록된 선생님</label>
-                        <select id="teacher-dropdown" class="auth-input">
+                        <select id="teacher-dropdown" class="auth-input" onchange="onTeacherSelected()">
                             <option value="">선생님을 선택해주세요</option>
                         </select>
                     </div>
+                    
+                    <!-- 모든 선생님 비밀번호 입력 -->
+                    <div id="teacher-password-section" style="display: none;">
+                        <div class="form-group">
+                            <label>비밀번호</label>
+                            <input type="password" id="teacher-select-password" class="auth-input" placeholder="비밀번호">
+                        </div>
+                    </div>
+                    
                     <button class="auth-btn" onclick="confirmTeacher()">입장</button>
                     <button class="auth-btn" style="background-color:#b91c1c; margin-top:8px;" onclick="adminDeleteTeacher()">선생님 삭제</button>
                     <p class="auth-toggle">아직 등록된 선생님이 없으신가요? <a href="#" onclick="toggleTeacherForm(); return false;">선생님 등록</a></p>
@@ -88,7 +149,22 @@
                     </div>
                     <div class="form-group">
                         <label>연락처</label>
-                        <input type="text" id="new-teacher-phone" class="auth-input" placeholder="전화번호 (선택)">
+                        <input type="text" id="new-teacher-phone" class="auth-input" placeholder="010-0000-0000" maxlength="13" oninput="formatPhoneNumber(this)">
+                    </div>
+                    <div class="form-group">
+                        <label>주소</label>
+                        <div style="display: flex; gap: 8px;">
+                            <input type="text" id="new-teacher-address" class="auth-input" placeholder="주소를 검색하세요" readonly style="flex: 1; cursor: pointer;" onclick="searchAddress()">
+                            <button type="button" onclick="searchAddress()" style="padding: 12px 20px; background: #6366f1; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 500;">검색</button>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>상세주소 (동/호수)</label>
+                        <input type="text" id="new-teacher-address-detail" class="auth-input" placeholder="예: 101동 1202호">
+                    </div>
+                    <div class="form-group">
+                        <label>비밀번호</label>
+                        <input type="password" id="register-teacher-password" class="auth-input" placeholder="비밀번호">
                     </div>
                     <button class="auth-btn" onclick="registerTeacher()">등록하기</button>
                     <p class="auth-toggle">이미 등록된 선생님이 있으신가요? <a href="#" onclick="toggleTeacherForm(); return false;">선생님 선택</a></p>
@@ -181,7 +257,13 @@
             <button class="feature-main-btn" onclick="toggleStudentList(); closeFeaturePanel();">
                 <i class="fas fa-users"></i> 학생 관리
             </button>
-            <button class="feature-main-btn" onclick="openTeacherModal(); closeFeaturePanel();">
+            <button class="feature-main-btn" onclick="showStudentQRList(); closeFeaturePanel();">
+                <i class="fas fa-qrcode"></i> 학생 QR코드
+            </button>
+            <button class="feature-main-btn" id="qr-attendance-menu-btn" onclick="openQRScanPage(); closeFeaturePanel();">
+                <i class="fas fa-camera"></i> QR코드 스캔
+            </button>
+            <button class="feature-main-btn" id="teacher-menu-btn" onclick="openTeacherModal(); closeFeaturePanel();">
                 <i class="fas fa-chalkboard-user"></i> 선생님
             </button>
         </div>
@@ -212,21 +294,24 @@
                     </div>
                 </div>
                 <div class="input-group">
-                    <label>연락처</label>
-                    <input type="text" id="reg-student-phone" class="m-input" placeholder="학생 전화번호" style="margin-bottom: 8px;">
-                    <input type="text" id="reg-parent-phone" class="m-input" placeholder="학부모 전화번호">
+                    <label>학생 연락처</label>
+                    <input type="text" id="reg-student-phone" class="m-input" placeholder="010-0000-0000" maxlength="13" oninput="formatPhoneNumber(this)">
+                </div>
+                <div class="input-group">
+                    <label>학부모 연락처</label>
+                    <input type="text" id="reg-parent-phone" class="m-input" placeholder="010-0000-0000" maxlength="13" oninput="formatPhoneNumber(this)">
                 </div>
                 <div class="input-group">
                     <label>기본 수강료 (원)</label>
-                    <input type="number" id="reg-default-fee" class="m-input" placeholder="예: 250000">
+                    <input type="text" id="reg-default-fee" class="m-input" placeholder="250,000" oninput="formatNumberWithComma(this)">
                 </div>
                 <div class="input-group">
                     <label>특강비 (원)</label>
-                    <input type="number" id="reg-special-fee" class="m-input" placeholder="예: 100000">
+                    <input type="text" id="reg-special-fee" class="m-input" placeholder="100,000" oninput="formatNumberWithComma(this)">
                 </div>
                 <div class="input-group">
                     <label>기본 교재비 (원)</label>
-                    <input type="number" id="reg-default-textbook-fee" class="m-input" placeholder="예: 30000">
+                    <input type="text" id="reg-default-textbook-fee" class="m-input" placeholder="30,000" oninput="formatNumberWithComma(this)">
                 </div>
                 <div class="input-group">
                     <label>메모</label>
@@ -234,9 +319,14 @@
                 </div>
             </div>
             <div id="edit-mode-actions">
-                <button class="btn-save-main" onclick="handleStudentSave()">저장하기</button>
+                <button class="btn-sub-action success" onclick="showStudentAttendanceHistory(document.getElementById('edit-id').value)" id="view-attendance-btn" style="display: none;">
+                    <i class="fas fa-clipboard-check"></i> 출석 조회
+                </button>
                 <button class="btn-sub-action danger" onclick="prepareBulkDelete()" id="bulk-delete-btn" style="display: none;">
-                    <i class="fas fa-calendar-minus"></i> 일정 일괄 삭제
+                    <i class="fas fa-trash"></i> 일정 삭제
+                </button>
+                <button class="btn-save-main" onclick="handleStudentSave()">
+                    <i class="fas fa-check"></i> 저장
                 </button>
             </div>
         </div>
@@ -380,11 +470,17 @@
             <input type="hidden" id="att-student-id">
             <input type="hidden" id="att-date">
             <div class="attendance-modal-body custom-scroll">
-                <div class="att-info" id="att-info-text"></div>
-                <div class="attendance-options">
+                <div class="att-info" id="att-info-text"></div>                
+                <!-- 현재 출석 상태 표시 -->
+                <div class="current-attendance-status">
+                    <div class="status-label">현재 상태</div>
+                    <div id="current-status-display" class="status-display">미등록</div>
+                </div>
+                                <div class="attendance-options">
                     <button class="att-btn present" onclick="setAttendance('present')"><i class="fas fa-check-circle fa-lg"></i>출석</button>
+                    <button class="att-btn late" onclick="setAttendance('late')"><i class="fas fa-clock fa-lg"></i>지각</button>
                     <button class="att-btn absent" onclick="setAttendance('absent')"><i class="fas fa-times-circle fa-lg"></i>결석</button>
-                    <button class="att-btn etc" onclick="setAttendance('etc')"><i class="fas fa-exclamation-circle fa-lg"></i>보강/기타</button>
+                    <button class="att-btn etc" onclick="setAttendance('makeup')"><i class="fas fa-exclamation-circle fa-lg"></i>보강</button>
                 </div>
                 <div class="separator"></div>
                 <div class="input-group">
@@ -532,27 +628,158 @@
         </div>
     </div>
 
-    <!-- 관리자 권한 부여 모달 -->
-    <div id="grant-admin-modal" class="modal" style="display: none;">
-        <div class="modal-card" style="max-width: 400px;">
+    <!-- 선생님 상세 정보 모달 -->
+    <div id="teacher-detail-modal" class="modal" style="display: none;">
+        <div class="modal-card" style="max-width: 500px;">
             <div class="modal-header">
-                <h2>관리자 권한 부여</h2>
-                <button class="btn-close-x" onclick="closeModal('grant-admin-modal')"><i class="fas fa-times"></i></button>
+                <h2>선생님 상세 정보</h2>
+                <button class="btn-close-x" onclick="closeModal('teacher-detail-modal')"><i class="fas fa-times"></i></button>
             </div>
             <div class="modal-body-scrollable custom-scroll" style="padding: 20px;">
                 <div class="input-group">
-                    <label>선생님 이름</label>
-                    <input type="text" id="grant-admin-name" class="m-input" disabled style="background: #f0f0f0;">
+                    <label>이름</label>
+                    <input type="text" id="detail-teacher-name" class="m-input" readonly style="background: #f0f0f0;">
                 </div>
                 <div class="input-group">
-                    <label>관리자 이메일</label>
-                    <input type="email" id="grant-admin-email" class="m-input" placeholder="관리자 이메일">
+                    <label>전화번호</label>
+                    <input type="text" id="detail-teacher-phone" class="m-input" placeholder="010-0000-0000" maxlength="13" oninput="formatPhoneNumber(this)">
                 </div>
                 <div class="input-group">
-                    <label>관리자 비밀번호</label>
-                    <input type="password" id="grant-admin-password" class="m-input" placeholder="관리자 비밀번호">
+                    <label>주소</label>
+                    <div style="display: flex; gap: 8px;">
+                        <input type="text" id="detail-teacher-address" class="m-input" placeholder="주소를 검색하세요" readonly style="flex: 1; cursor: pointer;" onclick="searchAddressForDetail()">
+                        <button type="button" onclick="searchAddressForDetail()" style="padding: 12px 20px; background: #6366f1; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 500;">검색</button>
+                    </div>
                 </div>
-                <button class="btn-save-main" onclick="confirmGrantAdmin()">권한 부여</button>
+                <div class="input-group">
+                    <label>상세주소 (동/호수)</label>
+                    <input type="text" id="detail-teacher-address-detail" class="m-input" placeholder="예: 101동 1202호">
+                </div>
+                <div class="input-group">
+                    <label>메모</label>
+                    <textarea id="detail-teacher-memo" class="m-input" rows="5" placeholder="선생님에 대한 메모를 입력하세요" style="resize: vertical; min-height: 100px;"></textarea>
+                </div>
+                <button class="btn-save-main" onclick="saveTeacherDetail()">저장</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 선생님 비밀번호 인증 모달 (일반 선생님/직원용) -->
+    <div id="teacher-password-modal" class="modal" style="display: none;">
+        <div class="modal-card" style="max-width: 400px;">
+            <div class="modal-header">
+                <h2>비밀번호 인증</h2>
+                <button class="btn-close-x" onclick="closeModal('teacher-password-modal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body-scrollable custom-scroll" style="padding: 20px;">
+                <p style="margin-bottom: 20px; color: var(--gray);">선생님의 비밀번호를 입력해주세요.</p>
+                <div class="input-group">
+                    <label>비밀번호</label>
+                    <input type="password" id="teacher-login-password" class="m-input" placeholder="비밀번호">
+                </div>
+                <button class="btn-save-main" onclick="confirmTeacherPasswordLogin()">인증</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 관리자 인증 모달 (관리자용) -->
+    <div id="admin-teacher-login-modal" class="modal" style="display: none;">
+        <div class="modal-card" style="max-width: 400px;">
+            <div class="modal-header">
+                <h2>관리자 인증</h2>
+                <button class="btn-close-x" onclick="closeModal('admin-teacher-login-modal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body-scrollable custom-scroll" style="padding: 20px;">
+                <p style="margin-bottom: 20px; color: var(--gray);">관리자의 이메일과 비밀번호를 입력해주세요.</p>
+                <div class="input-group">
+                    <label>이메일</label>
+                    <input type="email" id="admin-login-email" class="m-input" placeholder="관리자 이메일">
+                </div>
+                <div class="input-group">
+                    <label>비밀번호</label>
+                    <input type="password" id="admin-login-password" class="m-input" placeholder="관리자 비밀번호">
+                </div>
+                <button class="btn-save-main" onclick="confirmAdminTeacherLogin()">인증</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- QR 출석 관리 모달 -->
+    <div id="qr-attendance-modal" class="modal" style="display: none;">
+        <div class="modal-card" style="max-width: 900px; width: 90%;">
+            <div class="modal-header">
+                <h2>QR 출석 관리</h2>
+                <button class="btn-close-x" onclick="closeModal('qr-attendance-modal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body-scrollable custom-scroll">
+                <div style="display: flex; gap: 20px; margin-bottom: 20px;">
+                    <button class="btn-save-main" onclick="openQRScanPage()" style="flex: 1;">
+                        <i class="fas fa-camera"></i> QR 스캔하기
+                    </button>
+                    <button class="btn-save-main" onclick="showStudentQRList()" style="flex: 1; background: #10b981;">
+                        <i class="fas fa-qrcode"></i> 학생 QR코드 보기
+                    </button>
+                </div>
+                
+                <div id="qr-attendance-content">
+                    <h3 style="margin-bottom: 15px;">오늘의 출석 현황</h3>
+                    <div id="today-attendance-list"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- QR 스캔 페이지 (전체 화면) -->
+    <div id="qr-scan-page" class="auth-page" style="display: none; background: #1e293b;">
+        <div style="width: 100%; max-width: 600px; padding: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2 style="color: white; margin: 0;">QR 코드 스캔</h2>
+                <div style="display: flex; gap: 10px;">
+                    <button onclick="switchCamera()" style="background: #3b82f6; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 16px;">
+                        <i class="fas fa-camera-rotate"></i> 카메라 전환
+                    </button>
+                    <button onclick="closeQRScanPage()" style="background: #ef4444; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 16px;">
+                        <i class="fas fa-times"></i> 닫기
+                    </button>
+                </div>
+            </div>
+            
+            <div id="qr-reader" style="width: 100%; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.3);"></div>
+            
+            <!-- 하단 결과 패널 제거: 상단 토스트만 사용 -->
+        </div>
+    </div>
+
+    <!-- 학생 QR 코드 목록 모달 -->
+    <div id="student-qr-list-modal" class="modal" style="display: none;">
+        <div class="modal-card" style="max-width: 800px;">
+            <div class="modal-header">
+                <h2>학생 QR 코드</h2>
+                <button class="btn-close-x" onclick="closeModal('student-qr-list-modal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body-scrollable custom-scroll">
+                <input type="text" id="qr-student-search" class="m-input" placeholder="학생명으로 검색..." onkeyup="filterQRStudentList()" style="margin-bottom: 20px;">
+                <div id="student-qr-list"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 학생별 출석 기록 모달 -->
+    <div id="student-attendance-history-modal" class="modal" style="display: none;">
+        <div class="modal-card" style="max-width: 750px;">
+            <div class="modal-header" style="border-bottom: 2px solid #e2e8f0;">
+                <h2 id="attendance-history-title" style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 24px;">📊</span>
+                    <span id="attendance-student-name-title">출석 기록</span>
+                </h2>
+                <button class="btn-close-x" onclick="closeModal('student-attendance-history-modal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body-scrollable custom-scroll" style="padding: 25px;">
+                <div style="margin-bottom: 25px;">
+                    <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #475569; font-size: 14px;">조회 기간</label>
+                    <input type="month" id="attendance-history-month" class="m-input" onchange="loadStudentAttendanceHistory()" style="width: 100%; font-size: 15px; padding: 12px 16px; border: 2px solid #e2e8f0; border-radius: 10px; transition: all 0.2s;" onfocus="this.style.borderColor='#4f46e5'" onblur="this.style.borderColor='#e2e8f0'">
+                </div>
+                <div id="attendance-history-content"></div>
             </div>
         </div>
     </div>
@@ -567,9 +794,11 @@
     </footer>
 
     <!-- Supabase와의 연동을 위한 스크립트 -->
-    <script src="supabase-config.js"></script>
-    <script src="database.js"></script>
-    <script src="auth.js"></script>
-    <script src="script.js"></script>
+   <script src="supabase-config.js"></script>
+<script src="database.js"></script>
+<script src="auth.js"></script>
+<script src="qr-attendance.js"></script>
+<script src="qr-token-test.js"></script>
+<script src="script.js"></script>
 </body>
 </html>

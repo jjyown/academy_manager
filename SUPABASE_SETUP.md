@@ -61,6 +61,12 @@ CREATE TABLE students (
   name text NOT NULL,
   grade text,
   phone text,
+  parent_phone text,
+  default_fee integer DEFAULT 0,
+  special_lecture_fee integer DEFAULT 0,
+  default_textbook_fee integer DEFAULT 0,
+  memo text,
+  register_date date,
   status text DEFAULT 'active',
   created_at timestamptz DEFAULT now()
 );
@@ -74,9 +80,15 @@ CREATE INDEX idx_students_teacher ON students(teacher_id);
 - `teacher_id`: 이 학생을 등록한 선생님의 ID
 - `name`: 학생 이름
 - `grade`: 학년
-- `phone`: 연락처
-- `status`: 상태 ('active', 'inactive' 등)
-- `created_at`: 등록일
+- `phone`: 학생 연락처
+- `parent_phone`: 학부모 연락처
+- `default_fee`: 기본 수업료 (정수, 원 단위)
+- `special_lecture_fee`: 특강 수업료 (정수, 원 단위)
+- `default_textbook_fee`: 교재비 (정수, 원 단위)
+- `memo`: 메모
+- `register_date`: 학생 등록일
+- `status`: 상태 ('active', 'archived', 'paused' 등)
+- `created_at`: 레코드 생성일
 
 ---
 
