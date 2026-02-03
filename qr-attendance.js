@@ -567,14 +567,17 @@ async function processAttendanceFromQR(qrData) {
             console.log('[processAttendanceFromQR] ========== 토큰 검증 완료 ==========');
             
             // 로컬 토큰도 동기화
-            let qrTokens = JSON.parse(localStorage.getItem('student_qr_tokens') || '{}');
-            if (qrTokens[studentId] !== dbToken) {
-                qrTokens[studentId] = dbToken;
-                localStorage.setItem('student_qr_tokens', JSON.stringify(qrTokens));
-                console.log('[processAttendanceFromQR] 로컬 토큰을 DB 토큰으로 동기화 완료');
-            }
+            try {
+                let qrTokens = JSON.parse(localStorage.getItem('student_qr_tokens') || '{}');
+                if (qrTokens[studentId] !== dbToken) {
+                    qrTokens[studentId] = dbToken;
+                    localStorage.setItem('student_qr_tokens', JSON.stringify(qrTokens));
+                    console.log('[processAttendanceFromQR] 로컬 토큰을 DB 토큰으로 동기화 완료');
+                }
                 localStorage.setItem('student_qr_tokens', JSON.stringify(qrTokens));
                 console.log('[processAttendanceFromQR] 로컬 토큰 DB로 동기화');
+            } catch (e) {
+                console.error('[processAttendanceFromQR] 로컬 토큰 동기화 중 에러:', e);
             }
         } else {
             // DB에 토큰이 없는 경우
