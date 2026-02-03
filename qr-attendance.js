@@ -164,6 +164,7 @@ async function loadAllSchedulesForOwner() {
 window.openQRScanPage = async function() {
     console.log('[openQRScanPage] QR 스캔 페이지 열기');
     console.log('[openQRScanPage] students 수:', students ? students.length : 0);
+    console.log('[openQRScanPage] teacherScheduleData 키:', Object.keys(teacherScheduleData));
     
     try {
         // ✅ 학생 데이터가 비어있으면 Supabase에서 다시 로드 (모바일 네트워크 지연 대응)
@@ -200,10 +201,17 @@ window.openQRScanPage = async function() {
             }
         }
         
-        // ✅ 일정 데이터 확인 및 재로드 (모바일/태블릿 누락 대응)
-        if (!teacherScheduleData || Object.keys(teacherScheduleData).length === 0) {
-            console.log('[openQRScanPage] 일정 데이터 없음 - 전체 일정 재로드 시도');
-            await loadAllSchedulesForOwner();
+        // ✅ 일정 데이터 강제 재로드 (모바일/PC 동일 결과 보장 - QR 재발급 후 동기화 필수)
+        console.log('[openQRScanPage] 일정 데이터 전체 재로드 시작 (강제 동기화)');
+        try {
+            const reloadSuccess = await loadAllSchedulesForOwner();
+            if (reloadSuccess) {
+                console.log('[openQRScanPage] 일정 데이터 재로드 완료:', Object.keys(teacherScheduleData).length, '명의 선생님');
+            } else {
+                console.warn('[openQRScanPage] 일정 데이터 재로드 실패');
+            }
+        } catch (reloadError) {
+            console.error('[openQRScanPage] 일정 재로드 중 에러:', reloadError);
         }
         
         // 모달 닫기 (존재하는 경우)
@@ -561,8 +569,59 @@ async function processAttendanceFromQR(qrData) {
                 scheduleResult = findEarliestScheduleForStudent(studentId, dateStr);
                 earliestSchedule = scheduleResult.schedule;
                 allSchedules = scheduleResult.allSchedules;
+                console.log('[processAttendanceFromQR] 재로드 후 일정 결과:', earliestSchedule ? '일정 발견' : '일정 없음');
             } catch (dbError) {
                 console.error('[processAttendanceFromQR] 전체 일정 재로드 실패:', dbError);
+            }
+        }
+        
+        // ✅ 재로드 후에도 일정이 없으면 DB에서 직접 조회 (마지막 시도)
+        if (!earliestSchedule && typeof supabase !== 'undefined') {
+            console.log('[processAttendanceFromQR] 로컬 캐시에도 없음 - DB에서 직접 조회 시도');
+            try {
+                const ownerId = await ensureOwnerId();
+                if (ownerId) {
+                    const { data: schedules, error } = await supabase
+                        .from('schedules')
+                        .select('*')
+                        .eq('owner_user_id', ownerId)
+                        .eq('student_id', parseInt(studentId))
+                        .eq('schedule_date', dateStr)
+                        .order('start_time', { ascending: true });
+                    
+                    if (!error && schedules && schedules.length > 0) {
+                        console.log('[processAttendanceFromQR] DB에서 조회한 일정:', schedules.length, '건');
+                        // 가장 빠른 일정 선택
+                        const dbSchedule = schedules[0];
+                        earliestSchedule = {
+                            start: dbSchedule.start_time ? dbSchedule.start_time.substring(0, 5) : dbSchedule.start_time,
+                            duration: dbSchedule.duration
+                        };
+                        // 모든 일정을 배열로 변환
+                        allSchedules = schedules.map(s => ({
+                            teacherId: String(s.teacher_id),
+                            schedule: {
+                                start: s.start_time ? s.start_time.substring(0, 5) : s.start_time,
+                                duration: s.duration
+                            },
+                            scheduleTime: new Date(`2000-01-01T${s.start_time.substring(0, 5)}:00`)
+                        }));
+                        
+                        // 로컬 캐시에도 반영 (다음 조회 시 빨라짐)
+                        if (!teacherScheduleData[String(dbSchedule.teacher_id)]) {
+                            teacherScheduleData[String(dbSchedule.teacher_id)] = {};
+                        }
+                        if (!teacherScheduleData[String(dbSchedule.teacher_id)][String(studentId)]) {
+                            teacherScheduleData[String(dbSchedule.teacher_id)][String(studentId)] = {};
+                        }
+                        teacherScheduleData[String(dbSchedule.teacher_id)][String(studentId)][dateStr] = earliestSchedule;
+                        console.log('[processAttendanceFromQR] DB 조회 결과를 로컬 캐시에 반영');
+                    } else {
+                        console.warn('[processAttendanceFromQR] DB에서도 일정을 찾을 수 없음:', error);
+                    }
+                }
+            } catch (directError) {
+                console.error('[processAttendanceFromQR] DB 직접 조회 실패:', directError);
             }
         }
         
@@ -672,6 +731,7 @@ function findEarliestScheduleForStudent(studentId, dateStr) {
     
     console.log('[findEarliestScheduleForStudent] 학생 ID:', studentId, '날짜:', dateStr);
     console.log('[findEarliestScheduleForStudent] 전체 teacherScheduleData:', Object.keys(teacherScheduleData));
+    console.log('[findEarliestScheduleForStudent] teacherScheduleData 상태:', Object.keys(teacherScheduleData).length > 0 ? '데이터 있음' : '데이터 없음');
     
     // 모든 선생님의 일정을 순회
     for (const teacherId in teacherScheduleData) {
@@ -707,7 +767,7 @@ function findEarliestScheduleForStudent(studentId, dateStr) {
         console.log('[findEarliestScheduleForStudent] 가장 빠른 일정:', earliestSchedule.start, '선생님:', earliestTeacherId);
         console.log('[findEarliestScheduleForStudent] 해당 날짜 전체 일정 수:', allSchedulesForDate.length);
     } else {
-        console.log('[findEarliestScheduleForStudent] 해당 날짜에 일정이 없음');
+        console.log('[findEarliestScheduleForStudent] 로컬 캐시에 해당 날짜 일정이 없음 - DB에서 직접 조회 필요');
     }
     
     return {
@@ -979,6 +1039,17 @@ window.regenerateQRCode = function(studentId, qrId, accordionId, cleanName) {
         setTimeout(() => {
             accordion.style.maxHeight = accordion.scrollHeight + 'px';
         }, 100);
+    }
+
+    // ✅ QR 재발급 후 일정 데이터 강제 동기화 (PC/모바일 일관성 보장)
+    // 모바일에서도 다음 QR 스캔 시 최신 일정을 확인하도록 캐시 초기화
+    if (typeof loadAllSchedulesForOwner === 'function') {
+        console.log('[regenerateQRCode] QR 재발급 후 일정 데이터 동기화 시작');
+        loadAllSchedulesForOwner().then(() => {
+            console.log('[regenerateQRCode] 일정 데이터 동기화 완료');
+        }).catch(err => {
+            console.error('[regenerateQRCode] 일정 동기화 실패:', err);
+        });
     }
 
     showQRScanToast(null, 'regenerate_success', cleanName);
