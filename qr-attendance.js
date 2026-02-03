@@ -18,8 +18,12 @@ window.generateQRCodeData = async function(studentId) {
     qrTokens[studentId] = qrToken;
     localStorage.setItem('student_qr_tokens', JSON.stringify(qrTokens));
     // ✅ 재발급 토큰을 DB에도 동기화 (기기 간 일관성 확보) - await로 완료 대기
-    await updateStudentQrTokenInDb(studentId, qrToken);
-    console.log('[generateQRCodeData] QR 토큰 생성 및 DB 저장 완료:', studentId, qrToken);
+    try {
+        await updateStudentQrTokenInDb(studentId, qrToken);
+        console.log('[generateQRCodeData] QR 토큰 생성 및 DB 저장 완료:', studentId, qrToken);
+    } catch (dbError) {
+        console.error('[generateQRCodeData] DB 저장 실패 (로컬 토큰만 사용):', dbError);
+    }
     return `STUDENT_${studentId}_${qrToken}`;
 }
 
@@ -989,12 +993,13 @@ async function renderStudentQRList() {
     let html = '<div style="display: flex; flex-direction: column; gap: 10px;">';
 
     for (const student of students) {
-        // 항상 토큰 포함된 QR코드 데이터 생성 (최초/재발급 동일 패턴)
-        const qrData = await generateQRCodeData(student.id);
-        const qrId = `qr-${student.id}`;
-        const accordionId = `accordion-${student.id}`;
+        try {
+            // 항상 토큰 포함된 QR코드 데이터 생성 (최초/재발급 동일 패턴)
+            const qrData = await generateQRCodeData(student.id);
+            const qrId = `qr-${student.id}`;
+            const accordionId = `accordion-${student.id}`;
 
-        console.log('[renderStudentQRList] 학생:', student.name, '| ID:', student.id, '| QR 데이터:', qrData);
+            console.log('[renderStudentQRList] 학생:', student.name, '| ID:', student.id, '| QR 데이터:', qrData);
 
         html += `
             <div style="border: 2px solid #e2e8f0; border-radius: 12px; overflow: hidden; background: white;">
@@ -1029,6 +1034,19 @@ async function renderStudentQRList() {
                 </div>
             </div>
         `;
+        } catch (error) {
+            console.error('[renderStudentQRList] 학생 QR 생성 실패:', student.name, error);
+            // 에러 발생한 학생은 건너뛰고 계속 진행
+            html += `
+            <div style="border: 2px solid #ef4444; border-radius: 12px; padding: 14px 18px; background: #fef2f2;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <i class="fas fa-exclamation-triangle" style="color: #ef4444;"></i>
+                    <span style="color: #991b1b; font-weight: 600;">${student.name}</span>
+                    <span style="color: #dc2626; font-size: 13px;">- QR 생성 실패</span>
+                </div>
+            </div>
+            `;
+        }
     }
 
     html += '</div>';
