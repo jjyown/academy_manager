@@ -467,7 +467,11 @@ async function processAttendanceFromQR(qrData) {
         
         console.log('[processAttendanceFromQR] ✅ 학생 찾음:', student.name);
         
-        // 4. QR토큰 유효성 검사 (최우선 검증 - 대리 출석 방지)
+        // 4. 오늘 날짜 (먼저 계산)
+        const today = new Date();
+        const dateStr = formatDateToYYYYMMDD(today);
+        
+        // 5. QR토큰 유효성 검사 (최우선 검증 - 일정 검사보다 먼저!)
         // ✅ QR 재발급 시 구 QR코드는 무조건 만료 처리
         let qrTokens = JSON.parse(localStorage.getItem('student_qr_tokens') || '{}');
         let validToken = qrTokens[studentId] || null;
@@ -526,10 +530,6 @@ async function processAttendanceFromQR(qrData) {
         
         console.log('[processAttendanceFromQR] ✅ QR토큰 검증 통과');
         
-        // 5. 오늘 날짜
-        const today = new Date();
-        const dateStr = formatDateToYYYYMMDD(today);
-        
         // 6. 출석 중복 체크 (토큰 검증 후)
         try {
             const existingRecord = await getAttendanceRecordByStudentAndDate(studentId, dateStr);
@@ -556,6 +556,7 @@ async function processAttendanceFromQR(qrData) {
             return;
         }
         
+        // ⚠️ 여기서부터는 일정이 필요함 (QR 토큰 검증은 이미 통과)
         // 7. 해당 학생의 그날 모든 선생님 일정 중 가장 빠른 일정 찾기
         let scheduleResult = findEarliestScheduleForStudent(studentId, dateStr);
         let { schedule: earliestSchedule, allSchedules } = scheduleResult;
