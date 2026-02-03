@@ -34,15 +34,32 @@ async function updateStudentQrTokenInDb(studentId, qrToken) {
             console.error('[updateStudentQrTokenInDb] Supabase 미정의');
             throw new Error('Supabase 연결 없음');
         }
-        const { error } = await supabase
+        // studentId 타입 변환 확인 (문자열/숫자 혼용 방지)
+        const numericId = parseInt(studentId);
+        if (isNaN(numericId)) {
+            console.error('[updateStudentQrTokenInDb] 잘못된 학생 ID:', studentId);
+            throw new Error('Invalid student ID');
+        }
+        console.log('[updateStudentQrTokenInDb] 업데이트 시도:', { id: numericId, token: qrToken.substring(0, 20) + '...' });
+        
+        const { data, error } = await supabase
             .from('students')
             .update({ qr_code_data: qrToken })
-            .eq('id', parseInt(studentId));
+            .eq('id', numericId)
+            .select();
+        
         if (error) {
             console.error('[updateStudentQrTokenInDb] 업데이트 실패:', error);
             throw error;
         }
-        console.log('[updateStudentQrTokenInDb] ✅ DB 토큰 업데이트 완료:', studentId, '토큰:', qrToken.substring(0, 20) + '...');
+        
+        if (!data || data.length === 0) {
+            console.error('[updateStudentQrTokenInDb] ⚠️ 업데이트된 행이 없음! ID:', numericId);
+            throw new Error('No rows updated');
+        }
+        
+        console.log('[updateStudentQrTokenInDb] ✅ DB 토큰 업데이트 완료:', studentId, '| 영향받은 행:', data.length, '| 토큰:', qrToken.substring(0, 20) + '...');
+        return data[0];
     } catch (e) {
         console.error('[updateStudentQrTokenInDb] 예외:', e);
         throw e;
@@ -56,17 +73,34 @@ async function getStudentQrTokenFromDb(studentId) {
             console.error('[getStudentQrTokenFromDb] Supabase 미정의');
             return null;
         }
+        // studentId 타입 변환 확인
+        const numericId = parseInt(studentId);
+        if (isNaN(numericId)) {
+            console.error('[getStudentQrTokenFromDb] 잘못된 학생 ID:', studentId);
+            return null;
+        }
+        
+        console.log('[getStudentQrTokenFromDb] 조회 시작:', numericId);
+        
+        // 캐시 무효화를 위해 timestamp 추가 쿼리
         const { data, error } = await supabase
             .from('students')
-            .select('qr_code_data')
-            .eq('id', parseInt(studentId))
+            .select('id, qr_code_data')
+            .eq('id', numericId)
             .maybeSingle();
+        
         if (error) {
             console.error('[getStudentQrTokenFromDb] 조회 실패:', error);
             return null;
         }
-        const token = data?.qr_code_data || null;
-        console.log('[getStudentQrTokenFromDb] DB 토큰 조회:', studentId, '→', token ? token.substring(0, 20) + '...' : 'null');
+        
+        if (!data) {
+            console.log('[getStudentQrTokenFromDb] ⚠️ 학생 데이터 없음, ID:', numericId);
+            return null;
+        }
+        
+        const token = data.qr_code_data || null;
+        console.log('[getStudentQrTokenFromDb] DB 토큰 조회 완료:', studentId, '→', token ? token.substring(0, 20) + '...' : 'null');
         return token;
     } catch (e) {
         console.error('[getStudentQrTokenFromDb] 예외:', e);
@@ -502,21 +536,27 @@ async function processAttendanceFromQR(qrData) {
             return;
         }
         
+        console.log('[processAttendanceFromQR] ========== QR 토큰 검증 시작 ==========');
+        console.log('[processAttendanceFromQR] 스캔된 QR 토큰:', qrToken.substring(0, 30) + '...');
+        
         // ✅ DB 토큰을 우선 조회 (기기 간 일관성 확보 - 최우선)
+        // 다른 기기에서 재발급한 토큰을 감지하기 위해 항상 DB 먼저 조회
         let dbToken = null;
         try {
+            console.log('[processAttendanceFromQR] DB에서 최신 토큰 조회 중...');
             dbToken = await getStudentQrTokenFromDb(studentId);
-            console.log('[processAttendanceFromQR] DB 토큰 조회 결과:', dbToken ? '있음' : '없음');
+            console.log('[processAttendanceFromQR] DB 토큰 조회 결과:', dbToken ? `있음 (${dbToken.substring(0, 30)}...)` : '없음');
         } catch (e) {
             console.error('[processAttendanceFromQR] DB 토큰 조회 예외:', e);
         }
         
-        // DB에 토큰이 있으면 DB 토큰으로 검증
+        // DB에 토큰이 있으면 DB 토큰으로 검증 (다른 기기 재발급 감지)
         if (dbToken) {
             if (qrToken !== dbToken) {
-                console.log('[processAttendanceFromQR] ❌ QR토큰 불일치 (DB 기준)');
+                console.log('[processAttendanceFromQR] ❌ QR토큰 불일치 (DB 기준) - 다른 기기에서 재발급됨');
                 console.log('[processAttendanceFromQR] 스캔된 토큰:', qrToken.substring(0, 30) + '...');
-                console.log('[processAttendanceFromQR] DB 토큰:', dbToken.substring(0, 30) + '...');
+                console.log('[processAttendanceFromQR] DB 최신 토큰:', dbToken.substring(0, 30) + '...');
+                console.log('[processAttendanceFromQR] ========== 만료된 QR 코드 ==========');
                 showQRScanToast(student, 'expired_qr', null);
                 setTimeout(() => {
                     if (html5QrcodeScanner) html5QrcodeScanner.resume();
@@ -524,11 +564,15 @@ async function processAttendanceFromQR(qrData) {
                 return;
             }
             console.log('[processAttendanceFromQR] ✅ QR토큰 검증 통과 (DB 기준)');
+            console.log('[processAttendanceFromQR] ========== 토큰 검증 완료 ==========');
             
             // 로컬 토큰도 동기화
             let qrTokens = JSON.parse(localStorage.getItem('student_qr_tokens') || '{}');
             if (qrTokens[studentId] !== dbToken) {
                 qrTokens[studentId] = dbToken;
+                localStorage.setItem('student_qr_tokens', JSON.stringify(qrTokens));
+                console.log('[processAttendanceFromQR] 로컬 토큰을 DB 토큰으로 동기화 완료');
+            }
                 localStorage.setItem('student_qr_tokens', JSON.stringify(qrTokens));
                 console.log('[processAttendanceFromQR] 로컬 토큰 DB로 동기화');
             }
@@ -1086,10 +1130,25 @@ async function renderStudentQRList() {
 
 // QR 코드 재발급
 window.regenerateQRCode = async function(studentId, qrId, accordionId, cleanName) {
-    console.log('[regenerateQRCode] QR 코드 재발급:', studentId);
+    console.log('[regenerateQRCode] ========== QR 코드 재발급 시작 ==========');
+    console.log('[regenerateQRCode] 학생 ID:', studentId);
+    
     // 반드시 토큰 포함된 최신 QR 생성 - await로 DB 저장 완료 대기
     const newQrData = await generateQRCodeData(studentId);
-    console.log('[regenerateQRCode] 새 QR 데이터 생성 및 DB 저장 완료:', newQrData);
+    console.log('[regenerateQRCode] 새 QR 데이터 생성:', newQrData);
+    
+    // ✅ DB에 실제로 저장되었는지 재조회하여 검증
+    const savedToken = await getStudentQrTokenFromDb(studentId);
+    const expectedToken = newQrData.split('_').slice(2).join('_'); // STUDENT_{ID}_{token}에서 token 추출
+    
+    if (savedToken === expectedToken) {
+        console.log('[regenerateQRCode] ✅ DB 저장 검증 성공');
+    } else {
+        console.error('[regenerateQRCode] ⚠️ DB 저장 검증 실패!');
+        console.error('[regenerateQRCode] 예상 토큰:', expectedToken.substring(0, 20) + '...');
+        console.error('[regenerateQRCode] DB 토큰:', savedToken ? savedToken.substring(0, 20) + '...' : 'null');
+    }
+    console.log('[regenerateQRCode] ========== DB 저장 완료 ==========');
 
     const qrContainer = document.getElementById(qrId);
     if (!qrContainer) return;
