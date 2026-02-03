@@ -18,8 +18,21 @@
 </head>
 <body>
 
+    <!-- 초기 로딩 중 표시 -->
+    <div id="initial-loader" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #ffffff; display: flex; align-items: center; justify-content: center; z-index: 9999;">
+        <div style="text-align: center;">
+            <div style="width: 50px; height: 50px; border: 4px solid #f3f4f6; border-top: 4px solid #4f46e5; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto;"></div>
+        </div>
+    </div>
+    <style>
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+
     <!-- 로그인 페이지 -->
-    <div id="auth-page" class="auth-page" style="display: flex !important; visibility: visible;">
+    <div id="auth-page" class="auth-page" style="display: none; visibility: hidden;">
         <div class="auth-container">
             <div class="auth-box">
                 <h1 class="auth-logo">ACADEMY MANAGER</h1>
@@ -750,8 +763,8 @@
     <!-- Supabase와의 연동을 위한 스크립트 -->
     <script src="supabase-config.js"></script>
     <script src="database.js"></script>
-    <script src="script.js"></script>
     <script src="auth.js"></script>
     <script src="qr-attendance.js"></script>
+    <script src="script.js"></script>
 </body>
 </html>

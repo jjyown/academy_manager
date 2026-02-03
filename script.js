@@ -35,6 +35,10 @@ function getActivePage() {
 function navigateToPage(pageKey) {
     console.log('[navigateToPage] 페이지 이동:', pageKey);
     
+    // 로딩 화면 제거
+    const loader = document.getElementById('initial-loader');
+    if (loader) loader.style.display = 'none';
+    
     // 모든 페이지 숨김
     Object.values(pageStates).forEach(pageId => {
         const page = document.getElementById(pageId);
@@ -82,33 +86,130 @@ document.addEventListener('DOMContentLoaded', async () => {
     
     // ===== 세션 플래그 설정 (새로고침 vs 창 닫기 구분) =====
     // sessionStorage는 탭/창을 닫으면 사라지고, 새로고침하면 유지됨
-    const isRefresh = sessionStorage.getItem('session_active') === 'true';
-    sessionStorage.setItem('session_active', 'true');
+    const isRefresh = sessionStorage.getItem('refresh_flag') === 'true';
+    console.log('[DOMContentLoaded] 새로고침 여부 판단 - refresh_flag:', sessionStorage.getItem('refresh_flag'), '→ isRefresh:', isRefresh);
     
-    // ===== 창 닫기 시 로그인 유지 체크 여부에 따라 세션 정리 =====
-    window.addEventListener('beforeunload', async () => {
-        const rememberLogin = localStorage.getItem('remember_login') === 'true';
-        if (!rememberLogin) {
-            console.log('[beforeunload] 로그인 유지 미체크 - 세션 정리');
-            localStorage.removeItem('current_owner_id');
-            localStorage.removeItem('current_user_role');
-            localStorage.removeItem('current_user_name');
-        } else {
-            // 로그인 유지여도 선생님 선택은 초기화 (보안)
-            localStorage.removeItem('current_teacher_id');
-            localStorage.removeItem('current_teacher_name');
-            localStorage.removeItem('current_teacher_role');
-        }
-    });
+    // 새로고침 플래그 초기화 (다음 beforeunload에서 설정할 준비)
+    sessionStorage.setItem('refresh_flag', '');
+    
+    // ===== 페이지 언로드 이벤트 설정 (중복 등록 방지) =====
+    // beforeunload와 unload는 한 번만 등록되어야 함 (DOMContentLoaded마다 재등록 방지)
+    if (!window._unloadHandlersRegistered) {
+        window._unloadHandlersRegistered = true;
+        
+        // 🔄 beforeunload: 새로고침/창 닫기 구분 플래그 설정
+        window.addEventListener('beforeunload', (e) => {
+            console.log('[beforeunload] 이벤트 발생 - 새로고침 플래그 설정');
+            sessionStorage.setItem('refresh_flag', 'true');
+        });
+        
+        // ⚠️ 클린업 함수: 로그인 유지 여부에 따라 localStorage 정리
+        const cleanupLocalStorage = () => {
+            const isRefreshOnUnload = sessionStorage.getItem('refresh_flag') === 'true';
+            console.log('[cleanupLocalStorage] 새로고침 여부:', isRefreshOnUnload);
+            
+            if (isRefreshOnUnload) {
+                // 🔄 새로고침 중 → localStorage 유지
+                console.log('[cleanupLocalStorage] 새로고침 감지 - localStorage 유지');
+                return;
+            }
+            
+            // ❌ 창 닫기/탭 숨김 → 로그인 유지 여부에 따라 정리
+            console.log('[cleanupLocalStorage] 창 닫기 감지 - localStorage 정리 시작');
+            const rememberLogin = localStorage.getItem('remember_login') === 'true';
+            console.log('[cleanupLocalStorage] remember_login:', rememberLogin);
+            
+            if (!rememberLogin) {
+                // ❌ 로그인 유지 미체크 - 모든 로그인 정보 제거
+                console.log('[cleanupLocalStorage] 로그인 유지 미체크 - 모든 로그인 정보 제거');
+                localStorage.removeItem('current_owner_id');
+                localStorage.removeItem('current_user_role');
+                localStorage.removeItem('current_user_name');
+                localStorage.removeItem('current_teacher_id');
+                localStorage.removeItem('current_teacher_name');
+                localStorage.removeItem('current_teacher_role');
+                localStorage.removeItem('active_page');
+                localStorage.removeItem('remember_login');
+                localStorage.removeItem('current_view');
+            } else {
+                // ✅ 로그인 유지 체크 - 선생님 정보만 초기화 (보안)
+                console.log('[cleanupLocalStorage] 로그인 유지 체크 - 선생님 정보만 초기화');
+                localStorage.removeItem('current_teacher_id');
+                localStorage.removeItem('current_teacher_name');
+                localStorage.removeItem('current_teacher_role');
+                localStorage.removeItem('active_page');
+                localStorage.removeItem('current_view');
+            }
+        };
+        
+        // pagehide 이벤트: 페이지가 숨겨질 때 (unload보다 더 신뢰성 있음)
+        window.addEventListener('pagehide', cleanupLocalStorage, false);
+        
+        // unload도 함께 등록 (pagehide를 지원하지 않는 브라우저 대비)
+        window.addEventListener('unload', cleanupLocalStorage, false);
+        
+        // visibilitychange: 탭이 백그라운드/포그라운드로 전환될 때
+        // 이 이벤트는 페이지 언로드 전에 실행될 가능성이 높음
+        document.addEventListener('visibilitychange', () => {
+            console.log('[visibilitychange] 탭 숨김 상태:', document.hidden);
+            
+            // 탭이 숨겨지는 경우만 정리 (보이는 경우는 스킵)
+            if (document.hidden) {
+                const isRefreshOnUnload = sessionStorage.getItem('refresh_flag') === 'true';
+                console.log('[visibilitychange] 탭 백그라운드 - 새로고침 여부:', isRefreshOnUnload);
+                
+                if (!isRefreshOnUnload) {
+                    // 일정 시간 후에 정리 실행 (pagehide 이벤트 이전에 실행되도록)
+                    setTimeout(() => {
+                        console.log('[visibilitychange] 정리 실행');
+                        cleanupLocalStorage();
+                    }, 10);
+                }
+            }
+        });
+    }
     
     // ===== 1단계: 인증 상태 확인 =====
     console.log('[DOMContentLoaded] 인증 초기화 시작...');
     console.log('[DOMContentLoaded] 새로고침 여부:', isRefresh);
-    if (typeof initializeAuth === 'function') {
-        await initializeAuth(isRefresh);
-        console.log('[DOMContentLoaded] 인증 초기화 완료');
-    } else {
-        console.error('[DOMContentLoaded] initializeAuth 함수 없음');
+    
+    // 안전장치: 5초 후에도 로딩 화면이 있으면 강제 제거
+    const safetyTimeout = setTimeout(() => {
+        const loader = document.getElementById('initial-loader');
+        if (loader && loader.style.display !== 'none') {
+            console.warn('[DOMContentLoaded] 타임아웃 - 로딩 화면 강제 제거');
+            loader.style.display = 'none';
+        }
+    }, 5000);
+    
+    try {
+        if (typeof initializeAuth === 'function') {
+            await initializeAuth(isRefresh);
+            console.log('[DOMContentLoaded] 인증 초기화 완료');
+        } else {
+            console.error('[DOMContentLoaded] initializeAuth 함수 없음');
+            // 로딩 화면 제거
+            const loader = document.getElementById('initial-loader');
+            if (loader) loader.style.display = 'none';
+        }
+    } catch (error) {
+        console.error('[DOMContentLoaded] 인증 초기화 중 에러:', error);
+        // 에러 발생 시에도 로딩 화면 제거
+        const loader = document.getElementById('initial-loader');
+        if (loader) loader.style.display = 'none';
+    } finally {
+        // 타임아웃 클리어
+        clearTimeout(safetyTimeout);
+        // 최종 안전망: 로딩 화면 제거
+        const loader = document.getElementById('initial-loader');
+        if (loader) {
+            setTimeout(() => {
+                if (loader.style.display !== 'none') {
+                    console.warn('[DOMContentLoaded] finally - 로딩 화면 제거');
+                    loader.style.display = 'none';
+                }
+            }, 100);
+        }
     }
     
     // ===== 2단계: 메인 앱 UI 초기화 (로그인 후 선생님 선택 후에 실행) =====
@@ -441,7 +542,7 @@ async function setCurrentTeacher(teacher) {
         
         // 5단계: 페이지를 MAIN_APP으로 전환
         console.log('[setCurrentTeacher] 5단계: 페이지 전환 중...');
-        navigateToPage('MAIN_APP');
+        navigateToPage('MAIN_APP');  // ✅ active_page를 'MAIN_APP'으로 저장
         
         // DOM이 렌더링될 때까지 약간의 지연
         await new Promise(resolve => setTimeout(resolve, 100));
@@ -456,8 +557,20 @@ async function setCurrentTeacher(teacher) {
             console.warn('[setCurrentTeacher] 레이블 요소를 찾을 수 없음');
         }
         
-        // 7단계: 캘린더 렌더링
+        // 7단계: 캘린더 렌더링 (저장된 탭 복원)
         console.log('[setCurrentTeacher] 7단계: 캘린더 렌더링 중...');
+        // 저장된 탭 복원
+        const savedView = localStorage.getItem('current_view') || 'month';
+        currentView = savedView;
+        console.log('[setCurrentTeacher] 저장된 탭 복원:', savedView);
+        
+        // 탭 버튼 활성화
+        document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
+        const tabElement = document.getElementById(`tab-${savedView}`);
+        if (tabElement) {
+            tabElement.classList.add('active');
+        }
+        
         renderCalendar();
         
         // 8단계: 권한 메뉴 및 역할 라벨 업데이트
@@ -466,10 +579,19 @@ async function setCurrentTeacher(teacher) {
         updateTeacherMenuVisibility();
         updateUserRoleLabel();
         
+        // 로딩 화면 제거 (최종 안전망)
+        const loader = document.getElementById('initial-loader');
+        if (loader) loader.style.display = 'none';
+        
         console.log('[setCurrentTeacher] 완료 - 선생님:', teacher.name);
     } catch (err) {
         console.error('[setCurrentTeacher] 에러 발생:', err);
         console.error('[setCurrentTeacher] 에러 스택:', err.stack);
+        
+        // 에러 발생 시에도 로딩 화면 제거
+        const loader = document.getElementById('initial-loader');
+        if (loader) loader.style.display = 'none';
+        
         alert('선생님 선택 중 에러가 발생했습니다.\n\n에러: ' + (err.message || err));
     }
 }
@@ -2168,6 +2290,9 @@ window.moveDate = function(d) {
 }
 window.switchView = function(v) {
     currentView = v;
+    // 탭 상태 저장 (새로고침 시 복원)
+    localStorage.setItem('current_view', v);
+    console.log('[switchView] 탭 전환:', v);
     document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
     document.getElementById(`tab-${v}`).classList.add('active');
     renderCalendar();
