@@ -435,27 +435,35 @@ async function processAttendanceFromQR(qrData) {
             console.log('[processAttendanceFromQR] 로컬에 학생 없음 - Supabase 실시간 조회');
             try {
                 const supabaseStudents = await getAllStudents();
+                console.log('[processAttendanceFromQR] Supabase 조회 결과:', supabaseStudents.length, '명');
                 student = supabaseStudents.find(s => String(s.id) === String(studentId) || Number(s.id) === Number(studentId));
                 if (student) {
-                    // 로컬 students 배열에도 추가 (캐시 갱신)
-                    students.push({
-                        id: student.id,
-                        name: student.name,
-                        grade: student.grade,
-                        studentPhone: student.phone || '',
-                        parentPhone: student.parent_phone || '',
-                        defaultFee: student.default_fee || 0,
-                        specialLectureFee: student.special_lecture_fee || 0,
-                        defaultTextbookFee: student.default_textbook_fee || 0,
-                        memo: student.memo || '',
-                        registerDate: student.register_date || '',
-                        status: student.status || 'active',
-                        events: [],
-                        attendance: {},
-                        records: {},
-                        payments: {}
-                    });
-                    console.log('[processAttendanceFromQR] Supabase에서 학생 조회 성공:', student.name);
+                    // 중복 체크 후 로컬 students 배열에 추가 (캐시 갱신)
+                    const alreadyExists = students.some(s => String(s.id) === String(student.id));
+                    if (!alreadyExists) {
+                        students.push({
+                            id: student.id,
+                            name: student.name,
+                            grade: student.grade,
+                            studentPhone: student.phone || '',
+                            parentPhone: student.parent_phone || '',
+                            defaultFee: student.default_fee || 0,
+                            specialLectureFee: student.special_lecture_fee || 0,
+                            defaultTextbookFee: student.default_textbook_fee || 0,
+                            memo: student.memo || '',
+                            registerDate: student.register_date || '',
+                            status: student.status || 'active',
+                            events: [],
+                            attendance: {},
+                            records: {},
+                            payments: {}
+                        });
+                        console.log('[processAttendanceFromQR] ✅ Supabase에서 학생 조회 및 로컬 추가:', student.name);
+                    } else {
+                        console.log('[processAttendanceFromQR] ✅ Supabase에서 학생 조회 (이미 로컬에 있음):', student.name);
+                    }
+                } else {
+                    console.log('[processAttendanceFromQR] ⚠️ Supabase에도 학생 없음, ID:', studentId);
                 }
             } catch (dbError) {
                 console.error('[processAttendanceFromQR] Supabase 학생 조회 실패:', dbError);
@@ -525,20 +533,43 @@ async function processAttendanceFromQR(qrData) {
                 console.log('[processAttendanceFromQR] 로컬 토큰 DB로 동기화');
             }
         } else {
-            // DB에 토큰이 없으면 - 최초 생성 케이스
-            // 이 경우 스캔한 토큰을 DB에 저장하고 진행
-            console.log('[processAttendanceFromQR] ⚠️ DB 토큰 없음 - 최초 생성으로 간주');
-            try {
-                await updateStudentQrTokenInDb(studentId, qrToken);
-                console.log('[processAttendanceFromQR] ✅ 스캔 토큰을 DB에 저장 완료 - 진행');
-                
-                // 로컬에도 저장
-                let qrTokens = JSON.parse(localStorage.getItem('student_qr_tokens') || '{}');
-                qrTokens[studentId] = qrToken;
-                localStorage.setItem('student_qr_tokens', JSON.stringify(qrTokens));
-            } catch (saveError) {
-                console.error('[processAttendanceFromQR] 토큰 저장 실패:', saveError);
-                // 저장 실패해도 최초 생성이면 진행 허용
+            // DB에 토큰이 없는 경우
+            // ✅ 먼저 로컬 토큰 확인 (재발급 했는데 DB 저장 실패한 경우 대비)
+            let qrTokens = JSON.parse(localStorage.getItem('student_qr_tokens') || '{}');
+            const localToken = qrTokens[studentId];
+            
+            if (localToken) {
+                // 로컬에 토큰이 있으면 로컬 토큰으로 검증
+                if (qrToken !== localToken) {
+                    console.log('[processAttendanceFromQR] ❌ QR토큰 불일치 (로컬 기준)');
+                    console.log('[processAttendanceFromQR] 스캔된 토큰:', qrToken.substring(0, 30) + '...');
+                    console.log('[processAttendanceFromQR] 로컬 토큰:', localToken.substring(0, 30) + '...');
+                    showQRScanToast(student, 'expired_qr', null);
+                    setTimeout(() => {
+                        if (html5QrcodeScanner) html5QrcodeScanner.resume();
+                    }, 2500);
+                    return;
+                }
+                console.log('[processAttendanceFromQR] ✅ QR토큰 검증 통과 (로컬 기준)');
+                // DB에도 동기화 시도
+                try {
+                    await updateStudentQrTokenInDb(studentId, qrToken);
+                    console.log('[processAttendanceFromQR] 로컬 토큰을 DB에 동기화 완료');
+                } catch (syncError) {
+                    console.error('[processAttendanceFromQR] DB 동기화 실패:', syncError);
+                }
+            } else {
+                // DB에도 없고 로컬에도 없으면 - 진짜 최초 생성
+                console.log('[processAttendanceFromQR] ⚠️ DB/로컬 모두 토큰 없음 - 최초 생성으로 간주');
+                try {
+                    await updateStudentQrTokenInDb(studentId, qrToken);
+                    console.log('[processAttendanceFromQR] ✅ 스캔 토큰을 DB에 저장 완료');
+                    qrTokens[studentId] = qrToken;
+                    localStorage.setItem('student_qr_tokens', JSON.stringify(qrTokens));
+                } catch (saveError) {
+                    console.error('[processAttendanceFromQR] 토큰 저장 실패:', saveError);
+                    // 저장 실패해도 최초 생성이면 진행 허용
+                }
             }
         }
         
