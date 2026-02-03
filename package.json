@@ -5,7 +5,8 @@
   "main": "index.html",
   "scripts": {
     "start": "python -m http.server 8000",
-    "dev": "Live Server 사용하기 (VS Code 확장)"
+    "dev": "Live Server 사용하기 (VS Code 확장)",
+    "build": "echo 'Static site - no build required'"
   },
   "keywords": [
     "academy",
@@ -19,7 +20,9 @@
     "supabase-js": "^2.0.0"
   },
   "notes": {
-    "1-setup": "supabase-config.js에 URL과 API 키를 입력하세요",
+    "vercel-setup": "Vercel 환경 변수 설정: REACT_APP_SUPABASE_URL, REACT_APP_SUPABASE_ANON_KEY",
+    "local-setup": ".env.local 파일에 환경 변수 입력",
+    "1-setup": "Vercel Settings → Environment Variables에서 Supabase URL과 API 키 설정",
     "2-database": "Supabase 대시보드의 SQL Editor에서 SQL 명령 실행",
     "3-features": [
       "로그인/회원가입 기능",

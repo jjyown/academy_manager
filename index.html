@@ -15,6 +15,39 @@
     <!-- QR 코드 라이브러리 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
+    <!-- 환경 변수 로더 (로컬 개발용) -->
+    <script>
+        // .env.local 파일 로드 (로컬 개발 시)
+        (async () => {
+            // file:// 프로토콜에서는 환경 변수 로드 건너뛰기
+            if (window.location.protocol === 'file:') {
+                console.warn('[env-loader] ⚠️ file:// 프로토콜 감지 - 로컬 서버를 실행하세요: python -m http.server 8000');
+                window.env = {}; // 기본값 사용
+                return;
+            }
+            
+            try {
+                const response = await fetch('.env.local');
+                if (response.ok) {
+                    const text = await response.text();
+                    window.env = {};
+                    text.split('\n').forEach(line => {
+                        if (line && !line.startsWith('#')) {
+                            const [key, ...valueParts] = line.split('=');
+                            const value = valueParts.join('=').trim();
+                            if (key.trim()) {
+                                window.env[key.trim()] = value;
+                            }
+                        }
+                    });
+                    console.log('[env-loader] 환경 변수 로드 완료');
+                }
+            } catch (e) {
+                console.log('[env-loader] .env.local 파일 없음 (Vercel 배포 환경)');
+                window.env = {};
+            }
+        })();
+    </script>
 </head>
 <body>
 
