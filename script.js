@@ -2910,6 +2910,16 @@ window.openPaymentModal = function() {
     setPaymentFilter('all');
 }
 
+// 학부모 포털 열기 (로컬/배포 환경 모두 지원)
+window.openParentPortal = function() {
+    const storedUrl = (window.PARENT_PORTAL_URL || localStorage.getItem('parent_portal_url') || '').trim();
+    const hasOrigin = window.location.origin && window.location.origin !== 'null';
+    const defaultUrl = hasOrigin ? `${window.location.origin}/parent-portal/` : './parent-portal/';
+    const targetUrl = storedUrl || defaultUrl;
+
+    window.location.href = targetUrl;
+}
+
 window.movePaymentMonth = function(offset) {
     // 날짜를 1일로 임시 설정 후 월 이동, 마지막에 일자를 조정
     const day = currentPaymentDate.getDate();
