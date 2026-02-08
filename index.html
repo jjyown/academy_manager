@@ -229,6 +229,10 @@
         </div>
         <div class="drawer-controls">
             <button class="btn-save-main" onclick="prepareRegister()">+ 학생 등록</button>
+            <div class="student-tab-group">
+                <button class="student-tab-btn active" id="student-tab-all" onclick="setStudentListTab('all')">전체 학생</button>
+                <button class="student-tab-btn" id="student-tab-mine" onclick="setStudentListTab('mine')">내 학생</button>
+            </div>
             <input type="text" id="drawer-search-input" class="m-input" placeholder="학생명/학년으로 검색..." style="margin-top: 10px;">
             <div class="checkbox-group" style="justify-content: flex-end; margin-top: 10px;">
                 <input type="checkbox" id="show-archived" class="custom-checkbox" onchange="renderDrawerList()">
@@ -265,6 +269,9 @@
             </button>
             <button class="feature-main-btn" id="teacher-menu-btn" onclick="openTeacherModal(); closeFeaturePanel();">
                 <i class="fas fa-chalkboard-user"></i> 선생님
+            </button>
+            <button class="feature-main-btn" onclick="openParentPortal(); closeFeaturePanel();">
+                <i class="fas fa-parent"></i> 학부모 포털
             </button>
         </div>
     </div>
@@ -476,7 +483,7 @@
                     <div class="status-label">현재 상태</div>
                     <div id="current-status-display" class="status-display">미등록</div>
                 </div>
-                                <div class="attendance-options">
+                <div class="attendance-options">
                     <button class="att-btn present" onclick="setAttendance('present')"><i class="fas fa-check-circle fa-lg"></i>출석</button>
                     <button class="att-btn late" onclick="setAttendance('late')"><i class="fas fa-clock fa-lg"></i>지각</button>
                     <button class="att-btn absent" onclick="setAttendance('absent')"><i class="fas fa-times-circle fa-lg"></i>결석</button>
@@ -760,6 +767,52 @@
             <div class="modal-body-scrollable custom-scroll">
                 <input type="text" id="qr-student-search" class="m-input" placeholder="학생명으로 검색..." onkeyup="filterQRStudentList()" style="margin-bottom: 20px;">
                 <div id="student-qr-list"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 상태 변경 사유 입력 모달 -->
+    <div id="attendance-change-reason-modal" class="modal" style="display: none;">
+        <div class="modal-card" style="max-width: 480px;">
+            <div class="modal-header">
+                <h2>출석 상태 변경</h2>
+                <button class="btn-close-x" onclick="closeModal('attendance-change-reason-modal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body-scrollable custom-scroll">
+                <div style="padding: 24px;">
+                    <div class="input-group">
+                        <label>학생</label>
+                        <input type="text" id="change-student-name" class="m-input" readonly style="background: #f8fafc; color: var(--gray); cursor: not-allowed;">
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
+                        <div style="flex: 1;">
+                            <label style="display: block; font-size: 12px; color: var(--gray); margin-bottom: 6px;">기존 상태</label>
+                            <input type="text" id="change-original-status" class="m-input" readonly style="background: #f8fafc; color: var(--gray); cursor: not-allowed; text-align: center; font-weight: 700; width: 100%;">
+                        </div>
+                        <div style="padding-bottom: 6px; font-size: 20px; font-weight: 700; color: var(--primary);">→</div>
+                        <div style="flex: 1;">
+                            <label style="display: block; font-size: 12px; color: var(--primary); margin-bottom: 6px;">변경 상태</label>
+                            <input type="text" id="change-new-status" class="m-input" readonly style="background: #eef2ff; color: var(--primary); cursor: not-allowed; text-align: center; font-weight: 700; border: 2px solid var(--primary); width: 100%;">
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label>변경 사유</label>
+                        <textarea id="change-reason-text" class="m-input m-textarea" placeholder="변경 사유를 입력하세요..." maxlength="200" style="resize: none;"></textarea>
+                        <div style="font-size: 12px; color: var(--gray); margin-top: 6px; text-align: right;">
+                            <span id="change-reason-count">0</span>/200
+                        </div>
+                    </div>
+                </div>
+                <input type="hidden" id="change-student-id">
+                <input type="hidden" id="change-attendance-date">
+            </div>
+            <div class="modal-footer-actions">
+                <button class="btn-cancel" onclick="closeModal('attendance-change-reason-modal')" style="flex: 1;">
+                    <i class="fas fa-times"></i> 취소
+                </button>
+                <button class="btn-save-main" onclick="confirmAttendanceChange()" style="flex: 1; margin-top: 0;">
+                    <i class="fas fa-check"></i> 변경 저장
+                </button>
             </div>
         </div>
     </div>

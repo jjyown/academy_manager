@@ -1,5 +1,19 @@
 // 로그인/회원가입 기능
 
+function getTabValue(key) {
+    const sessionValue = sessionStorage.getItem(key);
+    return sessionValue !== null ? sessionValue : localStorage.getItem(key);
+}
+
+function setTabValue(key, value) {
+    sessionStorage.setItem(key, value);
+}
+
+function removeTabValue(key) {
+    sessionStorage.removeItem(key);
+    localStorage.removeItem(key);
+}
+
 window.signUp = async function() {
     const email = document.getElementById('signup-email').value;
     const password = document.getElementById('signup-password').value;
@@ -121,10 +135,10 @@ window.signOut = async function() {
     localStorage.removeItem('current_user_role');
     localStorage.removeItem('current_user_name');
     localStorage.removeItem('remember_login');
-    localStorage.removeItem('current_teacher_id');
-    localStorage.removeItem('current_teacher_name');
-    localStorage.removeItem('current_teacher_role');
-    localStorage.removeItem('active_page');
+    removeTabValue('current_teacher_id');
+    removeTabValue('current_teacher_name');
+    removeTabValue('current_teacher_role');
+    removeTabValue('active_page');
     
     // 로그인 페이지로 이동 및 페이지 상태 초기화
     navigateToPage('AUTH');
@@ -185,9 +199,9 @@ window.showMainApp = async function(forceTeacherSelect = false) {
             console.warn('[showMainApp] 세션 없음 - 로그인 페이지로 강제 이동');
             // localStorage 정리
             localStorage.removeItem('current_owner_id');
-            localStorage.removeItem('current_teacher_id');
-            localStorage.removeItem('current_teacher_name');
-            localStorage.removeItem('active_page');
+            removeTabValue('current_teacher_id');
+            removeTabValue('current_teacher_name');
+            removeTabValue('active_page');
             navigateToPage('AUTH');
             return;
         }
@@ -226,7 +240,7 @@ window.showMainApp = async function(forceTeacherSelect = false) {
             console.error('[showMainApp] loadTeachers 함수를 찾을 수 없습니다.');
         }
 
-        const lastTeacherId = localStorage.getItem('current_teacher_id');
+        const lastTeacherId = getTabValue('current_teacher_id');
         console.log('[showMainApp] 저장된 current_teacher_id:', lastTeacherId);
 
         // forceTeacherSelect가 true이면 선생님 자동 선택을 건너뛰고 선택 페이지로 이동
@@ -319,8 +333,8 @@ window.initializeAuth = async function(isRefresh = false) {
         }
         
         console.log('[initializeAuth] 세션 존재 여부:', !!session);
-        console.log('[initializeAuth] 현재 active_page:', localStorage.getItem('active_page'));
-        console.log('[initializeAuth] 현재 teacher_id:', localStorage.getItem('current_teacher_id'));
+        console.log('[initializeAuth] 현재 active_page:', getTabValue('active_page'));
+        console.log('[initializeAuth] 현재 teacher_id:', getTabValue('current_teacher_id'));
 
         // remember_me 상태를 체크박스에 반영
         const rememberFlag = localStorage.getItem('remember_login') === 'true';
@@ -379,8 +393,8 @@ window.initializeAuth = async function(isRefresh = false) {
             // ✅ 5단계: 새로고침 vs 창 닫기 구분 및 페이지 복원
             if (isRefresh) {
                 // 🔄 새로고침 (F5): 현재 페이지 상태 완전히 복원
-                const currentPage = getActivePage();
-                const lastTeacherId = localStorage.getItem('current_teacher_id');
+                const currentPage = getTabValue('active_page') || getActivePage();
+                const lastTeacherId = getTabValue('current_teacher_id');
                 
                 console.log('[initializeAuth] 🔄 새로고침 진행 - 현재 페이지:', currentPage, '선생님 ID:', lastTeacherId);
                 
@@ -458,13 +472,24 @@ window.initializeAuth = async function(isRefresh = false) {
                 console.log('[initializeAuth] ❌ 창 닫기 후 다시 열기 - remember_login:', rememberLoginWindow);
                 
                 if (rememberLoginWindow) {
-                    // ✅ 로그인 유지 함: 선생님 정보 제거하고 선생님 선택 페이지로 이동 (보안)
-                    console.log('[initializeAuth] 창 닫기 후 다시 열기 - 로그인 유지 활성화 → 선생님 정보 제거 후 선생님 선택 페이지');
-                    localStorage.removeItem('current_teacher_id');
-                    localStorage.removeItem('current_teacher_name');
-                    localStorage.removeItem('current_teacher_role');
-                    localStorage.removeItem('active_page');
-                    await showMainApp(true);  // forceTeacherSelect=true로 선생님 선택 페이지 강제 표시
+                    const lastTeacherId = getTabValue('current_teacher_id');
+                    console.log('[initializeAuth] 로그인 유지 활성화 - 저장된 선생님 ID:', lastTeacherId);
+
+                    if (lastTeacherId) {
+                        try {
+                            const list = typeof loadTeachers === 'function' ? await loadTeachers() : [];
+                            const found = list.find(t => String(t.id) === String(lastTeacherId));
+                            if (found && typeof setCurrentTeacher === 'function') {
+                                await setCurrentTeacher(found);
+                                hideLoader();
+                                return;
+                            }
+                        } catch (err) {
+                            console.error('[initializeAuth] 선생님 복원 실패:', err.message);
+                        }
+                    }
+
+                    await showMainApp(true);
                 } else {
                     // ✅ 로그인 유지 안 함: 로그인 페이지로 이동
                     console.log('[initializeAuth] 창 닫기 후 다시 열기 - 로그인 유지 비활성화 → 로그인 페이지');
@@ -500,10 +525,10 @@ async function cleanupAndRedirectToAuth() {
     localStorage.removeItem('current_owner_id');
     localStorage.removeItem('current_user_role');
     localStorage.removeItem('current_user_name');
-    localStorage.removeItem('current_teacher_id');
-    localStorage.removeItem('current_teacher_name');
-    localStorage.removeItem('current_teacher_role');
-    localStorage.removeItem('active_page');
+    removeTabValue('current_teacher_id');
+    removeTabValue('current_teacher_name');
+    removeTabValue('current_teacher_role');
+    removeTabValue('active_page');
     localStorage.removeItem('remember_login');
     
     // 선생님별 일정 데이터 정리

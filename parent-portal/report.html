@@ -1,0 +1,938 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>학생 출결 조회 - 학부모 포털</title>
+	<link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.8/dist/web/static/pretendard.css" />
+	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+	<link rel="stylesheet" href="style.css">
+	<!-- Supabase 라이브러리 -->
+	<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+	<!-- QR 스캔 라이브러리 -->
+	<script src="https://unpkg.com/html5-qrcode"></script>
+	<style>
+		:root {
+			--primary: #4f46e5;
+			--primary-light: #eef2ff;
+			--text: #1e293b;
+			--gray: #64748b;
+			--border: #e2e8f0;
+			--white: #ffffff;
+			--red: #ef4444;
+			--orange: #f59e0b;
+			--teal: #0d9488;
+			--success: #22c55e;
+		}
+
+		* {
+			margin: 0;
+			padding: 0;
+			box-sizing: border-box;
+		}
+
+		body {
+			font-family: Pretendard, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+			background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+			min-height: 100vh;
+			padding: 16px;
+		}
+
+		.container {
+			max-width: 800px;
+			margin: 0 auto;
+		}
+
+		.header {
+			text-align: center;
+			color: white;
+			margin-bottom: 32px;
+			margin-top: 20px;
+		}
+
+		.header h1 {
+			font-size: 28px;
+			font-weight: 700;
+			margin-bottom: 8px;
+		}
+
+		.header p {
+			font-size: 14px;
+			opacity: 0.9;
+		}
+
+		.search-section {
+			background: white;
+			border-radius: 16px;
+			padding: 20px;
+			margin-bottom: 20px;
+			box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+		}
+
+		.search-header {
+			font-size: 16px;
+			font-weight: 600;
+			color: var(--text);
+			margin-bottom: 12px;
+			display: flex;
+			align-items: center;
+			gap: 8px;
+		}
+
+		.search-header i {
+			color: var(--primary);
+		}
+
+		.search-container {
+			display: flex;
+			flex-direction: column;
+			gap: 10px;
+			margin-bottom: 12px;
+		}
+
+		.search-fields {
+			display: grid;
+			grid-template-columns: 1fr 1fr;
+			gap: 10px;
+		}
+
+		.search-input {
+			flex: 1;
+			padding: 14px 16px;
+			border: 2px solid var(--border);
+			border-radius: 12px;
+			font-size: 15px;
+			font-family: inherit;
+			transition: all 0.3s;
+			min-height: 44px;
+		}
+
+		.search-input:focus {
+			outline: none;
+			border-color: var(--primary);
+			box-shadow: 0 0 0 3px var(--primary-light);
+		}
+
+		.search-btn, .qr-scan-btn {
+			padding: 14px 20px;
+			background: var(--primary);
+			color: white;
+			border: none;
+			border-radius: 12px;
+			font-size: 15px;
+			font-weight: 600;
+			cursor: pointer;
+			transition: all 0.3s;
+			min-height: 44px;
+			display: flex;
+			align-items: center;
+			gap: 8px;
+			white-space: nowrap;
+		}
+
+		.search-btn:hover, .qr-scan-btn:hover {
+			background: #4338ca;
+			transform: translateY(-2px);
+			box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
+		}
+
+		.search-btn:active, .qr-scan-btn:active {
+			transform: translateY(0);
+		}
+
+		.qr-scan-btn {
+			background: var(--teal);
+		}
+
+		.qr-scan-btn:hover {
+			background: #0f766e;
+		}
+
+		/* QR 스캔 모달 */
+		.qr-modal {
+			display: none;
+			position: fixed;
+			top: 0;
+			left: 0;
+			width: 100%;
+			height: 100%;
+			background: rgba(0, 0, 0, 0.9);
+			z-index: 1000;
+			padding: 16px;
+		}
+
+		.qr-modal.active {
+			display: flex;
+			align-items: center;
+			justify-content: center;
+		}
+
+		.qr-modal-content {
+			background: white;
+			border-radius: 16px;
+			padding: 20px;
+			max-width: 500px;
+			width: 100%;
+			max-height: 80vh;
+			overflow-y: auto;
+			position: relative;
+		}
+
+		.qr-modal-header {
+			display: flex;
+			justify-content: space-between;
+			align-items: center;
+			margin-bottom: 16px;
+			padding-bottom: 12px;
+			border-bottom: 2px solid var(--border);
+		}
+
+		.qr-modal-header h2 {
+			font-size: 18px;
+			font-weight: 600;
+			color: var(--text);
+		}
+
+		.qr-modal-close {
+			background: none;
+			border: none;
+			font-size: 24px;
+			cursor: pointer;
+			color: var(--gray);
+			width: 32px;
+			height: 32px;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			border-radius: 8px;
+			transition: all 0.3s;
+		}
+
+		.qr-modal-close:hover {
+			background: var(--primary-light);
+			color: var(--primary);
+		}
+
+		#qr-reader {
+			width: 100% !important;
+			border-radius: 12px;
+			overflow: hidden;
+			margin-bottom: 16px;
+		}
+
+		.qr-reader-controls {
+			display: flex;
+			gap: 10px;
+			justify-content: center;
+		}
+
+		.result-section {
+			background: white;
+			border-radius: 16px;
+			padding: 20px;
+			margin-bottom: 20px;
+			box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+			display: none;
+		}
+
+		.result-section.active {
+			display: block;
+		}
+
+		.student-card {
+			background: linear-gradient(135deg, var(--primary) 0%, #667eea 100%);
+			color: white;
+			padding: 20px;
+			border-radius: 12px;
+			margin-bottom: 20px;
+		}
+
+		.student-info {
+			display: flex;
+			justify-content: space-between;
+			align-items: start;
+			margin-bottom: 16px;
+		}
+
+		.student-name {
+			font-size: 20px;
+			font-weight: 700;
+		}
+
+		.student-phone {
+			font-size: 13px;
+			opacity: 0.9;
+		}
+
+		.attendance-stats {
+			display: grid;
+			grid-template-columns: 1fr 1fr 1fr;
+			gap: 12px;
+			margin-top: 12px;
+		}
+
+		.stat-item {
+			text-align: center;
+			background: rgba(255, 255, 255, 0.2);
+			padding: 12px;
+			border-radius: 8px;
+		}
+
+		.stat-value {
+			font-size: 18px;
+			font-weight: 700;
+		}
+
+		.stat-label {
+			font-size: 11px;
+			opacity: 0.9;
+			margin-top: 4px;
+		}
+
+		.attendance-section {
+			margin-bottom: 20px;
+		}
+
+		.section-title {
+			font-size: 15px;
+			font-weight: 600;
+			color: var(--text);
+			margin-bottom: 12px;
+			display: flex;
+			align-items: center;
+			gap: 8px;
+		}
+
+		.section-title i {
+			color: var(--primary);
+			font-size: 16px;
+		}
+
+		.attendance-list {
+			display: flex;
+			flex-direction: column;
+			gap: 10px;
+			max-height: 400px;
+			overflow-y: auto;
+			padding-right: 4px;
+		}
+
+		.month-btn {
+			padding: 8px 12px;
+			background: white;
+			border: 1px solid var(--border);
+			border-radius: 8px;
+			color: var(--primary);
+			cursor: pointer;
+			font-size: 16px;
+			transition: all 0.3s;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			min-width: 44px;
+			height: 44px;
+		}
+
+		.month-btn:hover {
+			background: white;
+			border-color: var(--primary);
+			box-shadow: 0 2px 8px rgba(79, 70, 229, 0.2);
+		}
+
+		.month-selector {
+			font-family: Pretendard, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+			color: var(--primary);
+			font-weight: 600;
+		}
+
+		.attendance-item {
+			display: flex;
+			justify-content: space-between;
+			align-items: center;
+			padding: 12px;
+			background: #f8fafc;
+			border-left: 4px solid var(--primary);
+			border-radius: 8px;
+			transition: all 0.3s;
+		}
+
+		.attendance-item:hover {
+			background: #f1f5f9;
+			transform: translateX(4px);
+		}
+
+		.attendance-date {
+			font-size: 13px;
+			color: var(--gray);
+			min-width: 100px;
+		}
+
+		.attendance-time {
+			font-size: 13px;
+			font-weight: 600;
+			color: var(--text);
+		}
+
+		.attendance-status {
+			display: flex;
+			align-items: center;
+			gap: 6px;
+			font-size: 12px;
+			font-weight: 600;
+			padding: 4px 10px;
+			border-radius: 6px;
+			min-width: 60px;
+			justify-content: center;
+		}
+
+		.status-present {
+			background: #dcfce7;
+			color: #166534;
+		}
+
+		.status-late {
+			background: #fef3c7;
+			color: #92400e;
+		}
+
+		.status-absent {
+			background: #fee2e2;
+			color: #991b1b;
+		}
+
+		.status-makeup {
+			background: #ccfbf1;
+			color: #0f766e;
+		}
+
+		.evaluation-section {
+			background: white;
+			border-radius: 16px;
+			padding: 20px;
+			margin-bottom: 20px;
+			box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+			display: none;
+		}
+
+		.evaluation-section.active {
+			display: block;
+		}
+
+		.evaluation-textarea {
+			width: 100%;
+			min-height: 120px;
+			padding: 14px;
+			border: 2px solid var(--border);
+			border-radius: 12px;
+			font-size: 14px;
+			font-family: inherit;
+			resize: vertical;
+			transition: all 0.3s;
+		}
+
+		.evaluation-textarea:focus {
+			outline: none;
+			border-color: var(--primary);
+			box-shadow: 0 0 0 3px var(--primary-light);
+		}
+
+		.char-count {
+			font-size: 12px;
+			color: var(--gray);
+			margin-top: 8px;
+			text-align: right;
+		}
+
+		.evaluation-buttons {
+			display: flex;
+			gap: 10px;
+			margin-top: 16px;
+		}
+
+		.evaluation-lock {
+			background: var(--primary-light);
+			border: 1px dashed var(--border);
+			border-radius: 12px;
+			padding: 14px;
+			color: var(--text);
+			margin-bottom: 12px;
+		}
+
+		.evaluation-lock p {
+			margin: 0 0 10px 0;
+			font-size: 13px;
+			color: var(--gray);
+		}
+
+		.evaluation-content.hidden {
+			display: none;
+		}
+
+		.admin-auth-btn {
+			padding: 12px;
+			background: var(--primary-light);
+			color: var(--primary);
+			border: 1px solid var(--border);
+			border-radius: 12px;
+			font-size: 14px;
+			font-weight: 600;
+			cursor: pointer;
+			transition: all 0.3s;
+			min-height: 44px;
+			white-space: nowrap;
+		}
+
+		.admin-auth-btn:hover {
+			border-color: var(--primary);
+			box-shadow: 0 4px 12px rgba(79, 70, 229, 0.2);
+			transform: translateY(-2px);
+		}
+
+		.admin-modal {
+			position: fixed;
+			top: 0;
+			left: 0;
+			width: 100%;
+			height: 100%;
+			background: rgba(0, 0, 0, 0.5);
+			display: none;
+			align-items: center;
+			justify-content: center;
+			z-index: 1000;
+			padding: 16px;
+		}
+
+		.admin-modal.active {
+			display: flex;
+		}
+
+		.admin-modal-content {
+			background: white;
+			border-radius: 16px;
+			padding: 20px;
+			max-width: 420px;
+			width: 100%;
+			box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+		}
+
+		.admin-modal-header {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			margin-bottom: 12px;
+		}
+
+		.admin-modal-header h2 {
+			font-size: 18px;
+			font-weight: 700;
+			color: var(--text);
+		}
+
+		.admin-modal-close {
+			border: none;
+			background: var(--primary-light);
+			color: var(--primary);
+			width: 32px;
+			height: 32px;
+			border-radius: 8px;
+			cursor: pointer;
+		}
+
+		.admin-input {
+			width: 100%;
+			padding: 12px;
+			border: 1px solid var(--border);
+			border-radius: 10px;
+			font-size: 14px;
+			margin-top: 8px;
+		}
+
+		.admin-input:focus {
+			outline: none;
+			border-color: var(--primary);
+			box-shadow: 0 0 0 3px var(--primary-light);
+		}
+
+		.save-btn {
+			flex: 1;
+			padding: 12px;
+			background: var(--primary);
+			color: white;
+			border: none;
+			border-radius: 12px;
+			font-size: 14px;
+			font-weight: 600;
+			cursor: pointer;
+			transition: all 0.3s;
+			min-height: 44px;
+		}
+
+		.save-btn:hover {
+			background: #4338ca;
+			transform: translateY(-2px);
+			box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
+		}
+
+		.cancel-btn {
+			flex: 1;
+			padding: 12px;
+			background: var(--border);
+			color: var(--text);
+			border: none;
+			border-radius: 12px;
+			font-size: 14px;
+			font-weight: 600;
+			cursor: pointer;
+			transition: all 0.3s;
+			min-height: 44px;
+		}
+
+		.cancel-btn:hover {
+			background: #cbd5e1;
+		}
+
+		.empty-state {
+			text-align: center;
+			padding: 40px 20px;
+			color: var(--text);
+			background: rgba(255, 255, 255, 0.92);
+			border: 1px solid var(--border);
+			border-radius: 16px;
+			box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+		}
+
+		.empty-state p {
+			font-size: 15px;
+			margin-bottom: 8px;
+		}
+
+		.loading {
+			text-align: center;
+			padding: 24px;
+		}
+
+		.spinner {
+			width: 40px;
+			height: 40px;
+			border: 4px solid var(--border);
+			border-top: 4px solid var(--primary);
+			border-radius: 50%;
+			animation: spin 1s linear infinite;
+			margin: 0 auto 16px;
+		}
+
+		@keyframes spin {
+			0% { transform: rotate(0deg); }
+			100% { transform: rotate(360deg); }
+		}
+
+		.alert {
+			padding: 12px 16px;
+			border-radius: 8px;
+			margin-bottom: 12px;
+			display: none;
+		}
+
+		.alert.show {
+			display: block;
+		}
+
+		.alert-success {
+			background: #dcfce7;
+			color: #166534;
+			border-left: 4px solid #22c55e;
+		}
+
+		.alert-error {
+			background: #fee2e2;
+			color: #991b1b;
+			border-left: 4px solid var(--red);
+		}
+
+		.alert-info {
+			background: var(--primary-light);
+			color: var(--primary);
+			border-left: 4px solid var(--primary);
+		}
+
+		/* 스크롤바 커스터마이징 */
+		::-webkit-scrollbar {
+			width: 6px;
+		}
+
+		::-webkit-scrollbar-track {
+			background: transparent;
+		}
+
+		::-webkit-scrollbar-thumb {
+			background: var(--border);
+			border-radius: 3px;
+		}
+
+		::-webkit-scrollbar-thumb:hover {
+			background: var(--gray);
+		}
+
+		/* 모바일 반응형 */
+		@media (max-width: 640px) {
+			body {
+				padding: 12px;
+			}
+
+			.container {
+				margin: 0 auto;
+			}
+
+			.header {
+				margin-bottom: 24px;
+				margin-top: 12px;
+			}
+
+			.header h1 {
+				font-size: 24px;
+			}
+
+			.search-fields {
+				grid-template-columns: 1fr;
+			}
+
+			.search-btn, .qr-scan-btn {
+				width: 100%;
+			}
+
+			.attendance-stats {
+				grid-template-columns: 1fr;
+			}
+
+			.search-section,
+			.result-section,
+			.evaluation-section {
+				border-radius: 12px;
+				padding: 16px;
+				margin-bottom: 16px;
+			}
+
+			.student-card {
+				padding: 16px;
+			}
+
+			.student-name {
+				font-size: 18px;
+			}
+
+			.qr-modal-content {
+				border-radius: 16px 16px 0 0;
+				max-width: 100%;
+				margin: 0 -16px -16px -16px;
+				height: 80vh;
+			}
+
+			.stat-value {
+				font-size: 16px;
+			}
+		}
+	</style>
+</head>
+<body>
+	<div class="container">
+		<!-- 헤더 -->
+		<div class="header">
+			<h1><i class="fas fa-graduation-cap" style="color: white; margin-right: 8px;"></i>학생 출결 조회</h1>
+			<p>학생의 출결 현황과 종합 평가를 확인하세요</p>
+		</div>
+
+		<!-- 검색 섹션 -->
+		<div class="search-section">
+			<div class="search-header">
+				<i class="fas fa-search"></i>
+				학생 검색
+			</div>
+			<div class="search-container">
+				<div class="search-fields">
+					<input 
+						type="text" 
+						id="search-name" 
+						class="search-input" 
+						placeholder="학생 이름 입력"
+						autocomplete="off"
+					>
+					<input 
+						type="tel" 
+						id="search-phone" 
+						class="search-input" 
+						placeholder="학부모 전화번호 입력"
+						autocomplete="off"
+						inputmode="numeric"
+					>
+				</div>
+				<button class="search-btn" onclick="handleSearch()">
+					<i class="fas fa-search"></i>검색
+				</button>
+				<button class="qr-scan-btn" onclick="openQRScanner()">
+					<i class="fas fa-qrcode"></i>QR 코드 스캔
+				</button>
+			</div>
+			<div id="alert-container"></div>
+		</div>
+
+		<!-- QR 스캔 모달 -->
+		<div id="qr-modal" class="qr-modal">
+			<div class="qr-modal-content">
+				<div class="qr-modal-header">
+					<h2>QR 코드 스캔</h2>
+					<button class="qr-modal-close" onclick="closeQRScanner()">
+						<i class="fas fa-times"></i>
+					</button>
+				</div>
+				<div id="qr-reader"></div>
+				<div class="qr-reader-controls">
+					<button class="qr-scan-btn" style="flex: 1;" onclick="toggleCamera()">
+						<i class="fas fa-camera"></i>카메라 전환
+					</button>
+				</div>
+			</div>
+		</div>
+
+		<!-- 결과 섹션 -->
+		<div id="result-section" class="result-section">
+			<!-- 학생 카드 -->
+			<div id="student-card" class="student-card">
+				<div class="student-info">
+					<div>
+						<div class="student-name" id="student-name">-</div>
+						<div class="student-phone" id="student-phone">-</div>
+					</div>
+				</div>
+				<div class="attendance-stats" id="attendance-stats"></div>
+			</div>
+
+			<!-- 출결 현황 -->
+			<div class="attendance-section">
+				<div class="section-title">
+					<i class="fas fa-calendar-check"></i>
+					월별 출결 현황
+				</div>
+                
+				<!-- 월 선택 -->
+				<div style="display: flex; gap: 10px; align-items: center; margin-bottom: 16px; background: var(--primary-light); padding: 12px; border-radius: 12px;">
+					<button class="month-btn" onclick="handlePrevMonth()" style="flex-shrink: 0;">
+						<i class="fas fa-chevron-left"></i>
+					</button>
+					<input 
+						type="month" 
+						id="month-selector" 
+						class="month-selector"
+						onchange="handleMonthChange()"
+						style="flex: 1; padding: 8px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; font-weight: 600;"
+					>
+					<button class="month-btn" onclick="handleNextMonth()" style="flex-shrink: 0;">
+						<i class="fas fa-chevron-right"></i>
+					</button>
+				</div>
+
+				<!-- 월별 출석율 -->
+				<div id="monthly-stats" style="display: flex; gap: 10px; margin-bottom: 16px; padding: 12px; background: var(--primary-light); border-radius: 12px;">
+					<div style="flex: 1; text-align: center;">
+						<div style="font-size: 12px; color: var(--gray); margin-bottom: 4px;">출석률</div>
+						<div id="monthly-rate" style="font-size: 18px; font-weight: 700; color: var(--primary);">-</div>
+					</div>
+					<div style="flex: 1; text-align: center;">
+						<div style="font-size: 12px; color: var(--gray); margin-bottom: 4px;">출석</div>
+						<div id="monthly-present" style="font-size: 18px; font-weight: 700; color: var(--success);">-</div>
+					</div>
+					<div style="flex: 1; text-align: center;">
+						<div style="font-size: 12px; color: var(--gray); margin-bottom: 4px;">지각</div>
+						<div id="monthly-late" style="font-size: 18px; font-weight: 700; color: var(--orange);">-</div>
+					</div>
+					<div style="flex: 1; text-align: center;">
+						<div style="font-size: 12px; color: var(--gray); margin-bottom: 4px;">결석</div>
+						<div id="monthly-absent" style="font-size: 18px; font-weight: 700; color: var(--red);">-</div>
+					</div>
+				</div>
+
+				<div id="attendance-list" class="attendance-list">
+					<div class="empty-state">
+						<p>출결 기록이 없습니다</p>
+					</div>
+				</div>
+			</div>
+
+			<!-- 종합 평가 -->
+			<div id="evaluation-section" class="evaluation-section">
+				<div class="section-title">
+					<i class="fas fa-comment-dots"></i>
+					종합 평가 <span id="evaluation-month" style="margin-left: 6px; font-size: 12px; color: var(--gray);"></span>
+					<span style="margin-left: auto; font-size: 12px; color: var(--gray);">(종합평가는 선생님만 수정가능)</span>
+				</div>
+				<div id="evaluation-lock" class="evaluation-lock">
+					<p>학부모 인증 후에 종합 평가를 확인할 수 있습니다.</p>
+					<button class="admin-auth-btn" onclick="openParentAuthModal()">
+						<i class="fas fa-user-check"></i> 학부모 인증
+					</button>
+				</div>
+				<div id="evaluation-content" class="evaluation-content hidden">
+				<textarea 
+					id="evaluation-textarea" 
+					class="evaluation-textarea" 
+					placeholder="학생에 대한 평가 내용을 입력하세요. 최대 500자입니다."
+					maxlength="500"
+				></textarea>
+				<div class="char-count">
+					<span id="char-count">0</span>/500
+				</div>
+				<div class="evaluation-buttons">
+					<button class="save-btn" onclick="saveEvaluation()">
+						<i class="fas fa-save"></i> 저장
+					</button>
+					<button class="cancel-btn" onclick="resetEvaluation()">
+						<i class="fas fa-undo"></i> 초기화
+					</button>
+				</div>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<!-- 관리자 인증 모달 -->
+	<div id="admin-auth-modal" class="admin-modal">
+		<div class="admin-modal-content">
+			<div class="admin-modal-header">
+				<h2>선생님 인증</h2>
+				<button class="admin-modal-close" onclick="closeTeacherAuthModal()">
+					<i class="fas fa-times"></i>
+				</button>
+			</div>
+			<p style="font-size: 13px; color: var(--gray); margin-bottom: 8px;">등록된 선생님을 선택하고 비밀번호를 입력하세요.</p>
+			<select id="teacher-auth-select" class="admin-input">
+				<option value="">선생님 선택</option>
+			</select>
+			<input id="teacher-auth-password" class="admin-input" type="password" placeholder="선생님 비밀번호">
+			<div style="display: flex; gap: 10px; margin-top: 12px;">
+				<button class="save-btn" style="flex: 1;" onclick="handleTeacherAuth()">
+					<i class="fas fa-lock"></i> 인증하기
+				</button>
+			</div>
+		</div>
+	</div>
+
+	<!-- 학부모 인증 모달 -->
+	<div id="parent-auth-modal" class="admin-modal">
+		<div class="admin-modal-content">
+			<div class="admin-modal-header">
+				<h2>학부모 인증</h2>
+				<button class="admin-modal-close" onclick="closeParentAuthModal()">
+					<i class="fas fa-times"></i>
+				</button>
+			</div>
+			<input id="parent-auth-password" class="admin-input" type="password" placeholder="">
+			<div style="display: flex; gap: 10px; margin-top: 12px;">
+				<button class="save-btn" style="flex: 1;" onclick="handleParentAuth()">
+					<i class="fas fa-lock"></i> 인증하기
+				</button>
+			</div>
+		</div>
+	</div>
+
+	<script src="report.js"></script>
+</body>
+</html>

@@ -12,6 +12,8 @@ let currentPaymentFilter = 'all';
 let currentTeacher = null;
 let currentTeacherId = null;
 let teacherList = [];
+let currentStudentListTab = 'all';
+let autoAbsentTimerId = null;
 
 // ========== 새로운: 페이지 상태 관리 ==========
 const pageStates = {
@@ -20,15 +22,45 @@ const pageStates = {
     MAIN_APP: 'main-app'         // 일정관리 페이지
 };
 
+function getTabValue(key) {
+    const sessionValue = sessionStorage.getItem(key);
+    return sessionValue !== null ? sessionValue : localStorage.getItem(key);
+}
+
+function setTabValue(key, value) {
+    sessionStorage.setItem(key, value);
+}
+
+function removeTabValue(key) {
+    sessionStorage.removeItem(key);
+    localStorage.removeItem(key);
+}
+
+function getCurrentTeacherId() {
+    return getTabValue('current_teacher_id');
+}
+
+function getCurrentTeacherName() {
+    return getTabValue('current_teacher_name') || '';
+}
+
+function getCurrentTeacherRole() {
+    return getTabValue('current_teacher_role') || 'teacher';
+}
+
+function getCurrentView() {
+    return getTabValue('current_view') || 'month';
+}
+
 // 현재 활성 페이지 저장
 function setActivePage(pageKey) {
     console.log('[setActivePage] 현재 페이지 저장:', pageKey);
-    localStorage.setItem('active_page', pageKey);
+    setTabValue('active_page', pageKey);
 }
 
 // 현재 활성 페이지 조회
 function getActivePage() {
-    return localStorage.getItem('active_page');
+    return getTabValue('active_page');
 }
 
 // 특정 페이지로 이동 (상태 저장 + 표시)
@@ -66,6 +98,90 @@ function getStorageKey(base) {
 // 전역 보관소 키(선생님 구분 없이 모든 학생 공유)
 function getGlobalStorageKey(base) {
     return `${base}__global`;
+}
+
+function getKstNow() {
+    const now = new Date();
+    const utcMs = now.getTime() + (now.getTimezoneOffset() * 60000);
+    return new Date(utcMs + (9 * 60 * 60000));
+}
+
+function formatDateToYYYYMMDD(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+async function autoMarkAbsentForPastSchedules() {
+    if (!currentTeacherId || !teacherScheduleData[currentTeacherId]) return;
+
+    const todayKst = formatDateToYYYYMMDD(getKstNow());
+    const teacherSchedule = teacherScheduleData[currentTeacherId] || {};
+    let updated = false;
+
+    for (const studentId in teacherSchedule) {
+        const scheduleByDate = teacherSchedule[studentId] || {};
+        const student = students.find(s => String(s.id) === String(studentId));
+        if (!student) continue;
+
+        for (const dateStr in scheduleByDate) {
+            if (dateStr >= todayKst) continue;
+            if (student.attendance && student.attendance[dateStr]) continue;
+
+            if (!student.attendance) student.attendance = {};
+            student.attendance[dateStr] = 'absent';
+
+            const currentStudentIdx = currentTeacherStudents.findIndex(s => String(s.id) === String(studentId));
+            if (currentStudentIdx > -1) {
+                if (!currentTeacherStudents[currentStudentIdx].attendance) currentTeacherStudents[currentStudentIdx].attendance = {};
+                currentTeacherStudents[currentStudentIdx].attendance[dateStr] = 'absent';
+            }
+
+            if (typeof window.saveAttendanceRecord === 'function') {
+                const schedule = scheduleByDate[dateStr];
+                try {
+                    await window.saveAttendanceRecord({
+                        studentId: studentId,
+                        teacherId: String(currentTeacherId),
+                        attendanceDate: dateStr,
+                        checkInTime: null,
+                        scheduledTime: schedule?.start || null,
+                        status: 'absent',
+                        qrScanned: false,
+                        qrScanTime: null,
+                        qrJudgment: null
+                    });
+                } catch (e) {
+                    console.error('[autoMarkAbsentForPastSchedules] DB 저장 실패:', e);
+                }
+            }
+
+            updated = true;
+        }
+    }
+
+    if (updated) {
+        saveData();
+        renderCalendar();
+    }
+}
+
+function scheduleKstMidnightAutoAbsent() {
+    if (autoAbsentTimerId) {
+        clearTimeout(autoAbsentTimerId);
+        autoAbsentTimerId = null;
+    }
+
+    const now = getKstNow();
+    const nextMidnight = new Date(now);
+    nextMidnight.setHours(24, 0, 0, 0);
+    const msUntil = nextMidnight.getTime() - now.getTime();
+
+    autoAbsentTimerId = setTimeout(async () => {
+        await autoMarkAbsentForPastSchedules();
+        scheduleKstMidnightAutoAbsent();
+    }, msUntil);
 }
 
 window.setPaymentFilter = function(filter) {
@@ -125,20 +241,15 @@ document.addEventListener('DOMContentLoaded', async () => {
                 localStorage.removeItem('current_owner_id');
                 localStorage.removeItem('current_user_role');
                 localStorage.removeItem('current_user_name');
-                localStorage.removeItem('current_teacher_id');
-                localStorage.removeItem('current_teacher_name');
-                localStorage.removeItem('current_teacher_role');
-                localStorage.removeItem('active_page');
+                removeTabValue('current_teacher_id');
+                removeTabValue('current_teacher_name');
+                removeTabValue('current_teacher_role');
+                removeTabValue('active_page');
                 localStorage.removeItem('remember_login');
-                localStorage.removeItem('current_view');
+                removeTabValue('current_view');
             } else {
-                // ✅ 로그인 유지 체크 - 선생님 정보만 초기화 (보안)
-                console.log('[cleanupLocalStorage] 로그인 유지 체크 - 선생님 정보만 초기화');
-                localStorage.removeItem('current_teacher_id');
-                localStorage.removeItem('current_teacher_name');
-                localStorage.removeItem('current_teacher_role');
-                localStorage.removeItem('active_page');
-                localStorage.removeItem('current_view');
+                // ✅ 로그인 유지 체크 - 멀티탭 유지 위해 선생님 정보는 유지
+                console.log('[cleanupLocalStorage] 로그인 유지 체크 - 선생님 정보 유지');
             }
         };
         
@@ -148,25 +259,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         // unload도 함께 등록 (pagehide를 지원하지 않는 브라우저 대비)
         window.addEventListener('unload', cleanupLocalStorage, false);
         
-        // visibilitychange: 탭이 백그라운드/포그라운드로 전환될 때
-        // 이 이벤트는 페이지 언로드 전에 실행될 가능성이 높음
-        document.addEventListener('visibilitychange', () => {
-            console.log('[visibilitychange] 탭 숨김 상태:', document.hidden);
-            
-            // 탭이 숨겨지는 경우만 정리 (보이는 경우는 스킵)
-            if (document.hidden) {
-                const isRefreshOnUnload = sessionStorage.getItem('refresh_flag') === 'true';
-                console.log('[visibilitychange] 탭 백그라운드 - 새로고침 여부:', isRefreshOnUnload);
-                
-                if (!isRefreshOnUnload) {
-                    // 일정 시간 후에 정리 실행 (pagehide 이벤트 이전에 실행되도록)
-                    setTimeout(() => {
-                        console.log('[visibilitychange] 정리 실행');
-                        cleanupLocalStorage();
-                    }, 10);
-                }
-            }
-        });
+        // visibilitychange에서 스토리지 정리는 하지 않음 (탭 전환 시 데이터 보호)
     }
     
     // ===== 1단계: 인증 상태 확인 =====
@@ -297,8 +390,8 @@ document.addEventListener('keydown', (e) => {
 // 새로고침 시 상태 복원: 마지막 활성 페이지와 선택된 선생님 유지
 function restorePageOnLoad() {
     const savedPage = getActivePage();
-    const savedTeacherId = localStorage.getItem('current_teacher_id');
-    const savedTeacherName = localStorage.getItem('current_teacher_name') || '';
+    const savedTeacherId = getCurrentTeacherId();
+    const savedTeacherName = getCurrentTeacherName();
     const savedOwnerId = localStorage.getItem('current_owner_id');
 
     console.log('[restorePageOnLoad] savedPage:', savedPage, 'savedTeacherId:', savedTeacherId, 'savedOwnerId:', savedOwnerId);
@@ -307,9 +400,9 @@ function restorePageOnLoad() {
     if (!savedOwnerId) {
         console.warn('[restorePageOnLoad] current_owner_id 없음 - 세션 만료, 로그인 페이지로 이동');
         // localStorage 사용자 데이터 정리
-        localStorage.removeItem('current_teacher_id');
-        localStorage.removeItem('current_teacher_name');
-        localStorage.removeItem('active_page');
+        removeTabValue('current_teacher_id');
+        removeTabValue('current_teacher_name');
+        removeTabValue('active_page');
         localStorage.removeItem('remember_login');
         navigateToPage('AUTH');
         return;
@@ -507,9 +600,9 @@ async function setCurrentTeacher(teacher) {
         currentTeacherId = teacher.id;
         
         // 선택된 선생님을 로컬 저장해 새로고침 후에도 유지
-        localStorage.setItem('current_teacher_id', teacher.id);
-        localStorage.setItem('current_teacher_name', teacher.name || '');
-        localStorage.setItem('current_teacher_role', teacher.role);
+        setTabValue('current_teacher_id', teacher.id);
+        setTabValue('current_teacher_name', teacher.name || '');
+        setTabValue('current_teacher_role', teacher.role);
         console.log('[setCurrentTeacher] 로컬 저장 완료, teacherId:', teacher.id, '역할:', teacher.role);
         
         // 1단계: 관리자별 모든 학생 로드
@@ -539,6 +632,10 @@ async function setCurrentTeacher(teacher) {
         console.log('[setCurrentTeacher] 4단계: 일정 데이터 로드 중...');
         await loadTeacherScheduleData(teacher.id);
         console.log('[setCurrentTeacher] 4단계 완료: 일정 데이터 로드 완료');
+
+        // 일정은 있는데 QR 스캔 결과가 없는 경우 결석 자동 처리 (KST 기준)
+        await autoMarkAbsentForPastSchedules();
+        scheduleKstMidnightAutoAbsent();
         
         // 5단계: 페이지를 MAIN_APP으로 전환
         console.log('[setCurrentTeacher] 5단계: 페이지 전환 중...');
@@ -560,7 +657,7 @@ async function setCurrentTeacher(teacher) {
         // 7단계: 캘린더 렌더링 (저장된 탭 복원)
         console.log('[setCurrentTeacher] 7단계: 캘린더 렌더링 중...');
         // 저장된 탭 복원
-        const savedView = localStorage.getItem('current_view') || 'month';
+        const savedView = getCurrentView();
         currentView = savedView;
         console.log('[setCurrentTeacher] 저장된 탭 복원:', savedView);
         
@@ -673,8 +770,8 @@ window.deleteTeacher = async function() {
     if (currentTeacherId === teacherId) {
         currentTeacher = null;
         currentTeacherId = null;
-        localStorage.removeItem('current_teacher_id');
-        localStorage.removeItem('current_teacher_name');
+        removeTabValue('current_teacher_id');
+        removeTabValue('current_teacher_name');
         const mainApp = document.getElementById('main-app');
         const teacherPage = document.getElementById('teacher-select-page');
         if (mainApp) mainApp.style.setProperty('display', 'none', 'important');
@@ -720,8 +817,8 @@ window.adminDeleteTeacher = async function() {
     if (currentTeacherId === teacherId) {
         currentTeacher = null;
         currentTeacherId = null;
-        localStorage.removeItem('current_teacher_id');
-        localStorage.removeItem('current_teacher_name');
+        removeTabValue('current_teacher_id');
+        removeTabValue('current_teacher_name');
         const mainApp = document.getElementById('main-app');
         const teacherPage = document.getElementById('teacher-select-page');
         if (mainApp) mainApp.style.setProperty('display', 'none', 'important');
@@ -1267,36 +1364,9 @@ window.openAttendanceModal = async function(sid, dateStr) {
     memoDiv.innerHTML = savedRecord;
     
     // 현재 출석 상태 표시
-    document.querySelectorAll('.att-btn').forEach(btn => btn.classList.remove('active'));
     const currentStatus = s.attendance && s.attendance[dateStr];
-    
-    // 상태 표시 영역 업데이트
-    const statusDisplay = document.getElementById('current-status-display');
-    statusDisplay.className = 'status-display'; // 기본 클래스 초기화
-    
-    const statusMapDisplay = {
-        'present': { text: '✓ 출석', class: 'status-present' },
-        'late': { text: '⏰ 지각', class: 'status-late' },
-        'absent': { text: '✕ 결석', class: 'status-absent' },
-        'makeup': { text: '🔄 보강', class: 'status-makeup' },
-        'etc': { text: '🔄 보강', class: 'status-makeup' }
-    };
-    
-    if (currentStatus && statusMapDisplay[currentStatus]) {
-        statusDisplay.textContent = statusMapDisplay[currentStatus].text;
-        statusDisplay.classList.add(statusMapDisplay[currentStatus].class);
-        
-        // 버튼 active 상태도 설정
-        let btnClass = currentStatus;
-        if (currentStatus === 'makeup') {
-            btnClass = 'etc'; // makeup을 etc 버튼에 매핑
-        }
-        const activeBtn = document.querySelector(`.att-btn.${btnClass}`);
-        if (activeBtn) activeBtn.classList.add('active');
-    } else {
-        statusDisplay.textContent = '미등록';
-        statusDisplay.style.color = '#9ca3af';
-    }
+    updateAttendanceStatusDisplay(currentStatus || null);
+
     
     // 선생님별 일정 데이터 사용
     const teacherSchedule = teacherScheduleData[currentTeacherId] || {};
@@ -1340,47 +1410,49 @@ window.updateClassTime = function() {
         alert("일정이 변경되었습니다."); closeModal('attendance-modal');
     }
 }
-window.setAttendance = function(status) {
+window.setAttendance = async function(status, options = {}) {
     const sid = document.getElementById('att-student-id').value;
     const dateStr = document.getElementById('att-date').value;
     const memoDiv = document.getElementById('att-memo');
     const memo = memoDiv.innerHTML;
+    const keepModalOpen = options && options.keepModalOpen === true;
     const sIdx = students.findIndex(s => String(s.id) === String(sid));
     if(sIdx > -1) {
+        let scope = 'current';
+        let teacherIds = new Set([String(currentTeacherId || '')]);
+        if (typeof window.getTeacherIdsForStudentDate === 'function') {
+            try {
+                teacherIds = await window.getTeacherIdsForStudentDate(sid, dateStr);
+            } catch (e) {
+                console.error('[setAttendance] 선생님 일정 조회 실패:', e);
+            }
+        }
+
+        if (teacherIds.size > 1 && typeof window.showAttendanceScopeModal === 'function') {
+            scope = await window.showAttendanceScopeModal();
+            if (!scope) {
+                return;
+            }
+        }
+
         if(!students[sIdx].attendance) students[sIdx].attendance = {};
         if(!students[sIdx].records) students[sIdx].records = {};
         students[sIdx].attendance[dateStr] = status;
         students[sIdx].records[dateStr] = memo;
         
-        // 버튼 active 상태 업데이트 (시각적 피드백)
-        document.querySelectorAll('.att-btn').forEach(btn => btn.classList.remove('active'));
-        
-        // status를 etc 버튼에 매핑
-        let btnClass = status;
-        if (status === 'makeup') {
-            btnClass = 'etc';
-        }
-        
-        const activeBtn = document.querySelector(`.att-btn.${btnClass}`);
-        if (activeBtn) activeBtn.classList.add('active');
-        
-        // 상태 표시 영역 동적 업데이트
-        const statusDisplay = document.getElementById('current-status-display');
-        const statusMapDisplay = {
-            'present': { text: '✓ 출석', class: 'status-present' },
-            'late': { text: '⏰ 지각', class: 'status-late' },
-            'absent': { text: '✕ 결석', class: 'status-absent' },
-            'makeup': { text: '🔄 보강', class: 'status-makeup' },
-            'etc': { text: '🔄 보강', class: 'status-makeup' }
-        };
-        
-        if (statusMapDisplay[status]) {
-            statusDisplay.className = 'status-display ' + statusMapDisplay[status].class;
-            statusDisplay.textContent = statusMapDisplay[status].text;
-        }
+        updateAttendanceStatusDisplay(status);
         
         // 데이터 저장
         saveData();
+
+        // DB에도 상태 업데이트 (기존 시간/스캔 결과 유지)
+        if (scope === 'all') {
+            for (const tid of teacherIds) {
+                await persistAttendanceStatusToDbForTeacher(sid, dateStr, status, String(tid));
+            }
+        } else {
+            await persistAttendanceStatusToDbForTeacher(sid, dateStr, status, String(currentTeacherId || ''));
+        }
         
         // currentTeacherStudents 배열도 즉시 업데이트
         const currentStudentIdx = currentTeacherStudents.findIndex(s => String(s.id) === String(sid));
@@ -1400,9 +1472,75 @@ window.setAttendance = function(status) {
         }
         
         // 짧은 딜레이 후 모달 닫기 (사용자가 선택을 확인할 수 있도록)
-        setTimeout(() => {
-            closeModal('attendance-modal');
-        }, 300);
+        if (!keepModalOpen) {
+            setTimeout(() => {
+                closeModal('attendance-modal');
+            }, 300);
+        }
+    }
+}
+
+function updateAttendanceStatusDisplay(status) {
+    const statusDisplay = document.getElementById('current-status-display');
+    if (!statusDisplay) return;
+
+    statusDisplay.className = 'status-display';
+    statusDisplay.style.color = '';
+
+    const statusMapDisplay = {
+        present: { text: '✓ 출석', class: 'status-present' },
+        late: { text: '⏰ 지각', class: 'status-late' },
+        absent: { text: '✕ 결석', class: 'status-absent' },
+        makeup: { text: '🔄 보강', class: 'status-makeup' },
+        etc: { text: '🔄 보강', class: 'status-makeup' }
+    };
+
+    if (status && statusMapDisplay[status]) {
+        statusDisplay.textContent = statusMapDisplay[status].text;
+        statusDisplay.classList.add(statusMapDisplay[status].class);
+    } else {
+        statusDisplay.textContent = '미등록';
+        statusDisplay.style.color = '#9ca3af';
+    }
+}
+
+async function persistAttendanceStatusToDb(studentId, dateStr, status, teacherId) {
+    await persistAttendanceStatusToDbForTeacher(studentId, dateStr, status, teacherId);
+}
+
+async function persistAttendanceStatusToDbForTeacher(studentId, dateStr, status, teacherId) {
+    if (typeof window.saveAttendanceRecord !== 'function') return;
+
+    let existing = null;
+    if (typeof window.getAttendanceRecordByStudentAndDate === 'function') {
+        try {
+            existing = await window.getAttendanceRecordByStudentAndDate(studentId, dateStr, teacherId || null);
+        } catch (e) {
+            console.error('[persistAttendanceStatusToDbForTeacher] 기존 기록 조회 실패:', e);
+        }
+    }
+
+    const teacherSchedule = teacherScheduleData[teacherId] || {};
+    const studentSchedule = teacherSchedule[String(studentId)] || {};
+    const schedule = studentSchedule[dateStr] || null;
+
+    const payload = {
+        studentId: studentId,
+        teacherId: String(existing?.teacher_id || teacherId || currentTeacherId || ''),
+        attendanceDate: dateStr,
+        checkInTime: existing?.check_in_time || null,
+        scheduledTime: existing?.scheduled_time || schedule?.start || null,
+        status: status,
+        qrScanned: existing?.qr_scanned || false,
+        qrScanTime: existing?.qr_scan_time || null,
+        qrJudgment: existing?.qr_judgment || null,
+        memo: existing?.memo || null
+    };
+
+    try {
+        await window.saveAttendanceRecord(payload);
+    } catch (e) {
+        console.error('[persistAttendanceStatusToDbForTeacher] 상태 저장 실패:', e);
     }
 }
 window.saveOnlyMemo = function() {
@@ -1916,7 +2054,7 @@ async function loadAndCleanData() {
     try {
         // 출석 기록: 소유자 기준으로 로드하여 학생에 반영 (모든 선생님 공통)
         if (typeof getAttendanceRecordsByOwner === 'function') {
-            const records = await getAttendanceRecordsByOwner();
+            const records = await getAttendanceRecordsByOwner(currentTeacherId || null);
             if (records && records.length > 0 && students.length > 0) {
                 const recordMap = new Map();
                 records.forEach(r => {
@@ -1934,11 +2072,29 @@ async function loadAndCleanData() {
                     }
                 });
 
-                recordMap.forEach(({ record }) => {
+                recordMap.forEach(({ record, time }) => {
                     const student = students.find(s => String(s.id) === String(record.student_id));
                     if (!student) return;
                     if (!student.attendance) student.attendance = {};
                     student.attendance[record.attendance_date] = record.status;
+
+                    // QR 스캔 시간 동기화 (상세기록 표시용)
+                    if (!student.qr_scan_time) student.qr_scan_time = {};
+                    if (time) {
+                        const timeStr = new Date(time).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+                        student.qr_scan_time[record.attendance_date] = timeStr;
+                    }
+
+                    // 변경 사유 동기화 (있을 때만)
+                    if (record.change_reason) {
+                        if (!student.changeReasons) student.changeReasons = {};
+                        student.changeReasons[record.attendance_date] = {
+                            originalStatus: record.original_status || null,
+                            newStatus: record.status,
+                            reason: record.change_reason,
+                            changedAt: record.changed_at || null
+                        };
+                    }
                 });
 
                 const ownerKey = `academy_students__${localStorage.getItem('current_owner_id') || 'no-owner'}`;
@@ -2291,7 +2447,7 @@ window.moveDate = function(d) {
 window.switchView = function(v) {
     currentView = v;
     // 탭 상태 저장 (새로고침 시 복원)
-    localStorage.setItem('current_view', v);
+    setTabValue('current_view', v);
     console.log('[switchView] 탭 전환:', v);
     document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
     document.getElementById(`tab-${v}`).classList.add('active');
@@ -2303,6 +2459,12 @@ window.toggleStudentList = function() {
     const open = d.classList.toggle('open');
     o.style.display = open ? 'block' : 'none';
     if(open) {
+        if (currentTeacherId && currentStudentListTab === 'all') {
+            currentStudentListTab = 'mine';
+            document.querySelectorAll('.student-tab-btn').forEach(btn => btn.classList.remove('active'));
+            const active = document.getElementById('student-tab-mine');
+            if (active) active.classList.add('active');
+        }
         renderDrawerList();
         // 검색 입력 이벤트 리스너 추가
         const searchInput = document.getElementById('drawer-search-input');
@@ -2315,12 +2477,17 @@ window.toggleStudentList = function() {
 window.renderDrawerList = function() {
     const showInactiveOnly = document.getElementById('show-archived').checked;
     const searchQuery = document.getElementById('drawer-search-input').value.toLowerCase();
+    const assignedIds = getAssignedStudentIdsForTeacher(currentTeacherId);
     
     // 전체 학생 목록 표시 (모든 선생님의 학생)
     let filtered = students.filter(s => {
         if (showInactiveOnly) return s.status === 'archived' || s.status === 'paused';
         else return s.status === 'active';
     });
+
+    if (currentStudentListTab === 'mine' && currentTeacherId) {
+        filtered = filtered.filter(s => assignedIds.includes(String(s.id)));
+    }
     
     // 검색어 필터링
     if(searchQuery) {
@@ -2333,12 +2500,23 @@ window.renderDrawerList = function() {
     document.getElementById('drawer-content').innerHTML = filtered.map(s => {
         let itemClass = '';
         if (s.status === 'archived' || s.status === 'paused') itemClass = 'inactive-item';
+        const assignedTeacherId = getAssignedTeacherId(String(s.id));
+        const teacherOptions = (teacherList || []).map(t => 
+            `<option value="${t.id}" ${String(t.id) === String(assignedTeacherId) ? 'selected' : ''}>${t.name}</option>`
+        ).join('');
+        const assignControl = `
+            <select class="m-input" style="width: 84px; min-width: 84px; max-width: 84px; padding: 4px 6px; font-size: 11px;" onchange="setStudentAssignment('${s.id}', this.value)">
+                <option value="">미배정</option>
+                ${teacherOptions}
+            </select>
+        `;
         return `<div class="student-item ${itemClass}">
             <div class="student-info" onclick="prepareEdit('${s.id}')">
                 <b>${s.name} <span>${s.grade}</span></b>
                 <span>${s.studentPhone || '-'}</span>
                 <span style="font-size:11px; color:#aaa;">등록: ${s.registerDate || '-'}</span>
             </div>
+            ${assignControl}
             <select id="status-select-${s.id}" class="status-select ${s.status}" data-student-id="${s.id}" data-original-status="${s.status}" onchange="updateStudentStatus('${s.id}', this.value)">
                 <option value="active" ${s.status === 'active' ? 'selected' : ''}>재원</option>
                 <option value="archived" ${s.status === 'archived' ? 'selected' : ''}>퇴원</option>
@@ -2348,6 +2526,90 @@ window.renderDrawerList = function() {
         </div>`
     }).join('');
     document.getElementById('student-list-count').textContent = `${filtered.length}명`;
+}
+
+window.setStudentListTab = function(tab) {
+    currentStudentListTab = tab;
+    document.querySelectorAll('.student-tab-btn').forEach(btn => btn.classList.remove('active'));
+    const active = document.getElementById(`student-tab-${tab}`);
+    if (active) active.classList.add('active');
+    renderDrawerList();
+}
+
+function getAssignedStudentIdsForTeacher(teacherId) {
+    if (!teacherId) return [];
+    const key = `teacher_students_mapping__${teacherId}`;
+    try {
+        const saved = localStorage.getItem(key);
+        return saved ? (JSON.parse(saved) || []).map(String) : [];
+    } catch (e) {
+        console.error('[getAssignedStudentIdsForTeacher] 매핑 파싱 실패:', e);
+        return [];
+    }
+}
+
+function getAssignedTeacherId(studentId) {
+    const allKeys = Object.keys(localStorage);
+    const mappingKeys = allKeys.filter(key => key.startsWith('teacher_students_mapping__'));
+    for (const key of mappingKeys) {
+        try {
+            const saved = localStorage.getItem(key);
+            const ids = saved ? JSON.parse(saved) || [] : [];
+            if (ids.map(String).includes(String(studentId))) {
+                return key.replace('teacher_students_mapping__', '');
+            }
+        } catch (e) {
+            console.error('[getAssignedTeacherId] 매핑 파싱 실패:', e);
+        }
+    }
+    return '';
+}
+
+window.getAssignedTeacherId = getAssignedTeacherId;
+
+function removeStudentFromAllMappings(studentId) {
+    const allKeys = Object.keys(localStorage);
+    const mappingKeys = allKeys.filter(key => key.startsWith('teacher_students_mapping__'));
+    mappingKeys.forEach(key => {
+        try {
+            const saved = localStorage.getItem(key);
+            if (!saved) return;
+            const ids = JSON.parse(saved) || [];
+            const next = ids.filter(id => String(id) !== String(studentId));
+            localStorage.setItem(key, JSON.stringify(next));
+        } catch (e) {
+            console.error('[removeStudentFromAllMappings] 매핑 파싱 실패:', e);
+        }
+    });
+}
+
+function assignStudentToSpecificTeacher(studentId, teacherId) {
+    if (!teacherId) return;
+    const key = `teacher_students_mapping__${teacherId}`;
+    let studentIds = [];
+    try {
+        const saved = localStorage.getItem(key);
+        if (saved) studentIds = JSON.parse(saved) || [];
+    } catch (e) {
+        console.error('매핑 로드 실패:', e);
+    }
+
+    if (!studentIds.map(String).includes(String(studentId))) {
+        studentIds.push(studentId);
+        localStorage.setItem(key, JSON.stringify(studentIds));
+    }
+}
+
+window.setStudentAssignment = function(studentId, teacherId) {
+    removeStudentFromAllMappings(studentId);
+    if (teacherId) {
+        assignStudentToSpecificTeacher(studentId, teacherId);
+    }
+    if (typeof refreshCurrentTeacherStudents === 'function') {
+        refreshCurrentTeacherStudents();
+    }
+    renderDrawerList();
+    renderCalendar();
 }
 window.updateStudentStatus = async function(id, newStatus) {
     console.log(`[updateStudentStatus] 호출 - id: ${id}, newStatus: ${newStatus}`);
@@ -2610,24 +2872,6 @@ window.handleStudentSave = async function() {
                     payments: {} 
                 });
                 
-                // 현재 선생님에게 학생 할당
-                assignStudentToTeacher(newStudentId);
-                
-                // 선생님별 일정 데이터 초기화
-                if(!teacherScheduleData[currentTeacherId]) teacherScheduleData[currentTeacherId] = {};
-                teacherScheduleData[currentTeacherId][newStudentId] = {};
-                
-                // currentTeacherStudents에도 즉시 추가 (일정 추가 시 바로 보이도록)
-                currentTeacherStudents.push({
-                    id: newStudentId,
-                    ...localData,
-                    status: addedStudent.status || 'active',
-                    events: [],
-                    attendance: {},
-                    records: {},
-                    payments: {}
-                });
-                
                 console.log('학생 추가 완료:', addedStudent);
             } else {
                 throw new Error('학생 추가 실패');
@@ -2654,7 +2898,7 @@ window.handleStudentSave = async function() {
 
 window.openPaymentModal = function() {
     // 관리자 역할 확인
-    const role = localStorage.getItem('current_teacher_role') || 'teacher';
+    const role = getCurrentTeacherRole();
     
     if (role !== 'admin') {
         alert('수납 관리는 관리자만 접근할 수 있습니다.');
@@ -3041,7 +3285,7 @@ function updateUserRoleLabel() {
 // 수납관리 메뉴 버튼 가시성 업데이트
 function updatePaymentMenuVisibility() {
     const btn = document.getElementById('payment-menu-btn');
-    const role = localStorage.getItem('current_teacher_role') || 'teacher';
+    const role = getCurrentTeacherRole();
     
     console.log('[updatePaymentMenuVisibility] role:', role, '버튼 존재:', !!btn);
     
@@ -3057,7 +3301,7 @@ function updateTeacherMenuVisibility() {
     const btn = document.getElementById('teacher-menu-btn');
     if (btn) {
         // localStorage에서 현재 선택된 선생님의 역할 확인
-        const role = localStorage.getItem('current_teacher_role') || 'teacher';
+        const role = getCurrentTeacherRole();
         
         console.log('[updateTeacherMenuVisibility] 선생님 메뉴 버튼 가시성 업데이트, role:', role);
         
@@ -3072,7 +3316,7 @@ function updateStudentMenuVisibility() {
     const btn = document.querySelector('button[onclick="toggleStudentList(); closeFeaturePanel();"]');
     if (btn) {
         // localStorage에서 현재 선택된 선생님의 역할 확인
-        const role = localStorage.getItem('current_teacher_role') || 'teacher';
+        const role = getCurrentTeacherRole();
         
         // teacher, admin 모두 학생 관리 버튼 표시
         btn.style.display = (role === 'teacher' || role === 'admin') ? 'flex' : 'none';
@@ -3085,7 +3329,7 @@ function updateStudentMenuVisibility() {
 
 window.openTeacherModal = function() {
     // 관리자만 선생님 관리 가능
-    const role = localStorage.getItem('current_teacher_role') || 'teacher';
+    const role = getCurrentTeacherRole();
     
     if (role !== 'admin') {
         alert('관리자만 선생님을 관리할 수 있습니다.');
@@ -3167,8 +3411,8 @@ window.deleteTeacherFromModal = async function(teacherId) {
     if (currentTeacherId === teacherId) {
         currentTeacher = null;
         currentTeacherId = null;
-        localStorage.removeItem('current_teacher_id');
-        localStorage.removeItem('current_teacher_name');
+        removeTabValue('current_teacher_id');
+        removeTabValue('current_teacher_name');
         const mainApp = document.getElementById('main-app');
         const teacherPage = document.getElementById('teacher-select-page');
         if (mainApp) mainApp.style.setProperty('display', 'none', 'important');

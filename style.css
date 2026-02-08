@@ -1037,6 +1037,8 @@ button, select, input, textarea { font-family: 'Pretendard', sans-serif; }
     border-top: 1px solid var(--border);
     background: #fafafa;
     flex-shrink: 0;
+    display: flex;
+    gap: 10px;
 }
 
 .btn-delete-action {
@@ -1064,6 +1066,33 @@ button, select, input, textarea { font-family: 'Pretendard', sans-serif; }
 }
 
 .btn-delete-action:active {
+    transform: translateY(0);
+}
+
+.btn-cancel {
+    padding: 12px 20px;
+    background-color: #f1f5f9;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-family: inherit;
+}
+
+.btn-cancel:hover {
+    background-color: #e2e8f0;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.btn-cancel:active {
     transform: translateY(0);
 }
 
@@ -1262,6 +1291,35 @@ button, select, input, textarea { font-family: 'Pretendard', sans-serif; }
     flex-shrink: 0;
 }
 
+.student-tab-group {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.student-tab-btn {
+    border: 1px solid var(--border);
+    background: #f8fafc;
+    color: var(--gray);
+    font-size: 13px;
+    font-weight: 700;
+    padding: 8px 12px;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.student-tab-btn.active {
+    background: var(--primary);
+    color: #fff;
+    border-color: var(--primary);
+}
+
+.student-tab-btn:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+}
+
 /* Student List Items within Drawer */
 .student-item {
     display: flex;
@@ -1314,6 +1372,81 @@ button, select, input, textarea { font-family: 'Pretendard', sans-serif; }
 .student-info span:nth-of-type(1) { /* Student Phone */
     font-size: 13px;
     color: var(--gray);
+}
+
+.student-teachers {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.teacher-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    background: #eef2ff;
+    color: #4338ca;
+}
+
+.teacher-remove-btn {
+    border: none;
+    background: transparent;
+    color: #6366f1;
+    font-size: 12px;
+    font-weight: 900;
+    margin-left: 6px;
+    cursor: pointer;
+    line-height: 1;
+}
+
+.teacher-remove-btn:hover {
+    color: #4338ca;
+}
+
+.teacher-badge.empty {
+    background: #f1f5f9;
+    color: var(--gray);
+}
+
+.student-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    align-items: flex-end;
+}
+
+.teacher-assign-select {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    padding: 6px 26px 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background-color: var(--white);
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    outline: none;
+    transition: all 0.2s;
+    min-width: 110px;
+    background-image: url('data:image/svg+xml;utf8,<svg fill="none" viewBox="0 0 24 24" stroke="%2364748b" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>');
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    background-size: 14px;
+}
+
+.teacher-assign-select:hover {
+    border-color: var(--primary);
+}
+
+.drawer-empty {
+    color: var(--gray);
+    text-align: center;
+    padding: 20px 10px;
+    font-size: 13px;
 }
 
 .status-select {
@@ -1541,8 +1674,9 @@ button, select, input, textarea { font-family: 'Pretendard', sans-serif; }
 }
 
 .m-textarea {
-    min-height: 80px;
-    resize: vertical;
+    min-height: 100px;
+    resize: none;
+    overflow: auto;
 }
 
 .btn-save-main {

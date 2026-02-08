@@ -171,16 +171,23 @@ window.deleteStudent = async function(studentId) {
 
 // ========== 출석 기록 조회 (소유자 기준) ==========
 
-window.getAttendanceRecordsByOwner = async function() {
+window.getAttendanceRecordsByOwner = async function(teacherId = null) {
     try {
         const ownerId = localStorage.getItem('current_owner_id');
         if (!ownerId) return [];
 
-        const { data, error } = await supabase
+        let query = supabase
             .from('attendance_records')
             .select('*')
             .eq('owner_user_id', ownerId)
             .order('attendance_date', { ascending: true });
+
+        const effectiveTeacherId = teacherId || (typeof currentTeacherId !== 'undefined' ? currentTeacherId : null);
+        if (effectiveTeacherId) {
+            query = query.eq('teacher_id', String(effectiveTeacherId));
+        }
+
+        const { data, error } = await query;
 
         if (error) throw error;
         return data || [];
