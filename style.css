@@ -193,6 +193,24 @@ body {
     text-align: center;
 }
 
+.auth-reset {
+    margin-top: 10px;
+    font-size: 13px;
+    color: var(--gray);
+    text-align: center;
+}
+
+.auth-reset-link {
+    color: var(--primary);
+    font-weight: 700;
+    text-decoration: none;
+}
+
+.auth-reset-link:hover {
+    text-decoration: underline;
+}
+
+
 .form-group {
     margin-bottom: 18px;
     width: 100%;
@@ -995,6 +1013,7 @@ button, select, input, textarea { font-family: 'Pretendard', sans-serif; }
 
 /* 모달 공통 */
 .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; z-index: 2000; padding: 20px; }
+.modal.auth-modal { z-index: 10050; }
 .modal-card {
     background: white;
     padding: 0; /* Changed to 0 as internal elements will handle padding */
@@ -1318,6 +1337,47 @@ button, select, input, textarea { font-family: 'Pretendard', sans-serif; }
 .student-tab-btn:hover {
     border-color: var(--primary);
     color: var(--primary);
+}
+
+.student-sort-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.student-sort-label {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--gray);
+}
+
+.student-sort-btn {
+    border: 1px solid var(--border);
+    background: #f8fafc;
+    color: var(--gray);
+    font-size: 12px;
+    font-weight: 700;
+    padding: 6px 10px;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.student-sort-btn.active {
+    background: var(--primary);
+    color: #fff;
+    border-color: var(--primary);
+}
+
+.student-sort-btn:hover:not(:disabled) {
+    border-color: var(--primary);
+    color: var(--primary);
+}
+
+.student-sort-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
 /* Student List Items within Drawer */
@@ -1747,6 +1807,34 @@ button, select, input, textarea { font-family: 'Pretendard', sans-serif; }
     border: none;
     border-radius: 10px;
     transition: all 0.2s ease;
+}
+
+#register-modal .form-row {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+#register-modal #reg-school {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+#register-modal #reg-grade {
+    flex: 0 0 120px;
+    min-width: 120px;
+}
+
+@media (max-width: 520px) {
+    #register-modal .form-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    #register-modal #reg-grade {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
 }
 
 #register-modal .modal-card #edit-mode-actions .btn-save-main {

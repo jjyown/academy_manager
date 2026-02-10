@@ -13,6 +13,7 @@ let currentTeacher = null;
 let currentTeacherId = null;
 let teacherList = [];
 let currentStudentListTab = 'all';
+let currentStudentSort = 'default';
 let autoAbsentTimerId = null;
 
 // ========== 새로운: 페이지 상태 관리 ==========
@@ -745,6 +746,87 @@ window.confirmTeacher = async function() {
     await setCurrentTeacher(teacher);
 }
 
+function populateTeacherResetDropdown() {
+    const dropdown = document.getElementById('reset-teacher-dropdown');
+    if (!dropdown) return;
+
+    dropdown.innerHTML = '<option value="">선생님을 선택해주세요</option>';
+    if (!teacherList || teacherList.length === 0) return;
+
+    teacherList.forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t.id;
+        let displayText = t.name;
+        if (t.phone) {
+            const last4 = t.phone.replace(/[^0-9]/g, '').slice(-4);
+            displayText += last4 ? ` (${last4})` : '';
+        }
+        opt.textContent = displayText;
+        dropdown.appendChild(opt);
+    });
+}
+
+window.openTeacherPasswordResetModal = async function() {
+    const ownerId = localStorage.getItem('current_owner_id');
+    if (!ownerId) {
+        alert('로그인이 필요합니다.');
+        return;
+    }
+
+    if (!teacherList || teacherList.length === 0) {
+        await loadTeachers();
+    }
+
+    populateTeacherResetDropdown();
+    const modal = document.getElementById('teacher-password-reset-modal');
+    if (modal) modal.style.display = 'flex';
+}
+
+window.closeTeacherPasswordResetModal = function() {
+    const modal = document.getElementById('teacher-password-reset-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+window.confirmTeacherPasswordReset = async function() {
+    const teacherId = document.getElementById('reset-teacher-dropdown')?.value || '';
+    const newPassword = document.getElementById('reset-teacher-password')?.value.trim() || '';
+    const confirmPassword = document.getElementById('reset-teacher-password-confirm')?.value.trim() || '';
+
+    if (!teacherId) return alert('선생님을 선택해주세요.');
+    if (!newPassword || !confirmPassword) return alert('새 비밀번호를 입력해주세요.');
+    if (newPassword.length < 4) return alert('비밀번호는 4자 이상으로 설정해주세요.');
+    if (newPassword !== confirmPassword) return alert('비밀번호가 일치하지 않습니다.');
+
+    const ownerId = localStorage.getItem('current_owner_id');
+    if (!ownerId) return alert('로그인이 필요합니다.');
+
+    try {
+        const passwordHash = await hashPin(newPassword);
+        const { error } = await supabase
+            .from('teachers')
+            .update({ pin_hash: passwordHash })
+            .eq('id', teacherId)
+            .eq('owner_user_id', ownerId);
+
+        if (error) {
+            console.error('[confirmTeacherPasswordReset] 실패:', error);
+            return alert('비밀번호 변경 실패: ' + error.message);
+        }
+
+        const target = teacherList.find(t => String(t.id) === String(teacherId));
+        if (target) target.pin_hash = passwordHash;
+
+        document.getElementById('reset-teacher-password').value = '';
+        document.getElementById('reset-teacher-password-confirm').value = '';
+        document.getElementById('reset-teacher-dropdown').value = '';
+        window.closeTeacherPasswordResetModal();
+        alert('선생님 비밀번호가 변경되었습니다.');
+    } catch (err) {
+        console.error('[confirmTeacherPasswordReset] 예외:', err);
+        alert('오류 발생: ' + (err.message || err));
+    }
+}
+
 window.deleteTeacher = async function() {
     const teacherId = document.getElementById('teacher-dropdown').value;
     if (!teacherId) return alert('삭제할 선생님을 선택해주세요.');
@@ -841,14 +923,19 @@ window.registerTeacher = async function() {
         const address = document.getElementById('new-teacher-address').value.trim();
         const addressDetail = document.getElementById('new-teacher-address-detail').value.trim();
         const teacherPassword = document.getElementById('register-teacher-password').value.trim();
+        const teacherPasswordConfirm = document.getElementById('register-teacher-password-confirm')?.value.trim() || '';
         
         console.log('[registerTeacher] 입력 값 - name:', name, ', phone:', phone, ', address:', address);
         
         if (!name) return alert('선생님 이름은 필수입니다.');
         
         // 모든 선생님은 비밀번호가 필수
-        if (!teacherPassword) {
+        if (!teacherPassword || !teacherPasswordConfirm) {
             return alert('비밀번호는 필수입니다.');
+        }
+
+        if (teacherPassword !== teacherPasswordConfirm) {
+            return alert('비밀번호가 일치하지 않습니다.');
         }
         
         // 저장된 현재 관리자 ID 확인
@@ -898,6 +985,8 @@ window.registerTeacher = async function() {
         document.getElementById('new-teacher-address').value = '';
         document.getElementById('new-teacher-address-detail').value = '';
         document.getElementById('register-teacher-password').value = '';
+        const teacherPasswordConfirmInput = document.getElementById('register-teacher-password-confirm');
+        if (teacherPasswordConfirmInput) teacherPasswordConfirmInput.value = '';
         
         alert('선생님이 등록되었습니다!');
         
@@ -2021,6 +2110,7 @@ async function loadAndCleanData() {
             students = supabaseStudents.map(s => ({
                 id: s.id,
                 name: s.name,
+                school: s.school || '',
                 grade: s.grade,
                 studentPhone: s.phone || '',
                 parentPhone: s.parent_phone || '',
@@ -2465,6 +2555,7 @@ window.toggleStudentList = function() {
             const active = document.getElementById('student-tab-mine');
             if (active) active.classList.add('active');
         }
+        updateStudentSortControls();
         renderDrawerList();
         // 검색 입력 이벤트 리스너 추가
         const searchInput = document.getElementById('drawer-search-input');
@@ -2473,6 +2564,32 @@ window.toggleStudentList = function() {
         };
         searchInput.focus();
     }
+}
+
+function getGradeSortValue(grade) {
+    if (!grade) return 999;
+    const match = grade.match(/(초|중|고)\s*(\d)/);
+    if (!match) return 900;
+    const level = match[1];
+    const num = parseInt(match[2], 10);
+    const base = level === '초' ? 0 : level === '중' ? 10 : 20;
+    return base + (isNaN(num) ? 9 : num);
+}
+
+function updateStudentSortControls() {
+    const sortButtons = document.querySelectorAll('.student-sort-btn');
+    sortButtons.forEach(btn => {
+        btn.disabled = false;
+        btn.classList.remove('active');
+    });
+    const activeBtn = document.getElementById(`student-sort-${currentStudentSort}`);
+    if (activeBtn) activeBtn.classList.add('active');
+}
+
+window.setStudentSort = function(mode) {
+    currentStudentSort = mode || 'default';
+    updateStudentSortControls();
+    renderDrawerList();
 }
 window.renderDrawerList = function() {
     const showInactiveOnly = document.getElementById('show-archived').checked;
@@ -2495,6 +2612,22 @@ window.renderDrawerList = function() {
             s.name.toLowerCase().includes(searchQuery) || 
             s.grade.toLowerCase().includes(searchQuery)
         );
+    }
+
+    if (currentStudentSort === 'grade') {
+        filtered.sort((a, b) => {
+            const diff = getGradeSortValue(a.grade) - getGradeSortValue(b.grade);
+            if (diff !== 0) return diff;
+            return (a.name || '').localeCompare(b.name || '', 'ko-KR');
+        });
+    } else if (currentStudentSort === 'school') {
+        filtered.sort((a, b) => {
+            const aSchool = (a.school || '').trim();
+            const bSchool = (b.school || '').trim();
+            const schoolCompare = aSchool.localeCompare(bSchool, 'ko-KR');
+            if (schoolCompare !== 0) return schoolCompare;
+            return (a.name || '').localeCompare(b.name || '', 'ko-KR');
+        });
     }
     
     document.getElementById('drawer-content').innerHTML = filtered.map(s => {
@@ -2533,6 +2666,7 @@ window.setStudentListTab = function(tab) {
     document.querySelectorAll('.student-tab-btn').forEach(btn => btn.classList.remove('active'));
     const active = document.getElementById(`student-tab-${tab}`);
     if (active) active.classList.add('active');
+    updateStudentSortControls();
     renderDrawerList();
 }
 
@@ -2767,7 +2901,7 @@ window.selectStudent = function(id, name, grade) {
 window.closeModal = function(id) { document.getElementById(id).style.display = 'none'; }
 window.prepareRegister = function() {
     document.getElementById('reg-title').textContent = "학생 등록";
-    ['edit-id', 'reg-name', 'reg-student-phone', 'reg-parent-phone', 'reg-memo', 'reg-default-fee', 'reg-special-fee'].forEach(id => document.getElementById(id).value = "");
+    ['edit-id', 'reg-name', 'reg-school', 'reg-student-phone', 'reg-parent-phone', 'reg-memo', 'reg-default-fee', 'reg-special-fee'].forEach(id => document.getElementById(id).value = "");
     const today = new Date(); const off = today.getTimezoneOffset() * 60000;
     document.getElementById('reg-register-date').value = new Date(today.getTime() - off).toISOString().split('T')[0];
     document.getElementById('edit-mode-actions').style.display = 'none'; 
@@ -2780,6 +2914,7 @@ window.prepareEdit = function(id) {
     document.getElementById('reg-title').textContent = "학생 정보 수정";
     document.getElementById('edit-id').value = s.id;
     document.getElementById('reg-name').value = s.name;
+    document.getElementById('reg-school').value = s.school || '';
     document.getElementById('reg-grade').value = s.grade;
     document.getElementById('reg-student-phone').value = s.studentPhone || "";
     document.getElementById('reg-parent-phone').value = s.parentPhone || "";
@@ -2795,6 +2930,7 @@ window.prepareEdit = function(id) {
 window.handleStudentSave = async function() {
     const id = document.getElementById('edit-id').value;
     const name = document.getElementById('reg-name').value;
+    const school = document.getElementById('reg-school').value;
     const grade = document.getElementById('reg-grade').value;
     const sPhone = document.getElementById('reg-student-phone').value;
     const pPhone = document.getElementById('reg-parent-phone').value;
@@ -2807,6 +2943,7 @@ window.handleStudentSave = async function() {
     
     const localData = {
         name,
+        school,
         grade,
         studentPhone: sPhone,
         parentPhone: pPhone,
@@ -2818,6 +2955,7 @@ window.handleStudentSave = async function() {
     };
     const dbData = {
         name,
+        school,
         grade,
         phone: sPhone,  // 학생 연락처
         parent_phone: pPhone,

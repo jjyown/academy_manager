@@ -86,6 +86,7 @@ window.addStudent = async function(studentData) {
                 owner_user_id: user.id,
                 teacher_id: user.id,
                 name: studentData.name,
+                school: studentData.school || '',
                 grade: studentData.grade,
                 phone: studentData.phone || '',
                 parent_phone: studentData.parent_phone || '',

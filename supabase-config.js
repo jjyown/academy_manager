@@ -26,8 +26,8 @@ const supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
         persistSession: true,
         // 쿠키 사용 안 함 (localStorage만 사용)
         storageKey: 'supabase.auth.token',
-        // 로그인 후 URL에서 토큰 제거
-        flowType: 'pkce'
+        // 정적 페이지 환경에서는 implicit이 복구 링크 처리에 안정적임
+        flowType: 'implicit'
     }
 });
 

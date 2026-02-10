@@ -87,6 +87,7 @@
                     </div>
                     <button class="auth-btn" onclick="signIn()">로그인</button>
                     <p class="auth-toggle">계정이 없으신가요? <a href="#" onclick="toggleAuthForm(); return false;">회원가입</a></p>
+                    <p class="auth-reset">비밀번호를 변경하세요. <a href="#" class="auth-reset-link" onclick="openAdminPasswordResetModal(); return false;">비밀번호 변경</a></p>
                 </div>
 
                 <!-- 회원가입 폼 -->
@@ -103,6 +104,10 @@
                     <div class="form-group">
                         <label>비밀번호</label>
                         <input type="password" id="signup-password" class="auth-input" placeholder="비밀번호를 입력하세요">
+                    </div>
+                    <div class="form-group">
+                        <label>비밀번호 확인</label>
+                        <input type="password" id="signup-password-confirm" class="auth-input" placeholder="비밀번호를 다시 입력하세요">
                     </div>
                     <button class="auth-btn" onclick="signUp()">회원가입</button>
                     <p class="auth-toggle">이미 계정이 있으신가요? <a href="#" onclick="toggleAuthForm(); return false;">로그인</a></p>
@@ -138,6 +143,7 @@
                     <button class="auth-btn" onclick="confirmTeacher()">입장</button>
                     <button class="auth-btn" style="background-color:#b91c1c; margin-top:8px;" onclick="adminDeleteTeacher()">선생님 삭제</button>
                     <p class="auth-toggle">아직 등록된 선생님이 없으신가요? <a href="#" onclick="toggleTeacherForm(); return false;">선생님 등록</a></p>
+                    <p class="auth-reset">비밀번호를 변경하세요. <a href="#" class="auth-reset-link" onclick="openTeacherPasswordResetModal(); return false;">비밀번호 변경</a></p>
                 </div>
 
                 <!-- 선생님 등록 폼 -->
@@ -166,9 +172,81 @@
                         <label>비밀번호</label>
                         <input type="password" id="register-teacher-password" class="auth-input" placeholder="비밀번호">
                     </div>
+                    <div class="form-group">
+                        <label>비밀번호 확인</label>
+                        <input type="password" id="register-teacher-password-confirm" class="auth-input" placeholder="비밀번호 확인">
+                    </div>
                     <button class="auth-btn" onclick="registerTeacher()">등록하기</button>
                     <p class="auth-toggle">이미 등록된 선생님이 있으신가요? <a href="#" onclick="toggleTeacherForm(); return false;">선생님 선택</a></p>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 관리자 비밀번호 재설정 메일 발송 -->
+    <div id="admin-password-reset-modal" class="modal auth-modal" style="display: none;">
+        <div class="modal-card" style="max-width: 460px;">
+            <div class="modal-header" style="border-bottom: 1px solid #e2e8f0;">
+                <h2>관리자 비밀번호 변경</h2>
+                <button class="btn-close-x" onclick="closeAdminPasswordResetModal()"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body-scrollable" style="padding: 20px 24px;">
+                <div class="form-group">
+                    <label>관리자 이메일</label>
+                    <input type="email" id="admin-reset-email" class="auth-input" placeholder="example@email.com">
+                </div>
+                <p style="font-size: 12px; color: var(--gray); margin-bottom: 12px;">
+                    입력한 이메일로 비밀번호 변경 링크가 전송됩니다.
+                </p>
+                <button class="auth-btn" onclick="requestAdminPasswordReset()">재설정 메일 보내기</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 관리자 비밀번호 업데이트 (메일 링크 진입 시 표시) -->
+    <div id="admin-password-update-modal" class="modal auth-modal" style="display: none;">
+        <div class="modal-card" style="max-width: 460px;">
+            <div class="modal-header" style="border-bottom: 1px solid #e2e8f0;">
+                <h2>새 비밀번호 설정</h2>
+                <button class="btn-close-x" onclick="closeAdminPasswordUpdateModal()"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body-scrollable" style="padding: 20px 24px;">
+                <div class="form-group">
+                    <label>새 비밀번호</label>
+                    <input type="password" id="admin-new-password" class="auth-input" placeholder="새 비밀번호">
+                </div>
+                <div class="form-group">
+                    <label>새 비밀번호 확인</label>
+                    <input type="password" id="admin-new-password-confirm" class="auth-input" placeholder="새 비밀번호 확인">
+                </div>
+                <button class="auth-btn" onclick="confirmAdminPasswordReset()">비밀번호 변경</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 선생님 비밀번호 변경 -->
+    <div id="teacher-password-reset-modal" class="modal auth-modal" style="display: none;">
+        <div class="modal-card" style="max-width: 460px;">
+            <div class="modal-header" style="border-bottom: 1px solid #e2e8f0;">
+                <h2>선생님 비밀번호 변경</h2>
+                <button class="btn-close-x" onclick="closeTeacherPasswordResetModal()"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body-scrollable" style="padding: 20px 24px;">
+                <div class="form-group">
+                    <label>선생님 선택</label>
+                    <select id="reset-teacher-dropdown" class="auth-input">
+                        <option value="">선생님을 선택해주세요</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>새 비밀번호</label>
+                    <input type="password" id="reset-teacher-password" class="auth-input" placeholder="새 비밀번호">
+                </div>
+                <div class="form-group">
+                    <label>새 비밀번호 확인</label>
+                    <input type="password" id="reset-teacher-password-confirm" class="auth-input" placeholder="새 비밀번호 확인">
+                </div>
+                <button class="auth-btn" onclick="confirmTeacherPasswordReset()">비밀번호 변경</button>
             </div>
         </div>
     </div>
@@ -233,6 +311,12 @@
                 <button class="student-tab-btn active" id="student-tab-all" onclick="setStudentListTab('all')">전체 학생</button>
                 <button class="student-tab-btn" id="student-tab-mine" onclick="setStudentListTab('mine')">내 학생</button>
             </div>
+            <div class="student-sort-group">
+                <span class="student-sort-label">정렬</span>
+                <button class="student-sort-btn active" id="student-sort-default" onclick="setStudentSort('default')">기본</button>
+                <button class="student-sort-btn" id="student-sort-grade" onclick="setStudentSort('grade')">학년별</button>
+                <button class="student-sort-btn" id="student-sort-school" onclick="setStudentSort('school')">학교별</button>
+            </div>
             <input type="text" id="drawer-search-input" class="m-input" placeholder="학생명/학년으로 검색..." style="margin-top: 10px;">
             <div class="checkbox-group" style="justify-content: flex-end; margin-top: 10px;">
                 <input type="checkbox" id="show-archived" class="custom-checkbox" onchange="renderDrawerList()">
@@ -292,6 +376,9 @@
                     <label>기본 정보</label>
                     <div class="form-row">
                         <input type="text" id="reg-name" class="m-input" placeholder="이름">
+                    </div>
+                    <div class="form-row">
+                        <input type="text" id="reg-school" class="m-input" placeholder="학교">
                         <select id="reg-grade" class="m-input">
                             <option value="초1">초1</option><option value="초2">초2</option><option value="초3">초3</option>
                             <option value="초4">초4</option><option value="초5">초5</option><option value="초6">초6</option>
