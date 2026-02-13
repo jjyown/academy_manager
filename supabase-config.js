@@ -49,6 +49,13 @@ const GOOGLE_SCOPES = 'email profile https://www.googleapis.com/auth/drive.file'
 // Supabase Edge Function 호출 URL (비밀번호 초기화 인증번호 발송)
 const EDGE_FUNCTION_URL = SUPABASE_URL + '/functions/v1';
 
+// ========== 공공데이터포털 공휴일 API ==========
+// 발급: https://www.data.go.kr/data/15012690/openapi.do (한국천문연구원 특일정보)
+// 발급 후 아래 값을 교체하세요 (Encoding 키 사용)
+const DATA_GO_KR_API_KEY = (typeof window !== 'undefined' && window.env?.DATA_GO_KR_API_KEY) ||
+                           '57001cc8ff9ce6afdd00bccb15a87f3b341ba7646a03f67aa96474e68b8e4c30';
+
 window.GOOGLE_CLIENT_ID = GOOGLE_CLIENT_ID;
 window.GOOGLE_SCOPES = GOOGLE_SCOPES;
 window.EDGE_FUNCTION_URL = EDGE_FUNCTION_URL;
+window.DATA_GO_KR_API_KEY = DATA_GO_KR_API_KEY;

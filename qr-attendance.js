@@ -170,7 +170,7 @@ window.handleSingleAttendanceCheck = async function(timeKey, idx, status) {
         console.log(`[재석확인] ${item.studentName} → ${status} 처리 완료`);
     } catch (e) {
         console.error('[재석확인] 저장 실패:', e);
-        alert(`${item.studentName} 출결 저장에 실패했습니다.`);
+        showToast(`${item.studentName} 출결 저장에 실패했습니다.`, 'error');
     }
     
     // 처리 완료 항목 마킹
@@ -632,11 +632,11 @@ window.openQRScanPage = async function() {
                     }));
                     console.log('[openQRScanPage] Supabase에서 학생 데이터 재로드 완료:', students.length, '명');
                 } else {
-                    alert('등록된 학생이 없습니다.\n먼저 학생을 등록해주세요.');
+                    showToast('등록된 학생이 없습니다.\n먼저 학생을 등록해주세요.', 'warning');
                     return;
                 }
             } else {
-                alert('등록된 학생이 없습니다.\n먼저 학생을 등록해주세요.');
+                showToast('등록된 학생이 없습니다.\n먼저 학생을 등록해주세요.', 'warning');
                 return;
             }
         }
@@ -665,7 +665,7 @@ window.openQRScanPage = async function() {
             scanPage.style.display = 'flex';
         } else {
             console.error('[openQRScanPage] qr-scan-page 요소를 찾을 수 없습니다');
-            alert('QR 스캔 페이지를 찾을 수 없습니다.');
+            showToast('QR 스캔 페이지를 찾을 수 없습니다.', 'error');
             return;
         }
         
@@ -680,7 +680,7 @@ window.openQRScanPage = async function() {
         }, 100);
     } catch (error) {
         console.error('[openQRScanPage] 오류:', error);
-        alert('QR 스캔 페이지를 열 수 없습니다.');
+        showToast('QR 스캔 페이지를 열 수 없습니다.', 'error');
     }
 }
 
@@ -712,7 +712,7 @@ window.switchCamera = async function() {
         
     } catch (err) {
         console.error('[switchCamera] 카메라 전환 실패:', err);
-        alert('카메라 전환에 실패했습니다.');
+        showToast('카메라 전환에 실패했습니다.', 'error');
     }
 }
 
@@ -777,7 +777,7 @@ function startQRScanner() {
         onQRScanFailure
     ).catch(err => {
         console.error('[startQRScanner] 카메라 시작 실패:', err);
-        alert('카메라를 시작할 수 없습니다. 카메라 권한을 확인해주세요.');
+        showToast('카메라를 시작할 수 없습니다. 카메라 권한을 확인해주세요.', 'error');
     });
 }
 
@@ -794,7 +794,7 @@ function onQRScanSuccess(decodedText, decodedResult) {
     // 빈 문자열이나 null 체크
     if (!decodedText || decodedText.trim() === '') {
         console.error('[onQRScanSuccess] 빈 QR 데이터');
-        alert('QR 코드를 읽을 수 없습니다. 다시 시도해주세요.');
+        showToast('QR 코드를 읽을 수 없습니다. 다시 시도해주세요.', 'error');
         if (html5QrcodeScanner) {
             html5QrcodeScanner.resume();
         }
@@ -1557,11 +1557,11 @@ window.showStudentQRList = async function() {
                     }));
                     console.log('[showStudentQRList] Supabase에서 학생 데이터 재로드 완료:', students.length, '명');
                 } else {
-                    alert('등록된 학생이 없습니다.\n먼저 학생을 등록해주세요.');
+                    showToast('등록된 학생이 없습니다.\n먼저 학생을 등록해주세요.', 'warning');
                     return;
                 }
             } else {
-                alert('등록된 학생이 없습니다.\n먼저 학생을 등록해주세요.');
+                showToast('등록된 학생이 없습니다.\n먼저 학생을 등록해주세요.', 'warning');
                 return;
             }
         }
@@ -1575,86 +1575,76 @@ window.showStudentQRList = async function() {
             modal.style.display = 'flex';
         } else {
             console.error('[showStudentQRList] student-qr-list-modal 요소를 찾을 수 없습니다');
-            alert('학생 QR코드 모달을 찾을 수 없습니다.');
+            showToast('학생 QR코드 모달을 찾을 수 없습니다.', 'error');
             return;
         }
         
         await renderStudentQRList();
     } catch (error) {
         console.error('[showStudentQRList] 오류:', error);
-        alert('학생 QR코드 목록을 표시할 수 없습니다.');
+        showToast('학생 QR코드 목록을 표시할 수 없습니다.', 'error');
     }
 }
 
 async function renderStudentQRList() {
     const listDiv = document.getElementById('student-qr-list');
+    const countEl = document.getElementById('qr-student-count');
     
     if (!Array.isArray(students) || students.length === 0) {
-        listDiv.innerHTML = '<p style="color: #64748b; text-align: center;">등록된 학생이 없습니다.</p>';
+        listDiv.innerHTML = '<div style="text-align:center;padding:40px 20px;color:#94a3b8;"><i class="fas fa-user-slash" style="font-size:28px;margin-bottom:10px;display:block;opacity:0.5;"></i><p style="font-size:13px;margin:0;">등록된 학생이 없습니다</p></div>';
+        if (countEl) countEl.textContent = '';
         return;
     }
 
-    let html = '<div style="display: flex; flex-direction: column; gap: 10px;">';
+    // 아바타 색상 팔레트
+    const avatarColors = ['#6366f1','#ec4899','#f59e0b','#10b981','#8b5cf6','#ef4444','#0ea5e9','#f97316'];
+
+    let html = '';
+    let count = 0;
 
     for (const student of students) {
         try {
-            // 항상 토큰 포함된 QR코드 데이터 생성 (최초/재발급 동일 패턴)
             const qrData = await getOrCreateQRCodeData(student.id);
             const qrId = `qr-${student.id}`;
             const accordionId = `accordion-${student.id}`;
+            const color = avatarColors[count % avatarColors.length];
+            const initial = (student.name || '?').charAt(0);
 
             console.log('[renderStudentQRList] 학생:', student.name, '| ID:', student.id, '| QR 데이터:', qrData);
 
-        html += `
-            <div style="border: 2px solid #e2e8f0; border-radius: 12px; overflow: hidden; background: white;">
-                <div onclick="toggleQRAccordion('${accordionId}', '${qrId}', '${qrData}')" 
-                     style="padding: 14px 18px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; background: #f8fafc; transition: background 0.2s;"
-                     onmouseover="this.style.background='#f1f5f9'" 
-                     onmouseout="this.style.background='#f8fafc'">
-                    <div style="display: flex; align-items: center; gap: 10px;">
-                        <h3 style="margin: 0; font-size: 17px; font-weight: 700; color: #1e293b;">${student.name}</h3>
-                        <span style="color: #64748b; font-size: 13px; font-weight: 500;">${student.grade}</span>
-                        <button onclick="event.stopPropagation(); regenerateQRCode('${student.id}', '${qrId}', '${accordionId}', '${student.name}')" 
-                                style="background: #4f46e5; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.2s; display: flex; align-items: center; gap: 4px;"
-                                onmouseover="this.style.background='#4338ca'" 
-                                onmouseout="this.style.background='#4f46e5'"
-                                title="QR코드 재발급">
-                            <i class="fas fa-sync-alt" style="font-size: 11px;"></i> 재발급
-                        </button>
+            html += `
+            <div class="qr-item">
+                <div class="qr-item-header" onclick="toggleQRAccordion('${accordionId}', '${qrId}', '${qrData}')">
+                    <div class="qr-item-info">
+                        <div class="qr-item-avatar" style="background:${color};">${initial}</div>
+                        <span class="qr-item-name">${student.name}</span>
+                        <span class="qr-item-grade">${student.grade}</span>
                     </div>
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <i id="icon-${accordionId}" class="fas fa-chevron-down" style="color: #64748b; transition: transform 0.3s; font-size: 14px;"></i>
+                    <div class="qr-item-actions">
+                        <button class="qr-regenerate-btn" onclick="event.stopPropagation(); regenerateQRCode('${student.id}', '${qrId}', '${accordionId}', '${student.name}')" title="QR코드 재발급">
+                            <i class="fas fa-sync-alt"></i> 재발급
+                        </button>
+                        <i id="icon-${accordionId}" class="fas fa-chevron-down qr-item-chevron"></i>
                     </div>
                 </div>
-                <div id="${accordionId}" style="max-height: 0; overflow: hidden; transition: max-height 0.3s ease-out;">
-                    <div style="padding: 20px; text-align: center; border-top: 1px solid #e2e8f0;">
-                        <div id="${qrId}" style="display: flex; justify-content: center; margin-bottom: 15px;"></div>
-                        <button onclick="downloadQRCode('${qrId}', '${student.name}')" style="background: #10b981; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600;"
-                                onmouseover="this.style.background='#059669'"
-                                onmouseout="this.style.background='#10b981'">
+                <div id="${accordionId}" class="qr-item-body">
+                    <div class="qr-item-body-inner">
+                        <div id="${qrId}" style="display:flex;justify-content:center;margin-bottom:8px;"></div>
+                        <button class="qr-download-btn" onclick="downloadQRCode('${qrId}', '${student.name}')">
                             <i class="fas fa-download"></i> 다운로드
                         </button>
                     </div>
                 </div>
-            </div>
-        `;
+            </div>`;
+            count++;
         } catch (error) {
             console.error('[renderStudentQRList] 학생 QR 생성 실패:', student.name, error);
-            // 에러 발생한 학생은 건너뛰고 계속 진행
-            html += `
-            <div style="border: 2px solid #ef4444; border-radius: 12px; padding: 14px 18px; background: #fef2f2;">
-                <div style="display: flex; align-items: center; gap: 8px;">
-                    <i class="fas fa-exclamation-triangle" style="color: #ef4444;"></i>
-                    <span style="color: #991b1b; font-weight: 600;">${student.name}</span>
-                    <span style="color: #dc2626; font-size: 13px;">- QR 생성 실패</span>
-                </div>
-            </div>
-            `;
+            html += `<div class="qr-item-error"><i class="fas fa-exclamation-triangle"></i><span>${student.name} - QR 생성 실패</span></div>`;
         }
     }
 
-    html += '</div>';
     listDiv.innerHTML = html;
+    if (countEl) countEl.textContent = `${count}명`;
 }
 
 // QR 코드 재발급
@@ -1716,10 +1706,10 @@ window.toggleQRAccordion = function(accordionId, qrId, qrData) {
     
     if (accordion.style.maxHeight && accordion.style.maxHeight !== '0px') {
         accordion.style.maxHeight = '0px';
-        icon.style.transform = 'rotate(0deg)';
+        if (icon) icon.classList.remove('open');
     } else {
         accordion.style.maxHeight = accordion.scrollHeight + 'px';
-        icon.style.transform = 'rotate(180deg)';
+        if (icon) icon.classList.add('open');
         
         if (!qrContainer.hasChildNodes()) {
             setTimeout(() => {
@@ -1730,12 +1720,30 @@ window.toggleQRAccordion = function(accordionId, qrId, qrData) {
     }
 }
 
+// QR 학생 목록 검색 필터
+window.filterQRStudentList = function() {
+    const query = (document.getElementById('qr-student-search')?.value || '').trim().toLowerCase();
+    const items = document.querySelectorAll('#student-qr-list .qr-item, #student-qr-list .qr-item-error');
+    let visible = 0;
+    items.forEach(item => {
+        const nameEl = item.querySelector('.qr-item-name');
+        const gradeEl = item.querySelector('.qr-item-grade');
+        const name = nameEl ? nameEl.textContent.toLowerCase() : '';
+        const grade = gradeEl ? gradeEl.textContent.toLowerCase() : '';
+        const match = !query || name.includes(query) || grade.includes(query);
+        item.style.display = match ? '' : 'none';
+        if (match) visible++;
+    });
+    const countEl = document.getElementById('qr-student-count');
+    if (countEl) countEl.textContent = query ? `${visible}명 검색` : `${items.length}명`;
+};
+
 window.downloadQRCode = function(qrId, studentName) {
     const qrContainer = document.getElementById(qrId);
     const canvas = qrContainer.querySelector('canvas');
     
     if (!canvas) {
-        alert('QR 코드를 찾을 수 없습니다.');
+        showToast('QR 코드를 찾을 수 없습니다.', 'error');
         return;
     }
     
@@ -1793,7 +1801,7 @@ window.loadStudentAttendanceHistory = async function() {
         
         const monthStr = document.getElementById('attendance-history-month').value;
         if (!monthStr) {
-            alert('조회할 월을 선택해주세요.');
+            showToast('조회할 월을 선택해주세요.', 'warning');
             return;
         }
         
@@ -2159,7 +2167,7 @@ async function updateAttendanceStatusFromHistory(studentId, dateStr, nextStatus,
         await loadStudentAttendanceHistory();
     } catch (error) {
         console.error('[updateAttendanceStatusFromHistory] 에러:', error);
-        alert('상태 변경에 실패했습니다. 다시 시도해주세요.');
+        showToast('상태 변경에 실패했습니다. 다시 시도해주세요.', 'error');
         await loadStudentAttendanceHistory();
     }
 }
@@ -2501,6 +2509,4 @@ async function getStudentAttendanceRecordsByMonth(studentId, year, month) {
     }
 }
 
-console.log('[qr-attendance.js] 파일 로드 완료');
-console.log('[qr-attendance.js] openQRScanPage 함수:', typeof window.openQRScanPage);
-console.log('[qr-attendance.js] showStudentQRList 함수:', typeof window.showStudentQRList);
+// qr-attendance.js 로드 완료

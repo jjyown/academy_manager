@@ -342,6 +342,7 @@
                         </button>
                     </div>
                 </div>
+
             </div>
         </div>
     </div>
@@ -449,6 +450,9 @@
             <button class="feature-main-btn" id="teacher-menu-btn" onclick="openTeacherModal(); closeFeaturePanel();">
                 <i class="fas fa-chalkboard-user"></i> 선생님
             </button>
+            <button class="feature-main-btn" id="force-reset-menu-btn" onclick="openForceResetModal(); closeFeaturePanel();">
+                <i class="fas fa-unlock-alt"></i> 비밀번호 강제 초기화
+            </button>
             <button class="feature-main-btn" onclick="openParentPortal(); closeFeaturePanel();">
                 <i class="fas fa-parent"></i> 학부모 포털
             </button>
@@ -468,9 +472,9 @@
                     <input type="date" id="reg-register-date" class="m-input">
                 </div>
                 <div class="input-group">
-                    <label>기본 정보</label>
+                    <label>기본 정보 <span style="color:#ef4444;font-weight:700;">*</span></label>
                     <div class="form-row">
-                        <input type="text" id="reg-name" class="m-input" placeholder="이름">
+                        <input type="text" id="reg-name" class="m-input" placeholder="이름 (필수)" required>
                     </div>
                     <div class="form-row">
                         <input type="text" id="reg-school" class="m-input" placeholder="학교">
@@ -524,50 +528,69 @@
     <div id="schedule-modal" class="modal" style="display: none;">
         <div class="modal-card schedule-modal-card">
             <div class="modal-header">
-                <h2>일정 생성</h2>
+                <h2><i class="fas fa-calendar-plus" style="color:#6366f1;font-size:15px;"></i> 일정 생성</h2>
                 <button class="btn-close-x" onclick="closeModal('schedule-modal')"><i class="fas fa-times"></i></button>
             </div>
-            <div class="input-group">
-                <label>대상 학생 (재원생 목록)</label>
-                <div class="student-search-wrapper">
-                    <input type="text" id="sch-student-search" class="m-input" placeholder="학생명 또는 학년으로 검색...">
-                    <input type="hidden" id="sch-student-select">
-                    <div id="sch-student-dropdown" class="student-search-dropdown"></div>
+            <div class="modal-body-scrollable custom-scroll" style="padding-bottom:0;">
+                <!-- 섹션 1: 학생 선택 -->
+                <div class="sch-section">
+                    <div class="sch-section-label"><i class="fas fa-user-graduate"></i> 대상 학생</div>
+                    <div class="student-search-wrapper">
+                        <i class="fas fa-search sch-search-icon"></i>
+                        <input type="text" id="sch-student-search" class="m-input sch-search-input" placeholder="학생명 또는 학년으로 검색...">
+                        <input type="hidden" id="sch-student-select">
+                        <div id="sch-student-dropdown" class="student-search-dropdown"></div>
+                    </div>
+                    <div id="sch-selected-students" class="schedule-selected-students"></div>
                 </div>
-                <div id="sch-selected-students" class="schedule-selected-students"></div>
-            </div>
-            <div class="input-group">
-                <label>요일 반복 (미선택 시 날짜 하루만 등록)</label>
-                <div class="day-chip-container">
-                    <input type="checkbox" id="d1" value="1" class="day-check"><label for="d1">월</label>
-                    <input type="checkbox" id="d2" value="2" class="day-check"><label for="d2">화</label>
-                    <input type="checkbox" id="d3" value="3" class="day-check"><label for="d3">수</label>
-                    <input type="checkbox" id="d4" value="4" class="day-check"><label for="d4">목</label>
-                    <input type="checkbox" id="d5" value="5" class="day-check"><label for="d5">금</label>
-                    <input type="checkbox" id="d6" value="6" class="day-check"><label for="d6">토</label>
-                    <input type="checkbox" id="d0" value="0" class="day-check"><label for="d0">일</label>
-                </div>
-            </div>
-            <div class="input-group">
-                <label>기간 및 시간 설정</label>
-                <div class="form-row">
-                    <input type="date" id="sch-start-date" class="m-input">
-                    <div class="input-with-unit">
-                        <input type="number" id="sch-weeks" class="m-input" value="4" placeholder="반복">
-                        <span class="unit-label">주 반복</span>
+
+                <!-- 섹션 2: 요일 선택 -->
+                <div class="sch-section">
+                    <div class="sch-section-label"><i class="fas fa-redo"></i> 요일 반복</div>
+                    <p class="sch-section-hint">미선택 시 시작일 하루만 등록됩니다</p>
+                    <div class="day-chip-container">
+                        <input type="checkbox" id="d1" value="1" class="day-check"><label for="d1">월</label>
+                        <input type="checkbox" id="d2" value="2" class="day-check"><label for="d2">화</label>
+                        <input type="checkbox" id="d3" value="3" class="day-check"><label for="d3">수</label>
+                        <input type="checkbox" id="d4" value="4" class="day-check"><label for="d4">목</label>
+                        <input type="checkbox" id="d5" value="5" class="day-check"><label for="d5">금</label>
+                        <input type="checkbox" id="d6" value="6" class="day-check"><label for="d6">토</label>
+                        <input type="checkbox" id="d0" value="0" class="day-check"><label for="d0">일</label>
                     </div>
                 </div>
-                <div class="form-row" style="margin-top: 8px;">
-                    <input type="time" id="sch-time" class="m-input" value="16:00">
-                    <div class="input-with-unit">
-                        <input type="number" id="sch-duration-min" class="m-input" value="90">
-                        <span class="unit-label">분 수업</span>
+
+                <!-- 섹션 3: 기간 & 시간 -->
+                <div class="sch-section">
+                    <div class="sch-section-label"><i class="fas fa-clock"></i> 기간 및 시간</div>
+                    <div class="sch-time-grid">
+                        <div class="sch-field">
+                            <span class="sch-field-label">시작일</span>
+                            <input type="date" id="sch-start-date" class="m-input">
+                        </div>
+                        <div class="sch-field">
+                            <span class="sch-field-label">반복 주</span>
+                            <div class="sch-input-unit">
+                                <input type="number" id="sch-weeks" class="m-input" value="4" min="1">
+                                <span class="sch-unit">주</span>
+                            </div>
+                        </div>
+                        <div class="sch-field">
+                            <span class="sch-field-label">수업 시간</span>
+                            <input type="time" id="sch-time" class="m-input" value="16:00">
+                        </div>
+                        <div class="sch-field">
+                            <span class="sch-field-label">수업 길이</span>
+                            <div class="sch-input-unit">
+                                <input type="number" id="sch-duration-min" class="m-input" value="90" min="10" step="10">
+                                <span class="sch-unit">분</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
             <div class="schedule-action-buttons">
-                <button class="btn-save-main btn-without-holidays" id="schedule-save-without-btn" onclick="generateScheduleWithoutHolidays()">공휴일 제외하고 등록</button>
-                <button class="btn-save-main" id="schedule-save-btn" onclick="generateSchedule()">일정 생성하기</button>
+                <button class="sch-btn-secondary" id="schedule-save-without-btn" onclick="generateScheduleWithoutHolidays()"><i class="fas fa-umbrella-beach"></i> 공휴일 제외</button>
+                <button class="sch-btn-primary" id="schedule-save-btn" onclick="generateSchedule()"><i class="fas fa-plus-circle"></i> 일정 생성</button>
             </div>
         </div>
     </div>
@@ -716,33 +739,58 @@
     <div id="day-settings-modal" class="modal" style="display: none;">
         <div class="modal-card day-settings-card">
             <div class="modal-header">
-                <h2 id="day-settings-title">날짜 설정</h2>
+                <h2 id="day-settings-title"><i class="fas fa-calendar-day" style="color:#6366f1;font-size:14px;"></i> 날짜 설정</h2>
                 <button class="btn-close-x" onclick="closeModal('day-settings-modal')"><i class="fas fa-times"></i></button>
             </div>
             <input type="hidden" id="setting-date-str">
-            <div class="input-group">
-                <div class="checkbox-group">
-                    <input type="checkbox" id="is-red-day" class="custom-checkbox">
-                    <label for="is-red-day" class="checkbox-label">빨간날(휴원)로 지정</label>
+
+            <!-- 스케줄 등록 섹션 -->
+            <input type="hidden" id="is-schedule-register" value="true">
+            <div id="schedule-register-section" class="dset-body">
+                <!-- 유형 & 이름 -->
+                <div class="dset-row">
+                    <div class="dset-field" style="flex:0 0 auto;min-width:140px;">
+                        <span class="dset-label">유형</span>
+                        <select id="schedule-type" class="m-input">
+                            <option value="academy">학원 전체</option>
+                            <option value="personal">개인 스케줄</option>
+                        </select>
+                    </div>
+                    <div class="dset-field" style="flex:1;">
+                        <span class="dset-label">스케줄 이름</span>
+                        <input type="text" id="schedule-name" class="m-input" placeholder="시험기간, 방학 등">
+                    </div>
                 </div>
-            </div>
-            <div class="input-group">
-                <label>공휴일 이름</label>
-                <input type="text" id="day-name" class="m-input" placeholder="예: 개교기념일">
-            </div>
-            <div class="input-group">
-                <label>표시 색상</label>
-                <div class="holiday-color-row" id="holiday-color-options">
-                    <button type="button" class="color-chip" data-color="#ef4444" onclick="setHolidayColor('#ef4444')" style="background:#ef4444;"></button>
-                    <button type="button" class="color-chip" data-color="#f97316" onclick="setHolidayColor('#f97316')" style="background:#f97316;"></button>
-                    <button type="button" class="color-chip" data-color="#eab308" onclick="setHolidayColor('#eab308')" style="background:#eab308;"></button>
-                    <button type="button" class="color-chip" data-color="#0ea5e9" onclick="setHolidayColor('#0ea5e9')" style="background:#0ea5e9;"></button>
-                    <button type="button" class="color-chip" data-color="#10b981" onclick="setHolidayColor('#10b981')" style="background:#10b981;"></button>
-                    <button type="button" class="color-chip" data-color="#7c3aed" onclick="setHolidayColor('#7c3aed')" style="background:#7c3aed;"></button>
+
+                <!-- 기간 -->
+                <div class="dset-section-label"><i class="fas fa-calendar-week"></i> 기간</div>
+                <div class="dset-date-range">
+                    <input type="date" id="schedule-start-date" class="m-input">
+                    <span class="dset-date-sep"><i class="fas fa-arrow-right"></i></span>
+                    <input type="date" id="schedule-end-date" class="m-input">
+                </div>
+
+                <!-- 색상 -->
+                <div class="dset-section-label"><i class="fas fa-palette"></i> 표시 색상</div>
+                <div class="dset-color-row" id="holiday-color-options">
+                    <button type="button" class="dset-color-chip" data-color="#ef4444" onclick="setHolidayColor('#ef4444')" style="background:#ef4444;"></button>
+                    <button type="button" class="dset-color-chip" data-color="#f97316" onclick="setHolidayColor('#f97316')" style="background:#f97316;"></button>
+                    <button type="button" class="dset-color-chip" data-color="#eab308" onclick="setHolidayColor('#eab308')" style="background:#eab308;"></button>
+                    <button type="button" class="dset-color-chip" data-color="#0ea5e9" onclick="setHolidayColor('#0ea5e9')" style="background:#0ea5e9;"></button>
+                    <button type="button" class="dset-color-chip" data-color="#10b981" onclick="setHolidayColor('#10b981')" style="background:#10b981;"></button>
+                    <button type="button" class="dset-color-chip" data-color="#7c3aed" onclick="setHolidayColor('#7c3aed')" style="background:#7c3aed;"></button>
                 </div>
                 <input type="hidden" id="holiday-color" value="#ef4444">
             </div>
-            <button class="btn-save-main" onclick="saveDaySettings()">저장</button>
+
+            <!-- 빨간날 (휴원) 지정은 숨김 처리된 hidden 필드로 유지 -->
+            <input type="hidden" id="is-red-day" value="">
+            <input type="hidden" id="day-name" value="">
+
+            <div class="dset-footer" id="day-settings-buttons">
+                <button class="dset-btn-delete" id="schedule-delete-btn" style="display:none;" onclick="deleteScheduleFromModal()"><i class="fas fa-trash-alt"></i> 삭제</button>
+                <button class="dset-btn-save" onclick="saveDaySettings()"><i class="fas fa-check"></i> 저장</button>
+            </div>
         </div>
     </div>
 
@@ -763,43 +811,66 @@
 
     <div id="payment-modal" class="modal" style="display: none;">
         <div class="modal-card payment-card">
-            <div class="modal-header">
-                <h2>수납 관리</h2>
-                <button class="btn-close-x" onclick="closeModal('payment-modal')"><i class="fas fa-times"></i></button>
-            </div>
-            
-            <div class="payment-controls">
-                <button class="nav-arrow" onclick="movePaymentMonth(-1)"><i class="fas fa-chevron-left"></i></button>
-                <h3 id="payment-month-title">2026년 1월</h3>
-                <button class="nav-arrow" onclick="movePaymentMonth(1)"><i class="fas fa-chevron-right"></i></button>
-            </div>
-
-            <div class="payment-filter-container">
-                <button class="p-filter-btn active" onclick="setPaymentFilter('all')">전체</button>
-                <button class="p-filter-btn" onclick="setPaymentFilter('unpaid')">미납</button>
-                <button class="p-filter-btn" onclick="setPaymentFilter('tuition')">수강료</button>
-                <button class="p-filter-btn" onclick="setPaymentFilter('textbook')">교재비</button>
-                <button class="p-filter-btn" onclick="setPaymentFilter('special')">특강비</button>
-            </div>
-
-            <div class="payment-summary-box">
-                <div class="summary-item">
-                    <span class="s-label">총 수납액</span>
-                    <span class="s-value" id="total-collected">0원</span>
+            <div class="pay-header">
+                <div class="pay-header-top">
+                    <h2><i class="fas fa-won-sign"></i> 수납 관리</h2>
+                    <button class="btn-close-x" onclick="closeModal('payment-modal')"><i class="fas fa-times"></i></button>
                 </div>
-                <div class="summary-divider"></div>
-                <div class="summary-item">
-                    <span class="s-label">납부 완료</span>
-                    <span class="s-value" id="count-paid" style="color:var(--teal)">0명</span>
-                </div>
-                <div class="summary-item">
-                    <span class="s-label">미납</span>
-                    <span class="s-value" id="count-unpaid" style="color:var(--red)">0명</span>
+                <div class="pay-month-nav">
+                    <button class="pay-month-btn" onclick="movePaymentMonth(-1)"><i class="fas fa-chevron-left"></i></button>
+                    <h3 id="payment-month-title">2026년 2월</h3>
+                    <button class="pay-month-btn" onclick="movePaymentMonth(1)"><i class="fas fa-chevron-right"></i></button>
                 </div>
             </div>
 
-            <div id="payment-list-container" class="payment-list-container custom-scroll">
-                <!-- 학생별 수납 정보가 여기에 동적으로 렌더링됩니다. -->
+            <div class="pay-dashboard">
+                <div class="pay-progress-wrap">
+                    <div class="pay-progress-ring-container">
+                        <svg class="pay-progress-ring" viewBox="0 0 80 80">
+                            <circle class="ring-bg" cx="40" cy="40" r="34" />
+                            <circle class="ring-fill" id="pay-progress-fill" cx="40" cy="40" r="34" stroke-dasharray="213.6" stroke-dashoffset="213.6" />
+                        </svg>
+                        <span class="pay-progress-pct" id="pay-progress-pct">0%</span>
+                    </div>
+                    <div class="pay-progress-label">수납률</div>
+                </div>
+                <div class="pay-stats-grid">
+                    <div class="pay-stat-card">
+                        <span class="pay-stat-value" id="total-collected">0</span>
+                        <span class="pay-stat-label">총 수납액</span>
+                    </div>
+                    <div class="pay-stat-card">
+                        <span class="pay-stat-value paid-color" id="count-paid">0</span>
+                        <span class="pay-stat-label">완납</span>
+                    </div>
+                    <div class="pay-stat-card">
+                        <span class="pay-stat-value unpaid-color" id="count-unpaid">0</span>
+                        <span class="pay-stat-label">미납</span>
+                    </div>
+                    <div class="pay-stat-card">
+                        <span class="pay-stat-value" id="total-due-amount">0</span>
+                        <span class="pay-stat-label">총 청구액</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="pay-toolbar">
+                <div class="pay-search-wrap">
+                    <i class="fas fa-search"></i>
+                    <input type="text" id="pay-search-input" placeholder="학생 이름 검색..." oninput="renderPaymentList()">
+                </div>
+                <div class="pay-filter-pills">
+                    <button class="pay-pill active" onclick="setPaymentFilter('all')">전체</button>
+                    <button class="pay-pill" onclick="setPaymentFilter('unpaid')">미납</button>
+                    <button class="pay-pill" onclick="setPaymentFilter('paid')">완납</button>
+                </div>
+                <button class="pay-batch-btn" onclick="batchQuickPayAll()" title="미납 학생 전원 일괄 완납">
+                    <i class="fas fa-check-double"></i> 일괄 완납
+                </button>
+            </div>
+
+            <div id="payment-list-container" class="pay-list custom-scroll">
+                <!-- 학생별 수납 카드가 여기에 렌더링됩니다 -->
             </div>
         </div>
     </div>
@@ -853,6 +924,40 @@
                     <textarea id="detail-teacher-memo" class="m-input" rows="5" placeholder="선생님에 대한 메모를 입력하세요" style="resize: vertical; min-height: 100px;"></textarea>
                 </div>
                 <button class="btn-save-main" onclick="saveTeacherDetail()">저장</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 관리자 비밀번호 강제 초기화 모달 -->
+    <div id="force-reset-modal" class="modal" style="display: none;">
+        <div class="modal-card" style="max-width: 440px;">
+            <div class="modal-header" style="border-bottom: 1px solid #e2e8f0;">
+                <h2 style="display: flex; align-items: center; gap: 8px;">
+                    <i class="fas fa-unlock-alt" style="color: #dc2626;"></i> 비밀번호 강제 초기화
+                </h2>
+                <button class="btn-close-x" onclick="closeForceResetModal()"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body-scrollable" style="padding: 20px 24px;">
+                <div style="padding: 12px; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 10px; margin-bottom: 16px;">
+                    <p style="font-size: 12px; color: #9a3412; margin: 0; line-height: 1.6;">
+                        <i class="fas fa-exclamation-triangle" style="margin-right: 4px;"></i>
+                        이메일 인증이 불가능한 경우 (퇴사, 연락두절 등)<br>
+                        관리자 비밀번호 확인 후 선생님 비밀번호를 <strong>123123</strong>으로 초기화합니다.
+                    </p>
+                </div>
+                <div class="form-group" style="margin-bottom: 14px;">
+                    <label style="font-weight: 600;">초기화할 선생님</label>
+                    <select id="force-reset-teacher-dropdown" class="auth-input">
+                        <option value="">선생님을 선택해주세요</option>
+                    </select>
+                </div>
+                <div class="form-group" style="margin-bottom: 16px;">
+                    <label style="font-weight: 600;">관리자 비밀번호</label>
+                    <input type="password" id="force-reset-admin-password" class="auth-input" placeholder="관리자 비밀번호를 입력하세요">
+                </div>
+                <button class="auth-btn" style="background: #dc2626;" onclick="forceResetTeacherPassword()">
+                    <i class="fas fa-lock-open" style="margin-right: 6px;"></i>비밀번호 강제 초기화 (123123)
+                </button>
             </div>
         </div>
     </div>
@@ -927,23 +1032,24 @@
 
     <!-- QR 출석 관리 모달 -->
     <div id="qr-attendance-modal" class="modal" style="display: none;">
-        <div class="modal-card" style="max-width: 900px; width: 90%;">
+        <div class="modal-card" style="max-width: 520px;">
             <div class="modal-header">
-                <h2>QR 출석 관리</h2>
+                <h2><i class="fas fa-qrcode" style="color:#6366f1;font-size:15px;"></i> QR 출석 관리</h2>
                 <button class="btn-close-x" onclick="closeModal('qr-attendance-modal')"><i class="fas fa-times"></i></button>
             </div>
             <div class="modal-body-scrollable custom-scroll">
-                <div style="display: flex; gap: 20px; margin-bottom: 20px;">
-                    <button class="btn-save-main" onclick="openQRScanPage()" style="flex: 1;">
-                        <i class="fas fa-camera"></i> QR 스캔하기
+                <!-- 오늘 요약 -->
+                <div id="qr-today-summary" class="qr-today-summary"></div>
+                <!-- 액션 버튼 -->
+                <div style="display: flex; gap: 10px; margin-bottom: 16px;">
+                    <button class="sch-btn-primary" onclick="openQRScanPage()" style="flex:1;padding:14px;">
+                        <i class="fas fa-camera"></i> QR 스캔
                     </button>
-                    <button class="btn-save-main" onclick="showStudentQRList()" style="flex: 1; background: #10b981;">
-                        <i class="fas fa-qrcode"></i> 학생 QR코드 보기
+                    <button class="sch-btn-primary" onclick="showStudentQRList()" style="flex:1;padding:14px;background:linear-gradient(135deg,#10b981,#059669);box-shadow:0 2px 8px rgba(16,185,129,0.25);">
+                        <i class="fas fa-qrcode"></i> QR코드 관리
                     </button>
                 </div>
-                
                 <div id="qr-attendance-content">
-                    <h3 style="margin-bottom: 15px;">오늘의 출석 현황</h3>
                     <div id="today-attendance-list"></div>
                 </div>
             </div>
@@ -973,13 +1079,19 @@
 
     <!-- 학생 QR 코드 목록 모달 -->
     <div id="student-qr-list-modal" class="modal" style="display: none;">
-        <div class="modal-card" style="max-width: 800px;">
+        <div class="modal-card qr-list-card">
             <div class="modal-header">
-                <h2>학생 QR 코드</h2>
+                <h2><i class="fas fa-qrcode" style="color:#6366f1;font-size:15px;"></i> 학생 QR 코드</h2>
                 <button class="btn-close-x" onclick="closeModal('student-qr-list-modal')"><i class="fas fa-times"></i></button>
             </div>
-            <div class="modal-body-scrollable custom-scroll">
-                <input type="text" id="qr-student-search" class="m-input" placeholder="학생명으로 검색..." onkeyup="filterQRStudentList()" style="margin-bottom: 20px;">
+            <div class="qr-list-toolbar">
+                <div class="qr-search-wrap">
+                    <i class="fas fa-search"></i>
+                    <input type="text" id="qr-student-search" placeholder="학생명으로 검색..." onkeyup="filterQRStudentList()">
+                </div>
+                <span class="qr-student-count" id="qr-student-count"></span>
+            </div>
+            <div class="modal-body-scrollable custom-scroll" style="padding-top:0;">
                 <div id="student-qr-list"></div>
             </div>
         </div>
@@ -1092,6 +1204,24 @@
             <a href="mailto:jjyown@gmail.com" class="footer-email">jjyown@gmail.com</a>
         </div>
     </footer>
+
+    <!-- 글로벌 토스트 알림 컨테이너 -->
+    <div id="toast-container"></div>
+
+    <!-- 글로벌 확인 다이얼로그 -->
+    <div id="confirm-dialog" class="confirm-overlay" style="display:none;">
+        <div class="confirm-card">
+            <div class="confirm-icon" id="confirm-icon">
+                <i class="fas fa-question-circle"></i>
+            </div>
+            <h3 class="confirm-title" id="confirm-title">확인</h3>
+            <p class="confirm-message" id="confirm-message"></p>
+            <div class="confirm-buttons">
+                <button class="confirm-btn cancel" id="confirm-cancel">취소</button>
+                <button class="confirm-btn ok" id="confirm-ok">확인</button>
+            </div>
+        </div>
+    </div>
 
     <!-- Supabase와의 연동을 위한 스크립트 -->
    <script src="supabase-config.js"></script>

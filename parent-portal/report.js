@@ -960,8 +960,8 @@ async function saveEvaluation() {
 	}
 }
 
-function resetEvaluation() {
-	if (confirm('평가 내용을 초기화하시겠습니까?')) {
+async function resetEvaluation() {
+	if (await showConfirm('평가 내용을 초기화하시겠습니까?', { title: '초기화 확인', type: 'warn' })) {
 		document.getElementById('evaluation-textarea').value = '';
 		updateCharCount();
 	}

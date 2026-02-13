@@ -21,22 +21,22 @@ window.signUp = async function() {
     const name = document.getElementById('signup-name').value;
 
     if (!name) {
-        alert('이름을 입력해주세요.');
+        showToast('이름을 입력해주세요.', 'warning');
         return;
     }
 
     if (!email) {
-        alert('구글 이메일 인증이 필요합니다.\n"구글 이메일 인증" 버튼을 눌러 인증해주세요.');
+        showToast('구글 이메일 인증이 필요합니다.\n"구글 이메일 인증" 버튼을 눌러 인증해주세요.', 'warning');
         return;
     }
 
     if (!password || !passwordConfirm) {
-        alert('비밀번호를 입력해주세요.');
+        showToast('비밀번호를 입력해주세요.', 'warning');
         return;
     }
 
     if (password !== passwordConfirm) {
-        alert('비밀번호가 일치하지 않습니다.');
+        showToast('비밀번호가 일치하지 않습니다.', 'warning');
         return;
     }
 
@@ -48,7 +48,7 @@ window.signUp = async function() {
         });
 
         if (error) {
-            alert('회원가입 실패: ' + error.message);
+            showToast('회원가입 실패: ' + error.message, 'error');
             console.error('회원가입 에러:', error);
             return;
         }
@@ -65,7 +65,7 @@ window.signUp = async function() {
             console.error('이름 저장 실패:', updateError);
         }
 
-        alert('회원가입이 완료되었습니다! 로그인 후 사용해주세요.');
+        showToast('회원가입이 완료되었습니다! 로그인 후 사용해주세요.', 'success');
         
         // 회원가입 폼 초기화 & 로그인 폼으로 전환
         document.getElementById('signup-email').value = '';
@@ -79,7 +79,7 @@ window.signUp = async function() {
         
         toggleAuthForm();
     } catch (error) {
-        alert('오류 발생: ' + error.message);
+        showToast('오류 발생: ' + error.message, 'error');
         console.error('전체 에러:', error);
     }
 }
@@ -90,7 +90,7 @@ window.signIn = async function() {
     const rememberMe = document.getElementById('remember-me').checked;
 
     if (!email || !password) {
-        alert('이메일과 비밀번호를 입력해주세요');
+        showToast('이메일과 비밀번호를 입력해주세요', 'warning');
         return;
     }
 
@@ -101,7 +101,7 @@ window.signIn = async function() {
         });
 
         if (error) {
-            alert('로그인 실패: ' + error.message);
+            showToast('로그인 실패: ' + error.message, 'error');
             return;
         }
 
@@ -120,7 +120,7 @@ window.signIn = async function() {
             console.log('[signIn] admin 권한 확인됨');
         } else if (userData?.role !== 'admin') {
             await supabase.auth.signOut();
-            alert('관리자 권한이 없습니다');
+            showToast('관리자 권한이 없습니다', 'warning');
             return;
         }
 
@@ -146,7 +146,7 @@ window.signIn = async function() {
         console.log('[signIn] 선생님 선택 페이지로 이동');
         await showMainApp();
     } catch (error) {
-        alert('오류 발생: ' + error.message);
+        showToast('오류 발생: ' + error.message, 'error');
     }
 }
 
@@ -258,55 +258,55 @@ window.confirmAdminPasswordChange = async function() {
     const newPassword = (document.getElementById('admin-reset-new-password')?.value || '').trim();
     const confirmPassword = (document.getElementById('admin-reset-new-password-confirm')?.value || '').trim();
 
-    if (!email) return alert('이메일을 입력해주세요.');
-    if (!currentPassword) return alert('기존 비밀번호를 입력해주세요.');
-    if (!newPassword || !confirmPassword) return alert('새 비밀번호를 입력해주세요.');
-    if (newPassword.length < 6) return alert('비밀번호는 6자 이상으로 설정해주세요.');
-    if (newPassword !== confirmPassword) return alert('새 비밀번호가 일치하지 않습니다.');
+    if (!email) { showToast('이메일을 입력해주세요.', 'warning'); return; }
+    if (!currentPassword) { showToast('기존 비밀번호를 입력해주세요.', 'warning'); return; }
+    if (!newPassword || !confirmPassword) { showToast('새 비밀번호를 입력해주세요.', 'warning'); return; }
+    if (newPassword.length < 6) { showToast('비밀번호는 6자 이상으로 설정해주세요.', 'warning'); return; }
+    if (newPassword !== confirmPassword) { showToast('새 비밀번호가 일치하지 않습니다.', 'warning'); return; }
 
     try {
         // 1. 기존 비밀번호 확인 (재로그인으로 검증)
         const { error: signInError } = await supabase.auth.signInWithPassword({ email, password: currentPassword });
         if (signInError) {
-            alert('기존 비밀번호가 올바르지 않습니다.');
+            showToast('기존 비밀번호가 올바르지 않습니다.', 'error');
             return;
         }
 
         // 2. 새 비밀번호로 변경
         const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
         if (updateError) {
-            alert('비밀번호 변경 실패: ' + updateError.message);
+            showToast('비밀번호 변경 실패: ' + updateError.message, 'error');
             return;
         }
 
-        alert('비밀번호가 변경되었습니다.');
+        showToast('비밀번호가 변경되었습니다.', 'success');
         document.getElementById('admin-current-password').value = '';
         document.getElementById('admin-reset-new-password').value = '';
         document.getElementById('admin-reset-new-password-confirm').value = '';
         window.closeAdminPasswordResetModal();
     } catch (err) {
-        alert('오류 발생: ' + (err.message || err));
+        showToast('오류 발생: ' + (err.message || err), 'error');
     }
 }
 
 // 관리자 비밀번호 초기화 (123123으로)
 window.resetAdminPassword = async function() {
     const email = (document.getElementById('admin-reset-email')?.value || '').trim();
-    if (!email) return alert('관리자 이메일을 입력해주세요.');
+    if (!email) { showToast('관리자 이메일을 입력해주세요.', 'warning'); return; }
 
-    if (!confirm(`${email} 계정의 비밀번호를 123123으로 초기화하시겠습니까?\n\n⚠️ Supabase 대시보드에서 초기화해야 합니다.\n이메일로 재설정 링크를 보내드립니다.`)) return;
+    if (!(await showConfirm(`${email} 계정의 비밀번호를 123123으로 초기화하시겠습니까?\n\n⚠️ Supabase 대시보드에서 초기화해야 합니다.\n이메일로 재설정 링크를 보내드립니다.`, { type: 'danger', title: '비밀번호 초기화', okText: '초기화' }))) return;
 
     try {
         const redirectTo = getPasswordResetRedirectUrl();
         const { error } = await supabase.auth.resetPasswordForEmail(email, redirectTo ? { redirectTo } : undefined);
         if (error) {
-            alert('메일 전송 실패: ' + error.message);
+            showToast('메일 전송 실패: ' + error.message, 'error');
             return;
         }
-        alert('비밀번호 재설정 링크를 이메일로 보냈습니다.\n메일의 링크를 클릭하면 새 비밀번호를 설정할 수 있습니다.');
+        showToast('비밀번호 재설정 링크를 이메일로 보냈습니다.\n메일의 링크를 클릭하면 새 비밀번호를 설정할 수 있습니다.', 'success');
         window.closeAdminPasswordResetModal();
     } catch (err) {
-        alert('오류 발생: ' + (err.message || err));
+        showToast('오류 발생: ' + (err.message || err), 'error');
     }
 }
 
@@ -327,28 +327,28 @@ window.confirmAdminPasswordReset = async function() {
     const confirmPassword = confirmInput ? confirmInput.value.trim() : '';
 
     if (!newPassword || !confirmPassword) {
-        alert('새 비밀번호를 입력해주세요');
+        showToast('새 비밀번호를 입력해주세요', 'warning');
         return;
     }
 
     if (newPassword.length < 6) {
-        alert('비밀번호는 6자 이상으로 설정해주세요');
+        showToast('비밀번호는 6자 이상으로 설정해주세요', 'warning');
         return;
     }
 
     if (newPassword !== confirmPassword) {
-        alert('비밀번호가 일치하지 않습니다');
+        showToast('비밀번호가 일치하지 않습니다', 'warning');
         return;
     }
 
     try {
         const { error } = await supabase.auth.updateUser({ password: newPassword });
         if (error) {
-            alert('비밀번호 변경 실패: ' + error.message);
+            showToast('비밀번호 변경 실패: ' + error.message, 'error');
             return;
         }
 
-        alert('비밀번호가 변경되었습니다. 다시 로그인해주세요.');
+        showToast('비밀번호가 변경되었습니다. 다시 로그인해주세요.', 'success');
         if (newPasswordInput) newPasswordInput.value = '';
         if (confirmInput) confirmInput.value = '';
         window.closeAdminPasswordUpdateModal();
@@ -357,7 +357,7 @@ window.confirmAdminPasswordReset = async function() {
             navigateToPage('AUTH');
         }
     } catch (err) {
-        alert('오류 발생: ' + (err.message || err));
+        showToast('오류 발생: ' + (err.message || err), 'error');
     }
 }
 
@@ -438,7 +438,7 @@ async function handlePasswordRecoveryOnLoad() {
 
         if (errorCode) {
             console.warn('[handlePasswordRecoveryOnLoad] 에러 코드 감지:', errorCode, errorDescription);
-            alert('비밀번호 재설정 링크가 유효하지 않거나 만료되었습니다. 새 메일로 다시 시도해주세요.');
+            showToast('비밀번호 재설정 링크가 유효하지 않거나 만료되었습니다. 새 메일로 다시 시도해주세요.', 'error');
             return;
         }
 
@@ -453,7 +453,7 @@ async function handlePasswordRecoveryOnLoad() {
 
         const hasSession = await waitForRecoverySession();
         if (!hasSession) {
-            alert('비밀번호 재설정 링크 처리에 실패했습니다. 새 메일로 다시 시도해주세요.');
+            showToast('비밀번호 재설정 링크 처리에 실패했습니다. 새 메일로 다시 시도해주세요.', 'error');
             return;
         }
 
@@ -558,7 +558,7 @@ window.showMainApp = async function(forceTeacherSelect = false) {
     } catch (error) {
         console.error('[showMainApp] 에러:', error);
         console.error('[showMainApp] 에러 스택:', error.stack);
-        alert('메인 앱 전환 중 에러\n\n에러: ' + (error.message || error));
+        showToast('메인 앱 전환 중 에러\n\n에러: ' + (error.message || error), 'error');
     }
 };
 

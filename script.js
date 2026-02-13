@@ -20,6 +20,212 @@ let selectedScheduleStudents = [];
 let isScheduleSaving = false;
 let selectedPeriodDeleteStudents = [];
 
+// ============================================
+// 글로벌 UI: 토스트 알림 + 확인 다이얼로그
+// ============================================
+const TOAST_ICONS = {
+    success: 'fa-check',
+    error: 'fa-xmark',
+    warning: 'fa-exclamation',
+    info: 'fa-info'
+};
+const TOAST_TITLES = {
+    success: '완료',
+    error: '오류',
+    warning: '주의',
+    info: '알림'
+};
+
+/**
+ * 토스트 알림 표시 (alert 대체)
+ * @param {string} message - 메시지
+ * @param {string} type - 'success' | 'error' | 'warning' | 'info'
+ * @param {number} duration - 자동 닫힘 시간 (ms, 기본 3500)
+ */
+window.showToast = function(message, type = 'info', duration = 3500) {
+    const container = document.getElementById('toast-container');
+    if (!container) { showToast(message, type); return; }
+
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.style.setProperty('--duration', `${duration}ms`);
+    toast.innerHTML = `
+        <div class="toast-icon"><i class="fas ${TOAST_ICONS[type] || TOAST_ICONS.info}"></i></div>
+        <div class="toast-body">
+            <div class="toast-title">${TOAST_TITLES[type] || TOAST_TITLES.info}</div>
+            <div class="toast-msg">${message.replace(/\n/g, '<br>')}</div>
+        </div>
+        <button class="toast-close" onclick="this.parentElement.classList.add('removing');setTimeout(()=>this.parentElement.remove(),300)">
+            <i class="fas fa-times"></i>
+        </button>
+        <div class="toast-progress"><div class="toast-progress-bar"></div></div>
+    `;
+
+    toast.addEventListener('click', (e) => {
+        if (e.target.closest('.toast-close')) return;
+        toast.classList.add('removing');
+        setTimeout(() => toast.remove(), 300);
+    });
+
+    container.appendChild(toast);
+
+    // 최대 5개까지만 표시
+    while (container.children.length > 5) {
+        container.firstChild.remove();
+    }
+
+    // 자동 닫힘
+    setTimeout(() => {
+        if (toast.parentElement) {
+            toast.classList.add('removing');
+            setTimeout(() => toast.remove(), 300);
+        }
+    }, duration);
+};
+
+/**
+ * 커스텀 확인 다이얼로그 (confirm 대체)
+ * @param {string} message - 메시지
+ * @param {object} options - { title, type: 'warn'|'danger'|'info'|'question', okText, cancelText }
+ * @returns {Promise<boolean>}
+ */
+window.showConfirm = function(message, options = {}) {
+    return new Promise((resolve) => {
+        const overlay = document.getElementById('confirm-dialog');
+        const icon = document.getElementById('confirm-icon');
+        const title = document.getElementById('confirm-title');
+        const msg = document.getElementById('confirm-message');
+        const okBtn = document.getElementById('confirm-ok');
+        const cancelBtn = document.getElementById('confirm-cancel');
+
+        if (!overlay) { resolve(confirm(message)); return; }
+
+        const type = options.type || 'question';
+        const iconMap = { warn: 'fa-exclamation-triangle', danger: 'fa-trash-alt', info: 'fa-info-circle', question: 'fa-question-circle' };
+        
+        icon.className = `confirm-icon ${type}`;
+        icon.innerHTML = `<i class="fas ${iconMap[type] || iconMap.question}"></i>`;
+        title.textContent = options.title || '확인';
+        msg.innerHTML = message.replace(/\n/g, '<br>');
+        okBtn.textContent = options.okText || '확인';
+        cancelBtn.textContent = options.cancelText || '취소';
+        okBtn.className = `confirm-btn ok${type === 'danger' ? ' danger' : ''}`;
+
+        overlay.style.display = 'flex';
+
+        const cleanup = (result) => {
+            overlay.style.display = 'none';
+            okBtn.onclick = null;
+            cancelBtn.onclick = null;
+            resolve(result);
+        };
+
+        okBtn.onclick = () => cleanup(true);
+        cancelBtn.onclick = () => cleanup(false);
+        overlay.onclick = (e) => { if (e.target === overlay) cleanup(false); };
+    });
+};
+
+window.showPrompt = function(message, options = {}) {
+    return new Promise((resolve) => {
+        const overlay = document.getElementById('confirm-dialog');
+        const icon = document.getElementById('confirm-icon');
+        const title = document.getElementById('confirm-title');
+        const msg = document.getElementById('confirm-message');
+        const okBtn = document.getElementById('confirm-ok');
+        const cancelBtn = document.getElementById('confirm-cancel');
+
+        if (!overlay) { resolve(prompt(message)); return; }
+
+        icon.className = 'confirm-icon info';
+        icon.innerHTML = '<i class="fas fa-keyboard"></i>';
+        title.textContent = options.title || '입력';
+        msg.innerHTML = message.replace(/\n/g, '<br>') + '<br><input type="' + (options.inputType || 'password') + '" id="confirm-prompt-input" style="width:100%;padding:10px 14px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:14px;margin-top:10px;font-family:inherit;outline:none;transition:border-color 0.2s;" placeholder="' + (options.placeholder || '') + '">';
+        okBtn.textContent = options.okText || '확인';
+        cancelBtn.textContent = options.cancelText || '취소';
+        okBtn.className = 'confirm-btn ok';
+
+        overlay.style.display = 'flex';
+
+        setTimeout(() => {
+            const inp = document.getElementById('confirm-prompt-input');
+            if (inp) {
+                inp.focus();
+                inp.addEventListener('focus', () => inp.style.borderColor = '#6366f1');
+                inp.addEventListener('blur', () => inp.style.borderColor = '#e2e8f0');
+            }
+        }, 100);
+
+        const cleanup = (result) => {
+            overlay.style.display = 'none';
+            okBtn.onclick = null;
+            cancelBtn.onclick = null;
+            resolve(result);
+        };
+
+        okBtn.onclick = () => {
+            const inp = document.getElementById('confirm-prompt-input');
+            cleanup(inp ? inp.value : '');
+        };
+        cancelBtn.onclick = () => cleanup(null);
+        overlay.onclick = (e) => { if (e.target === overlay) cleanup(null); };
+    });
+};
+
+// ============================================
+// 성능 유틸리티: 디바운스, 캐시, 날짜 헬퍼
+// ============================================
+function debounce(fn, delay) {
+    let timer;
+    return function(...args) {
+        clearTimeout(timer);
+        timer = setTimeout(() => fn.apply(this, args), delay);
+    };
+}
+
+// localStorage 캐시 (동기 호출 최소화)
+const _lsCache = {};
+function cachedLsGet(key) {
+    if (_lsCache[key] !== undefined) return _lsCache[key];
+    _lsCache[key] = localStorage.getItem(key);
+    return _lsCache[key];
+}
+function cachedLsSet(key, value) {
+    _lsCache[key] = value;
+    localStorage.setItem(key, value);
+}
+function cachedLsRemove(key) {
+    delete _lsCache[key];
+    localStorage.removeItem(key);
+}
+
+// 오늘 날짜 캐시 (하루 동안 유효)
+let _todayStr = null;
+let _todayDate = null;
+function getTodayStr() {
+    const now = new Date();
+    if (_todayDate && _todayDate.getDate() === now.getDate()) return _todayStr;
+    _todayDate = now;
+    const offset = now.getTimezoneOffset() * 60000;
+    _todayStr = new Date(now.getTime() - offset).toISOString().split('T')[0];
+    return _todayStr;
+}
+
+// 날짜 -> 문자열 변환 캐시
+const _dateStrCache = new Map();
+function dateToStr(date) {
+    const key = date.getTime();
+    if (_dateStrCache.has(key)) return _dateStrCache.get(key);
+    const offset = date.getTimezoneOffset() * 60000;
+    const str = new Date(date.getTime() - offset).toISOString().split('T')[0];
+    _dateStrCache.set(key, str);
+    if (_dateStrCache.size > 500) {
+        const firstKey = _dateStrCache.keys().next().value;
+        _dateStrCache.delete(firstKey);
+    }
+    return str;
+}
+
 function normalizeScheduleEntries(value) {
     if (!value) return [];
     return Array.isArray(value) ? value : [value];
@@ -84,7 +290,7 @@ async function checkScheduleOverlap(studentId, dateStr, newStart, newDuration, e
 
     // 2단계: DB에서도 직접 확인 (로컬에 없는 다른 선생님 일정 보완)
     try {
-        const ownerId = localStorage.getItem('current_owner_id');
+        const ownerId = cachedLsGet('current_owner_id');
         if (ownerId && typeof supabase !== 'undefined') {
             const { data, error } = await supabase
                 .from('schedules')
@@ -444,16 +650,101 @@ function scheduleKstMidnightAutoAbsent() {
 
 window.setPaymentFilter = function(filter) {
     currentPaymentFilter = filter;
-    document.querySelectorAll('.p-filter-btn').forEach(btn => {
-        btn.classList.remove('active');
-    });
-    document.querySelector(`.p-filter-btn[onclick="setPaymentFilter('${filter}')"]`).classList.add('active');
+    document.querySelectorAll('.pay-pill').forEach(btn => btn.classList.remove('active'));
+    const target = document.querySelector(`.pay-pill[onclick="setPaymentFilter('${filter}')"]`);
+    if (target) target.classList.add('active');
     renderPaymentList();
 }
 
+// ========== 공공데이터포털 공휴일 API 연동 ==========
+// 하드코딩 폴백 (API 실패 시 사용)
 const LUNAR_HOLIDAYS_DB = {
     "2026": { "02-16":"설날","02-17":"설날","02-18":"설날","03-02":"대체공휴일","05-24":"부처님오신날","09-24":"추석","09-25":"추석","09-26":"추석" }
 };
+
+// API에서 가져온 공휴일 캐시 { "2026": { "2026-01-01": "신정", ... } }
+let apiHolidayCache = {};
+
+// 공휴일 API 호출 (연 단위, localStorage 캐싱)
+async function fetchPublicHolidays(year) {
+    // 이미 메모리 캐시에 있으면 바로 리턴
+    if (apiHolidayCache[year]) return apiHolidayCache[year];
+
+    // localStorage 캐시 확인 (24시간 유효)
+    const cacheKey = `public_holidays_${year}`;
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) {
+        try {
+            const parsed = JSON.parse(cached);
+            if (parsed.timestamp && (Date.now() - parsed.timestamp < 24 * 60 * 60 * 1000)) {
+                apiHolidayCache[year] = parsed.data;
+                console.log(`[공휴일] ${year}년 캐시 사용 (${Object.keys(parsed.data).length}개)`);
+                return parsed.data;
+            }
+        } catch (e) { /* 캐시 파싱 실패 → 다시 가져옴 */ }
+    }
+
+    const apiKey = window.DATA_GO_KR_API_KEY;
+    if (!apiKey || apiKey === 'YOUR_API_KEY_HERE') {
+        console.warn('[공휴일] API 키가 설정되지 않았습니다. 하드코딩 데이터를 사용합니다.');
+        return null;
+    }
+
+    try {
+        const holidays = {};
+        // 1~12월 전체를 한번에 가져오기 (numOfRows=50이면 1년치 충분)
+        const url = `https://apis.data.go.kr/B090041/openapi/service/SpcdeInfoService/getRestDeInfo?solYear=${year}&numOfRows=50&_type=json&ServiceKey=${apiKey}`;
+        
+        console.log(`[공휴일] ${year}년 API 호출 중...`);
+        const response = await fetch(url);
+        
+        if (!response.ok) {
+            console.error(`[공휴일] API 응답 오류: ${response.status}`);
+            return null;
+        }
+        
+        const json = await response.json();
+        const items = json?.response?.body?.items?.item;
+        
+        if (!items) {
+            console.warn(`[공휴일] ${year}년 데이터 없음`);
+            return null;
+        }
+        
+        // 단일 항목인 경우 배열로 변환
+        const itemList = Array.isArray(items) ? items : [items];
+        
+        itemList.forEach(item => {
+            if (item.isHoliday === 'Y') {
+                const locdate = String(item.locdate);
+                const dateStr = `${locdate.substring(0,4)}-${locdate.substring(4,6)}-${locdate.substring(6,8)}`;
+                holidays[dateStr] = item.dateName;
+            }
+        });
+        
+        // 메모리 + localStorage 캐싱
+        apiHolidayCache[year] = holidays;
+        localStorage.setItem(cacheKey, JSON.stringify({
+            timestamp: Date.now(),
+            data: holidays
+        }));
+        
+        console.log(`[공휴일] ${year}년 API 로드 완료: ${Object.keys(holidays).length}개 공휴일`);
+        return holidays;
+    } catch (err) {
+        console.error('[공휴일] API 호출 실패:', err);
+        return null;
+    }
+}
+
+// 앱 시작 시 현재 연도 + 전후 연도 공휴일 미리 로드
+async function preloadPublicHolidays() {
+    const year = new Date().getFullYear();
+    await Promise.all([
+        fetchPublicHolidays(year),
+        fetchPublicHolidays(year + 1)
+    ]);
+}
 
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('[DOMContentLoaded] 페이지 로드 시작');
@@ -533,6 +824,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }, 5000);
     
+    // 공휴일 API 데이터 미리 로드 (백그라운드)
+    preloadPublicHolidays().then(() => {
+        console.log('[DOMContentLoaded] 공휴일 데이터 로드 완료');
+        if (typeof renderCalendar === 'function') renderCalendar();
+    }).catch(err => console.warn('[DOMContentLoaded] 공휴일 로드 실패:', err));
+    
     try {
         if (typeof initializeAuth === 'function') {
             await initializeAuth(isRefresh);
@@ -600,13 +897,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     // 권한 메뉴 가시성 및 역할 라벨 업데이트
     updatePaymentMenuVisibility();
     updateStudentMenuVisibility();
+    updateForceResetMenuVisibility();
     updateUserRoleLabel();
     
     console.log('[DOMContentLoaded] 페이지 로드 완료');
 });
 
 function setupHolidayColorChips() {
-    const chips = document.querySelectorAll('.color-chip');
+    const chips = document.querySelectorAll('.dset-color-chip, .color-chip');
     chips.forEach(chip => {
         chip.addEventListener('click', () => {
             const color = chip.dataset.color;
@@ -650,7 +948,7 @@ function restorePageOnLoad() {
     const savedPage = getActivePage();
     const savedTeacherId = getCurrentTeacherId();
     const savedTeacherName = getCurrentTeacherName();
-    const savedOwnerId = localStorage.getItem('current_owner_id');
+    const savedOwnerId = cachedLsGet('current_owner_id');
 
     console.log('[restorePageOnLoad] savedPage:', savedPage, 'savedTeacherId:', savedTeacherId, 'savedOwnerId:', savedOwnerId);
 
@@ -698,7 +996,7 @@ function restorePageOnLoad() {
 }
 
 function setHolidayColor(color) {
-    const chips = document.querySelectorAll('.color-chip');
+    const chips = document.querySelectorAll('.dset-color-chip, .color-chip');
     chips.forEach(c => {
         if (c.dataset.color === color) c.classList.add('active');
         else c.classList.remove('active');
@@ -717,7 +1015,7 @@ async function loadTeachers() {
     try {
         console.log('[loadTeachers] 시작');
         
-        const ownerId = localStorage.getItem('current_owner_id');
+        const ownerId = cachedLsGet('current_owner_id');
         console.log('[loadTeachers] current_owner_id:', ownerId);
         
         if (!ownerId) {
@@ -821,17 +1119,17 @@ async function setCurrentTeacher(teacher) {
         
         if (!teacher || !teacher.id) {
             console.error('[setCurrentTeacher] 유효하지 않은 선생님 정보');
-            alert('선생님 정보가 유효하지 않습니다.');
+            showToast('선생님 정보가 유효하지 않습니다.', 'error');
             return;
         }
         
         // localStorage의 current_owner_id 확인
-        const ownerId = localStorage.getItem('current_owner_id');
+        const ownerId = cachedLsGet('current_owner_id');
         console.log('[setCurrentTeacher] current_owner_id:', ownerId);
         
         if (!ownerId) {
             console.warn('[setCurrentTeacher] current_owner_id 없음, 세션 만료');
-            alert('로그인 세션이 만료되었습니다. 다시 로그인해주세요.');
+            showToast('로그인 세션이 만료되었습니다. 다시 로그인해주세요.', 'warning');
             // 로그인 페이지로 이동
             await initializeAuth();
             return;
@@ -943,6 +1241,7 @@ async function setCurrentTeacher(teacher) {
         console.log('[setCurrentTeacher] 8단계: 권한 메뉴 및 역할 라벨 업데이트...');
         updatePaymentMenuVisibility();
         updateTeacherMenuVisibility();
+        updateForceResetMenuVisibility();
         updateUserRoleLabel();
         
         // 로딩 화면 제거 (최종 안전망)
@@ -958,7 +1257,7 @@ async function setCurrentTeacher(teacher) {
         const loader = document.getElementById('initial-loader');
         if (loader) loader.style.display = 'none';
         
-        alert('선생님 선택 중 에러가 발생했습니다.\n\n에러: ' + (err.message || err));
+        showToast('선생님 선택 중 에러가 발생했습니다.\n\n에러: ' + (err.message || err), 'error');
     }
 }
 
@@ -987,10 +1286,10 @@ window.onTeacherSelected = function() {
 window.confirmTeacher = async function() {
     console.log('[confirmTeacher] 시작');
     const teacherId = document.getElementById('teacher-dropdown').value;
-    if (!teacherId) return alert('선생님을 선택해주세요.');
+    if (!teacherId) { showToast('선생님을 선택해주세요.', 'warning'); return; }
     
     const teacher = teacherList.find(t => t.id === teacherId);
-    if (!teacher) return alert('선택한 선생님을 찾을 수 없습니다.');
+    if (!teacher) { showToast('선택한 선생님을 찾을 수 없습니다.', 'error'); return; }
     
     console.log('[confirmTeacher] 선택된 선생님:', teacher.name);
     
@@ -998,7 +1297,8 @@ window.confirmTeacher = async function() {
     const password = document.getElementById('teacher-select-password').value.trim();
     
     if (!password) {
-        return alert('비밀번호를 입력해주세요');
+        showToast('비밀번호를 입력해주세요', 'warning');
+        return;
     }
     
     // Supabase에서 해시를 가져와 비교
@@ -1007,7 +1307,8 @@ window.confirmTeacher = async function() {
     console.log('[confirmTeacher] 저장된 해시:', teacher.pin_hash);
     
     if (passwordHash !== teacher.pin_hash) {
-        return alert('비밀번호가 일치하지 않습니다.');
+        showToast('비밀번호가 일치하지 않습니다.', 'warning');
+        return;
     }
     
     console.log('[confirmTeacher] 비밀번호 인증 성공');
@@ -1060,9 +1361,9 @@ function populateTeacherResetDropdown() {
 }
 
 window.openTeacherPasswordResetModal = async function() {
-    const ownerId = localStorage.getItem('current_owner_id');
+    const ownerId = cachedLsGet('current_owner_id');
     if (!ownerId) {
-        alert('로그인이 필요합니다.');
+        showToast('로그인이 필요합니다.', 'warning');
         return;
     }
 
@@ -1093,23 +1394,24 @@ window.confirmTeacherPasswordReset = async function() {
     const newPassword = document.getElementById('reset-teacher-password')?.value.trim() || '';
     const confirmPassword = document.getElementById('reset-teacher-password-confirm')?.value.trim() || '';
 
-    if (!teacherId) return alert('선생님을 선택해주세요.');
-    if (!currentPassword) return alert('기존 비밀번호를 입력해주세요.');
-    if (!newPassword || !confirmPassword) return alert('새 비밀번호를 입력해주세요.');
-    if (newPassword.length < 4) return alert('비밀번호는 4자 이상으로 설정해주세요.');
-    if (newPassword !== confirmPassword) return alert('새 비밀번호가 일치하지 않습니다.');
+    if (!teacherId) { showToast('선생님을 선택해주세요.', 'warning'); return; }
+    if (!currentPassword) { showToast('기존 비밀번호를 입력해주세요.', 'warning'); return; }
+    if (!newPassword || !confirmPassword) { showToast('새 비밀번호를 입력해주세요.', 'warning'); return; }
+    if (newPassword.length < 4) { showToast('비밀번호는 4자 이상으로 설정해주세요.', 'warning'); return; }
+    if (newPassword !== confirmPassword) { showToast('새 비밀번호가 일치하지 않습니다.', 'warning'); return; }
 
-    const ownerId = localStorage.getItem('current_owner_id');
-    if (!ownerId) return alert('로그인이 필요합니다.');
+    const ownerId = cachedLsGet('current_owner_id');
+    if (!ownerId) { showToast('로그인이 필요합니다.', 'warning'); return; }
 
     try {
         // 기존 비밀번호 확인
         const teacher = teacherList.find(t => String(t.id) === String(teacherId));
-        if (!teacher) return alert('선생님 정보를 찾을 수 없습니다.');
+        if (!teacher) { showToast('선생님 정보를 찾을 수 없습니다.', 'error'); return; }
         
         const currentHash = await hashPin(currentPassword);
         if (currentHash !== teacher.pin_hash) {
-            return alert('기존 비밀번호가 올바르지 않습니다.');
+            showToast('기존 비밀번호가 올바르지 않습니다.', 'error');
+            return;
         }
 
         // 새 비밀번호로 변경
@@ -1122,7 +1424,8 @@ window.confirmTeacherPasswordReset = async function() {
 
         if (error) {
             console.error('[confirmTeacherPasswordReset] 실패:', error);
-            return alert('비밀번호 변경 실패: ' + error.message);
+            showToast('비밀번호 변경 실패: ' + error.message, 'error');
+            return;
         }
 
         teacher.pin_hash = passwordHash;
@@ -1132,23 +1435,23 @@ window.confirmTeacherPasswordReset = async function() {
         document.getElementById('reset-teacher-password-confirm').value = '';
         document.getElementById('reset-teacher-dropdown').value = '';
         window.closeTeacherPasswordResetModal();
-        alert('선생님 비밀번호가 변경되었습니다.');
+        showToast('선생님 비밀번호가 변경되었습니다.', 'success');
     } catch (err) {
         console.error('[confirmTeacherPasswordReset] 예외:', err);
-        alert('오류 발생: ' + (err.message || err));
+        showToast('오류 발생: ' + (err.message || err), 'error');
     }
 }
 
 // 선생님 비밀번호 초기화 - Step 1: 인증번호 발송
 window.sendResetCode = async function() {
     const teacherId = document.getElementById('reset-teacher-dropdown')?.value || '';
-    if (!teacherId) return alert('선생님을 선택해주세요.');
+    if (!teacherId) { showToast('선생님을 선택해주세요.', 'warning'); return; }
 
     const teacherEmail = (document.getElementById('reset-teacher-email')?.value || '').trim();
-    if (!teacherEmail) return alert('등록된 구글 이메일이 없습니다.\n선생님 등록 시 구글 인증을 먼저 진행해주세요.');
+    if (!teacherEmail) { showToast('등록된 구글 이메일이 없습니다.\n선생님 등록 시 구글 인증을 먼저 진행해주세요.', 'warning'); return; }
 
-    const ownerId = localStorage.getItem('current_owner_id');
-    if (!ownerId) return alert('로그인이 필요합니다.');
+    const ownerId = cachedLsGet('current_owner_id');
+    if (!ownerId) { showToast('로그인이 필요합니다.', 'warning'); return; }
 
     const teacher = teacherList.find(t => String(t.id) === String(teacherId));
     const teacherName = teacher ? teacher.name : '선생님';
@@ -1179,7 +1482,8 @@ window.sendResetCode = async function() {
 
         if (insertError) {
             console.error('[sendResetCode] DB 저장 실패:', insertError);
-            return alert('인증번호 저장 실패: ' + insertError.message);
+            showToast('인증번호 저장 실패: ' + insertError.message, 'error');
+            return;
         }
 
         // 3. Edge Function으로 이메일 발송 (supabase.functions.invoke 사용)
@@ -1193,12 +1497,14 @@ window.sendResetCode = async function() {
 
         if (fnError) {
             console.error('[sendResetCode] Edge Function 실패:', fnError);
-            return alert('이메일 발송 실패: ' + (fnError.message || '알 수 없는 오류'));
+            showToast('이메일 발송 실패: ' + (fnError.message || '알 수 없는 오류'), 'error');
+            return;
         }
 
         if (fnData && fnData.error) {
             console.error('[sendResetCode] 이메일 발송 오류:', fnData.error);
-            return alert('이메일 발송 실패: ' + fnData.error);
+            showToast('이메일 발송 실패: ' + fnData.error, 'error');
+            return;
         }
 
         // 4. UI를 Step 2로 전환
@@ -1218,20 +1524,20 @@ window.sendResetCode = async function() {
 
     } catch (err) {
         console.error('[sendResetCode] 예외:', err);
-        alert('오류 발생: ' + (err.message || err));
+        showToast('오류 발생: ' + (err.message || err), 'error');
     }
 }
 
 // 선생님 비밀번호 초기화 - Step 2: 인증번호 확인 및 초기화
 window.verifyAndResetTeacherPassword = async function() {
     const teacherId = document.getElementById('reset-teacher-dropdown')?.value || '';
-    if (!teacherId) return alert('선생님을 선택해주세요.');
+    if (!teacherId) { showToast('선생님을 선택해주세요.', 'warning'); return; }
 
     const inputCode = (document.getElementById('reset-verify-code')?.value || '').trim();
-    if (!inputCode || inputCode.length !== 6) return alert('6자리 인증번호를 입력해주세요.');
+    if (!inputCode || inputCode.length !== 6) { showToast('6자리 인증번호를 입력해주세요.', 'warning'); return; }
 
-    const ownerId = localStorage.getItem('current_owner_id');
-    if (!ownerId) return alert('로그인이 필요합니다.');
+    const ownerId = cachedLsGet('current_owner_id');
+    if (!ownerId) { showToast('로그인이 필요합니다.', 'warning'); return; }
 
     const teacher = teacherList.find(t => String(t.id) === String(teacherId));
     const teacherName = teacher ? teacher.name : '선생님';
@@ -1251,11 +1557,13 @@ window.verifyAndResetTeacherPassword = async function() {
 
         if (fetchError) {
             console.error('[verifyAndResetTeacherPassword] 조회 실패:', fetchError);
-            return alert('인증번호 확인 실패: ' + fetchError.message);
+            showToast('인증번호 확인 실패: ' + fetchError.message, 'error');
+            return;
         }
 
         if (!codeRows || codeRows.length === 0) {
-            return alert('인증번호가 올바르지 않거나 만료되었습니다.\n다시 발송해주세요.');
+            showToast('인증번호가 올바르지 않거나 만료되었습니다.\n다시 발송해주세요.', 'error');
+            return;
         }
 
         // 2. 인증번호 사용 처리
@@ -1274,7 +1582,8 @@ window.verifyAndResetTeacherPassword = async function() {
 
         if (updateError) {
             console.error('[verifyAndResetTeacherPassword] 비밀번호 초기화 실패:', updateError);
-            return alert('비밀번호 초기화 실패: ' + updateError.message);
+            showToast('비밀번호 초기화 실패: ' + updateError.message, 'error');
+            return;
         }
 
         if (teacher) teacher.pin_hash = defaultHash;
@@ -1297,24 +1606,120 @@ window.verifyAndResetTeacherPassword = async function() {
         if (step2) step2.style.display = 'none';
 
         window.closeTeacherPasswordResetModal();
-        alert(`${teacherName}의 비밀번호가 123123으로 초기화되었습니다.`);
+        showToast(`${teacherName}의 비밀번호가 123123으로 초기화되었습니다.`, 'success');
 
     } catch (err) {
         console.error('[verifyAndResetTeacherPassword] 예외:', err);
-        alert('오류 발생: ' + (err.message || err));
+        showToast('오류 발생: ' + (err.message || err), 'error');
+    }
+}
+
+// ========== 관리자 강제 비밀번호 초기화 모달 ==========
+window.openForceResetModal = async function() {
+    const role = getCurrentTeacherRole();
+    if (role !== 'admin') {
+        showToast('관리자만 사용할 수 있는 기능입니다.', 'warning');
+        return;
+    }
+
+    if (!teacherList || teacherList.length === 0) {
+        await loadTeachers();
+    }
+
+    // 드롭다운 채우기
+    const dropdown = document.getElementById('force-reset-teacher-dropdown');
+    if (dropdown) {
+        dropdown.innerHTML = '<option value="">선생님을 선택해주세요</option>';
+        teacherList.forEach(t => {
+            const roleText = t.teacher_role === 'admin' ? ' (관리자)' : t.teacher_role === 'staff' ? ' (직원)' : '';
+            dropdown.innerHTML += `<option value="${t.id}">${t.name}${roleText}</option>`;
+        });
+    }
+
+    const modal = document.getElementById('force-reset-modal');
+    if (modal) modal.style.display = 'flex';
+}
+
+window.closeForceResetModal = function() {
+    const modal = document.getElementById('force-reset-modal');
+    if (modal) modal.style.display = 'none';
+    const dropdown = document.getElementById('force-reset-teacher-dropdown');
+    const pwInput = document.getElementById('force-reset-admin-password');
+    if (dropdown) dropdown.value = '';
+    if (pwInput) pwInput.value = '';
+}
+
+window.forceResetTeacherPassword = async function() {
+    const teacherId = document.getElementById('force-reset-teacher-dropdown')?.value || '';
+    if (!teacherId) { showToast('선생님을 선택해주세요.', 'warning'); return; }
+
+    const adminPassword = (document.getElementById('force-reset-admin-password')?.value || '').trim();
+    if (!adminPassword) { showToast('관리자 비밀번호를 입력해주세요.', 'warning'); return; }
+
+    const teacher = teacherList.find(t => String(t.id) === String(teacherId));
+    const teacherName = teacher ? teacher.name : '선생님';
+
+    // 최종 확인
+    if (!(await showConfirm(`정말 ${teacherName}의 비밀번호를 123123으로 강제 초기화하시겠습니까?\n\n이 작업은 되돌릴 수 없습니다.`, { type: 'danger', title: '비밀번호 초기화', okText: '초기화' }))) {
+        return;
+    }
+
+    try {
+        // 관리자 비밀번호 확인 (Supabase Auth로 재인증)
+        const currentUser = (await supabase.auth.getUser()).data.user;
+        if (!currentUser || !currentUser.email) {
+            showToast('관리자 로그인 정보를 확인할 수 없습니다.', 'warning');
+            return;
+        }
+
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+            email: currentUser.email,
+            password: adminPassword
+        });
+
+        if (signInError) {
+            console.error('[forceResetTeacherPassword] 관리자 비밀번호 불일치:', signInError);
+            showToast('관리자 비밀번호가 올바르지 않습니다.', 'error');
+            return;
+        }
+
+        // 비밀번호 123123으로 강제 초기화
+        const ownerId = cachedLsGet('current_owner_id');
+        const defaultHash = await hashPin('123123');
+        const { error: updateError } = await supabase
+            .from('teachers')
+            .update({ pin_hash: defaultHash })
+            .eq('id', teacherId)
+            .eq('owner_user_id', ownerId);
+
+        if (updateError) {
+            console.error('[forceResetTeacherPassword] 초기화 실패:', updateError);
+            showToast('비밀번호 초기화 실패: ' + updateError.message, 'error');
+            return;
+        }
+
+        if (teacher) teacher.pin_hash = defaultHash;
+
+        // UI 초기화 및 모달 닫기
+        window.closeForceResetModal();
+        showToast(`${teacherName}의 비밀번호가 123123으로 강제 초기화되었습니다.`, 'success');
+
+    } catch (err) {
+        console.error('[forceResetTeacherPassword] 예외:', err);
+        showToast('오류 발생: ' + (err.message || err), 'error');
     }
 }
 
 window.deleteTeacher = async function() {
     const teacherId = document.getElementById('teacher-dropdown').value;
-    if (!teacherId) return alert('삭제할 선생님을 선택해주세요.');
+    if (!teacherId) { showToast('삭제할 선생님을 선택해주세요.', 'warning'); return; }
 
     const target = teacherList.find(t => String(t.id) === String(teacherId));
     const targetName = target ? target.name : '선생님';
-    if (!confirm(`${targetName}을(를) 삭제하시겠습니까?\n삭제 후에는 복구할 수 없습니다.`)) return;
+    if (!(await showConfirm(`${targetName}을(를) 삭제하시겠습니까?\n삭제 후에는 복구할 수 없습니다.`, { type: 'danger', title: '삭제 확인', okText: '삭제' }))) return;
 
-    const ownerId = localStorage.getItem('current_owner_id');
-    if (!ownerId) return alert('로그인이 필요합니다.');
+    const ownerId = cachedLsGet('current_owner_id');
+    if (!ownerId) { showToast('로그인이 필요합니다.', 'warning'); return; }
 
     const { error } = await supabase
         .from('teachers')
@@ -1324,7 +1729,8 @@ window.deleteTeacher = async function() {
 
     if (error) {
         console.error('선생님 삭제 실패', error);
-        return alert('삭제 실패: ' + error.message);
+        showToast('삭제 실패: ' + error.message, 'error');
+        return;
     }
 
     if (currentTeacherId === teacherId) {
@@ -1341,7 +1747,7 @@ window.deleteTeacher = async function() {
         }
     }
 
-    alert('선생님이 삭제되었습니다.');
+    showToast('선생님이 삭제되었습니다.', 'success');
     await loadTeachers();
     const dropdown = document.getElementById('teacher-dropdown');
     if (dropdown) dropdown.value = '';
@@ -1351,24 +1757,25 @@ window.deleteTeacher = async function() {
 window.adminDeleteTeacher = async function() {
     const dropdown = document.getElementById('teacher-dropdown');
     const teacherId = dropdown ? dropdown.value : '';
-    if (!teacherId) return alert('삭제할 선생님을 선택해주세요.');
+    if (!teacherId) { showToast('삭제할 선생님을 선택해주세요.', 'warning'); return; }
 
     const target = teacherList.find(t => String(t.id) === String(teacherId));
     const name = target ? target.name : '선생님';
-    if (!confirm(`${name}을(를) 삭제하시겠습니까?\n삭제 후 복구할 수 없습니다.`)) return;
+    if (!(await showConfirm(`${name}을(를) 삭제하시겠습니까?\n삭제 후 복구할 수 없습니다.`, { type: 'danger', title: '삭제 확인', okText: '삭제' }))) return;
 
     const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-    if (sessionError || !session) return alert('로그인이 필요합니다.');
+    if (sessionError || !session) { showToast('로그인이 필요합니다.', 'warning'); return; }
 
     const adminEmail = session.user?.email;
-    const password = prompt('관리자 비밀번호를 입력하세요 (로그인 비밀번호):');
+    const password = await showPrompt('관리자 비밀번호를 입력하세요', { title: '관리자 인증', placeholder: '로그인 비밀번호', inputType: 'password' });
     if (password === null) return; // 취소
-    if (!password.trim()) return alert('비밀번호를 입력해주세요.');
+    if (!password.trim()) { showToast('비밀번호를 입력해주세요.', 'warning'); return; }
 
     const { error: reauthError } = await supabase.auth.signInWithPassword({ email: adminEmail, password });
     if (reauthError) {
         console.error('재인증 실패', reauthError);
-        return alert('비밀번호가 올바르지 않습니다.');
+        showToast('비밀번호가 올바르지 않습니다.', 'error');
+        return;
     }
 
     const ok = await deleteTeacherById(teacherId);
@@ -1388,7 +1795,7 @@ window.adminDeleteTeacher = async function() {
         }
     }
 
-    alert('강제 삭제가 완료되었습니다.');
+    showToast('강제 삭제가 완료되었습니다.', 'success');
     await loadTeachers();
     if (dropdown) dropdown.value = '';
 }
@@ -1401,13 +1808,13 @@ window.startGoogleAuth = function() {
     
     // Google Identity Services 로드 확인
     if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) {
-        alert('Google 인증 서비스를 로드하는 중입니다. 잠시 후 다시 시도해주세요.');
+        showToast('Google 인증 서비스를 로드하는 중입니다. 잠시 후 다시 시도해주세요.', 'info');
         console.error('[startGoogleAuth] Google Identity Services 미로드');
         return;
     }
 
     if (window.GOOGLE_CLIENT_ID === 'YOUR_CLIENT_ID.apps.googleusercontent.com') {
-        alert('Google Client ID가 설정되지 않았습니다.\nsupabase-config.js 또는 환경 변수에서 GOOGLE_CLIENT_ID를 설정해주세요.\n\nGoogle Cloud Console에서 OAuth 2.0 클라이언트 ID를 생성하세요.');
+        showToast('Google Client ID가 설정되지 않았습니다.\nsupabase-config.js 또는 환경 변수에서 GOOGLE_CLIENT_ID를 설정해주세요.\n\nGoogle Cloud Console에서 OAuth 2.0 클라이언트 ID를 생성하세요.', 'warning');
         return;
     }
 
@@ -1421,7 +1828,7 @@ window.startGoogleAuth = function() {
                 if (error.type === 'popup_closed') {
                     console.log('[startGoogleAuth] 사용자가 팝업을 닫았습니다.');
                 } else {
-                    alert('Google 인증 중 오류가 발생했습니다: ' + (error.message || error.type || '알 수 없는 오류'));
+                    showToast('Google 인증 중 오류가 발생했습니다: ' + (error.message || error.type || '알 수 없는 오류'), 'error');
                 }
             }
         });
@@ -1429,7 +1836,7 @@ window.startGoogleAuth = function() {
         _googleTokenClient.requestAccessToken();
     } catch (err) {
         console.error('[startGoogleAuth] 예외:', err);
-        alert('Google 인증 초기화 실패: ' + err.message);
+        showToast('Google 인증 초기화 실패: ' + err.message, 'error');
     }
 }
 
@@ -1438,7 +1845,7 @@ window.handleGoogleAuthCallback = async function(tokenResponse) {
     
     if (tokenResponse.error) {
         console.error('[handleGoogleAuthCallback] 에러:', tokenResponse.error);
-        alert('Google 인증 실패: ' + tokenResponse.error);
+        showToast('Google 인증 실패: ' + tokenResponse.error, 'error');
         return;
     }
 
@@ -1456,12 +1863,12 @@ window.handleGoogleAuthCallback = async function(tokenResponse) {
         console.log('[handleGoogleAuthCallback] 사용자 정보:', userInfo.email, userInfo.sub);
 
         if (!userInfo.email) {
-            alert('Google 계정에서 이메일 정보를 가져올 수 없습니다.');
+            showToast('Google 계정에서 이메일 정보를 가져올 수 없습니다.', 'error');
             return;
         }
 
         if (!userInfo.email_verified) {
-            alert('인증되지 않은 Google 이메일입니다. 이메일 인증이 완료된 계정을 사용해주세요.');
+            showToast('인증되지 않은 Google 이메일입니다. 이메일 인증이 완료된 계정을 사용해주세요.', 'warning');
             return;
         }
 
@@ -1485,7 +1892,7 @@ window.handleGoogleAuthCallback = async function(tokenResponse) {
 
     } catch (err) {
         console.error('[handleGoogleAuthCallback] 예외:', err);
-        alert('Google 사용자 정보 조회 실패: ' + err.message);
+        showToast('Google 사용자 정보 조회 실패: ' + err.message, 'error');
     }
 }
 
@@ -1508,12 +1915,12 @@ window.startGoogleAuthAdmin = function() {
     console.log('[startGoogleAuthAdmin] Google OAuth 시작 (관리자)');
     
     if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) {
-        alert('Google 인증 서비스를 로드하는 중입니다. 잠시 후 다시 시도해주세요.');
+        showToast('Google 인증 서비스를 로드하는 중입니다. 잠시 후 다시 시도해주세요.', 'info');
         return;
     }
 
     if (window.GOOGLE_CLIENT_ID === 'YOUR_CLIENT_ID.apps.googleusercontent.com') {
-        alert('Google Client ID가 설정되지 않았습니다.\nsupabase-config.js 또는 환경 변수에서 GOOGLE_CLIENT_ID를 설정해주세요.');
+        showToast('Google Client ID가 설정되지 않았습니다.\nsupabase-config.js 또는 환경 변수에서 GOOGLE_CLIENT_ID를 설정해주세요.', 'warning');
         return;
     }
 
@@ -1525,7 +1932,7 @@ window.startGoogleAuthAdmin = function() {
             error_callback: function(error) {
                 console.error('[startGoogleAuthAdmin] OAuth 에러:', error);
                 if (error.type !== 'popup_closed') {
-                    alert('Google 인증 중 오류가 발생했습니다: ' + (error.message || error.type || '알 수 없는 오류'));
+                    showToast('Google 인증 중 오류가 발생했습니다: ' + (error.message || error.type || '알 수 없는 오류'), 'error');
                 }
             }
         });
@@ -1533,7 +1940,7 @@ window.startGoogleAuthAdmin = function() {
         tokenClient.requestAccessToken();
     } catch (err) {
         console.error('[startGoogleAuthAdmin] 예외:', err);
-        alert('Google 인증 초기화 실패: ' + err.message);
+        showToast('Google 인증 초기화 실패: ' + err.message, 'error');
     }
 }
 
@@ -1542,7 +1949,7 @@ window.handleGoogleAuthCallbackAdmin = async function(tokenResponse) {
     
     if (tokenResponse.error) {
         console.error('[handleGoogleAuthCallbackAdmin] 에러:', tokenResponse.error);
-        alert('Google 인증 실패: ' + tokenResponse.error);
+        showToast('Google 인증 실패: ' + tokenResponse.error, 'error');
         return;
     }
 
@@ -1559,12 +1966,12 @@ window.handleGoogleAuthCallbackAdmin = async function(tokenResponse) {
         console.log('[handleGoogleAuthCallbackAdmin] 사용자 정보:', userInfo.email);
 
         if (!userInfo.email) {
-            alert('Google 계정에서 이메일 정보를 가져올 수 없습니다.');
+            showToast('Google 계정에서 이메일 정보를 가져올 수 없습니다.', 'error');
             return;
         }
 
         if (!userInfo.email_verified) {
-            alert('인증되지 않은 Google 이메일입니다. 이메일 인증이 완료된 계정을 사용해주세요.');
+            showToast('인증되지 않은 Google 이메일입니다. 이메일 인증이 완료된 계정을 사용해주세요.', 'warning');
             return;
         }
 
@@ -1583,7 +1990,7 @@ window.handleGoogleAuthCallbackAdmin = async function(tokenResponse) {
 
     } catch (err) {
         console.error('[handleGoogleAuthCallbackAdmin] 예외:', err);
-        alert('Google 사용자 정보 조회 실패: ' + err.message);
+        showToast('Google 사용자 정보 조회 실패: ' + err.message, 'error');
     }
 }
 
@@ -1613,29 +2020,32 @@ window.registerTeacher = async function() {
         
         console.log('[registerTeacher] 입력 값 - name:', name, ', googleEmail:', googleEmail, ', phone:', phone, ', address:', address);
         
-        if (!name) return alert('선생님 이름은 필수입니다.');
+        if (!name) { showToast('선생님 이름은 필수입니다.', 'warning'); return; }
 
         // 구글 이메일 인증 필수
         if (!googleEmail || !googleSub) {
-            return alert('구글 이메일 인증이 필요합니다.\n"구글 이메일 인증" 버튼을 눌러 인증해주세요.');
+            showToast('구글 이메일 인증이 필요합니다.\n"구글 이메일 인증" 버튼을 눌러 인증해주세요.', 'warning');
+            return;
         }
         
         // 모든 선생님은 비밀번호가 필수
         if (!teacherPassword || !teacherPasswordConfirm) {
-            return alert('비밀번호는 필수입니다.');
+            showToast('비밀번호는 필수입니다.', 'warning');
+            return;
         }
 
         if (teacherPassword !== teacherPasswordConfirm) {
-            return alert('비밀번호가 일치하지 않습니다.');
+            showToast('비밀번호가 일치하지 않습니다.', 'warning');
+            return;
         }
         
         // 저장된 현재 관리자 ID 확인
-        const ownerId = localStorage.getItem('current_owner_id');
+        const ownerId = cachedLsGet('current_owner_id');
         console.log('[registerTeacher] current_owner_id:', ownerId);
         
         if (!ownerId) {
             console.error('[registerTeacher] 로그인 정보 없음');
-            alert('로그인 세션이 만료되었습니다. 다시 로그인해주세요.');
+            showToast('로그인 세션이 만료되었습니다. 다시 로그인해주세요.', 'warning');
             navigateToPage('AUTH');
             return;
         }
@@ -1665,7 +2075,8 @@ window.registerTeacher = async function() {
         if (error) {
             console.error('[registerTeacher] Supabase 에러:', error);
             console.error('[registerTeacher] 에러 상세:', error.message, error.code, error.details);
-            return alert('선생님 등록 실패:\n' + error.message);
+            showToast('선생님 등록 실패:\n' + error.message, 'error');
+            return;
         }
         
         console.log('[registerTeacher] 등록 성공:', data);
@@ -1682,7 +2093,7 @@ window.registerTeacher = async function() {
         // Google 인증 상태 초기화
         resetGoogleAuth();
         
-        alert('선생님이 등록되었습니다!');
+        showToast('선생님이 등록되었습니다!', 'success');
         
         // 선생님 목록 새로고침
         console.log('[registerTeacher] 선생님 목록 새로고침 중...');
@@ -1694,7 +2105,7 @@ window.registerTeacher = async function() {
     } catch (err) {
         console.error('[registerTeacher] 예외 발생:', err);
         console.error('[registerTeacher] 스택:', err.stack);
-        alert('오류 발생: ' + (err.message || err));
+        showToast('오류 발생: ' + (err.message || err), 'error');
     }
 }
 
@@ -1707,18 +2118,30 @@ window.showTeacherSelectPage = async function() {
 const defaultColor = '#ef4444';
 
 function getHolidayInfo(dateStr) {
+    // 1순위: 직접 등록한 커스텀 스케줄/공휴일
     if (customHolidays.hasOwnProperty(dateStr)) {
         const raw = customHolidays[dateStr];
         if (typeof raw === 'string') return { name: raw, color: defaultColor };
         return { name: raw.name || '', color: raw.color || defaultColor };
     }
-    const [year, month, day] = dateStr.split('-');
-    const mmdd = `${month}-${day}`;
+    
+    const [year] = dateStr.split('-');
+    
+    // 2순위: 공공데이터 API 캐시 (실시간 공휴일 — 대체공휴일, 임시공휴일 포함)
+    if (apiHolidayCache[year] && apiHolidayCache[year][dateStr]) {
+        return { name: apiHolidayCache[year][dateStr], color: defaultColor };
+    }
+    
+    // 3순위: 하드코딩 양력 공휴일 (API 키 없을 때 폴백)
+    const mmdd = dateStr.substring(5); // "MM-DD"
     const solarHolidays = { "01-01": "신정", "03-01": "삼일절", "05-05": "어린이날", "06-06": "현충일", "08-15": "광복절", "10-03": "개천절", "10-09": "한글날", "12-25": "성탄절" };
     if (solarHolidays[mmdd]) return { name: solarHolidays[mmdd], color: defaultColor };
+    
+    // 4순위: 하드코딩 음력 공휴일 폴백
     if (LUNAR_HOLIDAYS_DB[year] && LUNAR_HOLIDAYS_DB[year][mmdd]) {
         return { name: LUNAR_HOLIDAYS_DB[year][mmdd], color: defaultColor };
     }
+    
     return null;
 }
 
@@ -1733,105 +2156,123 @@ function getHolidayName(dateStr) {
     return info ? info.name : null;
 }
 
-function getGradeColorClass(grade) {
-    if(!grade) return 'evt-color-default';
-    if(grade.includes('초')) return 'evt-grade-cho';
-    if(grade.includes('중')) return 'evt-grade-jung';
-    if(grade.includes('고')) return 'evt-grade-go';
-    return 'evt-color-default';
+function getGradeColorClass(grade, prefix = 'evt') {
+    if(!grade) return `${prefix}-color-default`;
+    if(grade.includes('초')) return `${prefix}-grade-cho`;
+    if(grade.includes('중')) return `${prefix}-grade-jung`;
+    if(grade.includes('고')) return `${prefix}-grade-go`;
+    return `${prefix}-color-default`;
 }
 
+// 하위 호환: 기존 코드에서 getSubItemColorClass 호출하는 곳이 있으면 자동 연결
 function getSubItemColorClass(grade) {
-    if(!grade) return 'sub-color-default';
-    if(grade.includes('초')) return 'sub-grade-cho';
-    if(grade.includes('중')) return 'sub-grade-jung';
-    if(grade.includes('고')) return 'sub-grade-go';
-    return 'sub-color-default';
+    return getGradeColorClass(grade, 'sub');
 }
 
-window.renderCalendar = function() {
+// renderCalendar 내부 구현
+function _renderCalendarImpl() {
     // QR 출석 뱃지는 일정 렌더 직후 2.5초간만 표시
-    const qrBadgeStudentId = lastQrScannedStudentId;
-    if (qrBadgeStudentId) {
+    if (lastQrScannedStudentId) {
         setTimeout(() => { lastQrScannedStudentId = null; renderCalendar(); }, 2500);
     }
+    
+    // 현재 표시 중인 연도의 공휴일 데이터가 없으면 백그라운드 로드
+    const displayYear = currentDate.getFullYear();
+    if (!apiHolidayCache[displayYear] && !window._holidayLoading?.[displayYear]) {
+        if (!window._holidayLoading) window._holidayLoading = {};
+        window._holidayLoading[displayYear] = true;
+        fetchPublicHolidays(displayYear).then(() => {
+            window._holidayLoading[displayYear] = false;
+            if (apiHolidayCache[displayYear]) renderCalendar();
+        });
+    }
+    
     const grid = document.getElementById('calendar-grid');
     const display = document.getElementById('current-display');
     
-    console.log('[renderCalendar] 시작', {
-        grid: !!grid,
-        display: !!display,
-        currentView,
-        currentTeacherStudents: currentTeacherStudents.length,
-        currentDate
-    });
-    
-    if(!grid || !display) {
-        console.error('[renderCalendar] 필수 요소 없음', { grid: !!grid, display: !!display });
-        return;
-    }
+    if(!grid || !display) return;
 
-    grid.innerHTML = '';
-    let loopStart, loopEnd;
+    // DocumentFragment로 DOM 조작 최소화
+    const fragment = document.createDocumentFragment();
+    const activeStudents = getActiveStudentsForTeacher(currentTeacherId);
+    const todayStr = getTodayStr();
 
     if (currentView === 'month') {
         display.textContent = `${currentDate.getFullYear()}년 ${currentDate.getMonth() + 1}월`;
-        const firstDay = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
-        const lastDay = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
+        const year = currentDate.getFullYear();
+        const month = currentDate.getMonth();
+        const lastDay = new Date(year, month + 1, 0).getDate();
+        const startDow = new Date(year, month, 1).getDay();
         
-        for (let i = 0; i < firstDay.getDay(); i++) {
-            const emptyCell = document.createElement('div');
-            emptyCell.className = 'grid-cell empty';
-            grid.appendChild(emptyCell);
+        // 이전 달 채우기
+        if (startDow > 0) {
+            const prevLastDay = new Date(year, month, 0).getDate();
+            for (let i = startDow - 1; i >= 0; i--) {
+                const cell = createCell(new Date(year, month - 1, prevLastDay - i), activeStudents, todayStr);
+                cell.classList.add('other-month');
+                fragment.appendChild(cell);
+            }
         }
-        loopStart = 1; loopEnd = lastDay.getDate();
+        
+        // 이번 달
+        for (let i = 1; i <= lastDay; i++) {
+            fragment.appendChild(createCell(new Date(year, month, i), activeStudents, todayStr));
+        }
+        
+        // 다음 달 채우기 (5~6줄)
+        const totalCells = startDow + lastDay;
+        const totalRows = totalCells <= 35 ? 35 : 42;
+        for (let i = 1; i <= totalRows - totalCells; i++) {
+            const cell = createCell(new Date(year, month + 1, i), activeStudents, todayStr);
+            cell.classList.add('other-month');
+            fragment.appendChild(cell);
+        }
     } else {
         const start = new Date(currentDate);
         start.setDate(currentDate.getDate() - currentDate.getDay());
         display.textContent = `${start.getMonth()+1}월 ${start.getDate()}일 주간`;
-        loopStart = 0; loopEnd = 6;
-    }
-
-    // 현재 선생님의 학생 + 일정 데이터 기준 활성 학생
-    const activeStudents = getActiveStudentsForTeacher(currentTeacherId);
-    
-    console.log('[renderCalendar] activeStudents:', activeStudents.length);
-
-    for (let i = loopStart; i <= loopEnd; i++) {
-        let dateObj;
-        if (currentView === 'month') {
-            dateObj = new Date(currentDate.getFullYear(), currentDate.getMonth(), i);
-        } else {
-            const start = new Date(currentDate);
-            start.setDate(currentDate.getDate() - currentDate.getDay());
-            dateObj = new Date(start);
+        for (let i = 0; i <= 6; i++) {
+            const dateObj = new Date(start);
             dateObj.setDate(start.getDate() + i);
+            fragment.appendChild(createCell(dateObj, activeStudents, todayStr));
         }
-        // 현재 선생님의 학생만으로 셀 렌더링
-        grid.appendChild(createCell(dateObj, activeStudents));
     }
-    
-    console.log('[renderCalendar] 완료');
+
+    grid.innerHTML = '';
+    grid.appendChild(fragment);
 }
 
-function createCell(date, activeStudents) {
+// 디바운스된 renderCalendar (연속 호출 시 마지막만 실행)
+const _debouncedRender = debounce(_renderCalendarImpl, 50);
+
+window.renderCalendar = function(immediate) {
+    if (immediate) {
+        _renderCalendarImpl();
+    } else {
+        _debouncedRender();
+    }
+}
+
+function createCell(date, activeStudents, todayStr) {
     const cell = document.createElement('div');
     cell.className = 'grid-cell';
-    const offset = date.getTimezoneOffset() * 60000;
-    const dateStr = new Date(date.getTime() - offset).toISOString().split('T')[0];
+    const dateStr = dateToStr(date);
     cell.dataset.date = dateStr;
+
+    // 이벤트 위임: grid 레벨에서 처리하므로 개별 셀 클릭 리스너 최소화
+    cell.addEventListener('click', (e) => {
+        if(e.target.closest('.student-tag')) return;
+        if(e.target.closest('.summary-badge')) {
+            e.stopPropagation();
+            openDayDetail(dateStr);
+            return;
+        }
+        if(e.button === 0) openDaySettings(dateStr);
+    });
 
     cell.addEventListener('dragover', handleDragOver);
     cell.addEventListener('dragleave', handleDragLeave);
     cell.addEventListener('drop', handleDrop);
-
-    cell.addEventListener('click', (e) => {
-        if(e.target.closest('.student-tag')) return;
-        if(e.button === 0) {
-            openDaySettings(dateStr);
-        }
-    });
-
 
     const day = date.getDay();
     const holidayInfo = getHolidayInfo(dateStr);
@@ -1840,6 +2281,8 @@ function createCell(date, activeStudents) {
     if (day === 0 || holidayInfo) dayClass = 'is-holiday';
     else if (day === 6) dayClass = 'sat';
 
+    if (dateStr === (todayStr || getTodayStr())) dayClass += ' is-today';
+
     if (holidayInfo) {
         cell.classList.add('custom-holiday');
         cell.style.setProperty('--holiday-color', holidayInfo.color || 'var(--red)');
@@ -1847,40 +2290,43 @@ function createCell(date, activeStudents) {
 
     cell.innerHTML = `
         <span class="date-num ${dayClass}">${date.getDate()}</span>
-        <span class="holiday-name">${holidayName || ''}</span>
+        ${holidayName ? `<span class="holiday-name">${holidayName}</span>` : ''}
     `;
 
-    let dailyEvents = [];
-    activeStudents.forEach(student => {
-        // 현재 선생님의 schedule 데이터에서만 확인 (다른 선생님의 일정은 제외)
-        if (!student) return;
-        // 퇴원/휴원 학생은 상태 변경일 이전 일정만 표시
-        if (!shouldShowScheduleForStudent(student, dateStr)) return;
-        const entries = getScheduleEntries(currentTeacherId, String(student.id), dateStr);
-        if (entries.length > 0) dailyEvents.push(student);
-    });
+    // 일정이 있는 학생 수 빠르게 카운트
+    let eventCount = 0;
+    const eventNames = [];
+    const teacherId = currentTeacherId;
+    const teacherSched = teacherScheduleData[teacherId] || {};
+    
+    for (let i = 0; i < activeStudents.length; i++) {
+        const student = activeStudents[i];
+        if (!student || !shouldShowScheduleForStudent(student, dateStr)) continue;
+        const studentSched = teacherSched[String(student.id)];
+        if (!studentSched) continue;
+        const entries = normalizeScheduleEntries(studentSched[dateStr]);
+        if (entries.length > 0) {
+            eventCount++;
+            eventNames.push(`<div>${student.name} (${student.grade || '-'})</div>`);
+        }
+    }
 
-    if (dailyEvents.length > 0) {
+    if (eventCount > 0) {
         const badgeContainer = document.createElement('div');
         badgeContainer.className = 'summary-badge-container';
         const badge = document.createElement('div');
         badge.className = 'summary-badge has-events';
-        badge.textContent = `${dailyEvents.length}명`;
+        badge.textContent = `${eventCount}명`;
 
         badge.addEventListener('mouseenter', () => {
             const tooltip = document.getElementById('calendar-tooltip');
             if (!tooltip) return;
-            const listHtml = dailyEvents.map(s => `<div>${s.name} (${s.grade || '-'})</div>`).join('');
-            tooltip.innerHTML = `<div style="font-weight:700;margin-bottom:6px;">${dateStr}</div>${listHtml}`;
+            tooltip.innerHTML = `<div style="font-weight:700;margin-bottom:6px;">${dateStr}</div>${eventNames.join('')}`;
             tooltip.style.display = 'block';
         });
         badge.addEventListener('mouseleave', () => {
             const tooltip = document.getElementById('calendar-tooltip');
             if (tooltip) tooltip.style.display = 'none';
-        });
-        badge.addEventListener('click', (e) => {
-            e.stopPropagation();
-            openDayDetail(dateStr);
         });
 
         badgeContainer.appendChild(badge);
@@ -2210,14 +2656,14 @@ window.updateClassTime = async function() {
     const newStart = document.getElementById('att-edit-time').value;
     const newDur = document.getElementById('att-edit-duration').value;
     const originalStart = document.getElementById('att-original-time').value;
-    if(!newDur || parseInt(newDur) <= 0) return alert("올바른 수업 시간을 입력해주세요.");
+    if(!newDur || parseInt(newDur) <= 0) { showToast("올바른 수업 시간을 입력해주세요.", 'warning'); return; }
     const sIdx = students.findIndex(s => String(s.id) === String(sid));
     if(sIdx > -1) {
         // ★ 시간 겹침 확인 (기존 일정 자신은 제외)
         const overlaps = await checkScheduleOverlap(sid, newDateStr, newStart, parseInt(newDur), currentTeacherId, originalStart);
         if (overlaps.length > 0) {
             const studentName = students[sIdx].name || `학생${sid}`;
-            if (!confirm(formatOverlapMessage(studentName, newDateStr, overlaps))) {
+            if (!(await showConfirm(formatOverlapMessage(studentName, newDateStr, overlaps), { type: 'warn', title: '일정 겹침' }))) {
                 return;
             }
         }
@@ -2274,7 +2720,7 @@ window.updateClassTime = async function() {
         await loadAllTeachersScheduleData();
         if (typeof window.initMissedScanChecks === 'function') window.initMissedScanChecks();
         if (typeof scheduleKstMidnightAutoAbsent === 'function') scheduleKstMidnightAutoAbsent();
-        alert("일정이 변경되었습니다."); closeModal('attendance-modal');
+        showToast("일정이 변경되었습니다.", 'success'); closeModal('attendance-modal');
     }
 }
 window.setAttendance = async function(status, options = {}) {
@@ -2472,13 +2918,13 @@ window.saveOnlyMemo = function() {
     if(sIdx > -1) {
         if(!students[sIdx].records) students[sIdx].records = {};
         students[sIdx].records[dateStr] = memo;
-        saveData(); alert("기록이 저장되었습니다.");
+        saveData(); showToast("기록이 저장되었습니다.", 'success');
     }
 }
 
 window.applyMemoColor = function(color) {
     const selection = window.getSelection();
-    if (!selection.toString()) return alert("글자를 선택해주세요.");
+    if (!selection.toString()) { showToast("글자를 선택해주세요.", 'warning'); return; }
     
     const range = selection.getRangeAt(0);
     const span = document.createElement('span');
@@ -2487,7 +2933,8 @@ window.applyMemoColor = function(color) {
     range.insertNode(span);
     selection.removeAllRanges();
 }
-window.generateSchedule = async function() {
+// 통합된 일정 생성 내부 함수
+async function _generateScheduleCore(excludeHolidays) {
     if (isScheduleSaving) return;
     const hiddenSid = document.getElementById('sch-student-select').value;
     const targetStudentIds = selectedScheduleStudents.length ? [...selectedScheduleStudents] : (hiddenSid ? [hiddenSid] : []);
@@ -2496,214 +2943,80 @@ window.generateSchedule = async function() {
     const weeksVal = document.getElementById('sch-weeks').value;
     const startTime = document.getElementById('sch-time').value;
     const durationMin = document.getElementById('sch-duration-min').value;
-    if (targetStudentIds.length === 0 || !startVal || !startTime || !durationMin) return alert("필수 정보를 모두 입력해주세요.");
+    if (targetStudentIds.length === 0 || !startVal || !startTime || !durationMin) { showToast("필수 정보를 모두 입력해주세요.", 'warning'); return; }
     
     const startObj = new Date(startVal);
     const durInt = parseInt(durationMin);
     if (days.length > 0) {
         const startDayOfWeek = startObj.getDay();
-        if (!days.includes(startDayOfWeek)) return alert("시작 날짜의 요일이 선택된 반복 요일에 포함되지 않습니다.");
+        if (!days.includes(startDayOfWeek)) { showToast("시작 날짜의 요일이 선택된 반복 요일에 포함되지 않습니다.", 'warning'); return; }
         const weeks = parseInt(weeksVal);
-        if (!weeks || weeks < 1) return alert("반복할 주(Week) 수를 1 이상 입력해주세요.");
+        if (!weeks || weeks < 1) { showToast("반복할 주(Week) 수를 1 이상 입력해주세요.", 'warning'); return; }
     }
 
     isScheduleSaving = true;
     const saveBtn = document.getElementById('schedule-save-btn');
     const saveWithoutBtn = document.getElementById('schedule-save-without-btn');
-    if (saveBtn) {
-        saveBtn.disabled = true;
-        saveBtn.dataset.originalHtml = saveBtn.innerHTML;
-        saveBtn.textContent = '생성 중...';
-    }
-    if (saveWithoutBtn) saveWithoutBtn.disabled = true;
+    const activeBtn = excludeHolidays ? saveWithoutBtn : saveBtn;
+    const otherBtn = excludeHolidays ? saveBtn : saveWithoutBtn;
+    if (activeBtn) { activeBtn.disabled = true; activeBtn.dataset.originalHtml = activeBtn.innerHTML; activeBtn.textContent = '생성 중...'; }
+    if (otherBtn) otherBtn.disabled = true;
 
     try {
         let totalCount = 0;
         const scheduleBatch = [];
         for (const sid of targetStudentIds) {
             const student = students.find(s => String(s.id) === String(sid));
-            if (!student) return alert("학생 정보를 찾을 수 없습니다.");
+            if (!student) { showToast("학생 정보를 찾을 수 없습니다.", 'error'); return; }
 
             if(!teacherScheduleData[currentTeacherId]) teacherScheduleData[currentTeacherId] = {};
             if(!teacherScheduleData[currentTeacherId][sid]) teacherScheduleData[currentTeacherId][sid] = {};
-
-            assignStudentToTeacher(sid);
-
-            let count = 0;
-            let skipOverlapForAll = false; // 겹침 경고 "모두 무시" 플래그
-            if (days.length === 0) {
-                const off = startObj.getTimezoneOffset() * 60000;
-                const dStr = new Date(startObj.getTime() - off).toISOString().split('T')[0];
-                const entries = getScheduleEntries(currentTeacherId, String(sid), dStr);
-                const exists = entries.some(item => item.start === startTime);
-                if (exists && !confirm(`${student.name} - ${dStr} ${startTime}에 이미 일정이 있습니다. 덮어씌우시겠습니까?`)) {
-                    continue;
-                }
-                // ★ 시간 겹침 확인
-                const overlaps = await checkScheduleOverlap(sid, dStr, startTime, durInt, exists ? currentTeacherId : null, exists ? startTime : null);
-                if (overlaps.length > 0 && !confirm(formatOverlapMessage(student.name, dStr, overlaps))) {
-                    continue;
-                }
-                const updated = upsertScheduleEntry(entries, { start: startTime, duration: durInt });
-                setScheduleEntries(currentTeacherId, String(sid), dStr, updated.list);
-                scheduleBatch.push({ teacherId: currentTeacherId, studentId: sid, date: dStr, startTime, duration: durInt });
-                count++;
-            } else {
-                const weeks = parseInt(weeksVal);
-                for (let i = 0; i < weeks * 7; i++) {
-                    const cur = new Date(startObj); cur.setDate(startObj.getDate() + i); 
-                    if (days.includes(cur.getDay())) {
-                        const off = cur.getTimezoneOffset() * 60000;
-                        const dStr = new Date(cur.getTime() - off).toISOString().split('T')[0];
-                        const entries = getScheduleEntries(currentTeacherId, String(sid), dStr);
-                        const exists = entries.some(item => item.start === startTime);
-                        if (!exists) {
-                            // ★ 시간 겹침 확인 (반복 일정)
-                            if (!skipOverlapForAll) {
-                                const overlaps = await checkScheduleOverlap(sid, dStr, startTime, durInt, null, null);
-                                if (overlaps.length > 0) {
-                                    const overlapMsg = formatOverlapMessage(student.name, dStr, overlaps) + `\n\n[확인] = 이 날만 추가\n[취소] = 이 날 건너뛰기`;
-                                    if (!confirm(overlapMsg)) {
-                                        continue; // 이 날짜 건너뛰기
-                                    }
-                                }
-                            }
-                            const updated = upsertScheduleEntry(entries, { start: startTime, duration: durInt });
-                            setScheduleEntries(currentTeacherId, String(sid), dStr, updated.list);
-                            scheduleBatch.push({ teacherId: currentTeacherId, studentId: sid, date: dStr, startTime, duration: durInt });
-                            count++;
-                        }
-                    }
-                }
-            }
-
-            totalCount += count;
-        }
-        saveData();
-        persistTeacherScheduleLocal();
-        if (scheduleBatch.length) {
-            if (typeof saveSchedulesToDatabaseBatch === 'function') {
-                await saveSchedulesToDatabaseBatch(scheduleBatch);
-            } else if (typeof saveScheduleToDatabase === 'function') {
-                await Promise.allSettled(scheduleBatch.map(item => saveScheduleToDatabase(item)));
-            }
-        }
-        saveLayouts();
-        closeModal('schedule-modal');
-        renderCalendar();
-        // ★ 일정 생성 후 다른 선생님 데이터 갱신 + 타이머 갱신
-        await loadAllTeachersScheduleData();
-        if (typeof window.initMissedScanChecks === 'function') window.initMissedScanChecks();
-        if (typeof scheduleKstMidnightAutoAbsent === 'function') scheduleKstMidnightAutoAbsent();
-        alert(totalCount === 0 ? "새로 등록된 일정이 없습니다." : `${totalCount}개의 일정이 생성되었습니다.`);
-    } finally {
-        isScheduleSaving = false;
-        if (saveBtn) {
-            saveBtn.disabled = false;
-            if (saveBtn.dataset.originalHtml) {
-                saveBtn.innerHTML = saveBtn.dataset.originalHtml;
-                delete saveBtn.dataset.originalHtml;
-            }
-        }
-        if (saveWithoutBtn) saveWithoutBtn.disabled = false;
-    }
-}
-window.generateScheduleWithoutHolidays = async function() {
-    if (isScheduleSaving) return;
-    const hiddenSid = document.getElementById('sch-student-select').value;
-    const targetStudentIds = selectedScheduleStudents.length ? [...selectedScheduleStudents] : (hiddenSid ? [hiddenSid] : []);
-    const days = Array.from(document.querySelectorAll('.day-check:checked')).map(c => parseInt(c.value));
-    const startVal = document.getElementById('sch-start-date').value;
-    const weeksVal = document.getElementById('sch-weeks').value;
-    const startTime = document.getElementById('sch-time').value;
-    const durationMin = document.getElementById('sch-duration-min').value;
-    if (targetStudentIds.length === 0 || !startVal || !startTime || !durationMin) return alert("필수 정보를 모두 입력해주세요.");
-    
-    const startObj = new Date(startVal);
-    const durInt = parseInt(durationMin);
-    if (days.length > 0) {
-        const startDayOfWeek = startObj.getDay(); 
-        if (!days.includes(startDayOfWeek)) return alert("시작 날짜의 요일이 선택된 반복 요일에 포함되지 않습니다.");
-        const weeks = parseInt(weeksVal);
-        if (!weeks || weeks < 1) return alert("반복할 주(Week) 수를 1 이상 입력해주세요.");
-    }
-
-    isScheduleSaving = true;
-    const saveBtn = document.getElementById('schedule-save-btn');
-    const saveWithoutBtn = document.getElementById('schedule-save-without-btn');
-    if (saveBtn) saveBtn.disabled = true;
-    if (saveWithoutBtn) {
-        saveWithoutBtn.disabled = true;
-        saveWithoutBtn.dataset.originalHtml = saveWithoutBtn.innerHTML;
-        saveWithoutBtn.textContent = '생성 중...';
-    }
-
-    try {
-        let totalCount = 0;
-        const scheduleBatch = [];
-        for (const sid of targetStudentIds) {
-            const student = students.find(s => String(s.id) === String(sid));
-            if (!student) return alert("학생 정보를 찾을 수 없습니다.");
-
-            if(!teacherScheduleData[currentTeacherId]) teacherScheduleData[currentTeacherId] = {};
-            if(!teacherScheduleData[currentTeacherId][sid]) teacherScheduleData[currentTeacherId][sid] = {};
-
             assignStudentToTeacher(sid);
 
             let count = 0;
             let skipOverlapForAll = false;
+
             if (days.length === 0) {
+                // === 단일 날짜 ===
                 const off = startObj.getTimezoneOffset() * 60000;
                 const dStr = new Date(startObj.getTime() - off).toISOString().split('T')[0];
-                const holidayInfo = getHolidayInfo(dStr);
+                const holidayInfo = excludeHolidays ? getHolidayInfo(dStr) : null;
+                if (holidayInfo && !(await showConfirm(`${student.name} - ${dStr}은 ${holidayInfo.name}입니다. 계속 진행하시겠습니까?`, { type: 'warn', title: '공휴일 안내' }))) continue;
                 const entries = getScheduleEntries(currentTeacherId, String(sid), dStr);
                 const exists = entries.some(item => item.start === startTime);
-                if (holidayInfo && !confirm(`${student.name} - ${dStr}은 ${holidayInfo.name}입니다. 계속 진행하시겠습니까?`)) {
-                    continue;
-                }
-                if (exists && !confirm(`${student.name} - ${dStr} ${startTime}에 이미 일정이 있습니다. 덮어씌우시겠습니까?`)) {
-                    continue;
-                }
-                // ★ 시간 겹침 확인
+                if (exists && !(await showConfirm(`${student.name} - ${dStr} ${startTime}에 이미 일정이 있습니다. 덮어씌우시겠습니까?`, { type: 'warn', title: '일정 겹침' }))) continue;
                 const overlaps = await checkScheduleOverlap(sid, dStr, startTime, durInt, exists ? currentTeacherId : null, exists ? startTime : null);
-                if (overlaps.length > 0 && !confirm(formatOverlapMessage(student.name, dStr, overlaps))) {
-                    continue;
-                }
+                if (overlaps.length > 0 && !(await showConfirm(formatOverlapMessage(student.name, dStr, overlaps), { type: 'warn', title: '일정 겹침' }))) continue;
                 const updated = upsertScheduleEntry(entries, { start: startTime, duration: durInt });
                 setScheduleEntries(currentTeacherId, String(sid), dStr, updated.list);
                 scheduleBatch.push({ teacherId: currentTeacherId, studentId: sid, date: dStr, startTime, duration: durInt });
                 count++;
             } else {
+                // === 반복 일정 ===
                 const weeks = parseInt(weeksVal);
                 for (let i = 0; i < weeks * 7; i++) {
                     const cur = new Date(startObj); cur.setDate(startObj.getDate() + i); 
-                    if (days.includes(cur.getDay())) {
-                        const off = cur.getTimezoneOffset() * 60000;
-                        const dStr = new Date(cur.getTime() - off).toISOString().split('T')[0];
-                        const holidayInfo = getHolidayInfo(dStr);
-                        if (holidayInfo) continue;
-                        const entries = getScheduleEntries(currentTeacherId, String(sid), dStr);
-                        const exists = entries.some(item => item.start === startTime);
-                        if (!exists) {
-                            // ★ 시간 겹침 확인 (반복 일정)
-                            if (!skipOverlapForAll) {
-                                const overlaps = await checkScheduleOverlap(sid, dStr, startTime, durInt, null, null);
-                                if (overlaps.length > 0) {
-                                    const overlapMsg = formatOverlapMessage(student.name, dStr, overlaps) + `\n\n[확인] = 이 날만 추가\n[취소] = 이 날 건너뛰기`;
-                                    if (!confirm(overlapMsg)) {
-                                        continue;
-                                    }
-                                }
-                            }
-                            const updated = upsertScheduleEntry(entries, { start: startTime, duration: durInt });
-                            setScheduleEntries(currentTeacherId, String(sid), dStr, updated.list);
-                            scheduleBatch.push({ teacherId: currentTeacherId, studentId: sid, date: dStr, startTime, duration: durInt });
-                            count++;
+                    if (!days.includes(cur.getDay())) continue;
+                    const off = cur.getTimezoneOffset() * 60000;
+                    const dStr = new Date(cur.getTime() - off).toISOString().split('T')[0];
+                    if (excludeHolidays && getHolidayInfo(dStr)) continue;
+                    const entries = getScheduleEntries(currentTeacherId, String(sid), dStr);
+                    const exists = entries.some(item => item.start === startTime);
+                    if (exists) continue;
+                    // 겹침 확인 (모두 건너뛰기 옵션 지원)
+                    if (!skipOverlapForAll) {
+                        const overlaps = await checkScheduleOverlap(sid, dStr, startTime, durInt, null, null);
+                        if (overlaps.length > 0) {
+                            const overlapMsg = formatOverlapMessage(student.name, dStr, overlaps) + `\n\n[확인] = 추가\n[취소] = 건너뛰기`;
+                            if (!(await showConfirm(overlapMsg, { type: 'warn', title: '일정 겹침', okText: '추가', cancelText: '건너뛰기' }))) continue;
                         }
                     }
+                    const updated = upsertScheduleEntry(entries, { start: startTime, duration: durInt });
+                    setScheduleEntries(currentTeacherId, String(sid), dStr, updated.list);
+                    scheduleBatch.push({ teacherId: currentTeacherId, studentId: sid, date: dStr, startTime, duration: durInt });
+                    count++;
                 }
             }
-
             totalCount += count;
         }
         saveData();
@@ -2718,23 +3031,20 @@ window.generateScheduleWithoutHolidays = async function() {
         saveLayouts();
         closeModal('schedule-modal');
         renderCalendar();
-        // ★ 일정 생성 후 다른 선생님 데이터 갱신 + 타이머 갱신
         await loadAllTeachersScheduleData();
         if (typeof window.initMissedScanChecks === 'function') window.initMissedScanChecks();
         if (typeof scheduleKstMidnightAutoAbsent === 'function') scheduleKstMidnightAutoAbsent();
-        alert(totalCount === 0 ? "새로 등록된 일정이 없습니다. (공휴일이 제외되었을 수 있습니다)" : `${totalCount}개의 일정이 생성되었습니다.`);
+        const suffix = excludeHolidays && totalCount === 0 ? ' (공휴일이 제외되었을 수 있습니다)' : '';
+        showToast(totalCount === 0 ? `새로 등록된 일정이 없습니다.${suffix}` : `${totalCount}개의 일정이 생성되었습니다.`, totalCount === 0 ? 'info' : 'success');
     } finally {
         isScheduleSaving = false;
-        if (saveBtn) saveBtn.disabled = false;
-        if (saveWithoutBtn) {
-            saveWithoutBtn.disabled = false;
-            if (saveWithoutBtn.dataset.originalHtml) {
-                saveWithoutBtn.innerHTML = saveWithoutBtn.dataset.originalHtml;
-                delete saveWithoutBtn.dataset.originalHtml;
-            }
-        }
+        if (activeBtn) { activeBtn.disabled = false; if (activeBtn.dataset.originalHtml) { activeBtn.innerHTML = activeBtn.dataset.originalHtml; delete activeBtn.dataset.originalHtml; } }
+        if (otherBtn) otherBtn.disabled = false;
     }
 }
+
+window.generateSchedule = function() { return _generateScheduleCore(false); };
+window.generateScheduleWithoutHolidays = function() { return _generateScheduleCore(true); };
 window.prepareBulkDelete = function() {
     const sid = document.getElementById('edit-id').value;
     if(!sid) return;
@@ -2749,10 +3059,10 @@ window.executeBulkDelete = async function() {
     const sid = document.getElementById('bulk-del-sid').value;
     const startStr = document.getElementById('bulk-del-start').value;
     const endStr = document.getElementById('bulk-del-end').value;
-    if(!startStr || !endStr) return alert("기간을 모두 선택해주세요.");
+    if(!startStr || !endStr) { showToast("기간을 모두 선택해주세요.", 'warning'); return; }
     const sIdx = students.findIndex(s => String(s.id) === String(sid));
     if(sIdx === -1) return;
-    if(!confirm("선택한 기간의 일정을 삭제하시겠습니까?")) return;
+    if(!(await showConfirm("선택한 기간의 일정을 삭제하시겠습니까?", { type: 'danger', title: '삭제 확인', okText: '삭제' }))) return;
     const startDate = new Date(startStr); const endDate = new Date(endStr);
     
     let deletedCount = 0;
@@ -2790,7 +3100,7 @@ window.executeBulkDelete = async function() {
         await loadTeacherScheduleData(currentTeacherId);
     } catch (dbError) {
         console.error('[executeBulkDelete] 데이터베이스 삭제 실패:', dbError);
-        alert('데이터베이스 삭제 중 오류가 발생했습니다: ' + dbError.message);
+        showToast('데이터베이스 삭제 중 오류가 발생했습니다: ' + dbError.message, 'error');
         return;
     }
     
@@ -2800,11 +3110,11 @@ window.executeBulkDelete = async function() {
     closeModal('bulk-delete-modal'); 
     renderCalendar();
     if (deletedCount > 0) {
-        alert(`${deletedCount}개의 일정이 삭제되었습니다.`);
+        showToast(`${deletedCount}개의 일정이 삭제되었습니다.`, 'success');
     } else if (deletedAny) {
-        alert('일정이 삭제되었습니다.');
+        showToast('일정이 삭제되었습니다.', 'success');
     } else {
-        alert('삭제할 일정이 없습니다.');
+        showToast('삭제할 일정이 없습니다.', 'info');
     }
 }
 function handleDragOver(e) { e.preventDefault(); e.currentTarget.classList.add('drag-over'); }
@@ -2849,7 +3159,7 @@ async function handleDrop(e) {
                     
                 } catch (dbError) {
                     console.error('[handleDrop] 데이터베이스 동기화 실패:', dbError);
-                    alert('일정 이동 중 오류가 발생했습니다.');
+                    showToast('일정 이동 중 오류가 발생했습니다.', 'error');
                     return;
                 }
             }
@@ -2864,7 +3174,7 @@ window.deleteSingleSchedule = async function() {
     const sid = document.getElementById('att-student-id').value;
     const dateStr = document.getElementById('att-date').value;
     const originalStart = document.getElementById('att-original-time').value;
-    if(!confirm("이 날짜의 일정을 삭제하시겠습니까?")) return;
+    if(!(await showConfirm("이 날짜의 일정을 삭제하시겠습니까?", { type: 'danger', title: '삭제 확인', okText: '삭제' }))) return;
     const sIdx = students.findIndex(s => String(s.id) === String(sid));
     if(sIdx > -1) {
         // 1. 로컬 메모리에서 먼저 삭제
@@ -2881,7 +3191,7 @@ window.deleteSingleSchedule = async function() {
         renderCalendar();
         if (document.getElementById('day-detail-modal').style.display === 'flex') renderDayEvents(dateStr);
         
-        alert('일정이 삭제되었습니다.');
+        showToast('일정이 삭제되었습니다.', 'success');
 
         // 3. 데이터베이스 삭제는 백그라운드 처리
         deleteScheduleFromDatabase(sid, dateStr, currentTeacherId, originalStart || null)
@@ -2944,26 +3254,26 @@ window.executePeriodDelete = async function() {
     const endDate = document.getElementById('period-del-end').value;
     
     if (!startDate || !endDate) {
-        alert('삭제 기간을 입력해주세요.');
+        showToast('삭제 기간을 입력해주세요.', 'warning');
         return;
     }
     
     if (startDate > endDate) {
-        alert('시작 날짜가 종료 날짜보다 늦습니다.');
+        showToast('시작 날짜가 종료 날짜보다 늦습니다.', 'warning');
         return;
     }
     
     let targetStudentIds = [];
     
     if (scope === 'all') {
-        if (!confirm(`${startDate} ~ ${endDate} 기간의 모든 학생 일정을 삭제하시겠습니까?\n(출석체크가 안된 일정만 삭제됩니다)`)) return;
+        if (!(await showConfirm(`${startDate} ~ ${endDate} 기간의 모든 학생 일정을 삭제하시겠습니까?\n(출석체크가 안된 일정만 삭제됩니다)`, { type: 'danger', title: '삭제 확인', okText: '삭제' }))) return;
         targetStudentIds = Object.keys(teacherScheduleData[currentTeacherId] || {});
     } else {
         if (!selectedPeriodDeleteStudents.length) {
-            alert('학생을 선택해주세요.');
+            showToast('학생을 선택해주세요.', 'warning');
             return;
         }
-        if (!confirm(`${startDate} ~ ${endDate} 기간의 선택한 학생 일정을 삭제하시겠습니까?\n(출석체크가 안된 일정만 삭제됩니다)`)) return;
+        if (!(await showConfirm(`${startDate} ~ ${endDate} 기간의 선택한 학생 일정을 삭제하시겠습니까?\n(출석체크가 안된 일정만 삭제됩니다)`, { type: 'danger', title: '삭제 확인', okText: '삭제' }))) return;
         targetStudentIds = [...selectedPeriodDeleteStudents];
     }
     
@@ -3015,14 +3325,14 @@ window.executePeriodDelete = async function() {
         saveData();
         persistTeacherScheduleLocal();
         renderCalendar();
-        alert(`총 ${deletedCount}개의 일정이 삭제되었습니다.`);
+        showToast(`총 ${deletedCount}개의 일정이 삭제되었습니다.`, 'success');
     } else if (deletedAny) {
         saveData();
         persistTeacherScheduleLocal();
         renderCalendar();
-        alert('일정이 삭제되었습니다.');
+        showToast('일정이 삭제되었습니다.', 'success');
     } else {
-        alert('삭제할 일정이 없습니다.');
+        showToast('삭제할 일정이 없습니다.', 'info');
     }
 
     closeModal('period-delete-modal');
@@ -3101,8 +3411,28 @@ window.openDaySettings = function(dateStr) {
     document.getElementById('day-settings-title').textContent = `${dateStr} 설정`;
     document.getElementById('setting-date-str').value = dateStr;
     const info = getHolidayInfo(dateStr);
-    document.getElementById('is-red-day').checked = !!info;
-    document.getElementById('day-name').value = (info && info.name) || "";
+
+    // 삭제 버튼 표시/숨김
+    const deleteBtn = document.getElementById('schedule-delete-btn');
+    
+    if (info) {
+        document.getElementById('schedule-name').value = info.name || '';
+        document.getElementById('schedule-type').value = info.scheduleType || 'academy';
+        if (deleteBtn) deleteBtn.style.display = 'inline-flex';
+    } else {
+        document.getElementById('schedule-name').value = '';
+        document.getElementById('schedule-type').value = 'academy';
+        if (deleteBtn) deleteBtn.style.display = 'none';
+    }
+
+    // 기간 설정 기본값
+    document.getElementById('schedule-start-date').value = dateStr;
+    document.getElementById('schedule-end-date').value = dateStr;
+
+    // hidden 호환 필드 동기화
+    document.getElementById('is-red-day').value = info ? 'true' : '';
+    document.getElementById('day-name').value = (info && info.name) || '';
+    
     setHolidayColor((info && info.color) || '#ef4444');
     
     // 모달이 열릴 때마다 색상 칩 이벤트 다시 설정
@@ -3110,46 +3440,128 @@ window.openDaySettings = function(dateStr) {
 }
 window.saveDaySettings = async function() {
     const dateStr = document.getElementById('setting-date-str').value;
-    const isRed = document.getElementById('is-red-day').checked;
-    const name = document.getElementById('day-name').value;
+    const scheduleName = (document.getElementById('schedule-name')?.value || '').trim();
+    const isSchedule = !!scheduleName;
     const color = document.getElementById('holiday-color') ? document.getElementById('holiday-color').value : '#ef4444';
-    if (isRed) {
-        if (!name.trim()) return alert("공휴일 이름을 입력해주세요.");
-        customHolidays[dateStr] = { name, color };
-        
-        // 수파베이스에도 저장
-        if (typeof saveHolidayToDatabase === 'function') {
-            try {
-                await saveHolidayToDatabase({
-                    teacherId: currentTeacherId || 'no-teacher',
-                    date: dateStr,
-                    name: name,
-                    color: color
-                });
-                console.log(`공휴일 DB 저장: ${dateStr}`);
-            } catch (dbError) {
-                console.error('휴일 DB 저장 실패:', dbError);
+
+    if (isSchedule) {
+        const name = scheduleName;
+        const scheduleType = document.getElementById('schedule-type')?.value || 'academy';
+        const startDate = document.getElementById('schedule-start-date')?.value || dateStr;
+        const endDate = document.getElementById('schedule-end-date')?.value || dateStr;
+
+        if (!name) { showToast("스케줄 이름을 입력해주세요.", 'warning'); return; }
+        if (startDate > endDate) { showToast("종료일이 시작일보다 빠릅니다.", 'warning'); return; }
+
+        // 학원 전체 일정 vs 개인 스케줄 확인
+        const typeLabel = scheduleType === 'academy' ? '학원 전체 일정' : '개인 스케줄';
+        if (!(await showConfirm(`"${name}"을(를) ${typeLabel}로 등록합니다.\n\n기간: ${startDate} ~ ${endDate}\n\n계속하시겠습니까?`, { type: 'question' }))) return;
+
+        // 기간 내 모든 날짜에 등록
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+            const ds = d.toISOString().split('T')[0];
+            customHolidays[ds] = { name, color, scheduleType };
+
+            // 수파베이스에도 저장
+            if (typeof saveHolidayToDatabase === 'function') {
+                try {
+                    await saveHolidayToDatabase({
+                        teacherId: scheduleType === 'academy' ? 'academy' : currentTeacherId,
+                        date: ds,
+                        name: name,
+                        color: color
+                    });
+                } catch (dbError) {
+                    console.error('스케줄 DB 저장 실패:', ds, dbError);
+                }
             }
         }
-    } else { 
+        console.log(`스케줄 등록 완료: ${name} (${startDate} ~ ${endDate}, ${typeLabel})`);
+    } else {
+        // 스케줄 해제 (현재 날짜만)
+        const existingSchedule = customHolidays[dateStr];
+        const deleteTeacherId = (existingSchedule && existingSchedule.scheduleType === 'academy') ? 'academy' : (currentTeacherId || 'no-teacher');
         delete customHolidays[dateStr];
         
         // 수파베이스에서도 삭제
         if (typeof deleteHolidayFromDatabase === 'function') {
             try {
-                await deleteHolidayFromDatabase(currentTeacherId || 'no-teacher', dateStr);
-                console.log(`공휴일 DB 삭제: ${dateStr}`);
+                await deleteHolidayFromDatabase(deleteTeacherId, dateStr);
+                console.log(`스케줄 DB 삭제: ${dateStr} (teacher_id: ${deleteTeacherId})`);
             } catch (dbError) {
-                console.error('휴일 DB 삭제 실패:', dbError);
+                console.error('스케줄 DB 삭제 실패:', dbError);
             }
         }
     }
-    // 공휴일: 선생님별로 분리 저장 (반드시 currentTeacherId 사용)
+
+    // 로컬 저장 (선생님별)
     const holKey = `academy_holidays__${currentTeacherId || 'no-teacher'}`;
     localStorage.setItem(holKey, JSON.stringify(customHolidays));
-    console.log(`공휴일 로컬 저장 (${currentTeacherId}): ${dateStr}`);
+    console.log(`스케줄 로컬 저장 (${currentTeacherId}): ${dateStr}`);
     closeModal('day-settings-modal'); renderCalendar();
 }
+
+// 스케줄 삭제 (모달에서 삭제 버튼 클릭 시)
+window.deleteScheduleFromModal = async function() {
+    const dateStr = document.getElementById('setting-date-str').value;
+    if (!dateStr) return;
+
+    const info = customHolidays[dateStr];
+    if (!info) {
+        showToast('삭제할 스케줄이 없습니다.', 'info');
+        closeModal('day-settings-modal');
+        return;
+    }
+
+    const scheduleName = info.name || '스케줄';
+    const typeLabel = info.scheduleType === 'academy' ? '학원 전체 일정' : '개인 스케줄';
+
+    // 같은 이름의 스케줄이 여러 날짜에 걸쳐 있는지 확인
+    const sameName = Object.keys(customHolidays).filter(d => 
+        customHolidays[d].name === info.name && customHolidays[d].scheduleType === info.scheduleType
+    );
+
+    let deleteAll = false;
+    if (sameName.length > 1) {
+        const choice = await showConfirm(
+            `"${scheduleName}" (${typeLabel})\n\n` +
+            `이 스케줄은 ${sameName.length}일에 걸쳐 등록되어 있습니다.\n\n` +
+            `[확인] = 전체 기간 삭제 (${sameName.length}일)\n` +
+            `[취소] = 이 날짜만 삭제 (${dateStr})`,
+            { type: 'danger', title: '삭제 확인', okText: '삭제' }
+        );
+        deleteAll = choice;
+    } else {
+        if (!(await showConfirm(`"${scheduleName}" (${typeLabel})을 삭제하시겠습니까?`, { type: 'danger', title: '삭제 확인', okText: '삭제' }))) return;
+    }
+
+    const datesToDelete = deleteAll ? sameName : [dateStr];
+    const deleteTeacherId = info.scheduleType === 'academy' ? 'academy' : (currentTeacherId || 'no-teacher');
+
+    for (const ds of datesToDelete) {
+        delete customHolidays[ds];
+
+        if (typeof deleteHolidayFromDatabase === 'function') {
+            try {
+                await deleteHolidayFromDatabase(deleteTeacherId, ds);
+            } catch (dbError) {
+                console.error('스케줄 DB 삭제 실패:', ds, dbError);
+            }
+        }
+    }
+
+    // 로컬 저장
+    const holKey = `academy_holidays__${currentTeacherId || 'no-teacher'}`;
+    localStorage.setItem(holKey, JSON.stringify(customHolidays));
+
+    console.log(`스케줄 삭제 완료: ${scheduleName} (${datesToDelete.length}일)`);
+    closeModal('day-settings-modal');
+    renderCalendar();
+    showToast(`"${scheduleName}" 스케줄이 삭제되었습니다. (${datesToDelete.length}일)`, 'success');
+}
+
 async function loadAndCleanData() {
     try {
         console.log('[loadAndCleanData] Supabase에서 학생 데이터 로드 중...');
@@ -3180,13 +3592,13 @@ async function loadAndCleanData() {
                 payments: {}
             }));
             // 로컬 스토리지에도 백업 저장
-            const ownerKey = `academy_students__${localStorage.getItem('current_owner_id') || 'no-owner'}`;
+            const ownerKey = `academy_students__${cachedLsGet('current_owner_id') || 'no-owner'}`;
             localStorage.setItem(ownerKey, JSON.stringify(students));
             console.log(`[loadAndCleanData] Supabase에서 학생 데이터 로드 완료: ${students.length}명`);
         } else {
             // Supabase에 학생이 없으면 students를 빈 배열로 강제 (로컬 fallback 금지)
             students = [];
-            const ownerKey = `academy_students__${localStorage.getItem('current_owner_id') || 'no-owner'}`;
+            const ownerKey = `academy_students__${cachedLsGet('current_owner_id') || 'no-owner'}`;
             localStorage.setItem(ownerKey, JSON.stringify([]));
             console.log(`[loadAndCleanData] Supabase에 학생 없음. students를 빈 배열로 초기화.`);
         }
@@ -3256,7 +3668,7 @@ async function loadAndCleanData() {
                     }
                 });
 
-                const ownerKey = `academy_students__${localStorage.getItem('current_owner_id') || 'no-owner'}`;
+                const ownerKey = `academy_students__${cachedLsGet('current_owner_id') || 'no-owner'}`;
                 localStorage.setItem(ownerKey, JSON.stringify(students));
                 console.log(`[loadAndCleanData] 출석 기록 동기화 완료: ${recordMap.size}건`);
             }
@@ -3273,10 +3685,11 @@ async function loadAndCleanData() {
                 dbHolidays.forEach(h => {
                     customHolidays[h.holiday_date] = {
                         name: h.holiday_name,
-                        color: h.color || '#ef4444'
+                        color: h.color || '#ef4444',
+                        scheduleType: h.scheduleType || 'personal'
                     };
                 });
-                console.log(`공휴일 DB 로드 (${currentTeacherId}): ${dbHolidays.length}개`);
+                console.log(`스케줄 DB 로드 (${currentTeacherId}): ${dbHolidays.length}개 (학원전체 + 개인)`);
                 
                 // 로컬에도 백업
                 const holKey = `academy_holidays__${currentTeacherId || 'no-teacher'}`;
@@ -3318,13 +3731,13 @@ async function ensureAttendanceForDate(dateStr) {
 
     try {
         // owner_user_id 보장
-        let ownerId = localStorage.getItem('current_owner_id');
+        let ownerId = cachedLsGet('current_owner_id');
         if (!ownerId && typeof supabase !== 'undefined' && supabase?.auth?.getSession) {
             const { data: { session }, error } = await supabase.auth.getSession();
             if (error) console.error('[ensureAttendanceForDate] 세션 확인 에러:', error);
             if (session?.user?.id) {
                 ownerId = session.user.id;
-                localStorage.setItem('current_owner_id', ownerId);
+                cachedLsSet('current_owner_id', ownerId);
             }
         }
 
@@ -3426,7 +3839,7 @@ async function loadTeacherScheduleData(teacherId) {
 async function loadAllTeachersScheduleData() {
     try {
         if (typeof supabase === 'undefined') return;
-        const ownerId = localStorage.getItem('current_owner_id');
+        const ownerId = cachedLsGet('current_owner_id');
         if (!ownerId) return;
 
         const { data, error } = await supabase
@@ -3484,7 +3897,7 @@ async function saveTeacherScheduleData() {
         if (!currentTeacherId) return;
         
         // ✅ 세션 검증: current_owner_id가 없으면 저장 불가
-        const ownerId = localStorage.getItem('current_owner_id');
+        const ownerId = cachedLsGet('current_owner_id');
         if (!ownerId) {
             console.warn('[saveTeacherScheduleData] current_owner_id 없음 - 저장 중단');
             return;
@@ -3526,19 +3939,22 @@ function persistTeacherScheduleLocal() {
     const key = `teacher_schedule_data__${currentTeacherId}`;
     localStorage.setItem(key, JSON.stringify(teacherScheduleData[currentTeacherId] || {}));
 }
-function saveData() { 
-    // ✅ 세션 검증: current_owner_id가 없으면 저장 불가
-    const ownerId = localStorage.getItem('current_owner_id');
+// saveData를 디바운스 처리 (빠른 연속 호출 시 마지막 1회만 실제 저장)
+const _saveDataImpl = function() { 
+    const ownerId = cachedLsGet('current_owner_id');
     if (!ownerId) {
         console.warn('[saveData] current_owner_id 없음 - 저장 중단');
-        alert('로그인이 필요합니다');
+        showToast('로그인이 필요합니다', 'warning');
         return;
     }
-    
-    // 현재 로그인 사용자(관리자) 기준으로 저장
     const ownerKey = `academy_students__${ownerId}`;
-    localStorage.setItem(ownerKey, JSON.stringify(students)); 
+    cachedLsSet(ownerKey, JSON.stringify(students)); 
     console.log(`학생 데이터 저장 (${ownerId}): ${students.length}명`);
+};
+const _debouncedSave = debounce(_saveDataImpl, 300);
+function saveData(immediate) { 
+    if (immediate) _saveDataImpl();
+    else _debouncedSave();
 }
 
 // 선생님 기준 활성 학생 목록 (매핑 + 일정 데이터 병합)
@@ -3722,11 +4138,11 @@ window.toggleStudentList = function() {
         }
         updateStudentSortControls();
         renderDrawerList();
-        // 검색 입력 이벤트 리스너 추가
+        // 검색 입력 이벤트 리스너 (디바운싱 적용)
         const searchInput = document.getElementById('drawer-search-input');
-        searchInput.oninput = function() {
+        searchInput.oninput = debounce(function() {
             renderDrawerList();
-        };
+        }, 200);
         searchInput.focus();
     }
 }
@@ -3795,34 +4211,42 @@ window.renderDrawerList = function() {
         });
     }
     
-    document.getElementById('drawer-content').innerHTML = filtered.map(s => {
-        let itemClass = '';
-        if (s.status === 'archived' || s.status === 'paused') itemClass = 'inactive-item';
-        const assignedTeacherId = getAssignedTeacherId(String(s.id));
-        const teacherOptions = (teacherList || []).map(t => 
-            `<option value="${t.id}" ${String(t.id) === String(assignedTeacherId) ? 'selected' : ''}>${t.name}</option>`
-        ).join('');
-        const assignControl = `
-            <select class="m-input" style="width: 84px; min-width: 84px; max-width: 84px; padding: 4px 6px; font-size: 11px;" onchange="setStudentAssignment('${s.id}', this.value)">
-                <option value="">미배정</option>
-                ${teacherOptions}
-            </select>
-        `;
-        return `<div class="student-item ${itemClass}">
-            <div class="student-info" onclick="prepareEdit('${s.id}')">
-                <b>${s.name} <span>${s.grade}</span></b>
-                <span>${s.studentPhone || '-'}</span>
-                <span style="font-size:11px; color:#aaa;">등록: ${s.registerDate || '-'}</span>
-            </div>
-            ${assignControl}
-            <select id="status-select-${s.id}" class="status-select ${s.status}" data-student-id="${s.id}" data-original-status="${s.status}" onchange="updateStudentStatus('${s.id}', this.value)">
-                <option value="active" ${s.status === 'active' ? 'selected' : ''}>재원</option>
-                <option value="archived" ${s.status === 'archived' ? 'selected' : ''}>퇴원</option>
-                <option value="paused" ${s.status === 'paused' ? 'selected' : ''}>휴원</option>
-                <option value="delete">삭제</option>
-            </select>
-        </div>`
-    }).join('');
+    const drawerContent = document.getElementById('drawer-content');
+    if (filtered.length === 0) {
+        const emptyMsg = searchQuery 
+            ? `<div style="text-align:center;padding:40px 20px;color:#94a3b8;"><i class="fas fa-search" style="font-size:24px;margin-bottom:8px;display:block;opacity:0.4;"></i><p style="font-size:13px;margin:4px 0 0;">"${searchQuery}" 검색 결과가 없습니다</p></div>`
+            : `<div style="text-align:center;padding:40px 20px;color:#94a3b8;"><i class="fas fa-user-plus" style="font-size:24px;margin-bottom:8px;display:block;opacity:0.4;"></i><p style="font-size:13px;margin:4px 0 0;">${showInactiveOnly ? '퇴원/휴원 학생이 없습니다' : '등록된 학생이 없습니다'}</p></div>`;
+        drawerContent.innerHTML = emptyMsg;
+    } else {
+        drawerContent.innerHTML = filtered.map(s => {
+            let itemClass = '';
+            if (s.status === 'archived' || s.status === 'paused') itemClass = 'inactive-item';
+            const assignedTeacherId = getAssignedTeacherId(String(s.id));
+            const teacherOptions = (teacherList || []).map(t => 
+                `<option value="${t.id}" ${String(t.id) === String(assignedTeacherId) ? 'selected' : ''}>${t.name}</option>`
+            ).join('');
+            const assignControl = `
+                <select class="m-input" style="width: 84px; min-width: 84px; max-width: 84px; padding: 4px 6px; font-size: 11px;" onchange="setStudentAssignment('${s.id}', this.value)">
+                    <option value="">미배정</option>
+                    ${teacherOptions}
+                </select>
+            `;
+            return `<div class="student-item ${itemClass}">
+                <div class="student-info" onclick="prepareEdit('${s.id}')">
+                    <b>${s.name} <span>${s.grade}</span></b>
+                    <span>${s.studentPhone || '-'}</span>
+                    <span style="font-size:11px; color:#aaa;">등록: ${s.registerDate || '-'}</span>
+                </div>
+                ${assignControl}
+                <select id="status-select-${s.id}" class="status-select ${s.status}" data-student-id="${s.id}" data-original-status="${s.status}" onchange="updateStudentStatus('${s.id}', this.value)">
+                    <option value="active" ${s.status === 'active' ? 'selected' : ''}>재원</option>
+                    <option value="archived" ${s.status === 'archived' ? 'selected' : ''}>퇴원</option>
+                    <option value="paused" ${s.status === 'paused' ? 'selected' : ''}>휴원</option>
+                    <option value="delete">삭제</option>
+                </select>
+            </div>`
+        }).join('');
+    }
     document.getElementById('student-list-count').textContent = `${filtered.length}명`;
 }
 
@@ -3916,7 +4340,7 @@ window.updateStudentStatus = async function(id, newStatus) {
     const idx = students.findIndex(s => String(s.id) === String(id));
     if (idx === -1) {
         console.error(`[updateStudentStatus] 학생을 찾을 수 없음 - id: ${id}`);
-        alert('학생을 찾을 수 없습니다.');
+        showToast('학생을 찾을 수 없습니다.', 'error');
         renderDrawerList();
         return;
     }
@@ -3926,7 +4350,7 @@ window.updateStudentStatus = async function(id, newStatus) {
     const originalStatus = selectElement ? selectElement.getAttribute('data-original-status') : student.status;
     
     if (newStatus === 'delete') {
-        if (confirm(`정말로 ${student.name} 학생의 모든 데이터를 삭제하시겠습니까?\n(이 작업은 되돌릴 수 없습니다.)`)) {
+        if (await showConfirm(`정말로 ${student.name} 학생의 모든 데이터를 삭제하시겠습니까?\n(이 작업은 되돌릴 수 없습니다.)`, { type: 'danger', title: '삭제 확인', okText: '삭제' })) {
             try {
                 console.log(`[updateStudentStatus] 학생 삭제 시작 - id: ${id}`);
                 
@@ -3949,13 +4373,13 @@ window.updateStudentStatus = async function(id, newStatus) {
                     renderCalendar(); 
                     
                     console.log(`[updateStudentStatus] 학생 삭제 성공 - ${student.name}`);
-                    alert(`${student.name} 학생이 삭제되었습니다.`);
+                    showToast(`${student.name} 학생이 삭제되었습니다.`, 'success');
                 } else {
                     throw new Error('데이터베이스 삭제 실패');
                 }
             } catch (error) {
                 console.error('[updateStudentStatus] 학생 삭제 실패:', error);
-                alert(`학생 삭제에 실패했습니다: ${error.message}`);
+                showToast(`학생 삭제에 실패했습니다: ${error.message}`, 'error');
                 
                 // 원래 상태로 복구
                 if (selectElement) {
@@ -4009,7 +4433,7 @@ window.updateStudentStatus = async function(id, newStatus) {
                 const statusLabel = newStatus === 'archived' ? '퇴원' : '휴원';
                 const todayStr = updatePayload.status_changed_date;
                 
-                if (confirm(`${student.name} 학생이 ${statusLabel} 처리되었습니다.\n\n${todayStr} 이후의 일정을 모두 삭제하시겠습니까?\n\n• 삭제: DB 공간 절약 (되돌릴 수 없음)\n• 취소: 일정 데이터 유지 (캘린더에서만 숨김)`)) {
+                if (await showConfirm(`${student.name} 학생이 ${statusLabel} 처리되었습니다.\n\n${todayStr} 이후의 일정을 모두 삭제하시겠습니까?\n\n• 삭제: DB 공간 절약 (되돌릴 수 없음)\n• 취소: 일정 데이터 유지 (캘린더에서만 숨김)`, { type: 'danger', title: '삭제 확인', okText: '삭제' })) {
                     try {
                         // DB에서 이후 일정 삭제
                         if (typeof deleteSchedulesByRange === 'function') {
@@ -4030,10 +4454,10 @@ window.updateStudentStatus = async function(id, newStatus) {
                         persistTeacherScheduleLocal();
                         saveData();
                         renderCalendar();
-                        alert(`${student.name} 학생의 ${todayStr} 이후 일정이 삭제되었습니다.`);
+                        showToast(`${student.name} 학생의 ${todayStr} 이후 일정이 삭제되었습니다.`, 'success');
                     } catch (delError) {
                         console.error('[updateStudentStatus] 이후 일정 삭제 실패:', delError);
-                        alert('이후 일정 삭제에 실패했습니다. 수동으로 삭제해주세요.');
+                        showToast('이후 일정 삭제에 실패했습니다. 수동으로 삭제해주세요.', 'error');
                     }
                 }
             }
@@ -4042,7 +4466,7 @@ window.updateStudentStatus = async function(id, newStatus) {
         }
     } catch (error) {
         console.error('[updateStudentStatus] 학생 상태 업데이트 실패:', error);
-        alert(`학생 상태 변경에 실패했습니다: ${error.message}`);
+        showToast(`학생 상태 변경에 실패했습니다: ${error.message}`, 'error');
         
         // 원래 상태로 복구
         if (selectElement) {
@@ -4051,8 +4475,42 @@ window.updateStudentStatus = async function(id, newStatus) {
         renderDrawerList();
     }
 }
+// QR 출석 모달 오늘 요약 렌더링
+function renderQRTodaySummary() {
+    const el = document.getElementById('qr-today-summary');
+    if (!el) return;
+    const todayStr = getTodayStr();
+    let total = 0, present = 0, late = 0, absent = 0, pending = 0;
+    const activeStudents = students.filter(s => s.status === 'active');
+    for (const s of activeStudents) {
+        const sid = String(s.id);
+        // 이 학생이 오늘 일정이 있는지 확인
+        const entries = getScheduleEntries(currentTeacherId, sid, todayStr);
+        if (entries.length === 0) continue;
+        total++;
+        const att = s.attendance?.[todayStr];
+        if (att === 'present') present++;
+        else if (att === 'late') late++;
+        else if (att === 'absent') absent++;
+        else pending++;
+    }
+    if (total === 0) {
+        el.innerHTML = '<div style="text-align:center;padding:14px;color:#94a3b8;font-size:12px;"><i class="fas fa-calendar-check" style="margin-right:4px;"></i>오늘 등록된 수업이 없습니다</div>';
+        return;
+    }
+    el.innerHTML = `
+        <div class="qr-summary-grid">
+            <div class="qr-sum-item"><span class="qr-sum-num" style="color:#0f172a;">${total}</span><span class="qr-sum-label">전체</span></div>
+            <div class="qr-sum-item"><span class="qr-sum-num" style="color:#22c55e;">${present}</span><span class="qr-sum-label">출석</span></div>
+            <div class="qr-sum-item"><span class="qr-sum-num" style="color:#f59e0b;">${late}</span><span class="qr-sum-label">지각</span></div>
+            <div class="qr-sum-item"><span class="qr-sum-num" style="color:#ef4444;">${absent}</span><span class="qr-sum-label">결석</span></div>
+            <div class="qr-sum-item"><span class="qr-sum-num" style="color:#94a3b8;">${pending}</span><span class="qr-sum-label">미처리</span></div>
+        </div>`;
+}
+
 window.openModal = function(id) {
     document.getElementById(id).style.display = 'flex';
+    if(id === 'qr-attendance-modal') { renderQRTodaySummary(); }
     if(id === 'schedule-modal') {
         const searchInput = document.getElementById('sch-student-search');
         const dropdown = document.getElementById('sch-student-dropdown');
@@ -4246,7 +4704,12 @@ window.handleStudentSave = async function() {
     const defaultTextbookFee = document.getElementById('reg-default-textbook-fee').value;
     const memo = document.getElementById('reg-memo').value;
     const regDate = document.getElementById('reg-register-date').value;
-    if (!name.trim()) return alert("이름을 입력해주세요.");
+    const nameInput = document.getElementById('reg-name');
+    if (!name.trim()) {
+        showToast("이름을 입력해주세요.", 'warning');
+        if (nameInput) { nameInput.style.borderColor = '#ef4444'; nameInput.focus(); setTimeout(() => nameInput.style.borderColor = '', 2000); }
+        return;
+    }
 
     isStudentSaving = true;
     const saveButton = document.getElementById('student-save-btn');
@@ -4341,7 +4804,7 @@ window.handleStudentSave = async function() {
         
     } catch (error) {
         console.error('학생 저장 중 오류:', error);
-        alert('학생 정보 저장에 실패했습니다: ' + error.message);
+        showToast('학생 정보 저장에 실패했습니다: ' + error.message, 'error');
     } finally {
         isStudentSaving = false;
         if (saveButton) {
@@ -4355,20 +4818,22 @@ window.handleStudentSave = async function() {
 }
 
 // ============================================
-// [수정됨] 수납 관리 기능 로직 (Master-Detail UI, 성능 개선)
+// 수납 관리 기능 (Card-based UI, 검색, 일괄 완납, 프로그레스)
 // ============================================
 
+let paymentSearchQuery = '';
+
 window.openPaymentModal = function() {
-    // 관리자 역할 확인
     const role = getCurrentTeacherRole();
-    
     if (role !== 'admin') {
-        alert('수납 관리는 관리자만 접근할 수 있습니다.');
+        showToast('수납 관리는 관리자만 접근할 수 있습니다.', 'warning');
         return;
     }
-    
     openModal('payment-modal');
-    currentPaymentDate = new Date(); 
+    currentPaymentDate = new Date();
+    paymentSearchQuery = '';
+    const searchInput = document.getElementById('pay-search-input');
+    if (searchInput) searchInput.value = '';
     setPaymentFilter('all');
 }
 
@@ -4400,246 +4865,204 @@ function isStudentEligibleForPaymentMonth(student, monthKey) {
     return regMonthKey <= monthKey;
 }
 
+// --- 수납 데이터 준비 헬퍼 ---
+function buildPaymentData(monthKey) {
+    const activeStudents = students.filter(s => s.status === 'active');
+    const eligible = activeStudents.filter(s => isStudentEligibleForPaymentMonth(s, monthKey));
+    return eligible.map(s => {
+        const md = s.payments?.[monthKey] || {};
+        const tuition = { amount: md.tuition?.amount ?? s.defaultFee ?? 0, date: md.tuition?.date || '' };
+        const textbook = { amount: md.textbook?.amount ?? s.defaultTextbookFee ?? 0, date: md.textbook?.date || '' };
+        const special = { amount: md.special?.amount ?? s.specialLectureFee ?? 0, date: md.special?.date || '' };
+        const totalDue = (tuition.amount || 0) + (textbook.amount || 0) + (special.amount || 0);
+        const totalPaid = (tuition.date ? (tuition.amount || 0) : 0) + (textbook.date ? (textbook.amount || 0) : 0) + (special.date ? (special.amount || 0) : 0);
+        let status;
+        if (totalDue === 0) status = 'no_charge';
+        else if (totalPaid >= totalDue) status = 'paid';
+        else if (totalPaid > 0) status = 'partial';
+        else status = 'unpaid';
+        return { student: s, monthKey, fees: { tuition, textbook, special }, summary: { totalDue, totalPaid, status } };
+    });
+}
+
 window.renderPaymentList = function() {
     const container = document.getElementById('payment-list-container');
     const title = document.getElementById('payment-month-title');
     const year = currentPaymentDate.getFullYear();
     const month = currentPaymentDate.getMonth() + 1;
     const monthKey = `${year}-${String(month).padStart(2, '0')}`;
-    
     title.textContent = `${year}년 ${month}월`;
 
-    const activeStudents = students.filter(s => s.status === 'active');
-    const eligibleStudents = activeStudents.filter(s => isStudentEligibleForPaymentMonth(s, monthKey));
-    if (eligibleStudents.length === 0) {
-        container.innerHTML = '<div class="empty-list-placeholder">등록된 재원생이 없습니다.</div>';
-        updateSummary(monthKey, eligibleStudents);
+    const searchEl = document.getElementById('pay-search-input');
+    paymentSearchQuery = (searchEl?.value || '').trim().toLowerCase();
+
+    const allData = buildPaymentData(monthKey);
+    if (allData.length === 0) {
+        container.innerHTML = '<div class="pay-empty"><i class="fas fa-inbox"></i><p>등록된 재원생이 없습니다</p></div>';
+        updateDashboard(allData);
         return;
     }
 
-    // 1. 데이터 준비
-    let paymentData = eligibleStudents.map(s => {
-        const studentMonthData = s.payments?.[monthKey] || {};
-
-        const tuition = {
-            amount: studentMonthData.tuition?.amount ?? s.defaultFee ?? 0,
-            date: studentMonthData.tuition?.date || '',
-        };
-        const textbook = {
-            amount: studentMonthData.textbook?.amount ?? s.defaultTextbookFee ?? 0,
-            date: studentMonthData.textbook?.date || '',
-        };
-        const special = {
-            amount: studentMonthData.special?.amount ?? s.specialLectureFee ?? 0,
-            date: studentMonthData.special?.date || '',
-        };
-
-        const totalDue = (tuition.amount || 0) + (textbook.amount || 0) + (special.amount || 0);
-        const totalPaid = (tuition.date ? (tuition.amount || 0) : 0) + 
-                          (textbook.date ? (textbook.amount || 0) : 0) + 
-                          (special.date ? (special.amount || 0) : 0);
-
-        let status;
-        if (totalDue === 0) status = 'no_charge';
-        else if (totalPaid >= totalDue) status = 'paid';
-        else if (totalPaid > 0) status = 'partial';
-        else status = 'unpaid';
-
-        return {
-            student: s,
-            monthKey: monthKey,
-            fees: { tuition, textbook, special },
-            summary: { totalDue, totalPaid, status }
-        };
-    });
-
-    // 2. 필터링
-    const filteredData = paymentData.filter(item => {
-        if (currentPaymentFilter === 'all') return true;
+    let filtered = allData.filter(item => {
         if (currentPaymentFilter === 'unpaid') return item.summary.status === 'unpaid' || item.summary.status === 'partial';
-        return item.fees[currentPaymentFilter]?.amount > 0;
+        if (currentPaymentFilter === 'paid') return item.summary.status === 'paid';
+        return true;
     });
-
-    // 3. 정렬 (미납 > 일부납 > 완납 > 청구없음 순, 그 다음 이름순)
-    const statusOrder = { 'unpaid': 0, 'partial': 1, 'paid': 2, 'no_charge': 3 };
-    filteredData.sort((a, b) => {
-        const orderA = statusOrder[a.summary.status] ?? 999;
-        const orderB = statusOrder[b.summary.status] ?? 999;
-        if (orderA !== orderB) return orderA - orderB;
-        return a.student.name.localeCompare(b.student.name);
-    });
-
-    // 4. 렌더링
-    container.innerHTML = filteredData.map(item => getPaymentRowHtml(item)).join('');
-    
-    // 5. 요약 업데이트
-    updateSummary(monthKey, paymentData);
-}
-
-function updateSummary(monthKey, allPaymentData) {
-    const year = currentPaymentDate.getFullYear();
-    const month = currentPaymentDate.getMonth() + 1;
-    const mKey = monthKey || `${year}-${String(month).padStart(2, '0')}`;
-    const activeStudents = students.filter(s => s.status === 'active');
-    const eligibleStudents = activeStudents.filter(s => isStudentEligibleForPaymentMonth(s, mKey));
-
-    let totalCollected = 0;
-    let paidCount = 0;
-    let unpaidCount = 0;
-
-    // allPaymentData가 없는 경우 기본값 설정
-    if (!allPaymentData || !Array.isArray(allPaymentData)) {
-        allPaymentData = [];
+    if (paymentSearchQuery) {
+        filtered = filtered.filter(item => item.student.name.toLowerCase().includes(paymentSearchQuery));
     }
 
-    if (currentPaymentFilter === 'all') {
-        // 전체 필터: 전체 수납금과 최종 상태 기준
-        allPaymentData.forEach(item => {
-            totalCollected += item.summary.totalPaid;
-            if (item.summary.status === 'paid') {
-                paidCount++;
-            } else if (item.summary.status === 'unpaid' || item.summary.status === 'partial') {
-                unpaidCount++;
-            }
-        });
-    } else if (currentPaymentFilter === 'unpaid') {
-        // 미납 필터: 전체 기준
-        allPaymentData.forEach(item => {
-            totalCollected += item.summary.totalPaid;
-            if (item.summary.status === 'paid') {
-                paidCount++;
-            } else if (item.summary.status === 'unpaid' || item.summary.status === 'partial') {
-                unpaidCount++;
-            }
-        });
+    const order = { unpaid: 0, partial: 1, paid: 2, no_charge: 3 };
+    filtered.sort((a, b) => {
+        const diff = (order[a.summary.status] ?? 9) - (order[b.summary.status] ?? 9);
+        return diff !== 0 ? diff : a.student.name.localeCompare(b.student.name);
+    });
+
+    if (filtered.length === 0) {
+        container.innerHTML = '<div class="pay-empty"><i class="fas fa-search"></i><p>검색 결과가 없습니다</p></div>';
     } else {
-        // 특정 항목(수강료, 교재비, 특강비) 필터: 해당 항목만 기준
-        const feeType = currentPaymentFilter;
-        eligibleStudents.forEach(s => {
-            const studentMonthData = s.payments?.[mKey] || {};
-            const fee = studentMonthData[feeType] || {};
-            const amount = fee.amount ?? (feeType === 'tuition' ? s.defaultFee : feeType === 'textbook' ? s.defaultTextbookFee : s.specialLectureFee) ?? 0;
-            
-            if (amount > 0) {
-                if (fee.date) {
-                    totalCollected += amount;
-                    paidCount++;
-                } else {
-                    unpaidCount++;
-                }
-            }
-        });
+        container.innerHTML = filtered.map(item => buildPayCard(item)).join('');
     }
-
-    document.getElementById('total-collected').textContent = totalCollected.toLocaleString() + '원';
-    document.getElementById('count-paid').textContent = `${paidCount}명`;
-    document.getElementById('count-unpaid').textContent = `${unpaidCount}명`;
+    updateDashboard(allData);
 }
 
-function getPaymentRowHtml(item) {
-    const { student, summary } = item;
+function updateDashboard(allData) {
+    let totalDue = 0, totalPaid = 0, paidCount = 0, unpaidCount = 0;
+    (allData || []).forEach(item => {
+        totalDue += item.summary.totalDue;
+        totalPaid += item.summary.totalPaid;
+        if (item.summary.status === 'paid') paidCount++;
+        else if (item.summary.status === 'unpaid' || item.summary.status === 'partial') unpaidCount++;
+    });
+    const rate = totalDue > 0 ? Math.round((totalPaid / totalDue) * 100) : 0;
+    const circumference = 2 * Math.PI * 34;
+    document.getElementById('pay-progress-pct').textContent = rate + '%';
+    const fillEl = document.getElementById('pay-progress-fill');
+    if (fillEl) {
+        fillEl.style.strokeDasharray = circumference;
+        fillEl.style.strokeDashoffset = circumference - (circumference * rate / 100);
+    }
+    document.getElementById('total-collected').textContent = totalPaid.toLocaleString() + '원';
+    document.getElementById('total-due-amount').textContent = totalDue.toLocaleString() + '원';
+    document.getElementById('count-paid').textContent = paidCount + '명';
+    document.getElementById('count-unpaid').textContent = unpaidCount + '명';
+}
+
+// --- 학생 카드 HTML ---
+function buildPayCard(item) {
+    const { student, summary, fees, monthKey } = item;
     const { totalDue, totalPaid, status } = summary;
-    const registerText = student.registerDate ? `등록: ${student.registerDate}` : '등록: -';
+    const statusMap = {
+        paid:      { text: '완납', cls: 'pay-status-paid' },
+        unpaid:    { text: '미납', cls: 'pay-status-unpaid' },
+        partial:   { text: '일부납', cls: 'pay-status-partial' },
+        no_charge: { text: '청구없음', cls: 'pay-status-none' }
+    };
+    const st = statusMap[status] || statusMap.no_charge;
+    const progressPct = totalDue > 0 ? Math.round((totalPaid / totalDue) * 100) : 0;
 
-    let statusText, statusClass, statusBgColor;
-    switch (status) {
-        case 'paid': statusText = '완납'; statusClass = 'paid'; statusBgColor = 'bg-present'; break;
-        case 'unpaid': statusText = '미납'; statusClass = 'unpaid'; statusBgColor = 'bg-absent'; break;
-        case 'partial': statusText = '일부납'; statusClass = 'partial'; statusBgColor = 'bg-etc'; break;
-        default: statusText = '청구없음'; statusClass = 'no_charge'; statusBgColor = 'bg-none'; break;
-    }
-
-    return `
-        <div class="p-row" id="payment-row-${student.id}">
-            <div class="p-summary-row" onclick="togglePaymentDetail('${student.id}')">
-                <div class="p-cell-student">
-                    <span class="p-name">${student.name}</span>
-                    <span class="p-grade">${student.grade}</span>
-                    <span class="p-register">${registerText}</span>
-                </div>
-                <div class="p-cell">${(totalDue || 0).toLocaleString()}원</div>
-                <div class="p-cell">${(totalPaid || 0).toLocaleString()}원</div>
-                <div class="p-cell p-cell-status">
-                    <span class="status-badge ${statusBgColor}">${statusText}</span>
-                </div>
-                <div class="p-cell p-cell-action">
-                    <i class="fas fa-chevron-down"></i>
-                </div>
-            </div>
-            <div class="p-details-row hidden">
-                ${getDetailHtml(item)}
-            </div>
-        </div>
-    `;
-}
-
-function getDetailHtml(item) {
-    const { student, monthKey, fees } = item;
-    const createDetailPart = (type, title) => {
-        const fee = fees[type];
+    const feeRow = (type, label, icon) => {
+        const f = fees[type];
+        const isPaid = !!f.date;
         return `
-            <div class="p-detail-item">
-                <div class="d-title">${title}</div>
-                <div class="d-input-group">
-                    <input type="text" class="money-input" id="amount-${type}-${student.id}"
-                           value="${fee.amount ? fee.amount.toLocaleString() : ''}" placeholder="금액"
-                           oninput="formatNumberWithComma(this)"
-                           onchange="updatePayment('${student.id}', '${monthKey}', '${type}', 'amount', this.value)">
-                    <input type="date" class="date-input ${fee.date ? 'has-value' : ''}" id="date-${type}-${student.id}"
-                           value="${fee.date || ''}"
-                           onchange="updatePayment('${student.id}', '${monthKey}', '${type}', 'date', this.value)">
+            <div class="pay-fee-row ${isPaid ? 'is-paid' : ''}">
+                <div class="pay-fee-info">
+                    <i class="fas ${icon}"></i>
+                    <span class="pay-fee-label">${label}</span>
+                    <span class="pay-fee-amount">${(f.amount || 0).toLocaleString()}원</span>
                 </div>
-                <div class="d-action-row">
-                    <button class="d-btn paid" onclick="quickPay('${student.id}', '${monthKey}', '${type}')">오늘 날짜로 완납</button>
-                    <button class="d-btn unpaid" onclick="cancelPayment('${student.id}', '${monthKey}', '${type}')">납부 취소</button>
+                <div class="pay-fee-actions">
+                    ${isPaid
+                        ? `<span class="pay-fee-date"><i class="fas fa-check-circle"></i> ${f.date}</span>
+                           <button class="pay-fee-btn cancel" onclick="cancelPayment('${student.id}','${monthKey}','${type}')"><i class="fas fa-undo"></i></button>`
+                        : `<button class="pay-fee-btn confirm" onclick="quickPay('${student.id}','${monthKey}','${type}')"><i class="fas fa-check"></i> 완납</button>`
+                    }
                 </div>
-            </div>
-        `;
+            </div>`;
     };
 
     return `
-        <div class="p-detail-grid">
-            ${createDetailPart('tuition', '수강료')}
-            ${createDetailPart('textbook', '교재비')}
-            ${createDetailPart('special', '특강비')}
-        </div>
-    `;
+        <div class="pay-card ${st.cls}" id="payment-row-${student.id}">
+            <div class="pay-card-head" onclick="togglePaymentDetail('${student.id}')">
+                <div class="pay-card-left">
+                    <span class="pay-card-name">${student.name}</span>
+                    <span class="pay-card-grade">${student.grade || ''}</span>
+                </div>
+                <div class="pay-card-right">
+                    <div class="pay-card-amounts">
+                        <span class="pay-card-paid">${totalPaid.toLocaleString()}원</span>
+                        <span class="pay-card-sep">/</span>
+                        <span class="pay-card-due">${totalDue.toLocaleString()}원</span>
+                    </div>
+                    <span class="pay-badge ${st.cls}">${st.text}</span>
+                    <i class="fas fa-chevron-down pay-chevron"></i>
+                </div>
+            </div>
+            <div class="pay-card-progress">
+                <div class="pay-card-bar" style="width: ${progressPct}%"></div>
+            </div>
+            <div class="pay-card-detail hidden">
+                ${feeRow('tuition', '수강료', 'fa-book')}
+                ${feeRow('textbook', '교재비', 'fa-book-open')}
+                ${feeRow('special', '특강비', 'fa-star')}
+                <div class="pay-fee-edit-row">
+                    <button class="pay-edit-amounts-btn" onclick="toggleAmountEdit('${student.id}','${monthKey}')">
+                        <i class="fas fa-pen"></i> 금액 수정
+                    </button>
+                </div>
+                <div class="pay-amount-editor hidden" id="pay-amount-editor-${student.id}">
+                    <div class="pay-edit-field">
+                        <label>수강료</label>
+                        <input type="text" value="${fees.tuition.amount ? fees.tuition.amount.toLocaleString() : ''}" placeholder="0"
+                               oninput="formatNumberWithComma(this)"
+                               onchange="updatePayment('${student.id}','${monthKey}','tuition','amount',this.value)">
+                    </div>
+                    <div class="pay-edit-field">
+                        <label>교재비</label>
+                        <input type="text" value="${fees.textbook.amount ? fees.textbook.amount.toLocaleString() : ''}" placeholder="0"
+                               oninput="formatNumberWithComma(this)"
+                               onchange="updatePayment('${student.id}','${monthKey}','textbook','amount',this.value)">
+                    </div>
+                    <div class="pay-edit-field">
+                        <label>특강비</label>
+                        <input type="text" value="${fees.special.amount ? fees.special.amount.toLocaleString() : ''}" placeholder="0"
+                               oninput="formatNumberWithComma(this)"
+                               onchange="updatePayment('${student.id}','${monthKey}','special','amount',this.value)">
+                    </div>
+                </div>
+            </div>
+        </div>`;
 }
 
 window.togglePaymentDetail = function(sid) {
-    const summaryRow = document.querySelector(`#payment-row-${sid} .p-summary-row`);
-    const detailsRow = document.querySelector(`#payment-row-${sid} .p-details-row`);
-    const chevronIcon = summaryRow.querySelector('.fa-chevron-down');
+    const card = document.getElementById(`payment-row-${sid}`);
+    if (!card) return;
+    const detail = card.querySelector('.pay-card-detail');
+    const chevron = card.querySelector('.pay-chevron');
+    detail.classList.toggle('hidden');
+    if (chevron) chevron.classList.toggle('rotate');
+}
 
-    summaryRow.classList.toggle('is-expanded');
-    detailsRow.classList.toggle('hidden');
-    if (chevronIcon) {
-        chevronIcon.classList.toggle('rotate');
-    }
+window.toggleAmountEdit = function(sid, monthKey) {
+    const editor = document.getElementById(`pay-amount-editor-${sid}`);
+    if (editor) editor.classList.toggle('hidden');
 }
 
 window.quickPay = function(sid, monthKey, type) {
     const sIdx = students.findIndex(s => String(s.id) === String(sid));
     if (sIdx === -1) return;
-    
     const student = students[sIdx];
     if (!student.payments) student.payments = {};
     if (!student.payments[monthKey]) student.payments[monthKey] = {};
     if (!student.payments[monthKey][type]) student.payments[monthKey][type] = { amount: 0, date: '' };
-    
-    // 금액이 0이거나 없으면 기본 금액으로 설정
-    const currentAmount = student.payments[monthKey][type].amount;
-    if (!currentAmount || currentAmount === 0) {
-        let defaultAmount = 0;
-        if (type === 'tuition') defaultAmount = student.defaultFee || 0;
-        else if (type === 'textbook') defaultAmount = student.defaultTextbookFee || 0;
-        else if (type === 'special') defaultAmount = student.specialLectureFee || 0;
-        
-        if (defaultAmount > 0) {
-            student.payments[monthKey][type].amount = defaultAmount;
-        }
+    const cur = student.payments[monthKey][type].amount;
+    if (!cur || cur === 0) {
+        let def = 0;
+        if (type === 'tuition') def = student.defaultFee || 0;
+        else if (type === 'textbook') def = student.defaultTextbookFee || 0;
+        else if (type === 'special') def = student.specialLectureFee || 0;
+        if (def > 0) student.payments[monthKey][type].amount = def;
     }
-    
     const today = new Date();
     const offset = today.getTimezoneOffset() * 60000;
     const dateStr = new Date(today.getTime() - offset).toISOString().split('T')[0];
@@ -4653,98 +5076,92 @@ window.cancelPayment = function(sid, monthKey, type) {
 window.updatePayment = function(sid, monthKey, type, field, value) {
     const sIdx = students.findIndex(s => String(s.id) === String(sid));
     if (sIdx === -1) return;
-    
     const student = students[sIdx];
     if (!student.payments) student.payments = {};
     if (!student.payments[monthKey]) student.payments[monthKey] = {};
     if (!student.payments[monthKey][type]) student.payments[monthKey][type] = { amount: 0, date: '' };
-
-    let target = student.payments[monthKey][type];
+    const target = student.payments[monthKey][type];
     if (field === 'amount') {
         const num = parseInt(value.replace(/,/g, ''));
         target.amount = isNaN(num) ? 0 : num;
     } else if (field === 'date') {
         target.date = value;
     }
-
     saveData();
-    
-    // UI 부분 업데이트
-    rerenderStudentRow(sid);
-    updateSummaryForCurrentUserSet();
+    rerenderStudentPayCard(sid);
+    updateDashboardFromCurrent();
 }
 
-function rerenderStudentRow(sid) {
+function rerenderStudentPayCard(sid) {
     const year = currentPaymentDate.getFullYear();
     const month = currentPaymentDate.getMonth() + 1;
     const monthKey = `${year}-${String(month).padStart(2, '0')}`;
     const student = students.find(s => String(s.id) === String(sid));
-    
     if (!student) return;
-
-    const studentMonthData = student.payments?.[monthKey] || {};
-    const tuition = { amount: studentMonthData.tuition?.amount ?? student.defaultFee ?? 0, date: studentMonthData.tuition?.date || '' };
-    const textbook = { amount: studentMonthData.textbook?.amount ?? student.defaultTextbookFee ?? 0, date: studentMonthData.textbook?.date || '' };
-    const special = { amount: studentMonthData.special?.amount ?? student.specialLectureFee ?? 0, date: studentMonthData.special?.date || '' };
-
+    const md = student.payments?.[monthKey] || {};
+    const tuition = { amount: md.tuition?.amount ?? student.defaultFee ?? 0, date: md.tuition?.date || '' };
+    const textbook = { amount: md.textbook?.amount ?? student.defaultTextbookFee ?? 0, date: md.textbook?.date || '' };
+    const special = { amount: md.special?.amount ?? student.specialLectureFee ?? 0, date: md.special?.date || '' };
     const totalDue = (tuition.amount || 0) + (textbook.amount || 0) + (special.amount || 0);
     const totalPaid = (tuition.date ? (tuition.amount || 0) : 0) + (textbook.date ? (textbook.amount || 0) : 0) + (special.date ? (special.amount || 0) : 0);
-    
     let status;
     if (totalDue === 0) status = 'no_charge';
     else if (totalPaid >= totalDue) status = 'paid';
     else if (totalPaid > 0) status = 'partial';
     else status = 'unpaid';
-
-    const item = {
-        student,
-        monthKey,
-        fees: { tuition, textbook, special },
-        summary: { totalDue, totalPaid, status }
-    };
-    
-    const rowElement = document.getElementById(`payment-row-${sid}`);
-    if (rowElement) {
-        const wasExpanded = rowElement.querySelector('.p-summary-row')?.classList.contains('is-expanded');
-        rowElement.outerHTML = getPaymentRowHtml(item);
-        if (wasExpanded) {
-            const newSummaryRow = document.querySelector(`#payment-row-${sid} .p-summary-row`);
-            const newDetailsRow = document.querySelector(`#payment-row-${sid} .p-details-row`);
-            const newChevronIcon = newSummaryRow.querySelector('.fa-chevron-down');
-            
-            newSummaryRow.classList.add('is-expanded');
-            newDetailsRow.classList.remove('hidden');
-            if (newChevronIcon) {
-                newChevronIcon.classList.add('rotate');
-            }
+    const item = { student, monthKey, fees: { tuition, textbook, special }, summary: { totalDue, totalPaid, status } };
+    const el = document.getElementById(`payment-row-${sid}`);
+    if (el) {
+        const wasOpen = !el.querySelector('.pay-card-detail')?.classList.contains('hidden');
+        el.outerHTML = buildPayCard(item);
+        if (wasOpen) {
+            const newEl = document.getElementById(`payment-row-${sid}`);
+            const detail = newEl?.querySelector('.pay-card-detail');
+            const chevron = newEl?.querySelector('.pay-chevron');
+            if (detail) detail.classList.remove('hidden');
+            if (chevron) chevron.classList.add('rotate');
         }
     }
 }
 
-function updateSummaryForCurrentUserSet() {
+function updateDashboardFromCurrent() {
     const year = currentPaymentDate.getFullYear();
     const month = currentPaymentDate.getMonth() + 1;
     const monthKey = `${year}-${String(month).padStart(2, '0')}`;
-    const activeStudents = students.filter(s => s.status === 'active');
-    
-    const paymentData = activeStudents.map(s => {
-        const studentMonthData = s.payments?.[monthKey] || {};
-        const tuition = { amount: studentMonthData.tuition?.amount ?? s.defaultFee ?? 0, date: studentMonthData.tuition?.date || '' };
-        const textbook = { amount: studentMonthData.textbook?.amount ?? s.defaultTextbookFee ?? 0, date: studentMonthData.textbook?.date || '' };
-        const special = { amount: studentMonthData.special?.amount ?? s.specialLectureFee ?? 0, date: studentMonthData.special?.date || '' };
-        const totalPaid = (tuition.date ? (tuition.amount || 0) : 0) + (textbook.date ? (textbook.amount || 0) : 0) + (special.date ? (special.amount || 0) : 0);
-        const totalDue = (tuition.amount || 0) + (textbook.amount || 0) + (special.amount || 0);
+    updateDashboard(buildPaymentData(monthKey));
+}
 
-        let status;
-        if (totalDue === 0) status = 'no_charge';
-        else if (totalPaid >= totalDue) status = 'paid';
-        else if (totalPaid > 0) status = 'partial';
-        else status = 'unpaid';
-
-        return { summary: { totalPaid, totalDue, status } };
+// --- 일괄 완납 ---
+window.batchQuickPayAll = async function() {
+    const year = currentPaymentDate.getFullYear();
+    const month = currentPaymentDate.getMonth() + 1;
+    const monthKey = `${year}-${String(month).padStart(2, '0')}`;
+    const allData = buildPaymentData(monthKey);
+    const unpaid = allData.filter(d => d.summary.status === 'unpaid' || d.summary.status === 'partial');
+    if (unpaid.length === 0) { showToast('미납 학생이 없습니다.', 'info'); return; }
+    if (!(await showConfirm(`미납 학생 ${unpaid.length}명을 전원 오늘 날짜로 완납 처리하시겠습니까?`, { type: 'warn', title: '일괄 처리' }))) return;
+    const today = new Date();
+    const offset = today.getTimezoneOffset() * 60000;
+    const dateStr = new Date(today.getTime() - offset).toISOString().split('T')[0];
+    unpaid.forEach(item => {
+        const s = item.student;
+        if (!s.payments) s.payments = {};
+        if (!s.payments[monthKey]) s.payments[monthKey] = {};
+        ['tuition', 'textbook', 'special'].forEach(type => {
+            if (!s.payments[monthKey][type]) s.payments[monthKey][type] = { amount: 0, date: '' };
+            const t = s.payments[monthKey][type];
+            if (!t.amount || t.amount === 0) {
+                let def = 0;
+                if (type === 'tuition') def = s.defaultFee || 0;
+                else if (type === 'textbook') def = s.defaultTextbookFee || 0;
+                else if (type === 'special') def = s.specialLectureFee || 0;
+                if (def > 0) t.amount = def;
+            }
+            if (t.amount > 0 && !t.date) t.date = dateStr;
+        });
     });
-
-    updateSummary(monthKey, paymentData);
+    saveData();
+    renderPaymentList();
 }
 
 // ============================================
@@ -4795,6 +5212,15 @@ function updateTeacherMenuVisibility() {
     }
 }
 
+// 비밀번호 강제 초기화 메뉴 버튼 가시성 업데이트
+function updateForceResetMenuVisibility() {
+    const btn = document.getElementById('force-reset-menu-btn');
+    if (btn) {
+        const role = getCurrentTeacherRole();
+        btn.style.display = role === 'admin' ? 'flex' : 'none';
+    }
+}
+
 // 학생 관리 메뉴 버튼 가시성 업데이트
 function updateStudentMenuVisibility() {
     const btn = document.querySelector('button[onclick="toggleStudentList(); closeFeaturePanel();"]');
@@ -4811,12 +5237,12 @@ function updateStudentMenuVisibility() {
 // 선생님 관리 모달 함수
 // ============================================
 
-window.openTeacherModal = function() {
+window.openTeacherModal = async function() {
     // 관리자만 선생님 관리 가능
     const role = getCurrentTeacherRole();
     
     if (role !== 'admin') {
-        alert('관리자만 선생님을 관리할 수 있습니다.');
+        showToast('관리자만 선생님을 관리할 수 있습니다.', 'warning');
         return;
     }
     
@@ -4826,6 +5252,8 @@ window.openTeacherModal = function() {
         return;
     }
     modal.style.display = 'flex';
+    // 최신 DB 데이터로 갱신 후 렌더링
+    await loadTeachers();
     renderTeacherListModal();
 }
 
@@ -4839,9 +5267,8 @@ window.renderTeacherListModal = function() {
     }
     
     container.innerHTML = teacherList.map(teacher => {
-        // 로컬스토리지에서 role 확인
-        const storedRole = localStorage.getItem('teacher_' + teacher.name + '_role');
-        const role = storedRole || teacher.teacher_role || 'teacher';
+        // Supabase DB의 teacher_role 값 사용
+        const role = teacher.teacher_role || 'teacher';
         const roleText = role === 'admin' ? '관리자' : role === 'teacher' ? '선생님' : '직원';
         const roleColor = role === 'admin' ? '#ef4444' : role === 'teacher' ? '#3b82f6' : '#8b5cf6';
         
@@ -4866,7 +5293,7 @@ window.renderTeacherListModal = function() {
 
 window.selectTeacherFromModal = async function(teacherId, teacherName) {
     const teacher = teacherList.find(t => t.id === teacherId);
-    if (!teacher) return alert('선생님 정보를 찾을 수 없습니다.');
+    if (!teacher) { showToast('선생님 정보를 찾을 수 없습니다.', 'error'); return; }
     
     await setCurrentTeacher(teacher);
     closeModal('teacher-modal');
@@ -4876,10 +5303,10 @@ window.deleteTeacherFromModal = async function(teacherId) {
     const teacher = teacherList.find(t => t.id === teacherId);
     const name = teacher ? teacher.name : '선생님';
     
-    if (!confirm(`${name}을(를) 삭제하시겠습니까?`)) return;
+    if (!(await showConfirm(`${name}을(를) 삭제하시겠습니까?`, { type: 'danger', title: '삭제 확인', okText: '삭제' }))) return;
     
-    const ownerId = localStorage.getItem('current_owner_id');
-    if (!ownerId) return alert('로그인이 필요합니다.');
+    const ownerId = cachedLsGet('current_owner_id');
+    if (!ownerId) { showToast('로그인이 필요합니다.', 'warning'); return; }
     
     const { error } = await supabase
         .from('teachers')
@@ -4889,7 +5316,8 @@ window.deleteTeacherFromModal = async function(teacherId) {
     
     if (error) {
         console.error('선생님 삭제 실패:', error);
-        return alert('삭제 실패: ' + error.message);
+        showToast('삭제 실패: ' + error.message, 'error');
+        return;
     }
     
     if (currentTeacherId === teacherId) {
@@ -4906,13 +5334,13 @@ window.deleteTeacherFromModal = async function(teacherId) {
         }
     }
     
-    alert('선생님이 삭제되었습니다.');
+    showToast('선생님이 삭제되었습니다.', 'success');
     await loadTeachers();
     renderTeacherListModal();
 }
 
 // 역할 변경 처리
-window.handleRoleChange = function(teacherId, newRole) {
+window.handleRoleChange = async function(teacherId, newRole) {
     const teacher = teacherList.find(t => t.id === teacherId);
     if (!teacher) return;
 
@@ -4925,7 +5353,7 @@ window.handleRoleChange = function(teacherId, newRole) {
     // 관리자에서 다른 역할로 변경할 때도 확인
     const currentRole = teacher.teacher_role || 'teacher';
     if (currentRole === 'admin' && newRole !== 'admin') {
-        if (!confirm(`${teacher.name}의 관리자 권한을 해제하시겠습니까?`)) {
+        if (!(await showConfirm(`${teacher.name}의 관리자 권한을 해제하시겠습니까?`, { type: 'warn', title: '권한 변경' }))) {
             renderTeacherListModal(); // 드롭다운 원래 값으로 복원
             return;
         }
@@ -4961,9 +5389,9 @@ window.confirmAdminVerifyAndChangeRole = async function() {
     const teacherId = document.getElementById('admin-verify-teacher-id')?.value || '';
     const newRole = document.getElementById('admin-verify-new-role')?.value || '';
 
-    if (!email) return alert('관리자 이메일을 입력해주세요.');
-    if (!password) return alert('관리자 비밀번호를 입력해주세요.');
-    if (!teacherId || !newRole) return alert('선생님 정보가 없습니다. 다시 시도해주세요.');
+    if (!email) { showToast('관리자 이메일을 입력해주세요.', 'warning'); return; }
+    if (!password) { showToast('관리자 비밀번호를 입력해주세요.', 'warning'); return; }
+    if (!teacherId || !newRole) { showToast('선생님 정보가 없습니다. 다시 시도해주세요.', 'warning'); return; }
 
     try {
         // 관리자 이메일/비밀번호로 인증 시도
@@ -4973,7 +5401,8 @@ window.confirmAdminVerifyAndChangeRole = async function() {
         });
 
         if (error) {
-            return alert('관리자 인증 실패: 이메일 또는 비밀번호가 올바르지 않습니다.');
+            showToast('관리자 인증 실패: 이메일 또는 비밀번호가 올바르지 않습니다.', 'error');
+            return;
         }
 
         // 인증 성공 - 역할 변경 진행
@@ -4984,7 +5413,7 @@ window.confirmAdminVerifyAndChangeRole = async function() {
 
     } catch (err) {
         console.error('[confirmAdminVerifyAndChangeRole] 예외:', err);
-        alert('인증 오류: ' + (err.message || err));
+        showToast('인증 오류: ' + (err.message || err), 'error');
     }
 }
 
@@ -4993,9 +5422,9 @@ async function updateTeacherRole(teacherId, newRole) {
     try {
         const teacher = teacherList.find(t => t.id === teacherId);
         if (!teacher) return;
-        const ownerId = localStorage.getItem('current_owner_id');
+        const ownerId = cachedLsGet('current_owner_id');
         if (!ownerId) {
-            alert('로그인이 필요합니다. 다시 로그인 해주세요.');
+            showToast('로그인이 필요합니다. 다시 로그인 해주세요.', 'warning');
             return;
         }
         
@@ -5012,19 +5441,18 @@ async function updateTeacherRole(teacherId, newRole) {
             console.warn('[updateTeacherRole] 업데이트 결과 없음. owner_user_id 불일치 가능');
         }
 
-        // DB 업데이트 성공 시 로컬 데이터와 캐시 동기화
+        // DB 업데이트 성공 시 로컬 데이터 동기화
         teacher.teacher_role = newRole;
-        localStorage.setItem('teacher_' + teacher.name + '_role', newRole);
         await loadTeachers();
         
         console.log('[updateTeacherRole] 역할 변경 완료:', teacherId, newRole);
-        alert('역할이 변경되었습니다.');
+        showToast('역할이 변경되었습니다.', 'success');
         
         // 목록 새로고침
         renderTeacherListModal();
     } catch (error) {
         console.error('[updateTeacherRole] 에러:', error);
-        alert('역할 변경 실패: ' + error.message);
+        showToast('역할 변경 실패: ' + error.message, 'error');
         // 실패 시 원래 값으로 복원
         renderTeacherListModal();
     }
@@ -5072,7 +5500,7 @@ window.formatNumberWithComma = function(input) {
 // 선생님 상세 정보 모달 열기
 window.openTeacherDetail = function(teacherId) {
     const teacher = teacherList.find(t => t.id === teacherId);
-    if (!teacher) return alert('선생님 정보를 찾을 수 없습니다.');
+    if (!teacher) { showToast('선생님 정보를 찾을 수 없습니다.', 'error'); return; }
     
     // 모달에 현재 정보 채우기
     document.getElementById('detail-teacher-name').value = teacher.name;
@@ -5108,7 +5536,7 @@ window.saveTeacherDetail = async function() {
     try {
         const modal = document.getElementById('teacher-detail-modal');
         const teacherId = modal.dataset.teacherId;
-        if (!teacherId) return alert('선생님 정보를 찾을 수 없습니다.');
+        if (!teacherId) { showToast('선생님 정보를 찾을 수 없습니다.', 'error'); return; }
 
         const name = document.getElementById('detail-teacher-name').value.trim();
         const phone = document.getElementById('detail-teacher-phone').value.trim();
@@ -5116,11 +5544,11 @@ window.saveTeacherDetail = async function() {
         const addressDetail = document.getElementById('detail-teacher-address-detail').value.trim();
         const memo = document.getElementById('detail-teacher-memo').value.trim();
 
-        if (!name) return alert('이름을 입력하세요.');
+        if (!name) { showToast('이름을 입력하세요.', 'warning'); return; }
 
-        const ownerId = localStorage.getItem('current_owner_id');
+        const ownerId = cachedLsGet('current_owner_id');
         if (!ownerId) {
-            alert('로그인이 필요합니다.');
+            showToast('로그인이 필요합니다.', 'warning');
             return;
         }
 
@@ -5138,7 +5566,7 @@ window.saveTeacherDetail = async function() {
 
         if (error) throw error;
 
-        alert('선생님 정보가 저장되었습니다.');
+        showToast('선생님 정보가 저장되었습니다.', 'success');
 
         // 선생님 목록 새로고침
         await loadTeachers();
@@ -5146,7 +5574,7 @@ window.saveTeacherDetail = async function() {
         closeModal('teacher-detail-modal');
     } catch (error) {
         console.error('[saveTeacherDetail] 에러:', error);
-        alert('저장 실패: ' + error.message);
+        showToast('저장 실패: ' + error.message, 'error');
     }
 }
 
