@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS public.schedules (
     duration INTEGER NOT NULL, -- 분 단위
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(owner_user_id, teacher_id, student_id, schedule_date)
+    UNIQUE(owner_user_id, teacher_id, student_id, schedule_date, start_time)
 );
 
 -- 인덱스 생성
@@ -165,6 +165,57 @@ CREATE TRIGGER trigger_holidays_updated_at
     EXECUTE FUNCTION update_holidays_updated_at();
 ```
 
+## 4. student_evaluations 테이블 (학생 평가 데이터)
+
+```sql
+-- student_evaluations 테이블 생성
+CREATE TABLE IF NOT EXISTS public.student_evaluations (
+    id BIGSERIAL PRIMARY KEY,
+    student_id BIGINT NOT NULL UNIQUE REFERENCES public.students(id) ON DELETE CASCADE,
+    owner_user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    teacher_id TEXT,
+    comment TEXT, -- 최대 500자
+    rating INTEGER CHECK (rating >= 1 AND rating <= 5), -- 1~5점 평가 (선택사항)
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 인덱스 생성
+CREATE INDEX IF NOT EXISTS idx_student_evaluations_student ON public.student_evaluations(student_id);
+CREATE INDEX IF NOT EXISTS idx_student_evaluations_owner ON public.student_evaluations(owner_user_id);
+CREATE INDEX IF NOT EXISTS idx_student_evaluations_teacher ON public.student_evaluations(teacher_id);
+
+-- RLS 활성화
+ALTER TABLE public.student_evaluations ENABLE ROW LEVEL SECURITY;
+
+-- RLS 정책
+CREATE POLICY "사용자는 자신의 평가정보만 조회 가능" ON public.student_evaluations
+    FOR SELECT USING (auth.uid() = owner_user_id);
+
+CREATE POLICY "사용자는 자신의 평가정보만 추가 가능" ON public.student_evaluations
+    FOR INSERT WITH CHECK (auth.uid() = owner_user_id);
+
+CREATE POLICY "사용자는 자신의 평가정보만 수정 가능" ON public.student_evaluations
+    FOR UPDATE USING (auth.uid() = owner_user_id);
+
+CREATE POLICY "사용자는 자신의 평가정보만 삭제 가능" ON public.student_evaluations
+    FOR DELETE USING (auth.uid() = owner_user_id);
+
+-- 업데이트 트리거
+CREATE OR REPLACE FUNCTION update_student_evaluations_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_student_evaluations_updated_at
+    BEFORE UPDATE ON public.student_evaluations
+    FOR EACH ROW
+    EXECUTE FUNCTION update_student_evaluations_updated_at();
+```
+
 ## 실행 순서
 
 1. 수파베이스 대시보드 접속
@@ -177,5 +228,37 @@ CREATE TRIGGER trigger_holidays_updated_at
 - [x] schedules 테이블 생성 완료
 - [x] payments 테이블 생성 완료
 - [x] holidays 테이블 생성 완료
+- [x] student_evaluations 테이블 생성 완료 ✨ NEW
 - [x] 각 테이블의 RLS 정책 활성화 완료
 - [x] 인덱스 생성 완료
+
+## 참고 사항
+
+### attendance_records 테이블
+- `ATTENDANCE_SETUP.md` 파일에서 SQL 실행
+- 학생의 출석/지각/결석 기록 저장
+- QR 코드 스캔 시 자동 저장
+
+### student_evaluations 테이블
+- 학생별 평가 코멘트 저장
+- 최대 500자 제한
+- 선택사항으로 1~5점 평가 기능
+
+## DB 최적화 (OPTIMIZE_DB.sql)
+
+테이블 생성 후 `OPTIMIZE_DB.sql`을 실행하면 다음이 적용됩니다:
+
+### 1. attendance_records UNIQUE 제약 수정
+- 기존: `UNIQUE(student_id, attendance_date)` → 같은 날 1건만 가능
+- 변경: `UNIQUE(student_id, attendance_date, teacher_id, scheduled_time)` → 같은 날 다른 수업 출석 가능
+
+### 2. 복합 인덱스 추가 (성능 개선)
+- `schedules`: owner+teacher+date, owner+student+date
+- `attendance_records`: owner+teacher+date, owner+student+date, student+date
+- `payments`: owner+teacher+month, owner+student+month
+- `holidays`: owner+teacher+date
+- `teachers`: owner_user_id
+- `students`: owner_user_id
+
+### 3. 트리거 함수 보안
+- 모든 `updated_at` 트리거 함수에 `SET search_path = public` 적용

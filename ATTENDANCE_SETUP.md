@@ -25,12 +25,17 @@ CREATE TABLE IF NOT EXISTS attendance_records (
     -- 메모
     memo TEXT,
     
+    -- 변경사유 (상태 변경 시 기록)
+    change_reason TEXT,
+    original_status VARCHAR(20),
+    changed_at TIMESTAMP WITH TIME ZONE,
+    
     -- 메타 데이터
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     
-    -- 같은 날 같은 학생의 중복 기록 방지
-    UNIQUE(student_id, attendance_date)
+    -- 같은 날 같은 학생/선생님 중복 기록 방지
+    UNIQUE(student_id, attendance_date, teacher_id)
 );
 
 -- 인덱스 생성 (성능 향상)

@@ -96,27 +96,36 @@ CREATE INDEX idx_students_teacher ON students(teacher_id);
 각 선생님의 수업 일정을 저장합니다.
 
 ```sql
-CREATE TABLE schedules (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  teacher_id uuid REFERENCES teachers(id) ON DELETE CASCADE,
-  date date NOT NULL,
-  student_ids jsonb DEFAULT '[]',
-  notes text,
-  created_at timestamptz DEFAULT now()
+CREATE TABLE IF NOT EXISTS public.schedules (
+  id BIGSERIAL PRIMARY KEY,
+  owner_user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  teacher_id TEXT NOT NULL,
+  student_id BIGINT NOT NULL REFERENCES public.students(id) ON DELETE CASCADE,
+  schedule_date DATE NOT NULL,
+  start_time TIME NOT NULL,
+  duration INTEGER NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(owner_user_id, teacher_id, student_id, schedule_date, start_time)
 );
 
 -- 인덱스 생성
-CREATE INDEX idx_schedules_teacher ON schedules(teacher_id);
-CREATE INDEX idx_schedules_date ON schedules(date);
+CREATE INDEX IF NOT EXISTS idx_schedules_owner ON public.schedules(owner_user_id);
+CREATE INDEX IF NOT EXISTS idx_schedules_teacher ON public.schedules(teacher_id);
+CREATE INDEX IF NOT EXISTS idx_schedules_student ON public.schedules(student_id);
+CREATE INDEX IF NOT EXISTS idx_schedules_date ON public.schedules(schedule_date);
 ```
 
 **컬럼 설명:**
 - `id`: 일정 고유 ID
-- `teacher_id`: 일정을 담당하는 선생님 ID
-- `date`: 수업 날짜
-- `student_ids`: 참여 학생 ID 배열 (JSONB)
-- `notes`: 메모
+- `owner_user_id`: 관리자(소유자) ID
+- `teacher_id`: 담당 선생님 ID
+- `student_id`: 학생 ID
+- `schedule_date`: 수업 날짜
+- `start_time`: 시작 시간
+- `duration`: 수업 시간(분)
 - `created_at`: 일정 생성일
+- `updated_at`: 일정 수정일
 
 ---
 

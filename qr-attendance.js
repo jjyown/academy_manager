@@ -6,6 +6,332 @@ let html5QrcodeScanner = null;
 let currentStudentForAttendance = null;
 let currentFacingMode = "environment"; // "environment" (후방) 또는 "user" (전방)
 
+// ========== 후속 수업 재석 확인 시스템 ==========
+// 대기 큐: { timeKey: "HH:MM", items: [{ studentId, studentName, teacherId, teacherName, scheduleStart, dateStr }] }
+const pendingAttendanceChecks = new Map();
+// 활성 타이머 ID 목록
+const pendingTimers = new Map();
+
+// 재석 확인 대기 큐에 등록
+function registerPendingAttendanceCheck(studentId, studentName, teacherId, scheduleStart, dateStr) {
+    const timeKey = scheduleStart; // "HH:MM"
+    if (!pendingAttendanceChecks.has(timeKey)) {
+        pendingAttendanceChecks.set(timeKey, []);
+    }
+    // 중복 등록 방지
+    const existing = pendingAttendanceChecks.get(timeKey);
+    if (existing.find(item => String(item.studentId) === String(studentId) && String(item.teacherId) === String(teacherId))) {
+        return;
+    }
+    const teacherName = (typeof getTeacherNameById === 'function') ? getTeacherNameById(teacherId) : teacherId;
+    existing.push({ studentId, studentName, teacherId, teacherName, scheduleStart, dateStr });
+    console.log(`[재석확인] 등록: ${studentName} - ${scheduleStart} (${teacherName})`);
+    
+    // 타이머 설정 (해당 시간이 되면 알림)
+    if (!pendingTimers.has(timeKey)) {
+        const now = new Date();
+        const [h, m] = scheduleStart.split(':').map(Number);
+        const targetTime = new Date();
+        targetTime.setHours(h, m, 0, 0);
+        
+        const delay = targetTime.getTime() - now.getTime();
+        if (delay > 0) {
+            const timerId = setTimeout(() => {
+                showAttendanceCheckNotification(timeKey);
+                pendingTimers.delete(timeKey);
+            }, delay);
+            pendingTimers.set(timeKey, timerId);
+            const delayMin = Math.round(delay / 60000);
+            console.log(`[재석확인] 타이머 설정: ${scheduleStart} (${delayMin}분 후 알림)`);
+        } else {
+            // 이미 시간이 지났으면 즉시 알림 (1초 후)
+            setTimeout(() => {
+                showAttendanceCheckNotification(timeKey);
+            }, 1000);
+        }
+    }
+}
+
+// 재석 확인 알림 표시 (배치: 같은 시간의 학생들을 하나의 모달에)
+// ★ 현재 로그인된 선생님의 일정만 표시
+function showAttendanceCheckNotification(timeKey) {
+    const items = pendingAttendanceChecks.get(timeKey);
+    if (!items || items.length === 0) {
+        pendingAttendanceChecks.delete(timeKey);
+        return;
+    }
+    
+    // ★ 현재 선생님의 항목만 필터링
+    const myItems = items.filter(item => String(item.teacherId) === String(currentTeacherId));
+    if (myItems.length === 0) return; // 내 일정이 아니면 알림 안 띄움
+    
+    const modal = document.getElementById('attendance-check-modal');
+    if (!modal) return;
+    
+    const subtitle = document.getElementById('attendance-check-subtitle');
+    const listDiv = document.getElementById('attendance-check-list');
+    
+    const timeLabel = (typeof formatKoreanTimeLabel === 'function') ? formatKoreanTimeLabel(timeKey) : timeKey;
+    subtitle.textContent = `${timeLabel} 수업 시작 - ${myItems.length}명 확인 필요`;
+    
+    let html = '';
+    myItems.forEach((item) => {
+        // 원래 items 배열에서의 인덱스 찾기
+        const originalIdx = items.indexOf(item);
+        html += `
+            <div style="padding: 14px 16px; background: #f8fafc; border-radius: 12px; margin-bottom: 10px; border: 1px solid #e2e8f0;" data-check-idx="${originalIdx}" data-check-time="${timeKey}">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+                    <div>
+                        <div style="font-weight: 700; font-size: 15px; color: #1e293b;">${item.studentName}</div>
+                        <div style="font-size: 12px; color: #64748b; margin-top: 2px;">${timeLabel} 수업</div>
+                    </div>
+                </div>
+                <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                    <button onclick="handleSingleAttendanceCheck('${timeKey}', ${originalIdx}, 'present')" 
+                        style="flex:1; padding: 9px 10px; background: #10b981; color: white; border: none; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; min-width: 55px;">
+                        출석
+                    </button>
+                    <button onclick="handleSingleAttendanceCheck('${timeKey}', ${originalIdx}, 'late')" 
+                        style="flex:1; padding: 9px 10px; background: #f59e0b; color: white; border: none; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; min-width: 55px;">
+                        지각
+                    </button>
+                    <button onclick="handleSingleAttendanceCheck('${timeKey}', ${originalIdx}, 'absent')" 
+                        style="flex:1; padding: 9px 10px; background: #ef4444; color: white; border: none; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; min-width: 55px;">
+                        결석
+                    </button>
+                    <button onclick="handleSingleAttendanceCheck('${timeKey}', ${originalIdx}, 'makeup')" 
+                        style="flex:1; padding: 9px 10px; background: #8b5cf6; color: white; border: none; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; min-width: 55px;">
+                        보강
+                    </button>
+                </div>
+            </div>`;
+    });
+    
+    listDiv.innerHTML = html;
+    modal.style.display = 'flex';
+}
+
+// 개별 학생 재석 확인 처리
+window.handleSingleAttendanceCheck = async function(timeKey, idx, status) {
+    const items = pendingAttendanceChecks.get(timeKey);
+    if (!items || !items[idx]) return;
+    
+    const item = items[idx];
+    try {
+        // 기존 기록 조회
+        const existing = (typeof getAttendanceRecordByStudentAndDate === 'function')
+            ? await getAttendanceRecordByStudentAndDate(item.studentId, item.dateStr, item.teacherId, item.scheduleStart)
+            : null;
+        
+        const judgmentMap = { present: '재석 확인', late: '지각 확인', absent: '부재 확인', makeup: '보강 처리' };
+        await saveAttendanceRecord({
+            studentId: item.studentId,
+            teacherId: String(item.teacherId),
+            attendanceDate: item.dateStr,
+            checkInTime: existing?.check_in_time || null,
+            scheduledTime: item.scheduleStart,
+            status: status,
+            qrScanned: existing?.qr_scanned || false,
+            qrScanTime: existing?.qr_scan_time || null,
+            qrJudgment: judgmentMap[status] || status,
+            memo: existing?.memo || null
+        });
+        
+        // 로컬 메모리 업데이트
+        const student = students.find(s => String(s.id) === String(item.studentId));
+        if (student) {
+            if (!student.attendance) student.attendance = {};
+            if (typeof student.attendance[item.dateStr] === 'string') {
+                const prev = student.attendance[item.dateStr];
+                student.attendance[item.dateStr] = {};
+                student.attendance[item.dateStr]['default'] = prev;
+            }
+            if (!student.attendance[item.dateStr] || typeof student.attendance[item.dateStr] !== 'object') student.attendance[item.dateStr] = {};
+            student.attendance[item.dateStr][item.scheduleStart] = status;
+        }
+        
+        // UI 업데이트 - 처리 완료 표시 (4가지 상태)
+        const row = document.querySelector(`[data-check-idx="${idx}"][data-check-time="${timeKey}"]`);
+        if (row) {
+            const statusMap = {
+                present: { label: '출석', color: '#10b981', bg: '#dcfce7' },
+                late:    { label: '지각', color: '#f59e0b', bg: '#fef9c3' },
+                absent:  { label: '결석', color: '#ef4444', bg: '#fef2f2' },
+                makeup:  { label: '보강', color: '#8b5cf6', bg: '#f5f3ff' }
+            };
+            const s = statusMap[status] || statusMap.present;
+            row.style.background = s.bg;
+            row.style.borderColor = s.color;
+            // 버튼 영역을 처리 완료 배지로 교체
+            const btnArea = row.querySelector('div:last-child');
+            if (btnArea) btnArea.innerHTML = `<span style="padding:8px 14px;background:${s.color};color:white;border-radius:8px;font-size:13px;font-weight:700;">${s.label} 처리됨</span>`;
+        }
+        
+        console.log(`[재석확인] ${item.studentName} → ${status} 처리 완료`);
+    } catch (e) {
+        console.error('[재석확인] 저장 실패:', e);
+        alert(`${item.studentName} 출결 저장에 실패했습니다.`);
+    }
+    
+    // 처리 완료 항목 마킹
+    item._done = true;
+    
+    // 모든 항목이 처리되었으면 자동으로 모달 닫기
+    if (items.every(i => i._done)) {
+        setTimeout(() => {
+            closeModal('attendance-check-modal');
+            pendingAttendanceChecks.delete(timeKey);
+            saveData();
+            renderCalendar();
+        }, 800);
+    }
+};
+
+// 전체 출석/결석 처리
+window.handleAttendanceCheckAll = async function(status) {
+    const modal = document.getElementById('attendance-check-modal');
+    if (!modal) return;
+    
+    const rows = modal.querySelectorAll('[data-check-time]');
+    for (const row of rows) {
+        const timeKey = row.getAttribute('data-check-time');
+        const idx = parseInt(row.getAttribute('data-check-idx'));
+        const items = pendingAttendanceChecks.get(timeKey);
+        if (items && items[idx] && !items[idx]._done) {
+            await handleSingleAttendanceCheck(timeKey, idx, status);
+        }
+    }
+    
+    // 약간의 딜레이 후 모달 닫기
+    setTimeout(() => {
+        closeModal('attendance-check-modal');
+        // 처리된 큐 정리
+        for (const [key, items] of pendingAttendanceChecks.entries()) {
+            if (items.every(i => i._done)) {
+                pendingAttendanceChecks.delete(key);
+            }
+        }
+        saveData();
+        renderCalendar();
+    }, 500);
+};
+
+// ========== 미스캔 학생 자동 알림 시스템 ==========
+// 오늘 일정 중 수업 시간이 되었는데 출결 기록이 없는 학생 감지
+
+// 이미 알림을 보낸 시간 기록 (중복 알림 방지)
+const missedScanAlerted = new Set();
+// 미스캔 체크 타이머 목록
+const missedScanTimers = new Map();
+
+// 오늘의 모든 일정에 대해 미스캔 타이머 설정
+window.initMissedScanChecks = function() {
+    // 기존 타이머 정리
+    for (const [key, timerId] of missedScanTimers.entries()) {
+        clearTimeout(timerId);
+    }
+    missedScanTimers.clear();
+    
+    if (typeof teacherScheduleData === 'undefined') return;
+    
+    const now = new Date();
+    const todayStr = formatDateToYYYYMMDD(now);
+    
+    let timerCount = 0;
+    
+    // ★ 모든 선생님의 일정을 체크 (현재 선생님뿐 아니라 전체)
+    for (const teacherId in teacherScheduleData) {
+        const teacherSchedule = teacherScheduleData[teacherId] || {};
+        
+        for (const studentId in teacherSchedule) {
+            const studentSchedule = teacherSchedule[studentId] || {};
+            const rawData = studentSchedule[todayStr];
+            if (!rawData) continue;
+            
+            // ★ 배열 또는 단일 객체 모두 처리
+            const entries = Array.isArray(rawData) ? rawData : [rawData];
+            
+            for (const classInfo of entries) {
+                if (!classInfo || !classInfo.start || classInfo.start === 'default') continue;
+                
+                const [h, m] = classInfo.start.split(':').map(Number);
+                if (isNaN(h) || isNaN(m)) continue;
+                
+                const scheduleTime = new Date(now);
+                scheduleTime.setHours(h, m, 0, 0);
+                
+                const delay = scheduleTime.getTime() - now.getTime();
+                const timerKey = `${studentId}_${classInfo.start}_${teacherId}`;
+                
+                if (delay <= 0) {
+                    const alertKey = `${studentId}_${classInfo.start}_${todayStr}_${teacherId}`;
+                    if (!missedScanAlerted.has(alertKey)) {
+                        setTimeout(() => checkMissedScan(studentId, classInfo.start, todayStr, teacherId), 1000);
+                    }
+                } else {
+                    if (!missedScanTimers.has(timerKey)) {
+                        const timerId = setTimeout(() => {
+                            checkMissedScan(studentId, classInfo.start, todayStr, teacherId);
+                            missedScanTimers.delete(timerKey);
+                        }, delay);
+                        missedScanTimers.set(timerKey, timerId);
+                        timerCount++;
+                    }
+                }
+            }
+        }
+    }
+    
+    if (timerCount > 0) {
+        console.log(`[미스캔체크] 오늘 ${timerCount}개 수업에 대해 미스캔 타이머 설정 완료`);
+    }
+};
+
+// 특정 학생/시간의 미스캔 여부 확인
+async function checkMissedScan(studentId, scheduleStart, dateStr, teacherId) {
+    const effectiveTeacherId = teacherId || currentTeacherId;
+    const alertKey = `${studentId}_${scheduleStart}_${dateStr}_${effectiveTeacherId}`;
+    if (missedScanAlerted.has(alertKey)) return;
+    
+    // ★ 현재 선생님의 일정만 알림 표시
+    if (String(effectiveTeacherId) !== String(currentTeacherId)) return;
+    
+    // DB에서 해당 시간의 출결 기록 확인
+    try {
+        const record = await getAttendanceRecordByStudentAndDate(
+            studentId, dateStr, effectiveTeacherId, scheduleStart
+        );
+        
+        if (record) {
+            console.log(`[미스캔체크] ${studentId} ${scheduleStart} - 기록 있음 (${record.status})`);
+            return;
+        }
+        
+        // 로컬 메모리에서도 확인
+        const student = students.find(s => String(s.id) === String(studentId));
+        if (student && student.attendance && student.attendance[dateStr]) {
+            const att = student.attendance[dateStr];
+            if (typeof att === 'object' && att[scheduleStart]) return;
+        }
+        
+        // 출결 기록 없음 → 재석 확인 대기 큐에 등록
+        const studentName = student ? student.name : `학생${studentId}`;
+        missedScanAlerted.add(alertKey);
+        
+        registerPendingAttendanceCheck(
+            studentId,
+            studentName,
+            effectiveTeacherId,
+            scheduleStart,
+            dateStr
+        );
+        console.log(`[미스캔체크] ⚠️ ${studentName} ${scheduleStart} 수업 - 재석 확인 알림`);
+        
+    } catch (e) {
+        console.error('[미스캔체크] 확인 실패:', e);
+    }
+}
+
 // ========== QR 코드 생성 ==========
 
 // 학생별 고유 QR 코드 데이터 생성
@@ -27,6 +353,50 @@ window.generateQRCodeData = async function(studentId) {
     return `STUDENT_${studentId}_${qrToken}`;
 }
 
+// 기존 토큰을 우선 사용하고, 없을 때만 신규 발급
+async function getOrCreateQRCodeData(studentId) {
+    const studentKey = String(studentId);
+    let dbToken = null;
+
+    try {
+        dbToken = await getStudentQrTokenFromDb(studentId);
+    } catch (e) {
+        console.error('[getOrCreateQRCodeData] DB 토큰 조회 실패:', e);
+    }
+
+    if (dbToken) {
+        try {
+            const qrTokens = JSON.parse(localStorage.getItem('student_qr_tokens') || '{}');
+            if (qrTokens[studentKey] !== dbToken) {
+                qrTokens[studentKey] = dbToken;
+                localStorage.setItem('student_qr_tokens', JSON.stringify(qrTokens));
+            }
+        } catch (e) {
+            console.error('[getOrCreateQRCodeData] 로컬 토큰 동기화 실패:', e);
+        }
+        return `STUDENT_${studentId}_${dbToken}`;
+    }
+
+    let localToken = null;
+    try {
+        const qrTokens = JSON.parse(localStorage.getItem('student_qr_tokens') || '{}');
+        localToken = qrTokens[studentKey] || null;
+    } catch (e) {
+        console.error('[getOrCreateQRCodeData] 로컬 토큰 조회 실패:', e);
+    }
+
+    if (localToken) {
+        try {
+            await updateStudentQrTokenInDb(studentId, localToken);
+        } catch (e) {
+            console.error('[getOrCreateQRCodeData] DB 토큰 동기화 실패:', e);
+        }
+        return `STUDENT_${studentId}_${localToken}`;
+    }
+
+    return await generateQRCodeData(studentId);
+}
+
 // 학생 QR 토큰을 DB에 저장 (기기 간 동기화)
 async function updateStudentQrTokenInDb(studentId, qrToken) {
     try {
@@ -46,20 +416,21 @@ async function updateStudentQrTokenInDb(studentId, qrToken) {
             .from('students')
             .update({ qr_code_data: qrToken })
             .eq('id', numericId)
-            .select();
+            .select('id, qr_code_data')
+            .single();
         
         if (error) {
             console.error('[updateStudentQrTokenInDb] 업데이트 실패:', error);
             throw error;
         }
         
-        if (!data || data.length === 0) {
+        if (!data) {
             console.error('[updateStudentQrTokenInDb] ⚠️ 업데이트된 행이 없음! ID:', numericId);
             throw new Error('No rows updated');
         }
         
-        console.log('[updateStudentQrTokenInDb] ✅ DB 토큰 업데이트 완료:', studentId, '| 영향받은 행:', data.length, '| 토큰:', qrToken.substring(0, 20) + '...');
-        return data[0];
+        console.log('[updateStudentQrTokenInDb] ✅ DB 토큰 업데이트 완료:', studentId);
+        return data;
     } catch (e) {
         console.error('[updateStudentQrTokenInDb] 예외:', e);
         throw e;
@@ -153,7 +524,13 @@ async function ensureOwnerId() {
         console.error('[ensureOwnerId] 예외:', e);
     }
 
-    console.warn('[ensureOwnerId] current_owner_id 없음');
+    // 세션이 없으면 currentTeacherId 사용
+    if (typeof currentTeacherId !== 'undefined' && currentTeacherId) {
+        console.log('[ensureOwnerId] currentTeacherId 사용:', currentTeacherId);
+        return currentTeacherId;
+    }
+
+    console.warn('[ensureOwnerId] current_owner_id 및 currentTeacherId 없음');
     return null;
 }
 
@@ -166,7 +543,7 @@ async function loadAllSchedulesForOwner() {
 
         const { data, error } = await supabase
             .from('schedules')
-            .select('*')
+            .select('id, teacher_id, student_id, schedule_date, start_time, duration')
             .eq('owner_user_id', ownerId)
             .order('schedule_date', { ascending: true });
 
@@ -184,10 +561,25 @@ async function loadAllSchedulesForOwner() {
             if (!next[teacherId]) next[teacherId] = {};
             if (!next[teacherId][studentId]) next[teacherId][studentId] = {};
 
-            next[teacherId][studentId][date] = {
+            const entry = {
                 start: schedule.start_time ? schedule.start_time.substring(0, 5) : schedule.start_time,
                 duration: schedule.duration
             };
+
+            // ★ 배열 형식으로 저장 (같은 날 여러 일정 지원)
+            const existing = next[teacherId][studentId][date];
+            if (!existing) {
+                next[teacherId][studentId][date] = [entry];
+            } else {
+                const arr = Array.isArray(existing) ? existing : [existing];
+                const dupIdx = arr.findIndex(e => e.start === entry.start);
+                if (dupIdx >= 0) {
+                    arr[dupIdx] = entry;
+                } else {
+                    arr.push(entry);
+                }
+                next[teacherId][studentId][date] = arr;
+            }
         });
 
         teacherScheduleData = next;
@@ -361,15 +753,25 @@ function startQRScanner() {
         return;
     }
     
+    // ★ QR 스캔 속도 최적화 설정
+    const readerEl = document.getElementById('qr-reader');
+    const readerWidth = readerEl ? readerEl.clientWidth : 300;
+    const qrboxSize = Math.min(Math.floor(readerWidth * 0.75), 300);
+    
     const config = {
-        fps: 10,
-        qrbox: { width: 250, height: 250 }
+        fps: 20,  // ★ 10 → 20fps (스캔 빈도 2배 증가)
+        qrbox: { width: qrboxSize, height: qrboxSize },  // ★ 화면 비율에 맞게 자동 조정
+        experimentalFeatures: {
+            useBarCodeDetectorIfSupported: true  // ★ 브라우저 네이티브 API 사용 (훨씬 빠름)
+        }
     };
     
-    html5QrcodeScanner = new Html5Qrcode("qr-reader");
+    html5QrcodeScanner = new Html5Qrcode("qr-reader", {
+        formatsToSupport: [0]  // ★ QR_CODE만 스캔 (불필요한 바코드 무시로 속도 향상)
+    });
     
     html5QrcodeScanner.start(
-        { facingMode: currentFacingMode }, // 현재 설정된 카메라 사용
+        { facingMode: currentFacingMode },
         config,
         onQRScanSuccess,
         onQRScanFailure
@@ -626,75 +1028,43 @@ async function processAttendanceFromQR(qrData) {
         const today = new Date();
         const dateStr = formatDateToYYYYMMDD(today);
         
-        // 6. 출석 중복 체크 (토큰 검증 후)
-        try {
-            const existingRecord = await getAttendanceRecordByStudentAndDate(studentId, dateStr);
-            if (existingRecord) {
-                console.log('[processAttendanceFromQR] 이미 처리된 출석 기록 발견:', existingRecord);
-                showQRScanToast(student, 'already_processed', existingRecord.status);
-                setTimeout(() => {
-                    if (html5QrcodeScanner) html5QrcodeScanner.resume();
-                }, 2500);
-                return;
+        // 6. 로컬 메모리에서 모든 일정이 이미 처리되었는지 확인
+        // (일부만 처리된 경우에는 나머지를 처리해야 하므로 계속 진행)
+        if (student.attendance && student.attendance[dateStr] && typeof student.attendance[dateStr] === 'object') {
+            const processedCount = Object.keys(student.attendance[dateStr]).length;
+            // 대략적인 체크: 로컬에 기록된 수가 있으면 로그만 남기고 계속 진행
+            // (실제 중복은 DB upsert에서 자연스럽게 처리됨)
+            if (processedCount > 0) {
+                console.log(`[processAttendanceFromQR] 로컬에 ${processedCount}개 출석 기록 있음 - DB에서 정확히 확인 후 처리`);
             }
-        } catch (dbError) {
-            console.error('[processAttendanceFromQR] 데이터베이스 조회 실패:', dbError);
-        }
-        
-        // 6-2. 로컬 메모리에서도 확인 (백업)
-        if (student.attendance && student.attendance[dateStr]) {
-            const existingStatus = student.attendance[dateStr];
-            console.log('[processAttendanceFromQR] 로컬 메모리에 이미 기록됨:', existingStatus);
-            showQRScanToast(student, 'already_processed', existingStatus);
-            setTimeout(() => {
-                if (html5QrcodeScanner) html5QrcodeScanner.resume();
-            }, 2500);
-            return;
         }
         
         // ⚠️ 여기서부터는 일정이 필요함 (QR 토큰 검증은 이미 통과)
         // 7. 해당 학생의 그날 모든 선생님 일정 중 가장 빠른 일정 찾기
-        let scheduleResult = findEarliestScheduleForStudent(studentId, dateStr);
-        let { schedule: earliestSchedule, allSchedules } = scheduleResult;
+        // ★★★ 핵심 수정: 로컬 캐시에는 현재 선생님 일정만 있을 수 있으므로
+        //      항상 DB에서 해당 학생의 당일 전체 일정을 조회하여 정확한 "가장 빠른 일정"을 찾음
+        let earliestSchedule = null;
+        let allSchedules = [];
         
-        // ✅ 로컬에 일정이 없으면 전체 일정 재로드 (모바일/태블릿 캐시 미스 대응)
-        if (!earliestSchedule) {
-            console.log('[processAttendanceFromQR] 로컬에 일정 없음 - 전체 일정 재로드 시도');
-            try {
-                await loadAllSchedulesForOwner();
-                // 다시 일정 찾기 시도
-                scheduleResult = findEarliestScheduleForStudent(studentId, dateStr);
-                earliestSchedule = scheduleResult.schedule;
-                allSchedules = scheduleResult.allSchedules;
-                console.log('[processAttendanceFromQR] 재로드 후 일정 결과:', earliestSchedule ? '일정 발견' : '일정 없음');
-            } catch (dbError) {
-                console.error('[processAttendanceFromQR] 전체 일정 재로드 실패:', dbError);
-            }
-        }
-        
-        // ✅ 재로드 후에도 일정이 없으면 DB에서 직접 조회 (마지막 시도)
-        if (!earliestSchedule && typeof supabase !== 'undefined') {
-            console.log('[processAttendanceFromQR] 로컬 캐시에도 없음 - DB에서 직접 조회 시도');
+        // Step 1: DB에서 해당 학생의 당일 모든 일정 조회 (모든 선생님 포함)
+        if (typeof supabase !== 'undefined') {
+            console.log('[processAttendanceFromQR] DB에서 학생의 당일 전체 일정 조회 시작');
             try {
                 const ownerId = await ensureOwnerId();
                 if (ownerId) {
                     const { data: schedules, error } = await supabase
                         .from('schedules')
-                        .select('*')
+                        .select('teacher_id, start_time, duration')
                         .eq('owner_user_id', ownerId)
                         .eq('student_id', parseInt(studentId))
                         .eq('schedule_date', dateStr)
                         .order('start_time', { ascending: true });
                     
                     if (!error && schedules && schedules.length > 0) {
-                        console.log('[processAttendanceFromQR] DB에서 조회한 일정:', schedules.length, '건');
-                        // 가장 빠른 일정 선택
-                        const dbSchedule = schedules[0];
-                        earliestSchedule = {
-                            start: dbSchedule.start_time ? dbSchedule.start_time.substring(0, 5) : dbSchedule.start_time,
-                            duration: dbSchedule.duration
-                        };
-                        // 모든 일정을 배열로 변환
+                        console.log('[processAttendanceFromQR] DB 전체 일정 조회 결과:', schedules.length, '건');
+                        schedules.forEach(s => console.log(`  - 선생님 ${s.teacher_id}: ${s.start_time}`));
+                        
+                        // 모든 일정을 배열로 변환 (시간순 이미 정렬됨)
                         allSchedules = schedules.map(s => ({
                             teacherId: String(s.teacher_id),
                             schedule: {
@@ -704,21 +1074,47 @@ async function processAttendanceFromQR(qrData) {
                             scheduleTime: new Date(`2000-01-01T${s.start_time.substring(0, 5)}:00`)
                         }));
                         
+                        // 가장 빠른 일정 선택 (이미 start_time ASC 정렬)
+                        earliestSchedule = allSchedules[0].schedule;
+                        console.log('[processAttendanceFromQR] ★ DB 기준 가장 빠른 일정:', earliestSchedule.start, '선생님:', allSchedules[0].teacherId);
+                        
                         // 로컬 캐시에도 반영 (다음 조회 시 빨라짐)
-                        if (!teacherScheduleData[String(dbSchedule.teacher_id)]) {
-                            teacherScheduleData[String(dbSchedule.teacher_id)] = {};
+                        for (const s of schedules) {
+                            const tid = String(s.teacher_id);
+                            if (!teacherScheduleData[tid]) teacherScheduleData[tid] = {};
+                            if (!teacherScheduleData[tid][String(studentId)]) teacherScheduleData[tid][String(studentId)] = {};
+                            teacherScheduleData[tid][String(studentId)][dateStr] = {
+                                start: s.start_time ? s.start_time.substring(0, 5) : s.start_time,
+                                duration: s.duration
+                            };
                         }
-                        if (!teacherScheduleData[String(dbSchedule.teacher_id)][String(studentId)]) {
-                            teacherScheduleData[String(dbSchedule.teacher_id)][String(studentId)] = {};
-                        }
-                        teacherScheduleData[String(dbSchedule.teacher_id)][String(studentId)][dateStr] = earliestSchedule;
-                        console.log('[processAttendanceFromQR] DB 조회 결과를 로컬 캐시에 반영');
                     } else {
-                        console.warn('[processAttendanceFromQR] DB에서도 일정을 찾을 수 없음:', error);
+                        console.warn('[processAttendanceFromQR] DB 일정 조회 결과 없음 또는 에러:', error);
                     }
                 }
-            } catch (directError) {
-                console.error('[processAttendanceFromQR] DB 직접 조회 실패:', directError);
+            } catch (dbError) {
+                console.error('[processAttendanceFromQR] DB 일정 조회 실패:', dbError);
+            }
+        }
+        
+        // Step 2: DB 조회 실패 시 로컬 캐시에서 fallback
+        if (!earliestSchedule) {
+            console.log('[processAttendanceFromQR] DB 조회 결과 없음 - 로컬 캐시에서 검색');
+            let scheduleResult = findEarliestScheduleForStudent(studentId, dateStr);
+            earliestSchedule = scheduleResult.schedule;
+            allSchedules = scheduleResult.allSchedules || [];
+            
+            // 로컬에도 없으면 전체 일정 재로드 후 다시 시도
+            if (!earliestSchedule) {
+                console.log('[processAttendanceFromQR] 로컬에도 일정 없음 - 전체 일정 재로드 시도');
+                try {
+                    await loadAllSchedulesForOwner();
+                    scheduleResult = findEarliestScheduleForStudent(studentId, dateStr);
+                    earliestSchedule = scheduleResult.schedule;
+                    allSchedules = scheduleResult.allSchedules || [];
+                } catch (reloadError) {
+                    console.error('[processAttendanceFromQR] 전체 일정 재로드 실패:', reloadError);
+                }
             }
         }
         
@@ -730,73 +1126,171 @@ async function processAttendanceFromQR(qrData) {
             }, 3000);
             return;
         }
+
+        // 7. 출석 처리 - 수업 종료시간 기반 판정
+        // ★★★ 새로운 로직:
+        //   시간순으로 일정 순회 →
+        //   스캔시간 >= 수업종료시간 → 결석 (다음 일정으로)
+        //   스캔시간 <= 수업시작시간 → 출석 (이후 일정은 알림)
+        //   수업시작 < 스캔시간 < 수업종료 → 지각 (이후 일정은 알림)
         
-        console.log('[processAttendanceFromQR] 가장 빠른 일정 시간:', earliestSchedule.start);
+        let primaryStatus = null; // 토스트에 표시할 대표 상태
+        let primaryResult = null;
         
-        // 8. 가장 빠른 일정을 기준으로 출석 상태 판단 (60분 기준)
-        const attendanceStatus = determineAttendanceStatus(today, earliestSchedule.start);
-        console.log('[processAttendanceFromQR] 출석 상태:', attendanceStatus);
-        
-        // 9. 출석 기록 저장 (데이터베이스)
-        // 가장 빠른 일정의 모든 선생님에게 출석 기록 저장
         try {
-            // 같은 날의 모든 관련 선생님에게 출석 기록 저장
             if (allSchedules && allSchedules.length > 0) {
-                for (const scheduleInfo of allSchedules) {
+                // 시간순 정렬
+                const sortedSchedules = [...allSchedules].sort((a, b) => {
+                    const timeA = a.scheduleTime || new Date(`2000-01-01T${a.schedule.start}:00`);
+                    const timeB = b.scheduleTime || new Date(`2000-01-01T${b.schedule.start}:00`);
+                    return timeA - timeB;
+                });
+                
+                const studentObj = students.find(s => String(s.id) === String(studentId));
+                const studentName = studentObj ? studentObj.name : `학생${studentId}`;
+                const sIdx = students.findIndex(s => String(s.id) === String(studentId));
+                
+                let foundActiveClass = false; // 출석/지각으로 처리된 수업이 있는지
+                let processedCount = 0;
+                let pendingCount = 0;
+                
+                for (let i = 0; i < sortedSchedules.length; i++) {
+                    const scheduleItem = sortedSchedules[i];
+                    const startTimeStr = scheduleItem.schedule.start;
+                    const duration = scheduleItem.schedule.duration || 60;
+                    
+                    // 수업 시작/종료 시간 계산
+                    const [sh, sm] = startTimeStr.split(':').map(Number);
+                    const classStart = new Date(today);
+                    classStart.setHours(sh, sm, 0, 0);
+                    const classEnd = new Date(classStart.getTime() + duration * 60000);
+                    
+                    // 이미 출석/지각 처리된 수업 뒤의 일정 → 재석 확인 알림
+                    if (foundActiveClass) {
+                        registerPendingAttendanceCheck(
+                            studentId, studentName,
+                            scheduleItem.teacherId,
+                            startTimeStr, dateStr
+                        );
+                        pendingCount++;
+                        console.log(`[processAttendanceFromQR] ⏰ 재석확인 예약: ${studentName} → ${startTimeStr} (${scheduleItem.teacherId})`);
+                        continue;
+                    }
+                    
+                    // 이미 DB에 기록이 있는지 확인
+                    let existingRecord = null;
+                    try {
+                        existingRecord = await getAttendanceRecordByStudentAndDate(
+                            studentId, dateStr, scheduleItem.teacherId, startTimeStr
+                        );
+                    } catch (e) { /* 무시 */ }
+                    
+                    if (existingRecord) {
+                        console.log(`[processAttendanceFromQR] 이미 처리됨: ${startTimeStr} → ${existingRecord.status}`);
+                        if (!primaryStatus) {
+                            primaryStatus = existingRecord.status;
+                        }
+                        continue;
+                    }
+                    
+                    let status, judgmentText, diffMin;
+                    
+                    if (today >= classEnd) {
+                        // ★ 수업 종료시간 이후 → 결석
+                        status = 'absent';
+                        diffMin = Math.round((today - classStart) / 60000);
+                        judgmentText = '결석 (수업 종료)';
+                        console.log(`[processAttendanceFromQR] ❌ 결석: ${studentName} → ${startTimeStr} (수업 종료됨, ${diffMin}분 경과)`);
+                    } else if (today <= classStart) {
+                        // ★ 수업 시작시간 이전 또는 정각 → 출석
+                        status = 'present';
+                        diffMin = Math.round((classStart - today) / 60000);
+                        judgmentText = diffMin > 0 ? `${diffMin}분 전 출석` : '정각 출석';
+                        foundActiveClass = true;
+                        console.log(`[processAttendanceFromQR] ✅ 출석: ${studentName} → ${startTimeStr} (${diffMin}분 전)`);
+                    } else {
+                        // ★ 수업 시작 후 ~ 수업 종료 전 → 지각
+                        status = 'late';
+                        diffMin = Math.round((today - classStart) / 60000);
+                        judgmentText = `${diffMin}분 지각`;
+                        foundActiveClass = true;
+                        console.log(`[processAttendanceFromQR] ⏰ 지각: ${studentName} → ${startTimeStr} (${diffMin}분 지각)`);
+                    }
+                    
+                    // 출석 기록 저장
                     await saveAttendanceRecord({
                         studentId: studentId,
-                        teacherId: scheduleInfo.teacherId,  // 각 선생님별로 저장
+                        teacherId: String(scheduleItem.teacherId),
                         attendanceDate: dateStr,
                         checkInTime: today.toISOString(),
-                        scheduledTime: scheduleInfo.schedule.start,  // 해당 선생님의 일정 시간
-                        status: attendanceStatus,  // 가장 빠른 일정 기준의 상태
+                        scheduledTime: startTimeStr,
+                        status: status,
                         qrScanned: true,
-                        qrScanTime: today.toISOString()
+                        qrScanTime: today.toISOString(),
+                        qrJudgment: judgmentText
                     });
-                    console.log('[processAttendanceFromQR] 선생님', scheduleInfo.teacherId, '에게 출석 기록 저장:', attendanceStatus);
+                    processedCount++;
+                    
+                    // 대표 상태 (토스트용) - 출석/지각이 있으면 그것을 표시
+                    if (!primaryStatus || status === 'present' || status === 'late') {
+                        if (!primaryStatus || status !== 'absent') {
+                            primaryStatus = status;
+                            primaryResult = { status, diffMinutes: diffMin, scheduledTimeStr: startTimeStr, scanTimeStr: today.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) };
+                        }
+                    }
+                    
+                    // 로컬 데이터 업데이트
+                    if (sIdx > -1) {
+                        if (!students[sIdx].attendance) students[sIdx].attendance = {};
+                        if (typeof students[sIdx].attendance[dateStr] === 'string') {
+                            const prev = students[sIdx].attendance[dateStr];
+                            students[sIdx].attendance[dateStr] = {};
+                            students[sIdx].attendance[dateStr]['default'] = prev;
+                        }
+                        if (!students[sIdx].attendance[dateStr] || typeof students[sIdx].attendance[dateStr] !== 'object') students[sIdx].attendance[dateStr] = {};
+                        students[sIdx].attendance[dateStr][startTimeStr] = status;
+                        if (!students[sIdx].qr_scan_time) students[sIdx].qr_scan_time = {};
+                        students[sIdx].qr_scan_time[dateStr] = today.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+                        if (!students[sIdx].qr_judgment) students[sIdx].qr_judgment = {};
+                        if (!students[sIdx].qr_judgment[dateStr]) students[sIdx].qr_judgment[dateStr] = {};
+                        students[sIdx].qr_judgment[dateStr][startTimeStr] = judgmentText;
+                    }
                 }
-                console.log('[processAttendanceFromQR] 데이터베이스 저장 완료 - 총', allSchedules.length, '명의 선생님');
+                
+                console.log('[processAttendanceFromQR] ✅ 출석 처리 완료:', {
+                    student: studentName,
+                    즉시처리: processedCount,
+                    재석확인예약: pendingCount
+                });
             }
         } catch (dbError) {
             console.error('[processAttendanceFromQR] 데이터베이스 저장 실패:', dbError);
+            console.error('[processAttendanceFromQR] 에러 상세:', dbError.message, dbError.details, dbError.hint);
         }
         
-        // 10. 로컬 데이터에 반영
-        const sIdx = students.findIndex(s => String(s.id) === String(studentId));
-        if (sIdx > -1) {
-            if (!students[sIdx].attendance) students[sIdx].attendance = {};
-            students[sIdx].attendance[dateStr] = attendanceStatus;
-            
-            // currentTeacherStudents 배열도 함께 업데이트 (현재 선생님의 학생 리스트)
-            const ctIdx = currentTeacherStudents.findIndex(s => String(s.id) === String(studentId));
-            if (ctIdx > -1) {
-                if (!currentTeacherStudents[ctIdx].attendance) currentTeacherStudents[ctIdx].attendance = {};
-                currentTeacherStudents[ctIdx].attendance[dateStr] = attendanceStatus;
-            } else {
-                // 현재 선생님의 학생 리스트에 없으면 추가 (다른 선생님의 학생을 QR스캔한 경우)
-                if (allSchedules && allSchedules.length > 0) {
-                    const hasCurrentTeacher = allSchedules.some(s => String(s.teacherId) === String(currentTeacherId));
-                    if (hasCurrentTeacher) {
-                        // 현재 선생님이 해당 학생을 담당하면 리스트에 추가
-                        const studentCopy = JSON.parse(JSON.stringify(students[sIdx]));
-                        if (!studentCopy.attendance) studentCopy.attendance = {};
-                        studentCopy.attendance[dateStr] = attendanceStatus;
-                        currentTeacherStudents.push(studentCopy);
-                        console.log('[processAttendanceFromQR] 학생을 currentTeacherStudents에 추가:', student.name);
-                    }
-                }
-            }
-            
-            saveData();
-            console.log('[processAttendanceFromQR] 로컬 데이터 저장 완료');
-        }
+        // 대표 상태 기본값
+        if (!primaryStatus) primaryStatus = 'present';
+        if (!primaryResult) primaryResult = determineAttendanceStatus(today, earliestSchedule.start);
+        const attendanceStatus = primaryStatus;
+        const attendanceResult = primaryResult;
         
-        // 11. 화면 업데이트 (QR 출석 학생 ID 저장)
+        // 10. 로컬 데이터 저장
+        saveData();
+        
+        // 11. 화면 업데이트
         lastQrScannedStudentId = studentId;
+        
+        if (typeof getActiveStudentsForTeacher === 'function' && typeof currentTeacherId !== 'undefined') {
+            currentTeacherStudents = getActiveStudentsForTeacher(currentTeacherId);
+        }
+        
         renderCalendar();
+
+        // 수업 관리 모달이 열려 있으면 상태 표시를 즉시 동기화
+        syncAttendanceModalStatusIfOpen(studentId, dateStr, attendanceStatus);
         
         // 12. 결과 표시 (토스트 알림)
-        showQRScanToast(student, attendanceStatus, today);
+        showQRScanToast(student, attendanceStatus, attendanceResult);
         
         // 스캐너 자동 재개
         setTimeout(() => {
@@ -825,6 +1319,8 @@ function findEarliestScheduleForStudent(studentId, dateStr) {
     let earliestTime = null;
     let earliestTeacherId = null;
     let allSchedulesForDate = []; // 같은 날의 모든 일정 수집
+    const studentKey = String(studentId);
+    const dateKey = String(dateStr);
     
     console.log('[findEarliestScheduleForStudent] 학생 ID:', studentId, '날짜:', dateStr);
     console.log('[findEarliestScheduleForStudent] 전체 teacherScheduleData:', Object.keys(teacherScheduleData));
@@ -833,25 +1329,29 @@ function findEarliestScheduleForStudent(studentId, dateStr) {
     // 모든 선생님의 일정을 순회
     for (const teacherId in teacherScheduleData) {
         const teacherSchedule = teacherScheduleData[teacherId] || {};
-        const studentSchedule = teacherSchedule[studentId] || {};
-        const classInfo = studentSchedule[dateStr];
+        const studentSchedule = teacherSchedule[studentKey] || {};
+        const rawData = studentSchedule[dateKey];
+        if (!rawData) continue;
         
-        if (classInfo && classInfo.start) {
+        // ★ 배열 또는 단일 객체 모두 처리
+        const entries = Array.isArray(rawData) ? rawData : [rawData];
+        
+        for (const classInfo of entries) {
+            if (!classInfo || !classInfo.start || classInfo.start === 'default') continue;
+            
             console.log(`[findEarliestScheduleForStudent] 선생님 ${teacherId}: ${classInfo.start}`);
             
-            // 시간 비교를 위해 Date 객체로 변환
             const [hour, minute] = classInfo.start.split(':').map(Number);
+            if (isNaN(hour) || isNaN(minute)) continue;
             const scheduleTime = new Date();
             scheduleTime.setHours(hour, minute, 0, 0);
             
-            // 모든 일정 수집
             allSchedulesForDate.push({
                 teacherId: teacherId,
                 schedule: classInfo,
                 scheduleTime: scheduleTime
             });
             
-            // 가장 빠른 일정인지 확인
             if (!earliestTime || scheduleTime < earliestTime) {
                 earliestTime = scheduleTime;
                 earliestSchedule = classInfo;
@@ -881,22 +1381,28 @@ function determineAttendanceStatus(currentTime, scheduledTimeStr) {
     const scheduledTime = new Date(currentTime);
     scheduledTime.setHours(scheduledHour, scheduledMinute, 0, 0);
     
-    const diffMinutes = (currentTime - scheduledTime) / (1000 * 60);
+    const diffMinutes = Math.round((currentTime - scheduledTime) / (1000 * 60));
     
     console.log('[determineAttendanceStatus] 시간 차이(분):', diffMinutes);
     
+    let status = 'present';
     // 수업 시작 시간 또는 그 전에 오면: 출석
     if (diffMinutes <= 0) {
-        return 'present';
+        status = 'present';
     } 
-    // 수업 시작 후 1분 ~ 60분 이내: 지각
-    else if (diffMinutes > 0 && diffMinutes <= 60) {
-        return 'late';
-    } 
-    // 수업 시작 후 60분 초과: 결석
+    // 수업 시작 후에는 지각으로만 처리 (결석 기준 제거)
     else {
-        return 'absent';
+        status = 'late';
     }
+
+    const scanTimeStr = currentTime.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+
+    return {
+        status,
+        diffMinutes,
+        scheduledTimeStr,
+        scanTimeStr
+    };
 }
 
 // QR 스캔 토스트 알림 표시
@@ -921,21 +1427,41 @@ function showQRScanToast(student, status, extra) {
     } else if (status === 'present') {
         icon = '✅';
         name = `${student.name} (${student.grade})`;
-        statusText = '출석 완료';
         statusColor = '#10b981';
-        timeText = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+        if (extra && typeof extra === 'object' && typeof extra.diffMinutes === 'number') {
+            const diff = extra.diffMinutes;
+            const diffAbs = Math.abs(diff);
+            const diffText = diffAbs === 0 ? '정시 도착' : `${diffAbs}분 빠름`;
+            statusText = diffAbs === 0 ? '출석 완료' : '출석 완료';
+            timeText = `수업 ${extra.scheduledTimeStr} · 스캔 ${extra.scanTimeStr} · ${diffText}`;
+        } else {
+            statusText = '출석 완료';
+            timeText = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+        }
     } else if (status === 'late') {
         icon = '⏰';
         name = `${student.name} (${student.grade})`;
-        statusText = '지각 처리';
         statusColor = '#f59e0b';
-        timeText = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+        if (extra && typeof extra === 'object' && typeof extra.diffMinutes === 'number') {
+            const diffAbs = Math.abs(extra.diffMinutes);
+            statusText = `${diffAbs}분 지각`;
+            timeText = `수업 ${extra.scheduledTimeStr} · 스캔 ${extra.scanTimeStr}`;
+        } else {
+            statusText = '지각 처리';
+            timeText = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+        }
     } else if (status === 'absent') {
         icon = '❌';
         name = `${student.name} (${student.grade})`;
-        statusText = '결석 처리';
         statusColor = '#ef4444';
-        timeText = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+        if (extra && typeof extra === 'object' && typeof extra.diffMinutes === 'number') {
+            const diffAbs = Math.abs(extra.diffMinutes);
+            statusText = '결석 처리';
+            timeText = `수업 ${extra.scheduledTimeStr} · 스캔 ${extra.scanTimeStr} · ${diffAbs}분 지각`;
+        } else {
+            statusText = '결석 처리';
+            timeText = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+        }
     } else if (status === 'already_processed') {
         icon = '⚠️';
         name = `${student.name} (${student.grade})`;
@@ -1073,7 +1599,7 @@ async function renderStudentQRList() {
     for (const student of students) {
         try {
             // 항상 토큰 포함된 QR코드 데이터 생성 (최초/재발급 동일 패턴)
-            const qrData = await generateQRCodeData(student.id);
+            const qrData = await getOrCreateQRCodeData(student.id);
             const qrId = `qr-${student.id}`;
             const accordionId = `accordion-${student.id}`;
 
@@ -1085,11 +1611,9 @@ async function renderStudentQRList() {
                      style="padding: 14px 18px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; background: #f8fafc; transition: background 0.2s;"
                      onmouseover="this.style.background='#f1f5f9'" 
                      onmouseout="this.style.background='#f8fafc'">
-                    <div style="display: flex; align-items: baseline; gap: 10px;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
                         <h3 style="margin: 0; font-size: 17px; font-weight: 700; color: #1e293b;">${student.name}</h3>
                         <span style="color: #64748b; font-size: 13px; font-weight: 500;">${student.grade}</span>
-                    </div>
-                    <div style="display: flex; align-items: center; gap: 8px;">
                         <button onclick="event.stopPropagation(); regenerateQRCode('${student.id}', '${qrId}', '${accordionId}', '${student.name}')" 
                                 style="background: #4f46e5; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.2s; display: flex; align-items: center; gap: 4px;"
                                 onmouseover="this.style.background='#4338ca'" 
@@ -1097,6 +1621,8 @@ async function renderStudentQRList() {
                                 title="QR코드 재발급">
                             <i class="fas fa-sync-alt" style="font-size: 11px;"></i> 재발급
                         </button>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
                         <i id="icon-${accordionId}" class="fas fa-chevron-down" style="color: #64748b; transition: transform 0.3s; font-size: 14px;"></i>
                     </div>
                 </div>
@@ -1244,7 +1770,8 @@ window.showStudentAttendanceHistory = function(studentId) {
     const monthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     document.getElementById('attendance-history-month').value = monthStr;
     
-    const student = currentTeacherStudents.find(s => String(s.id) === String(studentId));
+    const student = students.find(s => String(s.id) === String(studentId)) ||
+        currentTeacherStudents.find(s => String(s.id) === String(studentId));
     if (student) {
         const titleElement = document.getElementById('attendance-student-name-title');
         if (titleElement) {
@@ -1276,23 +1803,182 @@ window.loadStudentAttendanceHistory = async function() {
         contentDiv.innerHTML = '<p style="color: #64748b;">로딩 중...</p>';
         
         const records = await getStudentAttendanceRecordsByMonth(currentStudentForAttendance, year, month);
+        const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+        const endDate = new Date(year, month, 0);
+        const endDateStr = formatDateToYYYYMMDD(endDate);
+
+        // ★ 배정된 선생님 기준으로 필터링
+        const assignedTeacherId = (typeof getAssignedTeacherId === 'function')
+            ? String(getAssignedTeacherId(String(currentStudentForAttendance)) || '')
+            : '';
+        const primaryTeacherId = assignedTeacherId || (currentTeacherId ? String(currentTeacherId) : '');
+
+        let schedules = [];
+        if (typeof getSchedulesByStudent === 'function') {
+            try {
+                schedules = await getSchedulesByStudent(currentStudentForAttendance);
+            } catch (e) {
+                console.error('[loadStudentAttendanceHistory] 일정 조회 실패:', e);
+            }
+        }
+
+        const schedulesInMonth = (schedules || []).filter(s => s.schedule_date >= startDate && s.schedule_date <= endDateStr);
+
+        // ★ 배정된 선생님의 일정/기록만 메인으로, 나머지는 "기타" 정보로
+        const primaryScheduleByDate = new Map();
+        const otherScheduleByDate = new Map();
+        schedulesInMonth.forEach(s => {
+            const key = s.schedule_date;
+            if (primaryTeacherId && String(s.teacher_id) === primaryTeacherId) {
+                if (!primaryScheduleByDate.has(key)) primaryScheduleByDate.set(key, []);
+                primaryScheduleByDate.get(key).push(s);
+            } else {
+                if (!otherScheduleByDate.has(key)) otherScheduleByDate.set(key, []);
+                otherScheduleByDate.get(key).push(s);
+            }
+        });
+
+        const primaryRecordByDate = new Map();
+        const otherRecordByDate = new Map();
+        (records || []).forEach(r => {
+            const key = r.attendance_date;
+            if (primaryTeacherId && String(r.teacher_id) === primaryTeacherId) {
+                if (!primaryRecordByDate.has(key)) primaryRecordByDate.set(key, []);
+                primaryRecordByDate.get(key).push(r);
+            } else {
+                if (!otherRecordByDate.has(key)) otherRecordByDate.set(key, []);
+                otherRecordByDate.get(key).push(r);
+            }
+        });
+
+        // ★ 담당 선생님 일정/기록이 있는 날짜 + 담당 없을 때 다른 선생님 날짜도 포함
+        const primaryDates = new Set([...primaryScheduleByDate.keys(), ...primaryRecordByDate.keys()]);
+        const otherDates = new Set([...otherScheduleByDate.keys(), ...otherRecordByDate.keys()]);
+        const allDates = new Set([...primaryDates, ...otherDates]);
         
-        if (records.length === 0) {
+        if (allDates.size === 0) {
+            const teacherName = primaryTeacherId ? getTeacherNameById(primaryTeacherId) : '선생님';
             contentDiv.innerHTML = `<p style="color: #64748b; text-align: center;">
-                ${year}년 ${month}월의 출석 기록이 없습니다.
+                ${year}년 ${month}월에 출석 기록이 없습니다.
             </p>`;
             return;
         }
         
-        const stats = {
-            present: records.filter(r => r.status === 'present').length,
-            late: records.filter(r => r.status === 'late').length,
-            absent: records.filter(r => r.status === 'absent').length,
-            makeup: records.filter(r => r.status === 'makeup' || r.status === 'etc').length
-        };
+        const stats = { present: 0, late: 0, absent: 0, makeup: 0 };
+
+        const dateList = Array.from(allDates).sort((a, b) => new Date(b) - new Date(a));
+        const totalDays = dateList.length;
         
-        const totalDays = stats.present + stats.late + stats.absent + stats.makeup;
-        
+        let detailsHtml = '';
+
+        for (const dateKey of dateList) {
+            const date = new Date(dateKey);
+            const dateStr = `${date.getMonth() + 1}/${date.getDate()}`;
+
+            // 배정된 선생님의 기록/일정
+            const myRecords = primaryRecordByDate.get(dateKey) || [];
+            const mySchedules = primaryScheduleByDate.get(dateKey) || [];
+            const otherRecords = otherRecordByDate.get(dateKey) || [];
+            const otherSchedules = otherScheduleByDate.get(dateKey) || [];
+            
+            // 담당 선생님 데이터가 있으면 담당 기준, 없으면 다른 선생님 데이터를 메인으로 사용
+            const hasPrimaryData = myRecords.length > 0 || mySchedules.length > 0;
+            const effectiveRecord = myRecords[0] || (hasPrimaryData ? null : otherRecords[0]) || null;
+            const effectiveSchedule = mySchedules[0] || (hasPrimaryData ? null : otherSchedules[0]) || null;
+            const isFallback = !hasPrimaryData; // 다른 선생님 데이터를 사용하는 경우
+            const fallbackTeacherName = isFallback ? getTeacherNameById(String(effectiveRecord?.teacher_id || effectiveSchedule?.teacher_id || '')) : '';
+
+            // 통계 집계
+            const statusValue = effectiveRecord ? effectiveRecord.status : '';
+            if (statusValue === 'present') stats.present++;
+            else if (statusValue === 'late') stats.late++;
+            else if (statusValue === 'absent') stats.absent++;
+            else if (statusValue === 'makeup' || statusValue === 'etc') stats.makeup++;
+            const { statusBadge, statusColor, bgColor, borderColor } = getStatusStyle(statusValue);
+
+            let timeLabel = '-';
+            if (effectiveRecord && effectiveRecord.check_in_time) {
+                timeLabel = new Date(effectiveRecord.check_in_time).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+            } else if (effectiveSchedule && effectiveSchedule.start_time) {
+                timeLabel = formatKoreanTimeLabel(effectiveSchedule.start_time.substring(0, 5));
+            }
+
+            // ★ 해당 날짜의 모든 일정 (담당 + 다른 선생님) → 호버 툴팁
+            const hasOtherTeachers = (hasPrimaryData && (otherRecords.length > 0 || otherSchedules.length > 0));
+
+            let tooltipHtml = '';
+            if (hasOtherTeachers) {
+                // 담당 선생님 일정 정보
+                const myTeacherName = primaryTeacherId ? getTeacherNameById(primaryTeacherId) : '담당';
+                const primaryRecord = myRecords[0] || null;
+                const primarySchedule = mySchedules[0] || null;
+                const myTime = primarySchedule?.start_time
+                    ? formatKoreanTimeLabel(primarySchedule.start_time.substring(0, 5))
+                    : (primaryRecord?.scheduled_time ? formatKoreanTimeLabel(String(primaryRecord.scheduled_time).substring(0, 5)) : '-');
+                const myStatusLabel = primaryRecord ? statusToLabel(primaryRecord.status) : '미처리';
+                const myStatusStyle = getStatusStyle(primaryRecord?.status || '');
+
+                let tooltipItems = `<div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.1);"><span style="font-weight:700;color:#93c5fd;">${myTeacherName}</span><span style="color:#94a3b8;font-size:12px;">${myTime}</span><span style="background:${myStatusStyle.statusColor};color:white;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;">${myStatusLabel}</span></div>`;
+
+                // 다른 선생님 일정 정보
+                const otherTeacherIds = new Set([
+                    ...otherRecords.map(r => String(r.teacher_id)),
+                    ...otherSchedules.map(s => String(s.teacher_id))
+                ].filter(Boolean));
+
+                otherTeacherIds.forEach(tid => {
+                    const rec = otherRecords.find(r => String(r.teacher_id) === tid) || null;
+                    const sched = otherSchedules.find(s => String(s.teacher_id) === tid) || null;
+                    const tName = getTeacherNameById(tid);
+                    const tStatus = rec ? statusToLabel(rec.status) : '미처리';
+                    const tTime = sched?.start_time
+                        ? formatKoreanTimeLabel(sched.start_time.substring(0, 5))
+                        : (rec?.scheduled_time ? formatKoreanTimeLabel(String(rec.scheduled_time).substring(0, 5)) : '-');
+                    const tStatusStyle = getStatusStyle(rec?.status || '');
+                    tooltipItems += `<div style="display:flex;align-items:center;gap:6px;padding:5px 0;"><span style="font-weight:600;color:#e2e8f0;">${tName}</span><span style="color:#94a3b8;font-size:12px;">${tTime}</span><span style="background:${tStatusStyle.statusColor};color:white;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;">${tStatus}</span></div>`;
+                });
+
+                tooltipHtml = `
+                    <div class="att-day-tooltip" style="display:none;position:absolute;bottom:calc(100% + 8px);left:16px;background:#1e293b;color:white;padding:12px 14px;border-radius:10px;font-size:13px;min-width:220px;max-width:320px;z-index:9999;box-shadow:0 8px 24px rgba(0,0,0,0.25);line-height:1.5;">
+                        <div style="font-weight:700;margin-bottom:6px;font-size:12px;color:#94a3b8;letter-spacing:0.5px;">${dateStr} 전체 일정</div>
+                        ${tooltipItems}
+                        <div style="position:absolute;bottom:-6px;left:24px;width:12px;height:12px;background:#1e293b;rotate:45deg;border-radius:2px;"></div>
+                    </div>`;
+            }
+
+            detailsHtml += `
+                <div class="att-day-row" style="position:relative;display:flex;justify-content:space-between;align-items:center;padding:16px 18px;background:${bgColor};border-radius:12px;border-left:4px solid ${statusColor};border-top:1px solid ${borderColor};border-right:1px solid ${borderColor};border-bottom:1px solid ${borderColor};cursor:${hasOtherTeachers ? 'pointer' : 'default'};" ${hasOtherTeachers ? 'data-has-tooltip="true"' : ''}>
+                    ${tooltipHtml}
+                    <div style="flex:1;min-width:0;">
+                        <div style="display:flex;align-items:center;gap:6px;font-weight:700;font-size:15px;color:#1e293b;margin-bottom:6px;">
+                            <span>${dateStr} (${getDayOfWeek(date)})</span>
+                            ${isFallback && fallbackTeacherName ? `<span style="font-size:11px;color:#8b5cf6;background:#ede9fe;padding:2px 7px;border-radius:5px;font-weight:600;">${fallbackTeacherName}</span>` : ''}
+                        </div>
+                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                            <span style="font-size:13px;color:#64748b;display:flex;align-items:center;gap:4px;">
+                                <span style="opacity:0.7;">⏰</span> ${timeLabel}
+                            </span>
+                            ${effectiveRecord && effectiveRecord.qr_scanned ? `<span style="font-size:12px;color:#10b981;background:#dcfce7;padding:3px 8px;border-radius:6px;font-weight:600;">📱 QR 스캔 ${effectiveRecord.qr_scan_time ? new Date(effectiveRecord.qr_scan_time).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''}</span>` : ''}
+                        </div>
+                    </div>
+                    <select
+                        style="background:${statusColor};color:white;padding:8px 12px;border-radius:8px;font-weight:700;font-size:14px;border:none;cursor:pointer;flex-shrink:0;"
+                        onclick="event.stopPropagation();"
+                        onchange="updateAttendanceStatusFromHistory('${currentStudentForAttendance}', '${dateKey}', this.value, '${effectiveRecord && effectiveRecord.scheduled_time ? effectiveRecord.scheduled_time : (effectiveSchedule && effectiveSchedule.start_time ? effectiveSchedule.start_time : '')}')">
+                        <option value="" ${statusValue ? '' : 'selected'}>미처리</option>
+                        <option value="present" ${statusValue === 'present' ? 'selected' : ''}>출석</option>
+                        <option value="late" ${statusValue === 'late' ? 'selected' : ''}>지각</option>
+                        <option value="absent" ${statusValue === 'absent' ? 'selected' : ''}>결석</option>
+                        <option value="makeup" ${(statusValue === 'makeup' || statusValue === 'etc') ? 'selected' : ''}>보강</option>
+                    </select>
+                </div>
+            `;
+        }
+
+        // 배정된 선생님 이름 표시
+        const teacherName = primaryTeacherId ? getTeacherNameById(primaryTeacherId) : '';
+        const teacherChip = teacherName ? `<span style="background:#e0e7ff;color:#4f46e5;padding:4px 10px;border-radius:6px;font-size:12px;font-weight:600;">담당 선생님 : ${teacherName}</span>` : '';
+
         let html = `
             <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 28px;">
                 <div style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 20px 12px; border-radius: 14px; text-align: center; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);">
@@ -1313,69 +1999,37 @@ window.loadStudentAttendanceHistory = async function() {
                 </div>
             </div>
             
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px;">
-                <h3 style="margin: 0; font-size: 18px; color: #1e293b;">상세 기록</h3>
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; flex-wrap: wrap; gap: 8px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <h3 style="margin: 0; font-size: 18px; color: #1e293b;">상세 기록</h3>
+                    ${teacherChip}
+                </div>
                 <span style="font-size: 14px; color: #64748b; font-weight: 500;">총 ${totalDays}일</span>
             </div>
             <div style="display: flex; flex-direction: column; gap: 10px;">
+                ${detailsHtml}
+            </div>
         `;
-        
-        records.sort((a, b) => new Date(b.attendance_date) - new Date(a.attendance_date));
-        
-        for (const record of records) {
-            const date = new Date(record.attendance_date);
-            const dateStr = `${date.getMonth() + 1}/${date.getDate()}`;
-            const checkInTime = record.check_in_time 
-                ? new Date(record.check_in_time).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
-                : '-';
-            
-            let statusBadge = '';
-            let statusColor = '';
-            let bgColor = '#ffffff';
-            let borderColor = '#e2e8f0';
-            
-            if (record.status === 'present') {
-                statusBadge = '출석';
-                statusColor = '#10b981';
-                bgColor = '#f0fdf4';
-                borderColor = '#86efac';
-            } else if (record.status === 'late') {
-                statusBadge = '지각';
-                statusColor = '#f59e0b';
-                bgColor = '#fffbeb';
-                borderColor = '#fcd34d';
-            } else if (record.status === 'absent') {
-                statusBadge = '결석';
-                statusColor = '#ef4444';
-                bgColor = '#fef2f2';
-                borderColor = '#fca5a5';
-            } else if (record.status === 'makeup' || record.status === 'etc') {
-                statusBadge = '보강';
-                statusColor = '#8b5cf6';
-                bgColor = '#faf5ff';
-                borderColor = '#c4b5fd';
-            }
-            
-            html += `
-                <div style="display: flex; justify-content: space-between; align-items: center; padding: 16px 18px; background: ${bgColor}; border-radius: 12px; border-left: 4px solid ${statusColor}; border-top: 1px solid ${borderColor}; border-right: 1px solid ${borderColor}; border-bottom: 1px solid ${borderColor};">
-                    <div style="flex: 1;">
-                        <div style="font-weight: 700; font-size: 15px; color: #1e293b; margin-bottom: 6px;">${dateStr} (${getDayOfWeek(date)})</div>
-                        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                            <span style="font-size: 13px; color: #64748b; display: flex; align-items: center; gap: 4px;">
-                                <span style="opacity: 0.7;">⏰</span> ${checkInTime}
-                            </span>
-                            ${record.qr_scanned ? '<span style="font-size: 12px; color: #10b981; background: #dcfce7; padding: 3px 8px; border-radius: 6px; font-weight: 600;">📱 QR</span>' : ''}
-                        </div>
-                    </div>
-                    <div style="background: ${statusColor}; color: white; padding: 8px 16px; border-radius: 8px; font-weight: 700; font-size: 14px; white-space: nowrap;">
-                        ${statusBadge}
-                    </div>
-                </div>
-            `;
-        }
-        
-        html += '</div>';
         contentDiv.innerHTML = html;
+
+        // ★ 날짜 행 호버 시 전체 일정 툴팁 표시 (마우스 + 모바일 터치)
+        contentDiv.querySelectorAll('.att-day-row[data-has-tooltip="true"]').forEach(row => {
+            const tooltip = row.querySelector('.att-day-tooltip');
+            if (!tooltip) return;
+            row.addEventListener('mouseenter', () => { tooltip.style.display = 'block'; });
+            row.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
+            row.addEventListener('click', (e) => {
+                if (e.target.tagName === 'SELECT' || e.target.tagName === 'OPTION') return;
+                e.stopPropagation();
+                const isVisible = tooltip.style.display === 'block';
+                contentDiv.querySelectorAll('.att-day-tooltip').forEach(t => t.style.display = 'none');
+                tooltip.style.display = isVisible ? 'none' : 'block';
+            });
+        });
+        contentDiv.addEventListener('click', (e) => {
+            if (e.target.closest('.att-day-row[data-has-tooltip="true"]')) return;
+            contentDiv.querySelectorAll('.att-day-tooltip').forEach(t => t.style.display = 'none');
+        });
         
     } catch (error) {
         console.error('[loadStudentAttendanceHistory] 에러:', error);
@@ -1384,9 +2038,285 @@ window.loadStudentAttendanceHistory = async function() {
     }
 }
 
+async function updateAttendanceStatusFromHistory(studentId, dateStr, nextStatus, scheduledTime) {
+    try {
+        if (!nextStatus) {
+            await loadStudentAttendanceHistory();
+            return;
+        }
+        const teacherIds = await getTeacherIdsForStudentDate(studentId, dateStr);
+        let scope = 'current';
+
+        if (teacherIds.size > 1) {
+            scope = await showAttendanceScopeModal();
+            if (!scope) {
+                await loadStudentAttendanceHistory();
+                return;
+            }
+        }
+
+        const currentId = currentTeacherId ? String(currentTeacherId) : null;
+        const defaultTeacherId = currentId && teacherIds.has(currentId)
+            ? currentId
+            : (teacherIds.values().next().value || currentId || '');
+
+        // ★ scheduledTime이 비어있으면 스케줄에서 start_time 폴백
+        let effectiveScheduledTime = scheduledTime || '';
+        if (!effectiveScheduledTime) {
+            const tSchedule = (typeof teacherScheduleData !== 'undefined' ? teacherScheduleData : {})[defaultTeacherId] || {};
+            const sSchedule = tSchedule[String(studentId)] || {};
+            const scheduleEntry = sSchedule[dateStr] || null;
+            if (scheduleEntry && scheduleEntry.start) {
+                effectiveScheduledTime = scheduleEntry.start;
+            }
+        }
+
+        if (scope === 'current') {
+            const record = await getAttendanceRecordByStudentAndDate(studentId, dateStr, defaultTeacherId, effectiveScheduledTime);
+
+            const payload = {
+                studentId: studentId,
+                teacherId: String(record?.teacher_id || defaultTeacherId || ''),
+                attendanceDate: dateStr,
+                checkInTime: record?.check_in_time || null,
+                scheduledTime: effectiveScheduledTime || record?.scheduled_time || null,
+                status: nextStatus,
+                qrScanned: record?.qr_scanned || false,
+                qrScanTime: record?.qr_scan_time || null,
+                qrJudgment: record?.qr_judgment || null,
+                memo: record?.memo || null
+            };
+
+            await saveAttendanceRecord(payload);
+        } else {
+            for (const teacherId of teacherIds) {
+                const record = await getAttendanceRecordByStudentAndDate(studentId, dateStr, teacherId, effectiveScheduledTime);
+                // ★ 선생님별 스케줄에서 start_time 폴백
+                let teacherScheduledTime = effectiveScheduledTime;
+                if (!teacherScheduledTime) {
+                    const tSchedule = (typeof teacherScheduleData !== 'undefined' ? teacherScheduleData : {})[teacherId] || {};
+                    const sSchedule = tSchedule[String(studentId)] || {};
+                    const scheduleEntry = sSchedule[dateStr] || null;
+                    if (scheduleEntry && scheduleEntry.start) {
+                        teacherScheduledTime = scheduleEntry.start;
+                    }
+                }
+
+                const payload = {
+                    studentId: studentId,
+                    teacherId: String(record?.teacher_id || teacherId || ''),
+                    attendanceDate: dateStr,
+                    checkInTime: record?.check_in_time || null,
+                    scheduledTime: teacherScheduledTime || record?.scheduled_time || null,
+                    status: nextStatus,
+                    qrScanned: record?.qr_scanned || false,
+                    qrScanTime: record?.qr_scan_time || null,
+                    qrJudgment: record?.qr_judgment || null,
+                    memo: record?.memo || null
+                };
+
+                await saveAttendanceRecord(payload);
+            }
+        }
+
+        // ★ 로컬 메모리 업데이트 - scheduledTime이 없어도 반드시 갱신
+        const memoryKey = effectiveScheduledTime || 'default';
+        
+        if (teacherIds.has(String(currentTeacherId || '')) || scope === 'all') {
+            const student = students.find(s => String(s.id) === String(studentId));
+            if (student) {
+                if (!student.attendance) student.attendance = {};
+                // attendance[dateStr]가 string이면 객체로 변환 (마이그레이션)
+                if (student.attendance[dateStr] && typeof student.attendance[dateStr] === 'string') {
+                    const prev = student.attendance[dateStr];
+                    student.attendance[dateStr] = {};
+                    student.attendance[dateStr]['default'] = prev;
+                }
+                if (!student.attendance[dateStr] || typeof student.attendance[dateStr] !== 'object') student.attendance[dateStr] = {};
+                student.attendance[dateStr][memoryKey] = nextStatus;
+            }
+
+            const currentStudentIdx = currentTeacherStudents.findIndex(s => String(s.id) === String(studentId));
+            if (currentStudentIdx > -1) {
+                const cts = currentTeacherStudents[currentStudentIdx];
+                if (!cts.attendance) cts.attendance = {};
+                if (cts.attendance[dateStr] && typeof cts.attendance[dateStr] === 'string') {
+                    const prev = cts.attendance[dateStr];
+                    cts.attendance[dateStr] = {};
+                    cts.attendance[dateStr]['default'] = prev;
+                }
+                if (!cts.attendance[dateStr] || typeof cts.attendance[dateStr] !== 'object') cts.attendance[dateStr] = {};
+                cts.attendance[dateStr][memoryKey] = nextStatus;
+            }
+        }
+
+        saveData();
+        // 시간표 UI도 즉시 갱신
+        if (typeof renderDayEvents === 'function' && typeof currentDetailDate !== 'undefined') {
+            renderDayEvents(dateStr);
+        }
+        renderCalendar();
+        await loadStudentAttendanceHistory();
+    } catch (error) {
+        console.error('[updateAttendanceStatusFromHistory] 에러:', error);
+        alert('상태 변경에 실패했습니다. 다시 시도해주세요.');
+        await loadStudentAttendanceHistory();
+    }
+}
+
+async function getTeacherIdsForStudentDate(studentId, dateStr) {
+    const teacherIds = new Set();
+
+    Object.keys(teacherScheduleData || {}).forEach(tid => {
+        const studentSchedule = teacherScheduleData[tid] || {};
+        if (studentSchedule[String(studentId)] && studentSchedule[String(studentId)][dateStr]) {
+            teacherIds.add(String(tid));
+        }
+    });
+
+    try {
+        const ownerId = await ensureOwnerId();
+        if (!ownerId) return teacherIds;
+
+        const { data, error } = await supabase
+            .from('schedules')
+            .select('teacher_id')
+            .eq('owner_user_id', ownerId)
+            .eq('student_id', parseInt(studentId))
+            .eq('schedule_date', dateStr);
+
+        if (error) {
+            console.error('[getTeacherIdsForStudentDate] 일정 조회 실패:', error);
+            return teacherIds;
+        }
+
+        (data || []).forEach(row => {
+            if (row.teacher_id !== null && row.teacher_id !== undefined) {
+                teacherIds.add(String(row.teacher_id));
+            }
+        });
+    } catch (e) {
+        console.error('[getTeacherIdsForStudentDate] 예외:', e);
+    }
+
+    if (teacherIds.size === 0 && currentTeacherId) {
+        teacherIds.add(String(currentTeacherId));
+    }
+
+    return teacherIds;
+}
+
+function showAttendanceScopeModal() {
+    return new Promise(resolve => {
+        const existing = document.getElementById('attendance-scope-modal');
+        if (existing) existing.remove();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'attendance-scope-modal';
+        overlay.style.position = 'fixed';
+        overlay.style.top = '0';
+        overlay.style.left = '0';
+        overlay.style.width = '100%';
+        overlay.style.height = '100%';
+        overlay.style.background = 'rgba(15, 23, 42, 0.45)';
+        overlay.style.display = 'flex';
+        overlay.style.alignItems = 'center';
+        overlay.style.justifyContent = 'center';
+        overlay.style.zIndex = '9999';
+
+        overlay.innerHTML = `
+            <div style="background: white; border-radius: 16px; padding: 22px; width: min(380px, 92vw); box-shadow: 0 18px 40px rgba(15, 23, 42, 0.25); border: 1px solid #e2e8f0;">
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+                    <div style="width: 34px; height: 34px; border-radius: 10px; background: #eef2ff; display: flex; align-items: center; justify-content: center; color: #4f46e5; font-size: 16px; font-weight: 700;">!</div>
+                    <div style="font-weight: 800; font-size: 16px; color: #0f172a;">상태 적용 범위</div>
+                </div>
+                <div style="font-size: 13px; color: #64748b; margin-bottom: 18px; line-height: 1.5;">
+                    현재 선생님만 변경하거나, 같은 날짜의 모든 선생님 일정에 동일하게 적용할 수 있습니다.
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 10px;">
+                    <button id="scope-current" style="width: 100%; background: #4f46e5; color: white; border: none; padding: 12px 14px; border-radius: 10px; font-weight: 700; cursor: pointer;">
+                        현재 선생님만 적용
+                    </button>
+                    <button id="scope-all" style="width: 100%; background: #0f172a; color: white; border: none; padding: 12px 14px; border-radius: 10px; font-weight: 700; cursor: pointer;">
+                        전체 선생님 일정에 적용
+                    </button>
+                </div>
+                <button id="scope-cancel" style="margin-top: 12px; width: 100%; background: #f8fafc; color: #475569; border: 1px solid #e2e8f0; padding: 10px 12px; border-radius: 10px; font-weight: 600; cursor: pointer;">취소</button>
+            </div>
+        `;
+
+        document.body.appendChild(overlay);
+
+        overlay.querySelector('#scope-current').onclick = () => {
+            overlay.remove();
+            resolve('current');
+        };
+        overlay.querySelector('#scope-all').onclick = () => {
+            overlay.remove();
+            resolve('all');
+        };
+        overlay.querySelector('#scope-cancel').onclick = () => {
+            overlay.remove();
+            resolve(null);
+        };
+    });
+}
+
 function getDayOfWeek(date) {
     const days = ['일', '월', '화', '수', '목', '금', '토'];
     return days[date.getDay()];
+}
+
+function formatKoreanTimeLabel(timeStr) {
+    if (!timeStr) return '-';
+    const base = new Date('2000-01-01T00:00:00');
+    const [h, m] = String(timeStr).split(':').map(Number);
+    if (Number.isNaN(h) || Number.isNaN(m)) return String(timeStr).substring(0, 5);
+    base.setHours(h, m, 0, 0);
+    return base.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+}
+
+function statusToLabel(status) {
+    if (status === 'present') return '출석';
+    if (status === 'late') return '지각';
+    if (status === 'absent') return '결석';
+    if (status === 'makeup' || status === 'etc') return '보강';
+    return '미처리';
+}
+
+function getStatusStyle(status) {
+    if (status === 'present') {
+        return { statusBadge: '출석', statusColor: '#10b981', bgColor: '#f0fdf4', borderColor: '#86efac' };
+    }
+    if (status === 'late') {
+        return { statusBadge: '지각', statusColor: '#f59e0b', bgColor: '#fffbeb', borderColor: '#fcd34d' };
+    }
+    if (status === 'absent') {
+        return { statusBadge: '결석', statusColor: '#ef4444', bgColor: '#fef2f2', borderColor: '#fca5a5' };
+    }
+    if (status === 'makeup' || status === 'etc') {
+        return { statusBadge: '보강', statusColor: '#8b5cf6', bgColor: '#faf5ff', borderColor: '#c4b5fd' };
+    }
+    return { statusBadge: '미처리', statusColor: '#94a3b8', bgColor: '#f8fafc', borderColor: '#e2e8f0' };
+}
+
+function getTeacherNameById(teacherId) {
+    if (typeof teacherList !== 'undefined' && Array.isArray(teacherList)) {
+        const teacher = teacherList.find(t => String(t.id) === String(teacherId));
+        if (teacher && teacher.name) return teacher.name;
+    }
+    if (typeof getCurrentTeacherId === 'function' && typeof getCurrentTeacherName === 'function') {
+        if (String(getCurrentTeacherId()) === String(teacherId)) return getCurrentTeacherName();
+    }
+    return teacherId ? `선생님 ${teacherId}` : '선생님';
+}
+
+function escapeHtmlAttr(value) {
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
 }
 
 // ========== 유틸리티 함수 ==========
@@ -1410,11 +2340,15 @@ async function saveAttendanceRecord(recordData) {
             throw new Error('로그인이 필요합니다');
         }
         
-        const numericId = parseInt(recordData.studentId);
+        // ✅ student_id는 BIGINT이므로 숫자로 변환
+        const studentIdValue = parseInt(recordData.studentId);
+        if (isNaN(studentIdValue)) {
+            throw new Error('잘못된 student_id: ' + recordData.studentId);
+        }
         
         const record = {
-            student_id: numericId,
-            teacher_id: recordData.teacherId,
+            student_id: studentIdValue,  // BIGINT (숫자)
+            teacher_id: String(recordData.teacherId),  // TEXT (문자열)
             owner_user_id: ownerId,
             attendance_date: recordData.attendanceDate,
             check_in_time: recordData.checkInTime,
@@ -1422,42 +2356,96 @@ async function saveAttendanceRecord(recordData) {
             status: recordData.status,
             qr_scanned: recordData.qrScanned || false,
             qr_scan_time: recordData.qrScanTime || null,
+            qr_judgment: recordData.qrJudgment || null,
             memo: recordData.memo || null
         };
+        
+        console.log('[saveAttendanceRecord] 저장 시도:', record);
         
         const { data, error } = await supabase
             .from('attendance_records')
             .upsert(record, { 
-                onConflict: 'student_id,attendance_date',
+                onConflict: 'student_id,attendance_date,teacher_id,scheduled_time',
                 ignoreDuplicates: false 
             })
             .select()
             .single();
         
-        if (error) throw error;
+        if (error) {
+            console.error('[saveAttendanceRecord] Supabase 에러:', error);
+            throw error;
+        }
+        
+        console.log('[saveAttendanceRecord] ✅ 저장 성공:', data);
         return data;
     } catch (error) {
-        console.error('[saveAttendanceRecord] 에러:', error);
+        console.error('[saveAttendanceRecord] ❌ 에러:', error);
         throw error;
     }
 }
 
-async function getAttendanceRecordByStudentAndDate(studentId, dateStr) {
+// 다른 스크립트에서 재사용할 수 있도록 노출
+window.saveAttendanceRecord = saveAttendanceRecord;
+window.getAttendanceRecordByStudentAndDate = getAttendanceRecordByStudentAndDate;
+window.getTeacherIdsForStudentDate = getTeacherIdsForStudentDate;
+window.showAttendanceScopeModal = showAttendanceScopeModal;
+
+function syncAttendanceModalStatusIfOpen(studentId, dateStr, status) {
+    const modal = document.getElementById('attendance-modal');
+    if (!modal || modal.style.display !== 'flex') return;
+
+    const currentId = document.getElementById('att-student-id')?.value;
+    const currentDate = document.getElementById('att-date')?.value;
+    if (String(currentId) !== String(studentId) || currentDate !== dateStr) return;
+
+    document.querySelectorAll('.att-btn').forEach(btn => btn.classList.remove('active'));
+
+    let btnClass = status;
+    if (status === 'makeup') {
+        btnClass = 'etc';
+    }
+
+    const activeBtn = document.querySelector(`.att-btn.${btnClass}`);
+    if (activeBtn) activeBtn.classList.add('active');
+
+    const statusDisplay = document.getElementById('current-status-display');
+    const statusMapDisplay = {
+        present: { text: '✓ 출석', class: 'status-present' },
+        late: { text: '⏰ 지각', class: 'status-late' },
+        absent: { text: '✕ 결석', class: 'status-absent' },
+        makeup: { text: '🔄 보강', class: 'status-makeup' },
+        etc: { text: '🔄 보강', class: 'status-makeup' }
+    };
+
+    if (statusDisplay && statusMapDisplay[status]) {
+        statusDisplay.className = 'status-display ' + statusMapDisplay[status].class;
+        statusDisplay.textContent = statusMapDisplay[status].text;
+    }
+}
+
+async function getAttendanceRecordByStudentAndDate(studentId, dateStr, teacherId = null) {
     try {
         const numericId = parseInt(studentId);
-        
-        const { data, error } = await supabase
+        let scheduledTime = null;
+        if (arguments.length > 3) {
+            scheduledTime = arguments[3];
+        }
+        let query = supabase
             .from('attendance_records')
-            .select('*')
+            .select('id, student_id, teacher_id, attendance_date, status, scheduled_time, check_in_time, qr_scanned, qr_judgment, memo')
             .eq('student_id', numericId)
-            .eq('attendance_date', dateStr)
-            .maybeSingle();
-        
+            .eq('attendance_date', dateStr);
+        if (teacherId) {
+            query = query.eq('teacher_id', String(teacherId));
+        }
+        if (scheduledTime) {
+            query = query.eq('scheduled_time', scheduledTime);
+        }
+        const { data, error } = await query.maybeSingle();
         if (error) {
             console.error('[getAttendanceRecordByStudentAndDate] 에러:', error);
             return null;
         }
-        
         return data;
     } catch (error) {
         console.error('[getAttendanceRecordByStudentAndDate] 예외:', error);
@@ -1471,7 +2459,7 @@ async function getAttendanceRecordsByDate(dateStr) {
         
         const { data, error } = await supabase
             .from('attendance_records')
-            .select('*')
+            .select('id, student_id, teacher_id, attendance_date, status, scheduled_time, check_in_time, qr_scanned, memo')
             .eq('owner_user_id', ownerId)
             .eq('teacher_id', currentTeacherId)
             .eq('attendance_date', dateStr)
@@ -1494,14 +2482,16 @@ async function getStudentAttendanceRecordsByMonth(studentId, year, month) {
         const endDate = new Date(year, month, 0);
         const endDateStr = formatDateToYYYYMMDD(endDate);
         
-        const { data, error } = await supabase
+        let query = supabase
             .from('attendance_records')
-            .select('*')
+            .select('id, student_id, teacher_id, attendance_date, status, scheduled_time, check_in_time, qr_scanned, qr_scan_time, qr_judgment, memo')
             .eq('owner_user_id', ownerId)
             .eq('student_id', numericId)
             .gte('attendance_date', startDate)
             .lte('attendance_date', endDateStr)
             .order('attendance_date', { ascending: true });
+
+        const { data, error } = await query;
         
         if (error) throw error;
         return data || [];

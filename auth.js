@@ -1,17 +1,47 @@
 // 로그인/회원가입 기능
 
+function getTabValue(key) {
+    const sessionValue = sessionStorage.getItem(key);
+    return sessionValue !== null ? sessionValue : localStorage.getItem(key);
+}
+
+function setTabValue(key, value) {
+    sessionStorage.setItem(key, value);
+}
+
+function removeTabValue(key) {
+    sessionStorage.removeItem(key);
+    localStorage.removeItem(key);
+}
+
 window.signUp = async function() {
-    const email = document.getElementById('signup-email').value;
+    const email = (document.getElementById('signup-email')?.value || '').trim();
     const password = document.getElementById('signup-password').value;
+    const passwordConfirm = document.getElementById('signup-password-confirm')?.value || '';
     const name = document.getElementById('signup-name').value;
 
-    if (!email || !password || !name) {
-        alert('모든 항목을 입력해주세요');
+    if (!name) {
+        alert('이름을 입력해주세요.');
+        return;
+    }
+
+    if (!email) {
+        alert('구글 이메일 인증이 필요합니다.\n"구글 이메일 인증" 버튼을 눌러 인증해주세요.');
+        return;
+    }
+
+    if (!password || !passwordConfirm) {
+        alert('비밀번호를 입력해주세요.');
+        return;
+    }
+
+    if (password !== passwordConfirm) {
+        alert('비밀번호가 일치하지 않습니다.');
         return;
     }
 
     try {
-        // Supabase에서 회원가입
+        // Supabase에서 회원가입 (구글 인증된 이메일 사용)
         const { data, error } = await supabase.auth.signUp({
             email: email,
             password: password
@@ -40,7 +70,13 @@ window.signUp = async function() {
         // 회원가입 폼 초기화 & 로그인 폼으로 전환
         document.getElementById('signup-email').value = '';
         document.getElementById('signup-password').value = '';
+        const passwordConfirmInput = document.getElementById('signup-password-confirm');
+        if (passwordConfirmInput) passwordConfirmInput.value = '';
         document.getElementById('signup-name').value = '';
+        
+        // Google 인증 상태 초기화
+        if (typeof resetGoogleAuthAdmin === 'function') resetGoogleAuthAdmin();
+        
         toggleAuthForm();
     } catch (error) {
         alert('오류 발생: ' + error.message);
@@ -121,10 +157,10 @@ window.signOut = async function() {
     localStorage.removeItem('current_user_role');
     localStorage.removeItem('current_user_name');
     localStorage.removeItem('remember_login');
-    localStorage.removeItem('current_teacher_id');
-    localStorage.removeItem('current_teacher_name');
-    localStorage.removeItem('current_teacher_role');
-    localStorage.removeItem('active_page');
+    removeTabValue('current_teacher_id');
+    removeTabValue('current_teacher_name');
+    removeTabValue('current_teacher_role');
+    removeTabValue('active_page');
     
     // 로그인 페이지로 이동 및 페이지 상태 초기화
     navigateToPage('AUTH');
@@ -158,6 +194,26 @@ window.signOut = async function() {
     }
 }
 
+// 선생님 선택 화면에서 관리자 로그인 화면으로 돌아가기
+window.backToAdminLogin = async function() {
+    // 세션 정리 및 로그아웃
+    localStorage.removeItem('current_owner_id');
+    localStorage.removeItem('current_user_role');
+    localStorage.removeItem('current_user_name');
+    removeTabValue('current_teacher_id');
+    removeTabValue('current_teacher_name');
+    removeTabValue('current_teacher_role');
+    removeTabValue('active_page');
+
+    try {
+        await supabase.auth.signOut();
+    } catch (e) {
+        console.error('[backToAdminLogin] 로그아웃 에러:', e);
+    }
+
+    navigateToPage('AUTH');
+}
+
 window.toggleAuthForm = function() {
     const loginForm = document.getElementById('login-form');
     const signupForm = document.getElementById('signup-form');
@@ -165,11 +221,256 @@ window.toggleAuthForm = function() {
     if (loginForm.style.display === 'none') {
         loginForm.style.display = 'flex';
         signupForm.style.display = 'none';
+        // 로그인 폼으로 전환 시 회원가입 Google 인증 상태 초기화
+        if (typeof resetGoogleAuthAdmin === 'function') resetGoogleAuthAdmin();
     } else {
         loginForm.style.display = 'none';
         signupForm.style.display = 'flex';
     }
 }
+
+function getPasswordResetRedirectUrl() {
+    if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
+        return `${window.location.origin}/`;
+    }
+    return undefined;
+}
+
+window.openAdminPasswordResetModal = function() {
+    const modal = document.getElementById('admin-password-reset-modal');
+    if (modal) modal.style.display = 'flex';
+    const emailInput = document.getElementById('admin-reset-email');
+    const loginEmail = document.getElementById('login-email');
+    if (emailInput && loginEmail && loginEmail.value) {
+        emailInput.value = loginEmail.value.trim();
+    }
+}
+
+window.closeAdminPasswordResetModal = function() {
+    const modal = document.getElementById('admin-password-reset-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+// 기존 비밀번호 확인 후 관리자 비밀번호 변경
+window.confirmAdminPasswordChange = async function() {
+    const email = (document.getElementById('admin-reset-email')?.value || '').trim();
+    const currentPassword = (document.getElementById('admin-current-password')?.value || '').trim();
+    const newPassword = (document.getElementById('admin-reset-new-password')?.value || '').trim();
+    const confirmPassword = (document.getElementById('admin-reset-new-password-confirm')?.value || '').trim();
+
+    if (!email) return alert('이메일을 입력해주세요.');
+    if (!currentPassword) return alert('기존 비밀번호를 입력해주세요.');
+    if (!newPassword || !confirmPassword) return alert('새 비밀번호를 입력해주세요.');
+    if (newPassword.length < 6) return alert('비밀번호는 6자 이상으로 설정해주세요.');
+    if (newPassword !== confirmPassword) return alert('새 비밀번호가 일치하지 않습니다.');
+
+    try {
+        // 1. 기존 비밀번호 확인 (재로그인으로 검증)
+        const { error: signInError } = await supabase.auth.signInWithPassword({ email, password: currentPassword });
+        if (signInError) {
+            alert('기존 비밀번호가 올바르지 않습니다.');
+            return;
+        }
+
+        // 2. 새 비밀번호로 변경
+        const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
+        if (updateError) {
+            alert('비밀번호 변경 실패: ' + updateError.message);
+            return;
+        }
+
+        alert('비밀번호가 변경되었습니다.');
+        document.getElementById('admin-current-password').value = '';
+        document.getElementById('admin-reset-new-password').value = '';
+        document.getElementById('admin-reset-new-password-confirm').value = '';
+        window.closeAdminPasswordResetModal();
+    } catch (err) {
+        alert('오류 발생: ' + (err.message || err));
+    }
+}
+
+// 관리자 비밀번호 초기화 (123123으로)
+window.resetAdminPassword = async function() {
+    const email = (document.getElementById('admin-reset-email')?.value || '').trim();
+    if (!email) return alert('관리자 이메일을 입력해주세요.');
+
+    if (!confirm(`${email} 계정의 비밀번호를 123123으로 초기화하시겠습니까?\n\n⚠️ Supabase 대시보드에서 초기화해야 합니다.\n이메일로 재설정 링크를 보내드립니다.`)) return;
+
+    try {
+        const redirectTo = getPasswordResetRedirectUrl();
+        const { error } = await supabase.auth.resetPasswordForEmail(email, redirectTo ? { redirectTo } : undefined);
+        if (error) {
+            alert('메일 전송 실패: ' + error.message);
+            return;
+        }
+        alert('비밀번호 재설정 링크를 이메일로 보냈습니다.\n메일의 링크를 클릭하면 새 비밀번호를 설정할 수 있습니다.');
+        window.closeAdminPasswordResetModal();
+    } catch (err) {
+        alert('오류 발생: ' + (err.message || err));
+    }
+}
+
+window.openAdminPasswordUpdateModal = function() {
+    const modal = document.getElementById('admin-password-update-modal');
+    if (modal) modal.style.display = 'flex';
+}
+
+window.closeAdminPasswordUpdateModal = function() {
+    const modal = document.getElementById('admin-password-update-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+window.confirmAdminPasswordReset = async function() {
+    const newPasswordInput = document.getElementById('admin-new-password');
+    const confirmInput = document.getElementById('admin-new-password-confirm');
+    const newPassword = newPasswordInput ? newPasswordInput.value.trim() : '';
+    const confirmPassword = confirmInput ? confirmInput.value.trim() : '';
+
+    if (!newPassword || !confirmPassword) {
+        alert('새 비밀번호를 입력해주세요');
+        return;
+    }
+
+    if (newPassword.length < 6) {
+        alert('비밀번호는 6자 이상으로 설정해주세요');
+        return;
+    }
+
+    if (newPassword !== confirmPassword) {
+        alert('비밀번호가 일치하지 않습니다');
+        return;
+    }
+
+    try {
+        const { error } = await supabase.auth.updateUser({ password: newPassword });
+        if (error) {
+            alert('비밀번호 변경 실패: ' + error.message);
+            return;
+        }
+
+        alert('비밀번호가 변경되었습니다. 다시 로그인해주세요.');
+        if (newPasswordInput) newPasswordInput.value = '';
+        if (confirmInput) confirmInput.value = '';
+        window.closeAdminPasswordUpdateModal();
+        await supabase.auth.signOut();
+        if (typeof navigateToPage === 'function') {
+            navigateToPage('AUTH');
+        }
+    } catch (err) {
+        alert('오류 발생: ' + (err.message || err));
+    }
+}
+
+if (!window._passwordRecoveryListenerSet) {
+    window._passwordRecoveryListenerSet = true;
+    supabase.auth.onAuthStateChange((event) => {
+        if (event === 'PASSWORD_RECOVERY') {
+            if (typeof navigateToPage === 'function') {
+                navigateToPage('AUTH');
+            }
+            window._passwordRecoveryModalOpened = true;
+            window.openAdminPasswordUpdateModal();
+        }
+    });
+}
+
+async function waitForRecoverySession(timeoutMs = 4000) {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) return true;
+        await new Promise(resolve => setTimeout(resolve, 200));
+    }
+    return false;
+}
+
+async function recoverSessionFromUrl(hashParams) {
+    try {
+        const accessToken = hashParams.get('access_token');
+        const refreshToken = hashParams.get('refresh_token');
+
+        if (accessToken && refreshToken) {
+            const { error } = await supabase.auth.setSession({
+                access_token: accessToken,
+                refresh_token: refreshToken
+            });
+            if (error) {
+                console.error('[recoverSessionFromUrl] setSession 실패:', error);
+                return false;
+            }
+            return true;
+        }
+
+        if (accessToken && typeof supabase.auth.getSessionFromUrl === 'function') {
+            const { error } = await supabase.auth.getSessionFromUrl({ storeSession: true });
+            if (error) {
+                console.error('[recoverSessionFromUrl] getSessionFromUrl 실패:', error);
+                return false;
+            }
+            return true;
+        }
+    } catch (err) {
+        console.error('[recoverSessionFromUrl] 실패:', err);
+    }
+    return false;
+}
+
+async function handlePasswordRecoveryOnLoad() {
+    try {
+        console.log('[handlePasswordRecoveryOnLoad] URL:', window.location.href);
+        const url = new URL(window.location.href);
+        const hashParams = new URLSearchParams(url.hash.replace(/^#/, ''));
+        const searchParams = url.searchParams;
+
+        const recoveryType = searchParams.get('type') || hashParams.get('type');
+        const code = searchParams.get('code') || hashParams.get('code');
+        const accessToken = hashParams.get('access_token');
+        const errorCode = searchParams.get('error_code') || hashParams.get('error_code');
+        const errorDescription = searchParams.get('error_description') || hashParams.get('error_description');
+
+        console.log('[handlePasswordRecoveryOnLoad] 상태:', {
+            recoveryType,
+            code: code ? 'present' : 'none',
+            accessToken: accessToken ? 'present' : 'none',
+            errorCode,
+            errorDescription
+        });
+
+        if (errorCode) {
+            console.warn('[handlePasswordRecoveryOnLoad] 에러 코드 감지:', errorCode, errorDescription);
+            alert('비밀번호 재설정 링크가 유효하지 않거나 만료되었습니다. 새 메일로 다시 시도해주세요.');
+            return;
+        }
+
+        const isRecovery = recoveryType === 'recovery' || !!code || !!accessToken;
+        if (!isRecovery) return;
+
+        await recoverSessionFromUrl(hashParams);
+
+        if (typeof navigateToPage === 'function') {
+            navigateToPage('AUTH');
+        }
+
+        const hasSession = await waitForRecoverySession();
+        if (!hasSession) {
+            alert('비밀번호 재설정 링크 처리에 실패했습니다. 새 메일로 다시 시도해주세요.');
+            return;
+        }
+
+        if (!window._passwordRecoveryModalOpened) {
+            window._passwordRecoveryModalOpened = true;
+            window.openAdminPasswordUpdateModal();
+        }
+
+        if (window.history && window.history.replaceState) {
+            window.history.replaceState({}, document.title, window.location.pathname);
+        }
+    } catch (err) {
+        console.error('[handlePasswordRecoveryOnLoad] 실패:', err);
+    }
+}
+
+handlePasswordRecoveryOnLoad();
 
 window.showMainApp = async function(forceTeacherSelect = false) {
     try {
@@ -185,9 +486,9 @@ window.showMainApp = async function(forceTeacherSelect = false) {
             console.warn('[showMainApp] 세션 없음 - 로그인 페이지로 강제 이동');
             // localStorage 정리
             localStorage.removeItem('current_owner_id');
-            localStorage.removeItem('current_teacher_id');
-            localStorage.removeItem('current_teacher_name');
-            localStorage.removeItem('active_page');
+            removeTabValue('current_teacher_id');
+            removeTabValue('current_teacher_name');
+            removeTabValue('active_page');
             navigateToPage('AUTH');
             return;
         }
@@ -226,7 +527,7 @@ window.showMainApp = async function(forceTeacherSelect = false) {
             console.error('[showMainApp] loadTeachers 함수를 찾을 수 없습니다.');
         }
 
-        const lastTeacherId = localStorage.getItem('current_teacher_id');
+        const lastTeacherId = getTabValue('current_teacher_id');
         console.log('[showMainApp] 저장된 current_teacher_id:', lastTeacherId);
 
         // forceTeacherSelect가 true이면 선생님 자동 선택을 건너뛰고 선택 페이지로 이동
@@ -273,6 +574,19 @@ window.initializeAuth = async function(isRefresh = false) {
     
     try {
         console.log('[initializeAuth] 시작, 새로고침:', isRefresh);
+
+        const url = new URL(window.location.href);
+        const hashParams = new URLSearchParams(url.hash.replace(/^#/, ''));
+        const searchParams = url.searchParams;
+        const isRecoveryUrl = (searchParams.get('type') || hashParams.get('type')) === 'recovery'
+            || !!searchParams.get('code')
+            || !!hashParams.get('code')
+            || !!hashParams.get('access_token');
+        if (isRecoveryUrl) {
+            console.log('[initializeAuth] 비밀번호 복구 URL 감지');
+            await recoverSessionFromUrl(hashParams);
+            await waitForRecoverySession();
+        }
         
         // 로딩 화면 표시 (이미 표시되어 있지만 명시적으로 확인)
         const loader = document.getElementById('initial-loader');
@@ -319,8 +633,8 @@ window.initializeAuth = async function(isRefresh = false) {
         }
         
         console.log('[initializeAuth] 세션 존재 여부:', !!session);
-        console.log('[initializeAuth] 현재 active_page:', localStorage.getItem('active_page'));
-        console.log('[initializeAuth] 현재 teacher_id:', localStorage.getItem('current_teacher_id'));
+        console.log('[initializeAuth] 현재 active_page:', getTabValue('active_page'));
+        console.log('[initializeAuth] 현재 teacher_id:', getTabValue('current_teacher_id'));
 
         // remember_me 상태를 체크박스에 반영
         const rememberFlag = localStorage.getItem('remember_login') === 'true';
@@ -337,7 +651,7 @@ window.initializeAuth = async function(isRefresh = false) {
                 // ✅ 창 닫기 후 다시 열기: remember_login 확인
                 console.log('[initializeAuth] 새 세션, remember_login 재확인:', rememberLogin);
                 
-                if (!rememberLogin) {
+                if (!rememberLogin && !isRecoveryUrl) {
                     console.log('[initializeAuth] 새 세션에서 remember_login 없음 - 세션 제거');
                     await supabase.auth.signOut();
                     await cleanupAndRedirectToAuth();
@@ -347,7 +661,7 @@ window.initializeAuth = async function(isRefresh = false) {
             
             // ✅ 3단계: 세션이 있으면 users 테이블에서 실제로 사용자가 존재하는지 확인
             // (새로고침 시에는 스킵 - 이미 로그인된 사용자로 간주)
-            if (!isRefresh) {
+            if (!isRefresh && !isRecoveryUrl) {
                 console.log('[initializeAuth] 세션 있음, users 테이블 검증 중...');
                 try {
                     const { data: userData, error: userError } = await supabase
@@ -369,7 +683,7 @@ window.initializeAuth = async function(isRefresh = false) {
                     return;
                 }
             } else {
-                console.log('[initializeAuth] 새로고침 - users 테이블 검증 스킵 (빠른 복원)');
+                console.log('[initializeAuth] users 테이블 검증 스킵 (새로고침/복구 URL)');
             }
             
             // ✅ 4단계: 세션이 유효하면 사용자 ID 저장
@@ -379,8 +693,8 @@ window.initializeAuth = async function(isRefresh = false) {
             // ✅ 5단계: 새로고침 vs 창 닫기 구분 및 페이지 복원
             if (isRefresh) {
                 // 🔄 새로고침 (F5): 현재 페이지 상태 완전히 복원
-                const currentPage = getActivePage();
-                const lastTeacherId = localStorage.getItem('current_teacher_id');
+                const currentPage = getTabValue('active_page') || getActivePage();
+                const lastTeacherId = getTabValue('current_teacher_id');
                 
                 console.log('[initializeAuth] 🔄 새로고침 진행 - 현재 페이지:', currentPage, '선생님 ID:', lastTeacherId);
                 
@@ -458,13 +772,24 @@ window.initializeAuth = async function(isRefresh = false) {
                 console.log('[initializeAuth] ❌ 창 닫기 후 다시 열기 - remember_login:', rememberLoginWindow);
                 
                 if (rememberLoginWindow) {
-                    // ✅ 로그인 유지 함: 선생님 정보 제거하고 선생님 선택 페이지로 이동 (보안)
-                    console.log('[initializeAuth] 창 닫기 후 다시 열기 - 로그인 유지 활성화 → 선생님 정보 제거 후 선생님 선택 페이지');
-                    localStorage.removeItem('current_teacher_id');
-                    localStorage.removeItem('current_teacher_name');
-                    localStorage.removeItem('current_teacher_role');
-                    localStorage.removeItem('active_page');
-                    await showMainApp(true);  // forceTeacherSelect=true로 선생님 선택 페이지 강제 표시
+                    const lastTeacherId = getTabValue('current_teacher_id');
+                    console.log('[initializeAuth] 로그인 유지 활성화 - 저장된 선생님 ID:', lastTeacherId);
+
+                    if (lastTeacherId) {
+                        try {
+                            const list = typeof loadTeachers === 'function' ? await loadTeachers() : [];
+                            const found = list.find(t => String(t.id) === String(lastTeacherId));
+                            if (found && typeof setCurrentTeacher === 'function') {
+                                await setCurrentTeacher(found);
+                                hideLoader();
+                                return;
+                            }
+                        } catch (err) {
+                            console.error('[initializeAuth] 선생님 복원 실패:', err.message);
+                        }
+                    }
+
+                    await showMainApp(true);
                 } else {
                     // ✅ 로그인 유지 안 함: 로그인 페이지로 이동
                     console.log('[initializeAuth] 창 닫기 후 다시 열기 - 로그인 유지 비활성화 → 로그인 페이지');
@@ -478,6 +803,12 @@ window.initializeAuth = async function(isRefresh = false) {
         }
         
         // ✅ 세션이 없으면 localStorage 정리하고 로그인 페이지로
+        if (isRecoveryUrl) {
+            console.warn('[initializeAuth] 복구 URL인데 세션 없음 - 처리 중단');
+            hideLoader();
+            return;
+        }
+
         console.log('[initializeAuth] 세션 없음 → 로그인 페이지로 이동');
         await cleanupAndRedirectToAuth();
         
@@ -500,10 +831,10 @@ async function cleanupAndRedirectToAuth() {
     localStorage.removeItem('current_owner_id');
     localStorage.removeItem('current_user_role');
     localStorage.removeItem('current_user_name');
-    localStorage.removeItem('current_teacher_id');
-    localStorage.removeItem('current_teacher_name');
-    localStorage.removeItem('current_teacher_role');
-    localStorage.removeItem('active_page');
+    removeTabValue('current_teacher_id');
+    removeTabValue('current_teacher_name');
+    removeTabValue('current_teacher_role');
+    removeTabValue('active_page');
     localStorage.removeItem('remember_login');
     
     // 선생님별 일정 데이터 정리
