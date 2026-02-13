@@ -68,7 +68,7 @@ async function handleSearch() {
 		// 1) 이름으로 먼저 조회
 		const { data: nameData, error: nameError } = await supabaseClient
 			.from('students')
-			.select('*')
+			.select('id, name, school, grade, phone, parent_phone, owner_user_id, teacher_id, qr_code_data')
 			.ilike('name', `%${name}%`);
 
 		console.log('[검색 결과-이름] 에러:', nameError, '데이터:', nameData);
@@ -90,7 +90,7 @@ async function handleSearch() {
 
 			const { data: phoneData, error: phoneError } = await supabaseClient
 				.from('students')
-				.select('*')
+				.select('id, name, school, grade, phone, parent_phone, owner_user_id, teacher_id, qr_code_data')
 				.or(orQuery);
 
 			console.log('[검색 결과-전화] 에러:', phoneError, '데이터:', phoneData);
@@ -210,15 +210,13 @@ async function onQRCodeSuccess(decodedText, decodedResult) {
 	const token = decodedText.split('_').slice(2).join('_');
 
 	try {
-		const { data, error } = await supabaseClient
+		const { data: student, error } = await supabaseClient
 			.from('students')
-			.select('*')
+			.select('id, name, school, grade, phone, parent_phone, owner_user_id, teacher_id, qr_code_data')
 			.eq('id', studentId)
-			.limit(1);
+			.maybeSingle();
 
 		if (error) throw error;
-
-		const student = (data || [])[0];
 		if (!student) {
 			showAlert('등록되지 않은 학생입니다', 'error');
 			return;
@@ -300,7 +298,6 @@ async function displayMonthlyAttendance(monthStr) {
 	showLoading();
 
 	try {
-		// monthStr: "2024-02" 형식
 		const [year, month] = monthStr.split('-');
 		const startDate = `${year}-${month}-01`;
 		const lastDay = new Date(year, month, 0).getDate();
@@ -308,7 +305,7 @@ async function displayMonthlyAttendance(monthStr) {
 
 		const { data: records, error } = await supabaseClient
 			.from('attendance_records')
-			.select('*')
+			.select('id, student_id, teacher_id, attendance_date, status, scheduled_time, check_in_time, qr_scanned, memo')
 			.eq('student_id', String(currentStudent.id))
 			.gte('attendance_date', startDate)
 			.lte('attendance_date', endDate)
@@ -319,28 +316,137 @@ async function displayMonthlyAttendance(monthStr) {
 		const attendanceList = document.getElementById('attendance-list');
 		attendanceList.innerHTML = '';
 
-		const normalized = normalizeAttendanceRecordsByDate(records || []);
-
-		if (!normalized || normalized.length === 0) {
+		if (!records || records.length === 0) {
 			attendanceList.innerHTML = `
 				<div class="empty-state">
 					<p>${year}년 ${month}월 출결 기록이 없습니다</p>
 				</div>
 			`;
-		} else {
-			normalized.forEach(record => {
-				const item = createAttendanceItem(record);
-				attendanceList.appendChild(item);
-			});
+			await displayMonthlyStats(monthStr);
+			hideLoading();
+			return;
 		}
 
-		// 월별 통계 업데이트
-		await displayMonthlyStats(monthStr);
+		// 담당 선생님 기준 분리
+		const primaryTeacherId = currentStudent.teacher_id ? String(currentStudent.teacher_id) : '';
+		const primaryByDate = new Map();
+		const otherByDate = new Map();
 
+		records.forEach(r => {
+			const key = r.attendance_date;
+			if (primaryTeacherId && String(r.teacher_id) === primaryTeacherId) {
+				if (!primaryByDate.has(key)) primaryByDate.set(key, []);
+				primaryByDate.get(key).push(r);
+			} else {
+				if (!otherByDate.has(key)) otherByDate.set(key, []);
+				otherByDate.get(key).push(r);
+			}
+		});
+
+		// 담당 선생님 기록이 있는 날짜 (+ 담당만 있는 게 아니라 전체 날짜도 포함)
+		const allDates = new Set([...primaryByDate.keys(), ...otherByDate.keys()]);
+		const dateList = Array.from(allDates).sort((a, b) => new Date(b) - new Date(a));
+
+		const getTeacherName = (tid) => {
+			const t = teacherAuthList.find(t => String(t.id) === String(tid));
+			return t ? t.name : `선생님`;
+		};
+
+		dateList.forEach(dateKey => {
+			const myRecords = primaryByDate.get(dateKey) || [];
+			const otherRecords = otherByDate.get(dateKey) || [];
+			const primaryRecord = myRecords[0] || null;
+			const displayRecord = primaryRecord || otherRecords[0] || null;
+			if (!displayRecord) return;
+
+			const date = new Date(dateKey);
+			const formattedDate = date.toLocaleDateString('ko-KR', {
+				month: '2-digit', day: '2-digit', weekday: 'short'
+			});
+
+			const time = getAttendanceTimeLabel(displayRecord);
+			const status = displayRecord.status || '';
+
+			let statusClass = 'status-absent';
+			let statusText = '결석';
+			let statusIcon = '❌';
+			if (status === 'present') { statusClass = 'status-present'; statusText = '출석'; statusIcon = '✅'; }
+			else if (status === 'late') { statusClass = 'status-late'; statusText = '지각'; statusIcon = '⏰'; }
+			else if (status === 'makeup' || status === 'etc') { statusClass = 'status-makeup'; statusText = '보강'; statusIcon = '🔁'; }
+
+			// 호버 툴팁 (다른 선생님 일정이 있는 경우)
+			const hasOther = otherRecords.length > 0 && primaryRecord;
+			let tooltipHtml = '';
+			if (hasOther) {
+				const myName = getTeacherName(primaryTeacherId);
+				const myTime = getAttendanceTimeLabel(primaryRecord);
+				const myStatusInfo = ppGetStatusInfo(primaryRecord.status);
+
+				let items = `<div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.1);"><span style="font-weight:700;color:#93c5fd;">${myName}</span><span style="color:#94a3b8;font-size:12px;">${myTime}</span><span style="background:${myStatusInfo.color};color:white;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;">${myStatusInfo.label}</span></div>`;
+
+				const otherTeacherIds = [...new Set(otherRecords.map(r => String(r.teacher_id)))];
+				otherTeacherIds.forEach(tid => {
+					const rec = otherRecords.find(r => String(r.teacher_id) === tid);
+					if (!rec) return;
+					const tName = getTeacherName(tid);
+					const tTime = getAttendanceTimeLabel(rec);
+					const tInfo = ppGetStatusInfo(rec.status);
+					items += `<div style="display:flex;align-items:center;gap:6px;padding:5px 0;"><span style="font-weight:600;color:#e2e8f0;">${tName}</span><span style="color:#94a3b8;font-size:12px;">${tTime}</span><span style="background:${tInfo.color};color:white;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;">${tInfo.label}</span></div>`;
+				});
+
+				tooltipHtml = `<div class="pp-day-tooltip" style="display:none;position:absolute;bottom:calc(100% + 8px);left:12px;background:#1e293b;color:white;padding:12px 14px;border-radius:10px;font-size:13px;min-width:220px;max-width:300px;z-index:9999;box-shadow:0 8px 24px rgba(0,0,0,0.25);line-height:1.5;"><div style="font-weight:700;margin-bottom:6px;font-size:12px;color:#94a3b8;">${formattedDate} 전체 일정</div>${items}<div style="position:absolute;bottom:-6px;left:24px;width:12px;height:12px;background:#1e293b;rotate:45deg;border-radius:2px;"></div></div>`;
+			}
+
+			const item = document.createElement('div');
+			item.className = 'attendance-item';
+			if (hasOther) {
+				item.setAttribute('data-has-tooltip', 'true');
+				item.style.position = 'relative';
+				item.style.cursor = 'pointer';
+			}
+			item.innerHTML = `
+				${tooltipHtml}
+				<div class="attendance-date">${formattedDate}</div>
+				<div class="attendance-time">${time}</div>
+				<div class="attendance-status ${statusClass}">${statusIcon} ${statusText}</div>
+			`;
+			attendanceList.appendChild(item);
+		});
+
+		// 호버 툴팁 이벤트 바인딩
+		attendanceList.querySelectorAll('.attendance-item[data-has-tooltip="true"]').forEach(row => {
+			const tooltip = row.querySelector('.pp-day-tooltip');
+			if (!tooltip) return;
+			row.addEventListener('mouseenter', () => { tooltip.style.display = 'block'; });
+			row.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
+			row.addEventListener('click', (e) => {
+				e.stopPropagation();
+				const isVisible = tooltip.style.display === 'block';
+				attendanceList.querySelectorAll('.pp-day-tooltip').forEach(t => t.style.display = 'none');
+				tooltip.style.display = isVisible ? 'none' : 'block';
+			});
+		});
+		attendanceList.addEventListener('click', (e) => {
+			if (e.target.closest('.attendance-item[data-has-tooltip="true"]')) return;
+			attendanceList.querySelectorAll('.pp-day-tooltip').forEach(t => t.style.display = 'none');
+		});
+
+		await displayMonthlyStats(monthStr);
 		hideLoading();
 	} catch (error) {
 		console.error('월별 출결 기록 조회 오류:', error);
 		showAlert('출결 기록을 불러올 수 없습니다', 'error');
+	}
+}
+
+// 학부모 포털용 상태 정보 헬퍼
+function ppGetStatusInfo(status) {
+	switch (status) {
+		case 'present': return { label: '출석', color: '#10b981' };
+		case 'late': return { label: '지각', color: '#f59e0b' };
+		case 'absent': return { label: '결석', color: '#ef4444' };
+		case 'makeup': case 'etc': return { label: '보강', color: '#8b5cf6' };
+		default: return { label: '미처리', color: '#94a3b8' };
 	}
 }
 

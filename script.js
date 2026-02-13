@@ -15,6 +15,169 @@ let teacherList = [];
 let currentStudentListTab = 'all';
 let currentStudentSort = 'default';
 let autoAbsentTimerId = null;
+let isStudentSaving = false;
+let selectedScheduleStudents = [];
+let isScheduleSaving = false;
+let selectedPeriodDeleteStudents = [];
+
+function normalizeScheduleEntries(value) {
+    if (!value) return [];
+    return Array.isArray(value) ? value : [value];
+}
+
+function getScheduleEntries(teacherId, studentId, dateStr) {
+    const teacherSchedule = teacherScheduleData[teacherId] || {};
+    const studentSchedule = teacherSchedule[studentId] || {};
+    return normalizeScheduleEntries(studentSchedule[dateStr]);
+}
+
+function setScheduleEntries(teacherId, studentId, dateStr, entries) {
+    if (!teacherScheduleData[teacherId]) teacherScheduleData[teacherId] = {};
+    if (!teacherScheduleData[teacherId][studentId]) teacherScheduleData[teacherId][studentId] = {};
+    if (entries && entries.length) {
+        teacherScheduleData[teacherId][studentId][dateStr] = entries;
+    } else {
+        delete teacherScheduleData[teacherId][studentId][dateStr];
+    }
+}
+
+// ★ 일정 시간 겹침 확인 함수 (로컬 + DB 동시 확인)
+// 해당 학생의 해당 날짜에 모든 선생님의 일정을 확인하여 시간이 겹치는 일정을 반환
+async function checkScheduleOverlap(studentId, dateStr, newStart, newDuration, excludeTeacherId, excludeStart) {
+    const conflicts = [];
+    const newStartMin = timeToMinutes(newStart);
+    if (newStartMin < 0) return conflicts;
+    const newEndMin = newStartMin + (parseInt(newDuration) || 60);
+    const checkedKeys = new Set(); // 중복 방지
+
+    // 1단계: 로컬 데이터에서 확인
+    for (const teacherId in teacherScheduleData) {
+        const teacherSchedule = teacherScheduleData[teacherId] || {};
+        const studentSchedule = teacherSchedule[String(studentId)] || {};
+        const rawData = studentSchedule[dateStr];
+        if (!rawData) continue;
+
+        const entries = Array.isArray(rawData) ? rawData : [rawData];
+        for (const entry of entries) {
+            if (!entry || !entry.start || entry.start === 'default') continue;
+            if (excludeTeacherId && excludeStart && String(teacherId) === String(excludeTeacherId) && entry.start === excludeStart) continue;
+
+            const existStartMin = timeToMinutes(entry.start);
+            if (existStartMin < 0) continue;
+            const existEndMin = existStartMin + (entry.duration || 60);
+
+            if (newStartMin < existEndMin && existStartMin < newEndMin) {
+                const key = `${teacherId}_${entry.start}`;
+                if (!checkedKeys.has(key)) {
+                    checkedKeys.add(key);
+                    conflicts.push({
+                        teacherId,
+                        teacherName: getTeacherNameById(teacherId),
+                        start: entry.start,
+                        duration: entry.duration || 60,
+                        endTime: minutesToTime(existEndMin)
+                    });
+                }
+            }
+        }
+    }
+
+    // 2단계: DB에서도 직접 확인 (로컬에 없는 다른 선생님 일정 보완)
+    try {
+        const ownerId = localStorage.getItem('current_owner_id');
+        if (ownerId && typeof supabase !== 'undefined') {
+            const { data, error } = await supabase
+                .from('schedules')
+                .select('teacher_id, start_time, duration')
+                .eq('owner_user_id', ownerId)
+                .eq('student_id', studentId)
+                .eq('schedule_date', dateStr);
+
+            if (!error && data) {
+                for (const row of data) {
+                    const tid = String(row.teacher_id);
+                    const startStr = row.start_time ? row.start_time.substring(0, 5) : null;
+                    if (!startStr) continue;
+                    if (excludeTeacherId && excludeStart && tid === String(excludeTeacherId) && startStr === excludeStart) continue;
+
+                    const key = `${tid}_${startStr}`;
+                    if (checkedKeys.has(key)) continue;
+                    checkedKeys.add(key);
+
+                    const existStartMin = timeToMinutes(startStr);
+                    if (existStartMin < 0) continue;
+                    const dur = row.duration || 60;
+                    const existEndMin = existStartMin + dur;
+
+                    if (newStartMin < existEndMin && existStartMin < newEndMin) {
+                        conflicts.push({
+                            teacherId: tid,
+                            teacherName: getTeacherNameById(tid),
+                            start: startStr,
+                            duration: dur,
+                            endTime: minutesToTime(existEndMin)
+                        });
+                    }
+                }
+            }
+        }
+    } catch (dbErr) {
+        console.warn('[checkScheduleOverlap] DB 조회 실패 (로컬 결과만 사용):', dbErr);
+    }
+
+    return conflicts;
+}
+
+// 시간 문자열 "HH:MM" → 분으로 변환
+function timeToMinutes(timeStr) {
+    if (!timeStr) return -1;
+    const parts = timeStr.split(':').map(Number);
+    if (parts.length < 2 || isNaN(parts[0]) || isNaN(parts[1])) return -1;
+    return parts[0] * 60 + parts[1];
+}
+
+// 분 → "HH:MM" 문자열로 변환
+function minutesToTime(min) {
+    const h = Math.floor(min / 60);
+    const m = min % 60;
+    return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+}
+
+// teacherId로 선생님 이름 가져오기
+function getTeacherNameById(teacherId) {
+    if (!teacherList || !teacherList.length) return `선생님(${teacherId})`;
+    const t = teacherList.find(t => String(t.id) === String(teacherId));
+    return t ? t.name : `선생님(${teacherId})`;
+}
+
+// 겹침 목록을 사용자에게 보여주는 메시지 생성
+function formatOverlapMessage(studentName, dateStr, conflicts) {
+    let msg = `⚠️ ${studentName} - ${dateStr} 일정 시간 겹침 발견!\n\n`;
+    for (const c of conflicts) {
+        msg += `• ${c.teacherName} 선생님: ${c.start} ~ ${c.endTime} (${c.duration}분)\n`;
+    }
+    msg += `\n그래도 일정을 추가하시겠습니까?`;
+    return msg;
+}
+
+function getEarliestScheduleEntry(entries) {
+    if (!entries || entries.length === 0) return null;
+    return entries.reduce((earliest, current) => {
+        if (!earliest) return current;
+        return current.start < earliest.start ? current : earliest;
+    }, null);
+}
+
+function upsertScheduleEntry(entries, nextEntry) {
+    const next = [...entries];
+    const existingIdx = next.findIndex(item => item.start === nextEntry.start);
+    if (existingIdx > -1) {
+        next[existingIdx] = nextEntry;
+        return { list: next, replaced: true };
+    }
+    next.push(nextEntry);
+    return { list: next, replaced: false };
+}
 
 // ========== 새로운: 페이지 상태 관리 ==========
 const pageStates = {
@@ -115,50 +278,96 @@ function formatDateToYYYYMMDD(date) {
 }
 
 async function autoMarkAbsentForPastSchedules() {
-    if (!currentTeacherId || !teacherScheduleData[currentTeacherId]) return;
+    if (!teacherScheduleData || Object.keys(teacherScheduleData).length === 0) return;
 
-    const todayKst = formatDateToYYYYMMDD(getKstNow());
-    const teacherSchedule = teacherScheduleData[currentTeacherId] || {};
+    const nowKst = getKstNow();
+    const todayKst = formatDateToYYYYMMDD(nowKst);
     let updated = false;
 
-    for (const studentId in teacherSchedule) {
-        const scheduleByDate = teacherSchedule[studentId] || {};
-        const student = students.find(s => String(s.id) === String(studentId));
-        if (!student) continue;
+    // ★ 모든 선생님의 일정을 순회 (현재 선생님뿐 아니라 전체)
+    for (const teacherId in teacherScheduleData) {
+        const teacherSchedule = teacherScheduleData[teacherId] || {};
 
-        for (const dateStr in scheduleByDate) {
-            if (dateStr >= todayKst) continue;
-            if (student.attendance && student.attendance[dateStr]) continue;
+        for (const studentId in teacherSchedule) {
+            const scheduleByDate = teacherSchedule[studentId] || {};
+            const student = students.find(s => String(s.id) === String(studentId));
+            if (!student) continue;
 
-            if (!student.attendance) student.attendance = {};
-            student.attendance[dateStr] = 'absent';
+            for (const dateStr in scheduleByDate) {
+                const rawData = scheduleByDate[dateStr];
+                // ★ 배열 또는 단일 객체 모두 처리
+                const entries = Array.isArray(rawData) ? rawData : [rawData];
 
-            const currentStudentIdx = currentTeacherStudents.findIndex(s => String(s.id) === String(studentId));
-            if (currentStudentIdx > -1) {
-                if (!currentTeacherStudents[currentStudentIdx].attendance) currentTeacherStudents[currentStudentIdx].attendance = {};
-                currentTeacherStudents[currentStudentIdx].attendance[dateStr] = 'absent';
-            }
+                for (const schedule of entries) {
+                    const startTime = schedule?.start;
+                    if (!startTime || startTime === 'default') continue;
 
-            if (typeof window.saveAttendanceRecord === 'function') {
-                const schedule = scheduleByDate[dateStr];
-                try {
-                    await window.saveAttendanceRecord({
-                        studentId: studentId,
-                        teacherId: String(currentTeacherId),
-                        attendanceDate: dateStr,
-                        checkInTime: null,
-                        scheduledTime: schedule?.start || null,
-                        status: 'absent',
-                        qrScanned: false,
-                        qrScanTime: null,
-                        qrJudgment: null
-                    });
-                } catch (e) {
-                    console.error('[autoMarkAbsentForPastSchedules] DB 저장 실패:', e);
+                    const duration = schedule?.duration || 60;
+
+                    let shouldCheck = false;
+                    if (dateStr < todayKst) {
+                        shouldCheck = true;
+                    } else if (dateStr === todayKst) {
+                        const [sh, sm] = startTime.split(':').map(Number);
+                        if (isNaN(sh) || isNaN(sm)) continue;
+                        const classEnd = new Date(nowKst);
+                        classEnd.setHours(sh, sm, 0, 0);
+                        classEnd.setMinutes(classEnd.getMinutes() + duration);
+                        if (nowKst >= classEnd) {
+                            shouldCheck = true;
+                        }
+                    }
+
+                    if (!shouldCheck) continue;
+
+                    if (!student.attendance) student.attendance = {};
+                    if (typeof student.attendance[dateStr] === 'string') {
+                        const prev = student.attendance[dateStr];
+                        student.attendance[dateStr] = {};
+                        student.attendance[dateStr]['default'] = prev;
+                    }
+                    if (student.attendance[dateStr] && typeof student.attendance[dateStr] === 'object' && student.attendance[dateStr][startTime]) continue;
+
+                    if (!student.attendance[dateStr] || typeof student.attendance[dateStr] !== 'object') {
+                        student.attendance[dateStr] = {};
+                    }
+                    student.attendance[dateStr][startTime] = 'absent';
+
+                    const ctIdx = currentTeacherStudents.findIndex(s => String(s.id) === String(studentId));
+                    if (ctIdx > -1) {
+                        if (!currentTeacherStudents[ctIdx].attendance) currentTeacherStudents[ctIdx].attendance = {};
+                        if (typeof currentTeacherStudents[ctIdx].attendance[dateStr] === 'string') {
+                            const prev = currentTeacherStudents[ctIdx].attendance[dateStr];
+                            currentTeacherStudents[ctIdx].attendance[dateStr] = {};
+                            currentTeacherStudents[ctIdx].attendance[dateStr]['default'] = prev;
+                        }
+                        if (!currentTeacherStudents[ctIdx].attendance[dateStr] || typeof currentTeacherStudents[ctIdx].attendance[dateStr] !== 'object') {
+                            currentTeacherStudents[ctIdx].attendance[dateStr] = {};
+                        }
+                        currentTeacherStudents[ctIdx].attendance[dateStr][startTime] = 'absent';
+                    }
+
+                    if (typeof window.saveAttendanceRecord === 'function') {
+                        try {
+                            await window.saveAttendanceRecord({
+                                studentId: studentId,
+                                teacherId: String(teacherId),
+                                attendanceDate: dateStr,
+                                checkInTime: null,
+                                scheduledTime: startTime,
+                                status: 'absent',
+                                qrScanned: false,
+                                qrScanTime: null,
+                                qrJudgment: '자동 결석 처리'
+                            });
+                        } catch (e) {
+                            console.error('[autoMarkAbsentForPastSchedules] DB 저장 실패:', e);
+                        }
+                    }
+
+                    updated = true;
                 }
             }
-
-            updated = true;
         }
     }
 
@@ -168,21 +377,69 @@ async function autoMarkAbsentForPastSchedules() {
     }
 }
 
+// ★ 각 수업 종료 시점에 결석 자동 처리 타이머 등록
+let _autoAbsentTimers = [];
+
 function scheduleKstMidnightAutoAbsent() {
+    // 기존 타이머 모두 제거
     if (autoAbsentTimerId) {
         clearTimeout(autoAbsentTimerId);
         autoAbsentTimerId = null;
     }
+    _autoAbsentTimers.forEach(t => clearTimeout(t));
+    _autoAbsentTimers = [];
 
     const now = getKstNow();
+    const todayStr = formatDateToYYYYMMDD(now);
+
+    // 자정 타이머 (안전장치)
     const nextMidnight = new Date(now);
     nextMidnight.setHours(24, 0, 0, 0);
-    const msUntil = nextMidnight.getTime() - now.getTime();
-
+    const msUntilMidnight = nextMidnight.getTime() - now.getTime();
     autoAbsentTimerId = setTimeout(async () => {
         await autoMarkAbsentForPastSchedules();
         scheduleKstMidnightAutoAbsent();
-    }, msUntil);
+    }, msUntilMidnight);
+
+    // ★ 오늘 수업 종료 시점마다 타이머 등록
+    const endTimes = new Set();
+    for (const teacherId in teacherScheduleData) {
+        const teacherSchedule = teacherScheduleData[teacherId] || {};
+        for (const studentId in teacherSchedule) {
+            const scheduleByDate = teacherSchedule[studentId] || {};
+            const rawData = scheduleByDate[todayStr];
+            if (!rawData) continue;
+
+            // ★ 배열 또는 단일 객체 모두 처리
+            const entries = Array.isArray(rawData) ? rawData : [rawData];
+            for (const schedule of entries) {
+                if (!schedule || !schedule.start || schedule.start === 'default') continue;
+
+                const [sh, sm] = schedule.start.split(':').map(Number);
+                if (isNaN(sh) || isNaN(sm)) continue;
+                const duration = schedule.duration || 60;
+                const classEnd = new Date(now);
+                classEnd.setHours(sh, sm, 0, 0);
+                classEnd.setMinutes(classEnd.getMinutes() + duration);
+
+                if (classEnd > now) {
+                    const endKey = classEnd.getTime();
+                    if (!endTimes.has(endKey)) {
+                        endTimes.add(endKey);
+                        const msUntilEnd = endKey - now.getTime() + 60000;
+                        const timerId = setTimeout(async () => {
+                            console.log('[autoAbsent] 수업 종료 시점 결석 체크 실행');
+                            await autoMarkAbsentForPastSchedules();
+                        }, msUntilEnd);
+                        _autoAbsentTimers.push(timerId);
+                    }
+                }
+            }
+        }
+    }
+    if (_autoAbsentTimers.length > 0) {
+        console.log(`[scheduleKstMidnightAutoAbsent] 오늘 수업 종료 타이머 ${_autoAbsentTimers.length}개 등록`);
+    }
 }
 
 window.setPaymentFilter = function(filter) {
@@ -542,13 +799,18 @@ function renderTeacherDropdown() {
 window.toggleTeacherForm = function() {
     const selectForm = document.getElementById('teacher-select-form');
     const registerForm = document.getElementById('teacher-register-form');
+    const logo = document.querySelector('#teacher-select-page .auth-logo');
 
     if (selectForm.style.display === 'none' || !selectForm.style.display) {
         selectForm.style.display = 'flex';
         registerForm.style.display = 'none';
+        if (logo) logo.textContent = '선생님 선택';
+        // 등록 폼으로 돌아갈 때 Google 인증 상태 초기화
+        if (typeof resetGoogleAuth === 'function') resetGoogleAuth();
     } else {
         selectForm.style.display = 'none';
         registerForm.style.display = 'flex';
+        if (logo) logo.textContent = '새 선생님 등록';
     }
 }
 
@@ -632,11 +894,18 @@ async function setCurrentTeacher(teacher) {
         // 4단계: 현재 선생님의 일정 데이터 로드
         console.log('[setCurrentTeacher] 4단계: 일정 데이터 로드 중...');
         await loadTeacherScheduleData(teacher.id);
-        console.log('[setCurrentTeacher] 4단계 완료: 일정 데이터 로드 완료');
+        // ★ 다른 선생님 일정도 로드 (겹침 확인/알림용)
+        await loadAllTeachersScheduleData();
+        console.log('[setCurrentTeacher] 4단계 완료: 전체 일정 데이터 로드 완료');
 
         // 일정은 있는데 QR 스캔 결과가 없는 경우 결석 자동 처리 (KST 기준)
         await autoMarkAbsentForPastSchedules();
         scheduleKstMidnightAutoAbsent();
+        
+        // ★ 오늘 수업 중 QR 미스캔 학생 자동 알림 타이머 설정
+        if (typeof window.initMissedScanChecks === 'function') {
+            window.initMissedScanChecks();
+        }
         
         // 5단계: 페이지를 MAIN_APP으로 전환
         console.log('[setCurrentTeacher] 5단계: 페이지 전환 중...');
@@ -764,6 +1033,31 @@ function populateTeacherResetDropdown() {
         opt.textContent = displayText;
         dropdown.appendChild(opt);
     });
+
+    // 선생님 선택 시 구글 이메일 자동 표시
+    dropdown.onchange = function() {
+        const emailInput = document.getElementById('reset-teacher-email');
+        const emailDisplay = document.getElementById('reset-teacher-email-display');
+        const emailText = document.getElementById('reset-teacher-email-text');
+        const noEmailMsg = document.getElementById('reset-teacher-no-email');
+        
+        const selectedTeacher = teacherList.find(t => String(t.id) === String(this.value));
+        const teacherEmail = selectedTeacher && (selectedTeacher.google_email || selectedTeacher.email);
+        
+        if (emailInput) emailInput.value = teacherEmail || '';
+        
+        if (teacherEmail) {
+            if (emailDisplay) { emailDisplay.style.display = 'block'; }
+            if (emailText) { emailText.textContent = teacherEmail; }
+            if (noEmailMsg) { noEmailMsg.style.display = 'none'; }
+        } else if (this.value) {
+            if (emailDisplay) { emailDisplay.style.display = 'none'; }
+            if (noEmailMsg) { noEmailMsg.style.display = 'block'; }
+        } else {
+            if (emailDisplay) { emailDisplay.style.display = 'none'; }
+            if (noEmailMsg) { noEmailMsg.style.display = 'none'; }
+        }
+    };
 }
 
 window.openTeacherPasswordResetModal = async function() {
@@ -785,22 +1079,41 @@ window.openTeacherPasswordResetModal = async function() {
 window.closeTeacherPasswordResetModal = function() {
     const modal = document.getElementById('teacher-password-reset-modal');
     if (modal) modal.style.display = 'none';
+    // Step UI 초기화 (항상 Step 1로 되돌리기)
+    const step1 = document.getElementById('reset-step1');
+    const step2 = document.getElementById('reset-step2');
+    if (step1) step1.style.display = 'block';
+    if (step2) step2.style.display = 'none';
+    const codeInput = document.getElementById('reset-verify-code');
+    if (codeInput) codeInput.value = '';
 }
 
 window.confirmTeacherPasswordReset = async function() {
     const teacherId = document.getElementById('reset-teacher-dropdown')?.value || '';
+    const currentPassword = document.getElementById('reset-teacher-current-password')?.value.trim() || '';
     const newPassword = document.getElementById('reset-teacher-password')?.value.trim() || '';
     const confirmPassword = document.getElementById('reset-teacher-password-confirm')?.value.trim() || '';
 
     if (!teacherId) return alert('선생님을 선택해주세요.');
+    if (!currentPassword) return alert('기존 비밀번호를 입력해주세요.');
     if (!newPassword || !confirmPassword) return alert('새 비밀번호를 입력해주세요.');
     if (newPassword.length < 4) return alert('비밀번호는 4자 이상으로 설정해주세요.');
-    if (newPassword !== confirmPassword) return alert('비밀번호가 일치하지 않습니다.');
+    if (newPassword !== confirmPassword) return alert('새 비밀번호가 일치하지 않습니다.');
 
     const ownerId = localStorage.getItem('current_owner_id');
     if (!ownerId) return alert('로그인이 필요합니다.');
 
     try {
+        // 기존 비밀번호 확인
+        const teacher = teacherList.find(t => String(t.id) === String(teacherId));
+        if (!teacher) return alert('선생님 정보를 찾을 수 없습니다.');
+        
+        const currentHash = await hashPin(currentPassword);
+        if (currentHash !== teacher.pin_hash) {
+            return alert('기존 비밀번호가 올바르지 않습니다.');
+        }
+
+        // 새 비밀번호로 변경
         const passwordHash = await hashPin(newPassword);
         const { error } = await supabase
             .from('teachers')
@@ -813,9 +1126,9 @@ window.confirmTeacherPasswordReset = async function() {
             return alert('비밀번호 변경 실패: ' + error.message);
         }
 
-        const target = teacherList.find(t => String(t.id) === String(teacherId));
-        if (target) target.pin_hash = passwordHash;
+        teacher.pin_hash = passwordHash;
 
+        document.getElementById('reset-teacher-current-password').value = '';
         document.getElementById('reset-teacher-password').value = '';
         document.getElementById('reset-teacher-password-confirm').value = '';
         document.getElementById('reset-teacher-dropdown').value = '';
@@ -823,6 +1136,172 @@ window.confirmTeacherPasswordReset = async function() {
         alert('선생님 비밀번호가 변경되었습니다.');
     } catch (err) {
         console.error('[confirmTeacherPasswordReset] 예외:', err);
+        alert('오류 발생: ' + (err.message || err));
+    }
+}
+
+// 선생님 비밀번호 초기화 - Step 1: 인증번호 발송
+window.sendResetCode = async function() {
+    const teacherId = document.getElementById('reset-teacher-dropdown')?.value || '';
+    if (!teacherId) return alert('선생님을 선택해주세요.');
+
+    const teacherEmail = (document.getElementById('reset-teacher-email')?.value || '').trim();
+    if (!teacherEmail) return alert('등록된 구글 이메일이 없습니다.\n선생님 등록 시 구글 인증을 먼저 진행해주세요.');
+
+    const ownerId = localStorage.getItem('current_owner_id');
+    if (!ownerId) return alert('로그인이 필요합니다.');
+
+    const teacher = teacherList.find(t => String(t.id) === String(teacherId));
+    const teacherName = teacher ? teacher.name : '선생님';
+
+    try {
+        // 1. 6자리 인증번호 생성
+        const code = String(Math.floor(100000 + Math.random() * 900000));
+
+        // 2. DB에 인증번호 저장 (5분 만료)
+        const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+
+        // 기존 미사용 코드 삭제 (같은 선생님)
+        await supabase
+            .from('teacher_reset_codes')
+            .delete()
+            .eq('teacher_id', teacherId)
+            .eq('owner_user_id', ownerId)
+            .eq('used', false);
+
+        const { error: insertError } = await supabase
+            .from('teacher_reset_codes')
+            .insert({
+                teacher_id: teacherId,
+                owner_user_id: ownerId,
+                code: code,
+                expires_at: expiresAt
+            });
+
+        if (insertError) {
+            console.error('[sendResetCode] DB 저장 실패:', insertError);
+            return alert('인증번호 저장 실패: ' + insertError.message);
+        }
+
+        // 3. Edge Function으로 이메일 발송 (supabase.functions.invoke 사용)
+        const { data: fnData, error: fnError } = await supabase.functions.invoke('send-reset-code', {
+            body: {
+                teacherEmail: teacherEmail,
+                code: code,
+                teacherName: teacherName
+            }
+        });
+
+        if (fnError) {
+            console.error('[sendResetCode] Edge Function 실패:', fnError);
+            return alert('이메일 발송 실패: ' + (fnError.message || '알 수 없는 오류'));
+        }
+
+        if (fnData && fnData.error) {
+            console.error('[sendResetCode] 이메일 발송 오류:', fnData.error);
+            return alert('이메일 발송 실패: ' + fnData.error);
+        }
+
+        // 4. UI를 Step 2로 전환
+        const step1 = document.getElementById('reset-step1');
+        const step2 = document.getElementById('reset-step2');
+        if (step1) step1.style.display = 'none';
+        if (step2) step2.style.display = 'block';
+
+        // 인증번호 입력 필드 초기화 및 포커스
+        const codeInput = document.getElementById('reset-verify-code');
+        if (codeInput) {
+            codeInput.value = '';
+            codeInput.focus();
+        }
+
+        console.log('[sendResetCode] 인증번호 발송 완료:', teacherEmail);
+
+    } catch (err) {
+        console.error('[sendResetCode] 예외:', err);
+        alert('오류 발생: ' + (err.message || err));
+    }
+}
+
+// 선생님 비밀번호 초기화 - Step 2: 인증번호 확인 및 초기화
+window.verifyAndResetTeacherPassword = async function() {
+    const teacherId = document.getElementById('reset-teacher-dropdown')?.value || '';
+    if (!teacherId) return alert('선생님을 선택해주세요.');
+
+    const inputCode = (document.getElementById('reset-verify-code')?.value || '').trim();
+    if (!inputCode || inputCode.length !== 6) return alert('6자리 인증번호를 입력해주세요.');
+
+    const ownerId = localStorage.getItem('current_owner_id');
+    if (!ownerId) return alert('로그인이 필요합니다.');
+
+    const teacher = teacherList.find(t => String(t.id) === String(teacherId));
+    const teacherName = teacher ? teacher.name : '선생님';
+
+    try {
+        // 1. DB에서 인증번호 확인
+        const { data: codeRows, error: fetchError } = await supabase
+            .from('teacher_reset_codes')
+            .select('*')
+            .eq('teacher_id', teacherId)
+            .eq('owner_user_id', ownerId)
+            .eq('code', inputCode)
+            .eq('used', false)
+            .gte('expires_at', new Date().toISOString())
+            .order('created_at', { ascending: false })
+            .limit(1);
+
+        if (fetchError) {
+            console.error('[verifyAndResetTeacherPassword] 조회 실패:', fetchError);
+            return alert('인증번호 확인 실패: ' + fetchError.message);
+        }
+
+        if (!codeRows || codeRows.length === 0) {
+            return alert('인증번호가 올바르지 않거나 만료되었습니다.\n다시 발송해주세요.');
+        }
+
+        // 2. 인증번호 사용 처리
+        await supabase
+            .from('teacher_reset_codes')
+            .update({ used: true })
+            .eq('id', codeRows[0].id);
+
+        // 3. 비밀번호 123123으로 초기화
+        const defaultHash = await hashPin('123123');
+        const { error: updateError } = await supabase
+            .from('teachers')
+            .update({ pin_hash: defaultHash })
+            .eq('id', teacherId)
+            .eq('owner_user_id', ownerId);
+
+        if (updateError) {
+            console.error('[verifyAndResetTeacherPassword] 비밀번호 초기화 실패:', updateError);
+            return alert('비밀번호 초기화 실패: ' + updateError.message);
+        }
+
+        if (teacher) teacher.pin_hash = defaultHash;
+
+        // 4. 폼 초기화 및 모달 닫기
+        document.getElementById('reset-teacher-current-password').value = '';
+        document.getElementById('reset-teacher-password').value = '';
+        document.getElementById('reset-teacher-password-confirm').value = '';
+        document.getElementById('reset-teacher-email').value = '';
+        document.getElementById('reset-teacher-dropdown').value = '';
+        document.getElementById('reset-verify-code').value = '';
+        const emailDisplay = document.getElementById('reset-teacher-email-display');
+        const noEmailMsg = document.getElementById('reset-teacher-no-email');
+        if (emailDisplay) emailDisplay.style.display = 'none';
+        if (noEmailMsg) noEmailMsg.style.display = 'none';
+        // Step UI 초기화
+        const step1 = document.getElementById('reset-step1');
+        const step2 = document.getElementById('reset-step2');
+        if (step1) step1.style.display = 'block';
+        if (step2) step2.style.display = 'none';
+
+        window.closeTeacherPasswordResetModal();
+        alert(`${teacherName}의 비밀번호가 123123으로 초기화되었습니다.`);
+
+    } catch (err) {
+        console.error('[verifyAndResetTeacherPassword] 예외:', err);
         alert('오류 발생: ' + (err.message || err));
     }
 }
@@ -915,19 +1394,232 @@ window.adminDeleteTeacher = async function() {
     if (dropdown) dropdown.value = '';
 }
 
+// ========== Google OAuth 이메일 인증 ==========
+let _googleTokenClient = null;
+
+window.startGoogleAuth = function() {
+    console.log('[startGoogleAuth] Google OAuth 시작');
+    
+    // Google Identity Services 로드 확인
+    if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) {
+        alert('Google 인증 서비스를 로드하는 중입니다. 잠시 후 다시 시도해주세요.');
+        console.error('[startGoogleAuth] Google Identity Services 미로드');
+        return;
+    }
+
+    if (window.GOOGLE_CLIENT_ID === 'YOUR_CLIENT_ID.apps.googleusercontent.com') {
+        alert('Google Client ID가 설정되지 않았습니다.\nsupabase-config.js 또는 환경 변수에서 GOOGLE_CLIENT_ID를 설정해주세요.\n\nGoogle Cloud Console에서 OAuth 2.0 클라이언트 ID를 생성하세요.');
+        return;
+    }
+
+    try {
+        _googleTokenClient = google.accounts.oauth2.initTokenClient({
+            client_id: window.GOOGLE_CLIENT_ID,
+            scope: window.GOOGLE_SCOPES,
+            callback: handleGoogleAuthCallback,
+            error_callback: function(error) {
+                console.error('[startGoogleAuth] OAuth 에러:', error);
+                if (error.type === 'popup_closed') {
+                    console.log('[startGoogleAuth] 사용자가 팝업을 닫았습니다.');
+                } else {
+                    alert('Google 인증 중 오류가 발생했습니다: ' + (error.message || error.type || '알 수 없는 오류'));
+                }
+            }
+        });
+
+        _googleTokenClient.requestAccessToken();
+    } catch (err) {
+        console.error('[startGoogleAuth] 예외:', err);
+        alert('Google 인증 초기화 실패: ' + err.message);
+    }
+}
+
+window.handleGoogleAuthCallback = async function(tokenResponse) {
+    console.log('[handleGoogleAuthCallback] 토큰 응답 수신');
+    
+    if (tokenResponse.error) {
+        console.error('[handleGoogleAuthCallback] 에러:', tokenResponse.error);
+        alert('Google 인증 실패: ' + tokenResponse.error);
+        return;
+    }
+
+    try {
+        // Google userinfo API로 이메일/프로필 정보 가져오기
+        const response = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+            headers: { 'Authorization': 'Bearer ' + tokenResponse.access_token }
+        });
+
+        if (!response.ok) {
+            throw new Error('Google 사용자 정보를 가져올 수 없습니다. (HTTP ' + response.status + ')');
+        }
+
+        const userInfo = await response.json();
+        console.log('[handleGoogleAuthCallback] 사용자 정보:', userInfo.email, userInfo.sub);
+
+        if (!userInfo.email) {
+            alert('Google 계정에서 이메일 정보를 가져올 수 없습니다.');
+            return;
+        }
+
+        if (!userInfo.email_verified) {
+            alert('인증되지 않은 Google 이메일입니다. 이메일 인증이 완료된 계정을 사용해주세요.');
+            return;
+        }
+
+        // 폼에 인증된 이메일 정보 반영
+        document.getElementById('new-teacher-email').value = userInfo.email;
+        document.getElementById('new-teacher-google-sub').value = userInfo.sub;
+
+        // 인증 버튼 숨기고 인증 완료 영역 표시
+        const authBtn = document.getElementById('google-auth-btn');
+        const verifiedSection = document.getElementById('google-verified-email');
+        const verifiedText = document.getElementById('verified-email-text');
+
+        if (authBtn) authBtn.style.display = 'none';
+        if (verifiedSection) verifiedSection.style.display = 'block';
+        if (verifiedText) verifiedText.textContent = userInfo.email;
+
+        // access_token 임시 저장 (향후 Drive API 활용 시 사용)
+        window._googleAccessToken = tokenResponse.access_token;
+
+        console.log('[handleGoogleAuthCallback] 이메일 인증 완료:', userInfo.email);
+
+    } catch (err) {
+        console.error('[handleGoogleAuthCallback] 예외:', err);
+        alert('Google 사용자 정보 조회 실패: ' + err.message);
+    }
+}
+
+// Google 인증 상태 초기화 (선생님 등록 폼 리셋 시 사용)
+function resetGoogleAuth() {
+    document.getElementById('new-teacher-email').value = '';
+    document.getElementById('new-teacher-google-sub').value = '';
+    
+    const authBtn = document.getElementById('google-auth-btn');
+    const verifiedSection = document.getElementById('google-verified-email');
+    
+    if (authBtn) authBtn.style.display = 'flex';
+    if (verifiedSection) verifiedSection.style.display = 'none';
+    
+    window._googleAccessToken = null;
+}
+
+// ========== 관리자 회원가입용 Google OAuth ==========
+window.startGoogleAuthAdmin = function() {
+    console.log('[startGoogleAuthAdmin] Google OAuth 시작 (관리자)');
+    
+    if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) {
+        alert('Google 인증 서비스를 로드하는 중입니다. 잠시 후 다시 시도해주세요.');
+        return;
+    }
+
+    if (window.GOOGLE_CLIENT_ID === 'YOUR_CLIENT_ID.apps.googleusercontent.com') {
+        alert('Google Client ID가 설정되지 않았습니다.\nsupabase-config.js 또는 환경 변수에서 GOOGLE_CLIENT_ID를 설정해주세요.');
+        return;
+    }
+
+    try {
+        const tokenClient = google.accounts.oauth2.initTokenClient({
+            client_id: window.GOOGLE_CLIENT_ID,
+            scope: 'email profile',
+            callback: handleGoogleAuthCallbackAdmin,
+            error_callback: function(error) {
+                console.error('[startGoogleAuthAdmin] OAuth 에러:', error);
+                if (error.type !== 'popup_closed') {
+                    alert('Google 인증 중 오류가 발생했습니다: ' + (error.message || error.type || '알 수 없는 오류'));
+                }
+            }
+        });
+
+        tokenClient.requestAccessToken();
+    } catch (err) {
+        console.error('[startGoogleAuthAdmin] 예외:', err);
+        alert('Google 인증 초기화 실패: ' + err.message);
+    }
+}
+
+window.handleGoogleAuthCallbackAdmin = async function(tokenResponse) {
+    console.log('[handleGoogleAuthCallbackAdmin] 토큰 응답 수신');
+    
+    if (tokenResponse.error) {
+        console.error('[handleGoogleAuthCallbackAdmin] 에러:', tokenResponse.error);
+        alert('Google 인증 실패: ' + tokenResponse.error);
+        return;
+    }
+
+    try {
+        const response = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+            headers: { 'Authorization': 'Bearer ' + tokenResponse.access_token }
+        });
+
+        if (!response.ok) {
+            throw new Error('Google 사용자 정보를 가져올 수 없습니다. (HTTP ' + response.status + ')');
+        }
+
+        const userInfo = await response.json();
+        console.log('[handleGoogleAuthCallbackAdmin] 사용자 정보:', userInfo.email);
+
+        if (!userInfo.email) {
+            alert('Google 계정에서 이메일 정보를 가져올 수 없습니다.');
+            return;
+        }
+
+        if (!userInfo.email_verified) {
+            alert('인증되지 않은 Google 이메일입니다. 이메일 인증이 완료된 계정을 사용해주세요.');
+            return;
+        }
+
+        // 회원가입 폼에 인증된 이메일 반영
+        document.getElementById('signup-email').value = userInfo.email;
+
+        const authBtn = document.getElementById('admin-google-auth-btn');
+        const verifiedSection = document.getElementById('admin-google-verified-email');
+        const verifiedText = document.getElementById('admin-verified-email-text');
+
+        if (authBtn) authBtn.style.display = 'none';
+        if (verifiedSection) verifiedSection.style.display = 'block';
+        if (verifiedText) verifiedText.textContent = userInfo.email;
+
+        console.log('[handleGoogleAuthCallbackAdmin] 이메일 인증 완료:', userInfo.email);
+
+    } catch (err) {
+        console.error('[handleGoogleAuthCallbackAdmin] 예외:', err);
+        alert('Google 사용자 정보 조회 실패: ' + err.message);
+    }
+}
+
+// 관리자 회원가입 Google 인증 상태 초기화
+function resetGoogleAuthAdmin() {
+    const emailInput = document.getElementById('signup-email');
+    if (emailInput) emailInput.value = '';
+    
+    const authBtn = document.getElementById('admin-google-auth-btn');
+    const verifiedSection = document.getElementById('admin-google-verified-email');
+    
+    if (authBtn) authBtn.style.display = 'flex';
+    if (verifiedSection) verifiedSection.style.display = 'none';
+}
+
 window.registerTeacher = async function() {
     try {
         console.log('[registerTeacher] 시작');
         const name = document.getElementById('new-teacher-name').value.trim();
+        const googleEmail = document.getElementById('new-teacher-email').value.trim();
+        const googleSub = document.getElementById('new-teacher-google-sub').value.trim();
         const phone = document.getElementById('new-teacher-phone').value.trim();
         const address = document.getElementById('new-teacher-address').value.trim();
         const addressDetail = document.getElementById('new-teacher-address-detail').value.trim();
         const teacherPassword = document.getElementById('register-teacher-password').value.trim();
         const teacherPasswordConfirm = document.getElementById('register-teacher-password-confirm')?.value.trim() || '';
         
-        console.log('[registerTeacher] 입력 값 - name:', name, ', phone:', phone, ', address:', address);
+        console.log('[registerTeacher] 입력 값 - name:', name, ', googleEmail:', googleEmail, ', phone:', phone, ', address:', address);
         
         if (!name) return alert('선생님 이름은 필수입니다.');
+
+        // 구글 이메일 인증 필수
+        if (!googleEmail || !googleSub) {
+            return alert('구글 이메일 인증이 필요합니다.\n"구글 이메일 인증" 버튼을 눌러 인증해주세요.');
+        }
         
         // 모든 선생님은 비밀번호가 필수
         if (!teacherPassword || !teacherPasswordConfirm) {
@@ -959,6 +1651,9 @@ window.registerTeacher = async function() {
             .insert({ 
                 owner_user_id: ownerId, 
                 name, 
+                email: googleEmail || null,
+                google_email: googleEmail || null,
+                google_sub: googleSub || null,
                 phone: phone || null, 
                 address: address || null,
                 address_detail: addressDetail || null,
@@ -977,8 +1672,6 @@ window.registerTeacher = async function() {
         
         console.log('[registerTeacher] 등록 성공:', data);
         
-        console.log('[registerTeacher] 저장됨 - 비밀번호:', teacherPassword);
-        
         // 입력 필드 초기화
         document.getElementById('new-teacher-name').value = '';
         document.getElementById('new-teacher-phone').value = '';
@@ -987,6 +1680,9 @@ window.registerTeacher = async function() {
         document.getElementById('register-teacher-password').value = '';
         const teacherPasswordConfirmInput = document.getElementById('register-teacher-password-confirm');
         if (teacherPasswordConfirmInput) teacherPasswordConfirmInput.value = '';
+        
+        // Google 인증 상태 초기화
+        resetGoogleAuth();
         
         alert('선생님이 등록되었습니다!');
         
@@ -1159,10 +1855,11 @@ function createCell(date, activeStudents) {
     let dailyEvents = [];
     activeStudents.forEach(student => {
         // 현재 선생님의 schedule 데이터에서만 확인 (다른 선생님의 일정은 제외)
-        if (student && teacherScheduleData[currentTeacherId] && teacherScheduleData[currentTeacherId][student.id] && 
-            teacherScheduleData[currentTeacherId][student.id][dateStr]) {
-            dailyEvents.push(student);
-        }
+        if (!student) return;
+        // 퇴원/휴원 학생은 상태 변경일 이전 일정만 표시
+        if (!shouldShowScheduleForStudent(student, dateStr)) return;
+        const entries = getScheduleEntries(currentTeacherId, String(student.id), dateStr);
+        if (entries.length > 0) dailyEvents.push(student);
     });
 
     if (dailyEvents.length > 0) {
@@ -1170,20 +1867,33 @@ function createCell(date, activeStudents) {
         badgeContainer.className = 'summary-badge-container';
         const badge = document.createElement('div');
         badge.className = 'summary-badge has-events';
-        badge.innerHTML = `<i class="fas fa-chalkboard-teacher"></i> ${dailyEvents.length}명`;
-        badge.onclick = (e) => { e.stopPropagation(); openDayDetailModal(dateStr); };
+        badge.textContent = `${dailyEvents.length}명`;
+
+        badge.addEventListener('mouseenter', () => {
+            const tooltip = document.getElementById('calendar-tooltip');
+            if (!tooltip) return;
+            const listHtml = dailyEvents.map(s => `<div>${s.name} (${s.grade || '-'})</div>`).join('');
+            tooltip.innerHTML = `<div style="font-weight:700;margin-bottom:6px;">${dateStr}</div>${listHtml}`;
+            tooltip.style.display = 'block';
+        });
+        badge.addEventListener('mouseleave', () => {
+            const tooltip = document.getElementById('calendar-tooltip');
+            if (tooltip) tooltip.style.display = 'none';
+        });
+        badge.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openDayDetail(dateStr);
+        });
+
         badgeContainer.appendChild(badge);
         cell.appendChild(badgeContainer);
     }
     return cell;
 }
 
-// ... (기존 캘린더 드래그앤드롭 및 상세 모달 관련 코드 생략 없이 유지 - 지면 관계상 핵심 로직 외 생략하지 않고 모두 포함) ...
-// (하지만 요청하신 전체 코드를 위해 아래 핵심 함수들을 모두 유지합니다)
-
-let currentDetailDate = null;
-window.openDayDetailModal = async function(dateStr) {
+window.openDayDetail = async function(dateStr) {
     const modal = document.getElementById('day-detail-modal');
+    if (!modal) return;
     modal.style.display = 'flex';
     document.getElementById('day-detail-title').textContent = `${dateStr} 시간표`;
     currentDetailDate = dateStr;
@@ -1220,22 +1930,24 @@ window.renderDayEvents = function(dateStr) {
     const qrBadgeStudentId = typeof lastQrScannedStudentId !== 'undefined' ? lastQrScannedStudentId : null;
     const teacherSchedule = teacherScheduleData[currentTeacherId] || {};
     activeStudents.forEach((s) => {
+        // 퇴원/휴원 학생은 상태 변경일 이전 일정만 표시
+        if (!shouldShowScheduleForStudent(s, dateStr)) return;
         // 디버깅: 날짜 포맷과 데이터 매칭 확인
         if (teacherSchedule[s.id]) {
             const allDates = Object.keys(teacherSchedule[s.id]);
             console.log(`[디버그] 학생:${s.name}(${s.id}) 일정 날짜 목록:`, allDates, '찾는 날짜:', dateStr);
         }
         // 현재 선생님의 schedule 데이터에서만 확인
-        if(teacherSchedule[s.id] && teacherSchedule[s.id][dateStr]) {
-            console.log(`[디버그] 일정 있음:`, s.name, dateStr, teacherSchedule[s.id][dateStr]);
-            const studentSchedule = teacherSchedule[s.id];
-            const detail = studentSchedule[dateStr] || { start: '16:00', duration: 90 };
-            const [h, m] = detail.start.split(':').map(Number);
-            let startMin = (h * 60) + m; // Calculate start minutes from 00:00
-            // Ensure startMin is within bounds, though it should be if time input is valid
-            if (startMin < 0) startMin = 0;
-            if (startMin >= 24 * 60) startMin = (24 * 60) - 1; // Cap at end of day
-            rawEvents.push({ student: s, startMin: startMin, duration: parseInt(detail.duration), originalStart: detail.start });
+        const entries = getScheduleEntries(currentTeacherId, String(s.id), dateStr);
+        if(entries.length > 0) {
+            console.log(`[디버그] 일정 있음:`, s.name, dateStr, entries);
+            entries.forEach(detail => {
+                const [h, m] = detail.start.split(':').map(Number);
+                let startMin = (h * 60) + m;
+                if (startMin < 0) startMin = 0;
+                if (startMin >= 24 * 60) startMin = (24 * 60) - 1;
+                rawEvents.push({ student: s, startMin: startMin, duration: parseInt(detail.duration), originalStart: detail.start });
+            });
         } else {
             console.log(`[디버그] 일정 없음:`, s.name, dateStr, teacherSchedule[s.id]);
         }
@@ -1282,7 +1994,7 @@ window.renderDayEvents = function(dateStr) {
 
     layoutEvents.forEach(ev => {
         const isMerged = ev.members.length > 1;
-        const blockId = isMerged ? `group-${ev.startMin}-${ev.duration}` : ev.members[0].id;
+        const blockId = isMerged ? `group-${ev.startMin}-${ev.duration}` : `${ev.members[0].id}-${ev.originalStart}`;
         const block = document.createElement('div');
         
         // Merged 그룹도 학년별 색상 적용
@@ -1317,28 +2029,35 @@ window.renderDayEvents = function(dateStr) {
         contentDiv.style.flex = "1"; contentDiv.style.overflow = "hidden"; contentDiv.style.display = "flex"; contentDiv.style.flexDirection = "column";
         if (isMerged) {
             contentDiv.innerHTML = `<div class="merged-header"><span>${ev.originalStart}~${endTimeStr}</span><span style="opacity:0.8; font-size:10px;">${ev.members.length}명</span></div><div class="merged-list">${ev.members.map(m => {
-                const status = (m.attendance && m.attendance[dateStr]) || '';
-                let statusBadge = '';
-                if (status === 'present') {
-                    statusBadge = '<span style="background:#10b981;color:white;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;">출석</span>';
-                } else if (status === 'late') {
-                    statusBadge = '<span style="background:#f59e0b;color:white;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;">지각</span>';
-                } else if (status === 'absent') {
-                    statusBadge = '<span style="background:#ef4444;color:white;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;">결석</span>';
-                } else if (status === 'makeup' || status === 'etc') {
-                    statusBadge = '<span style="background:#8b5cf6;color:white;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;">보강</span>';
+                // ★ 해당 수업시간(ev.originalStart)의 출결만 표시
+                let status = '';
+                if (m.attendance && m.attendance[dateStr]) {
+                    if (typeof m.attendance[dateStr] === 'object') {
+                        status = m.attendance[dateStr][ev.originalStart] || '';
+                    } else {
+                        status = m.attendance[dateStr] || '';
+                    }
                 }
-                // QR 출석 뱃지 추가
-                let qrBadge = '';
-                if (qrBadgeStudentId && String(m.id) === String(qrBadgeStudentId)) {
-                    qrBadge = '<span style="background:#2563eb;color:white;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;margin-left:4px;">QR</span>';
-                }
-                // 이름 옆에 출석현황 뱃지 항상 표시
-                return `<div class="sub-event-item ${getSubItemColorClass(m.grade)}" onclick="event.stopPropagation(); openAttendanceModal('${m.id}', '${dateStr}')"><div class="sub-info"><span class="sub-name">${m.name}${qrBadge} ${statusBadge}</span><span class="sub-grade">${m.grade}</span></div></div>`;
+                let badge = '';
+                if (status === 'present') badge = '<span style="background:#10b981;color:white;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;">출석</span>';
+                else if (status === 'late') badge = '<span style="background:#f59e0b;color:white;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;">지각</span>';
+                else if (status === 'absent') badge = '<span style="background:#ef4444;color:white;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;">결석</span>';
+                else if (status === 'makeup' || status === 'etc') badge = '<span style="background:#8b5cf6;color:white;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;">보강</span>';
+                else badge = '<span style="background:#d1d5db;color:#374151;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;">미처리</span>';
+                return `<div class="sub-event-item ${getSubItemColorClass(m.grade)}" onclick="event.stopPropagation(); openAttendanceModal('${m.id}', '${dateStr}', '${ev.originalStart}')"><div class="sub-info"><span class="sub-name">${m.name} ${badge}</span><span class="sub-grade">${m.grade}</span></div></div>`;
             }).join('')}</div>`;
         } else {
             const s = ev.members[0];
-            const status = (s.attendance && s.attendance[dateStr]) || 'none';
+            // 단일 일정: 해당 일정의 출결만 표시
+            let status = 'none';
+            if (s.attendance && s.attendance[dateStr]) {
+                // 여러 일정이 있을 경우, originalStart(수업 시작시간) 기준으로 해당 일정 출결만 표시
+                if (typeof s.attendance[dateStr] === 'object') {
+                    status = s.attendance[dateStr][ev.originalStart] || 'none';
+                } else {
+                    status = s.attendance[dateStr];
+                }
+            }
             let statusBadge = '';
             if (status === 'present') {
                 statusBadge = '<span style="background:#10b981;color:white;padding:3px 8px;border-radius:6px;font-size:11px;font-weight:700;margin-left:8px;">출석</span>';
@@ -1348,18 +2067,21 @@ window.renderDayEvents = function(dateStr) {
                 statusBadge = '<span style="background:#ef4444;color:white;padding:3px 8px;border-radius:6px;font-size:11px;font-weight:700;margin-left:8px;">결석</span>';
             } else if (status === 'makeup' || status === 'etc') {
                 statusBadge = '<span style="background:#8b5cf6;color:white;padding:3px 8px;border-radius:6px;font-size:11px;font-weight:700;margin-left:8px;">보강</span>';
+            } else {
+                statusBadge = '<span style="background:#d1d5db;color:#374151;padding:3px 8px;border-radius:6px;font-size:11px;font-weight:700;margin-left:8px;">미처리</span>';
             }
+            // 일정별로 badge를 정확히 표시
+            ev.statusBadge = statusBadge;
             // QR 출석 뱃지 추가
             let qrBadge = '';
             if (qrBadgeStudentId && String(s.id) === String(qrBadgeStudentId)) {
                 qrBadge = '<span style="background:#2563eb;color:white;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;margin-left:4px;">QR</span>';
             }
-            // 이름 옆에 출석현황 뱃지 항상 표시
             contentDiv.innerHTML = `<div class="evt-title">${s.name}${qrBadge} ${statusBadge} <span class="evt-grade">(${s.grade})</span></div><div class="event-time-text">${ev.originalStart} - ${endTimeStr} (${ev.duration}분)</div>`;
             block.onclick = (e) => { 
                 if(block.getAttribute('data-action-status') === 'moved' || block.getAttribute('data-action-status') === 'resized') { e.stopPropagation(); block.setAttribute('data-action-status', 'none'); return; }
                 if(e.target.classList.contains('resize-handle')) return;
-                e.stopPropagation(); openAttendanceModal(s.id, dateStr); 
+                e.stopPropagation(); openAttendanceModal(s.id, dateStr, ev.originalStart); 
             };
         }
         block.appendChild(contentDiv);
@@ -1438,42 +2160,70 @@ window.renderDayEvents = function(dateStr) {
 
 // ... (기타 모달 Open/Close 및 CRUD 로직 생략 없이 유지) ...
 
-window.openAttendanceModal = async function(sid, dateStr) {
-    const s = students.find(x => String(x.id) === String(sid));
-    if(!s) return;
+window.openAttendanceModal = async function(sid, dateStr, startTime) {
+    // 항상 최신 students/currentTeacherStudents 동기화
+    const sIdx = students.findIndex(x => String(x.id) === String(sid));
+    if (sIdx === -1) return;
+    const s = students[sIdx];
     await ensureAttendanceForDate(dateStr);
     document.getElementById('attendance-modal').style.display = 'flex';
     document.getElementById('att-modal-title').textContent = `${s.name} 수업 관리`;
     document.getElementById('att-info-text').textContent = `${dateStr} (${s.grade})`;
     document.getElementById('att-student-id').value = sid;
     document.getElementById('att-date').value = dateStr;
-    document.getElementById('att-edit-date').value = dateStr; 
+    document.getElementById('att-edit-date').value = dateStr;
     const memoDiv = document.getElementById('att-memo');
-    const savedRecord = (s.records && s.records[dateStr]) || "";
+    let savedRecord = '';
+    if (s.records && s.records[dateStr]) {
+        if (startTime && typeof s.records[dateStr] === 'object') {
+            savedRecord = s.records[dateStr][startTime] || '';
+        } else if (typeof s.records[dateStr] === 'string') {
+            savedRecord = s.records[dateStr];
+        }
+    }
     memoDiv.innerHTML = savedRecord;
-    
-    // 현재 출석 상태 표시
-    const currentStatus = s.attendance && s.attendance[dateStr];
-    updateAttendanceStatusDisplay(currentStatus || null);
 
-    
+    // 출석 상태: startTime별로 정확히 표시
+    let currentStatus = null;
+    if (s.attendance && s.attendance[dateStr]) {
+        if (startTime && typeof s.attendance[dateStr] === 'object') {
+            currentStatus = s.attendance[dateStr][startTime] || null;
+        } else if (typeof s.attendance[dateStr] === 'string') {
+            currentStatus = s.attendance[dateStr];
+        }
+    }
+    updateAttendanceStatusDisplay(currentStatus);
+
     // 선생님별 일정 데이터 사용
-    const teacherSchedule = teacherScheduleData[currentTeacherId] || {};
-    const studentSchedule = teacherSchedule[sid] || {};
-    const detail = (studentSchedule && studentSchedule[dateStr]) || { start: '16:00', duration: 90 };
+    const entries = getScheduleEntries(currentTeacherId, String(sid), dateStr);
+    const target = startTime
+        ? entries.find(item => item.start === startTime) || null
+        : getEarliestScheduleEntry(entries);
+    const detail = target || { start: '16:00', duration: 90 };
     document.getElementById('att-edit-time').value = detail.start;
     document.getElementById('att-edit-duration').value = detail.duration;
+    document.getElementById('att-original-time').value = detail.start;
 }
 
-window.updateClassTime = function() {
+window.updateClassTime = async function() {
     const sid = document.getElementById('att-student-id').value;
     const oldDateStr = document.getElementById('att-date').value;
     const newDateStr = document.getElementById('att-edit-date').value;
     const newStart = document.getElementById('att-edit-time').value;
     const newDur = document.getElementById('att-edit-duration').value;
+    const originalStart = document.getElementById('att-original-time').value;
     if(!newDur || parseInt(newDur) <= 0) return alert("올바른 수업 시간을 입력해주세요.");
     const sIdx = students.findIndex(s => String(s.id) === String(sid));
     if(sIdx > -1) {
+        // ★ 시간 겹침 확인 (기존 일정 자신은 제외)
+        const overlaps = await checkScheduleOverlap(sid, newDateStr, newStart, parseInt(newDur), currentTeacherId, originalStart);
+        if (overlaps.length > 0) {
+            const studentName = students[sIdx].name || `학생${sid}`;
+            if (!confirm(formatOverlapMessage(studentName, newDateStr, overlaps))) {
+                return;
+            }
+        }
+
         // 선생님별 일정 데이터 사용
         if(!teacherScheduleData[currentTeacherId]) teacherScheduleData[currentTeacherId] = {};
         if(!teacherScheduleData[currentTeacherId][sid]) teacherScheduleData[currentTeacherId][sid] = {};
@@ -1489,13 +2239,43 @@ window.updateClassTime = function() {
                 if(!students[sIdx].records) students[sIdx].records = {};
                 students[sIdx].records[newDateStr] = students[sIdx].records[oldDateStr]; delete students[sIdx].records[oldDateStr];
             }
-            if (teacherScheduleData[currentTeacherId][sid][oldDateStr]) delete teacherScheduleData[currentTeacherId][sid][oldDateStr];
+            const oldEntries = getScheduleEntries(currentTeacherId, String(sid), oldDateStr);
+            const nextOldEntries = oldEntries.filter(item => item.start !== originalStart);
+            setScheduleEntries(currentTeacherId, String(sid), oldDateStr, nextOldEntries);
         }
-        teacherScheduleData[currentTeacherId][sid][newDateStr] = { start: newStart, duration: parseInt(newDur) }; 
+        let newEntries = getScheduleEntries(currentTeacherId, String(sid), newDateStr);
+        if (oldDateStr === newDateStr && originalStart && originalStart !== newStart) {
+            newEntries = newEntries.filter(item => item.start !== originalStart);
+        }
+        const nextEntry = { start: newStart, duration: parseInt(newDur) };
+        const updated = upsertScheduleEntry(newEntries, nextEntry);
+        setScheduleEntries(currentTeacherId, String(sid), newDateStr, updated.list);
         saveData();
-        saveTeacherScheduleData();
+        persistTeacherScheduleLocal();
+
+        try {
+            if (oldDateStr !== newDateStr || (originalStart && originalStart !== newStart)) {
+                await deleteScheduleFromDatabase(sid, oldDateStr, currentTeacherId, originalStart);
+            }
+            await saveScheduleToDatabase({
+                teacherId: currentTeacherId,
+                studentId: sid,
+                date: newDateStr,
+                startTime: newStart,
+                duration: parseInt(newDur)
+            });
+        } catch (dbError) {
+            console.error('[updateClassTime] DB 동기화 실패:', dbError);
+        }
+
+        document.getElementById('att-original-time').value = newStart;
+
         renderCalendar(); 
         if (document.getElementById('day-detail-modal').style.display === 'flex') { if (currentDetailDate === newDateStr || currentDetailDate === oldDateStr) renderDayEvents(currentDetailDate); }
+        // ★ 일정 변경 후 다른 선생님 데이터 갱신 + 타이머 갱신
+        await loadAllTeachersScheduleData();
+        if (typeof window.initMissedScanChecks === 'function') window.initMissedScanChecks();
+        if (typeof scheduleKstMidnightAutoAbsent === 'function') scheduleKstMidnightAutoAbsent();
         alert("일정이 변경되었습니다."); closeModal('attendance-modal');
     }
 }
@@ -1505,8 +2285,10 @@ window.setAttendance = async function(status, options = {}) {
     const memoDiv = document.getElementById('att-memo');
     const memo = memoDiv.innerHTML;
     const keepModalOpen = options && options.keepModalOpen === true;
+    // startTime(수업 시작시간) 반드시 사용
+    const startTime = options && options.startTime ? options.startTime : document.getElementById('att-edit-time').value;
     const sIdx = students.findIndex(s => String(s.id) === String(sid));
-    if(sIdx > -1) {
+    if(sIdx > -1 && startTime) {
         let scope = 'current';
         let teacherIds = new Set([String(currentTeacherId || '')]);
         if (typeof window.getTeacherIdsForStudentDate === 'function') {
@@ -1525,39 +2307,80 @@ window.setAttendance = async function(status, options = {}) {
         }
 
         if(!students[sIdx].attendance) students[sIdx].attendance = {};
+        if(!students[sIdx].attendance[dateStr]) students[sIdx].attendance[dateStr] = {};
+        students[sIdx].attendance[dateStr][startTime] = status;
         if(!students[sIdx].records) students[sIdx].records = {};
-        students[sIdx].attendance[dateStr] = status;
-        students[sIdx].records[dateStr] = memo;
-        
+        if(!students[sIdx].records[dateStr]) students[sIdx].records[dateStr] = {};
+        students[sIdx].records[dateStr][startTime] = memo;
+
         updateAttendanceStatusDisplay(status);
-        
+
         // 데이터 저장
         saveData();
 
         // DB에도 상태 업데이트 (기존 시간/스캔 결과 유지)
+        // 반드시 scheduled_time(수업 시작시간)까지 포함하여 upsert
         if (scope === 'all') {
             for (const tid of teacherIds) {
-                await persistAttendanceStatusToDbForTeacher(sid, dateStr, status, String(tid));
+                await persistAttendanceStatusToDbForTeacher(sid, dateStr, status, String(tid), startTime);
             }
         } else {
-            await persistAttendanceStatusToDbForTeacher(sid, dateStr, status, String(currentTeacherId || ''));
+            await persistAttendanceStatusToDbForTeacher(sid, dateStr, status, String(currentTeacherId || ''), startTime);
         }
-        
+
         // currentTeacherStudents 배열도 즉시 업데이트
         const currentStudentIdx = currentTeacherStudents.findIndex(s => String(s.id) === String(sid));
         if (currentStudentIdx > -1) {
             if(!currentTeacherStudents[currentStudentIdx].attendance) currentTeacherStudents[currentStudentIdx].attendance = {};
+            if(!currentTeacherStudents[currentStudentIdx].attendance[dateStr]) currentTeacherStudents[currentStudentIdx].attendance[dateStr] = {};
+            currentTeacherStudents[currentStudentIdx].attendance[dateStr][startTime] = status;
             if(!currentTeacherStudents[currentStudentIdx].records) currentTeacherStudents[currentStudentIdx].records = {};
-            currentTeacherStudents[currentStudentIdx].attendance[dateStr] = status;
-            currentTeacherStudents[currentStudentIdx].records[dateStr] = memo;
+            if(!currentTeacherStudents[currentStudentIdx].records[dateStr]) currentTeacherStudents[currentStudentIdx].records[dateStr] = {};
+            currentTeacherStudents[currentStudentIdx].records[dateStr][startTime] = memo;
         }
-        
-        console.log('[setAttendance] 상태 저장됨:', { sid, dateStr, status, student: students[sIdx].name });
-        
+
+        // 반드시 최신 참조로 갱신
+        if (typeof refreshCurrentTeacherStudents === 'function') {
+            await refreshCurrentTeacherStudents();
+        }
+
+        console.log('[setAttendance] 상태 저장됨:', { sid, dateStr, startTime, status, student: students[sIdx].name });
+
         // 화면 즉시 업데이트
         renderCalendar();
-        if(document.getElementById('day-detail-modal').style.display === 'flex') {
+        // 출석 상태 변경 후 students/currentTeacherStudents 최신화
+        if (typeof refreshCurrentTeacherStudents === 'function') {
+            await refreshCurrentTeacherStudents();
+        }
+        // 시간표 모달이 열려 있으면 최신 데이터로 즉시 갱신
+        if(document.getElementById('day-detail-modal') && document.getElementById('day-detail-modal').style.display === 'flex') {
             renderDayEvents(dateStr);
+        }
+        // 출석 관리 모달이 열려 있으면 즉시 갱신
+        if(document.getElementById('attendance-modal') && document.getElementById('attendance-modal').style.display === 'flex') {
+            // 현재 학생/날짜/시간에 맞게 상태 갱신
+            const sid = document.getElementById('att-student-id').value;
+            const startTime = document.getElementById('att-edit-time').value;
+            const sIdx = students.findIndex(x => String(x.id) === String(sid));
+            let currentStatus = null;
+            if (sIdx > -1 && students[sIdx].attendance && students[sIdx].attendance[dateStr]) {
+                if (startTime && typeof students[sIdx].attendance[dateStr] === 'object') {
+                    currentStatus = students[sIdx].attendance[dateStr][startTime] || null;
+                } else if (typeof students[sIdx].attendance[dateStr] === 'string') {
+                    currentStatus = students[sIdx].attendance[dateStr];
+                }
+            }
+            updateAttendanceStatusDisplay(currentStatus);
+        }
+        
+        // ★ 출석 조회 모달이 열려있으면 즉시 갱신
+        const historyModal = document.getElementById('student-attendance-history-modal');
+        if (historyModal && historyModal.style.display === 'flex' && typeof window.loadStudentAttendanceHistory === 'function') {
+            try {
+                await window.loadStudentAttendanceHistory();
+            } catch (e) {
+                console.error('[setAttendance] 출석 조회 갱신 실패:', e);
+            }
         }
         
         // 짧은 딜레이 후 모달 닫기 (사용자가 선택을 확인할 수 있도록)
@@ -1597,13 +2420,13 @@ async function persistAttendanceStatusToDb(studentId, dateStr, status, teacherId
     await persistAttendanceStatusToDbForTeacher(studentId, dateStr, status, teacherId);
 }
 
-async function persistAttendanceStatusToDbForTeacher(studentId, dateStr, status, teacherId) {
+async function persistAttendanceStatusToDbForTeacher(studentId, dateStr, status, teacherId, startTime) {
     if (typeof window.saveAttendanceRecord !== 'function') return;
 
     let existing = null;
     if (typeof window.getAttendanceRecordByStudentAndDate === 'function') {
         try {
-            existing = await window.getAttendanceRecordByStudentAndDate(studentId, dateStr, teacherId || null);
+            existing = await window.getAttendanceRecordByStudentAndDate(studentId, dateStr, teacherId || null, startTime);
         } catch (e) {
             console.error('[persistAttendanceStatusToDbForTeacher] 기존 기록 조회 실패:', e);
         }
@@ -1618,7 +2441,7 @@ async function persistAttendanceStatusToDbForTeacher(studentId, dateStr, status,
         teacherId: String(existing?.teacher_id || teacherId || currentTeacherId || ''),
         attendanceDate: dateStr,
         checkInTime: existing?.check_in_time || null,
-        scheduledTime: existing?.scheduled_time || schedule?.start || null,
+        scheduledTime: startTime,
         status: status,
         qrScanned: existing?.qr_scanned || false,
         qrScanTime: existing?.qr_scan_time || null,
@@ -1630,6 +2453,16 @@ async function persistAttendanceStatusToDbForTeacher(studentId, dateStr, status,
         await window.saveAttendanceRecord(payload);
     } catch (e) {
         console.error('[persistAttendanceStatusToDbForTeacher] 상태 저장 실패:', e);
+    }
+
+    // ★ 출석 조회 모달이 열려있으면 즉시 갱신 (student-attendance-history-modal)
+    const historyModal = document.getElementById('student-attendance-history-modal');
+    if (historyModal && historyModal.style.display === 'flex' && typeof window.loadStudentAttendanceHistory === 'function') {
+        try {
+            await window.loadStudentAttendanceHistory();
+        } catch (e) {
+            console.error('[persistAttendanceStatusToDbForTeacher] 출석 조회 갱신 실패:', e);
+        }
     }
 }
 window.saveOnlyMemo = function() {
@@ -1657,119 +2490,252 @@ window.applyMemoColor = function(color) {
     selection.removeAllRanges();
 }
 window.generateSchedule = async function() {
-    const sid = document.getElementById('sch-student-select').value;
+    if (isScheduleSaving) return;
+    const hiddenSid = document.getElementById('sch-student-select').value;
+    const targetStudentIds = selectedScheduleStudents.length ? [...selectedScheduleStudents] : (hiddenSid ? [hiddenSid] : []);
     const days = Array.from(document.querySelectorAll('.day-check:checked')).map(c => parseInt(c.value));
     const startVal = document.getElementById('sch-start-date').value;
     const weeksVal = document.getElementById('sch-weeks').value;
     const startTime = document.getElementById('sch-time').value;
     const durationMin = document.getElementById('sch-duration-min').value;
-    if (!sid || !startVal || !startTime || !durationMin) return alert("필수 정보를 모두 입력해주세요.");
-    const sIdx = students.findIndex(s => String(s.id) === String(sid));
-    if (sIdx === -1) return alert("학생 정보를 찾을 수 없습니다.");
+    if (targetStudentIds.length === 0 || !startVal || !startTime || !durationMin) return alert("필수 정보를 모두 입력해주세요.");
     
-    // 선생님별 일정 데이터 초기화
-    if(!teacherScheduleData[currentTeacherId]) teacherScheduleData[currentTeacherId] = {};
-    if(!teacherScheduleData[currentTeacherId][sid]) teacherScheduleData[currentTeacherId][sid] = {};
-    
-    // 이 학생을 현재 선생님에게 할당
-    assignStudentToTeacher(sid);
-    
-    const startObj = new Date(startVal); const durInt = parseInt(durationMin); let count = 0;
-    if (days.length === 0) {
-        const off = startObj.getTimezoneOffset() * 60000;
-        const dStr = new Date(startObj.getTime() - off).toISOString().split('T')[0];
-        if (!teacherScheduleData[currentTeacherId][sid][dStr]) {
-            teacherScheduleData[currentTeacherId][sid][dStr] = { start: startTime, duration: durInt }; count++;
-        } else {
-            if(!confirm(`${dStr}에 이미 일정이 있습니다. 덮어씌우시겠습니까?`)) return;
-            teacherScheduleData[currentTeacherId][sid][dStr] = { start: startTime, duration: durInt }; count++;
-        }
-    } else {
-        const startDayOfWeek = startObj.getDay(); 
+    const startObj = new Date(startVal);
+    const durInt = parseInt(durationMin);
+    if (days.length > 0) {
+        const startDayOfWeek = startObj.getDay();
         if (!days.includes(startDayOfWeek)) return alert("시작 날짜의 요일이 선택된 반복 요일에 포함되지 않습니다.");
         const weeks = parseInt(weeksVal);
         if (!weeks || weeks < 1) return alert("반복할 주(Week) 수를 1 이상 입력해주세요.");
-        for (let i = 0; i < weeks * 7; i++) {
-            const cur = new Date(startObj); cur.setDate(startObj.getDate() + i); 
-            if (days.includes(cur.getDay())) {
-                const off = cur.getTimezoneOffset() * 60000;
-                const dStr = new Date(cur.getTime() - off).toISOString().split('T')[0];
-                if (!teacherScheduleData[currentTeacherId][sid][dStr]) {
-                    teacherScheduleData[currentTeacherId][sid][dStr] = { start: startTime, duration: durInt }; count++;
+    }
+
+    isScheduleSaving = true;
+    const saveBtn = document.getElementById('schedule-save-btn');
+    const saveWithoutBtn = document.getElementById('schedule-save-without-btn');
+    if (saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.dataset.originalHtml = saveBtn.innerHTML;
+        saveBtn.textContent = '생성 중...';
+    }
+    if (saveWithoutBtn) saveWithoutBtn.disabled = true;
+
+    try {
+        let totalCount = 0;
+        const scheduleBatch = [];
+        for (const sid of targetStudentIds) {
+            const student = students.find(s => String(s.id) === String(sid));
+            if (!student) return alert("학생 정보를 찾을 수 없습니다.");
+
+            if(!teacherScheduleData[currentTeacherId]) teacherScheduleData[currentTeacherId] = {};
+            if(!teacherScheduleData[currentTeacherId][sid]) teacherScheduleData[currentTeacherId][sid] = {};
+
+            assignStudentToTeacher(sid);
+
+            let count = 0;
+            let skipOverlapForAll = false; // 겹침 경고 "모두 무시" 플래그
+            if (days.length === 0) {
+                const off = startObj.getTimezoneOffset() * 60000;
+                const dStr = new Date(startObj.getTime() - off).toISOString().split('T')[0];
+                const entries = getScheduleEntries(currentTeacherId, String(sid), dStr);
+                const exists = entries.some(item => item.start === startTime);
+                if (exists && !confirm(`${student.name} - ${dStr} ${startTime}에 이미 일정이 있습니다. 덮어씌우시겠습니까?`)) {
+                    continue;
+                }
+                // ★ 시간 겹침 확인
+                const overlaps = await checkScheduleOverlap(sid, dStr, startTime, durInt, exists ? currentTeacherId : null, exists ? startTime : null);
+                if (overlaps.length > 0 && !confirm(formatOverlapMessage(student.name, dStr, overlaps))) {
+                    continue;
+                }
+                const updated = upsertScheduleEntry(entries, { start: startTime, duration: durInt });
+                setScheduleEntries(currentTeacherId, String(sid), dStr, updated.list);
+                scheduleBatch.push({ teacherId: currentTeacherId, studentId: sid, date: dStr, startTime, duration: durInt });
+                count++;
+            } else {
+                const weeks = parseInt(weeksVal);
+                for (let i = 0; i < weeks * 7; i++) {
+                    const cur = new Date(startObj); cur.setDate(startObj.getDate() + i); 
+                    if (days.includes(cur.getDay())) {
+                        const off = cur.getTimezoneOffset() * 60000;
+                        const dStr = new Date(cur.getTime() - off).toISOString().split('T')[0];
+                        const entries = getScheduleEntries(currentTeacherId, String(sid), dStr);
+                        const exists = entries.some(item => item.start === startTime);
+                        if (!exists) {
+                            // ★ 시간 겹침 확인 (반복 일정)
+                            if (!skipOverlapForAll) {
+                                const overlaps = await checkScheduleOverlap(sid, dStr, startTime, durInt, null, null);
+                                if (overlaps.length > 0) {
+                                    const overlapMsg = formatOverlapMessage(student.name, dStr, overlaps) + `\n\n[확인] = 이 날만 추가\n[취소] = 이 날 건너뛰기`;
+                                    if (!confirm(overlapMsg)) {
+                                        continue; // 이 날짜 건너뛰기
+                                    }
+                                }
+                            }
+                            const updated = upsertScheduleEntry(entries, { start: startTime, duration: durInt });
+                            setScheduleEntries(currentTeacherId, String(sid), dStr, updated.list);
+                            scheduleBatch.push({ teacherId: currentTeacherId, studentId: sid, date: dStr, startTime, duration: durInt });
+                            count++;
+                        }
+                    }
                 }
             }
+
+            totalCount += count;
         }
+        saveData();
+        persistTeacherScheduleLocal();
+        if (scheduleBatch.length) {
+            if (typeof saveSchedulesToDatabaseBatch === 'function') {
+                await saveSchedulesToDatabaseBatch(scheduleBatch);
+            } else if (typeof saveScheduleToDatabase === 'function') {
+                await Promise.allSettled(scheduleBatch.map(item => saveScheduleToDatabase(item)));
+            }
+        }
+        saveLayouts();
+        closeModal('schedule-modal');
+        renderCalendar();
+        // ★ 일정 생성 후 다른 선생님 데이터 갱신 + 타이머 갱신
+        await loadAllTeachersScheduleData();
+        if (typeof window.initMissedScanChecks === 'function') window.initMissedScanChecks();
+        if (typeof scheduleKstMidnightAutoAbsent === 'function') scheduleKstMidnightAutoAbsent();
+        alert(totalCount === 0 ? "새로 등록된 일정이 없습니다." : `${totalCount}개의 일정이 생성되었습니다.`);
+    } finally {
+        isScheduleSaving = false;
+        if (saveBtn) {
+            saveBtn.disabled = false;
+            if (saveBtn.dataset.originalHtml) {
+                saveBtn.innerHTML = saveBtn.dataset.originalHtml;
+                delete saveBtn.dataset.originalHtml;
+            }
+        }
+        if (saveWithoutBtn) saveWithoutBtn.disabled = false;
     }
-    saveData();
-    await saveTeacherScheduleData();
-    saveLayouts();
-    closeModal('schedule-modal');
-    await loadTeacherScheduleData(currentTeacherId);
-    // 현재 선생님의 학생 목록 다시 로드 (새 학생의 일정이 즉시 보이도록)
-    await refreshCurrentTeacherStudents();
-    renderCalendar();
-    alert(count === 0 ? "새로 등록된 일정이 없습니다." : `${count}개의 일정이 생성되었습니다.`);
 }
 window.generateScheduleWithoutHolidays = async function() {
-    const sid = document.getElementById('sch-student-select').value;
+    if (isScheduleSaving) return;
+    const hiddenSid = document.getElementById('sch-student-select').value;
+    const targetStudentIds = selectedScheduleStudents.length ? [...selectedScheduleStudents] : (hiddenSid ? [hiddenSid] : []);
     const days = Array.from(document.querySelectorAll('.day-check:checked')).map(c => parseInt(c.value));
     const startVal = document.getElementById('sch-start-date').value;
     const weeksVal = document.getElementById('sch-weeks').value;
     const startTime = document.getElementById('sch-time').value;
     const durationMin = document.getElementById('sch-duration-min').value;
-    if (!sid || !startVal || !startTime || !durationMin) return alert("필수 정보를 모두 입력해주세요.");
-    const sIdx = students.findIndex(s => String(s.id) === String(sid));
-    if (sIdx === -1) return alert("학생 정보를 찾을 수 없습니다.");
+    if (targetStudentIds.length === 0 || !startVal || !startTime || !durationMin) return alert("필수 정보를 모두 입력해주세요.");
     
-    // 선생님별 일정 데이터 초기화
-    if(!teacherScheduleData[currentTeacherId]) teacherScheduleData[currentTeacherId] = {};
-    if(!teacherScheduleData[currentTeacherId][sid]) teacherScheduleData[currentTeacherId][sid] = {};
-    
-    // 이 학생을 현재 선생님에게 할당
-    assignStudentToTeacher(sid);
-    
-    const startObj = new Date(startVal); const durInt = parseInt(durationMin); let count = 0;
-    
-    if (days.length === 0) {
-        const off = startObj.getTimezoneOffset() * 60000;
-        const dStr = new Date(startObj.getTime() - off).toISOString().split('T')[0];
-        const holidayInfo = getHolidayInfo(dStr);
-        if (!holidayInfo && !teacherScheduleData[currentTeacherId][sid][dStr]) {
-            teacherScheduleData[currentTeacherId][sid][dStr] = { start: startTime, duration: durInt }; count++;
-        } else if (holidayInfo) {
-            if(!confirm(`${dStr}은 ${holidayInfo.name}입니다. 계속 진행하시겠습니까?`)) return;
-            if(!teacherScheduleData[currentTeacherId][sid][dStr]) {
-                teacherScheduleData[currentTeacherId][sid][dStr] = { start: startTime, duration: durInt }; count++;
-            } else {
-                teacherScheduleData[currentTeacherId][sid][dStr] = { start: startTime, duration: durInt }; count++;
-            }
-        }
-    } else {
+    const startObj = new Date(startVal);
+    const durInt = parseInt(durationMin);
+    if (days.length > 0) {
         const startDayOfWeek = startObj.getDay(); 
         if (!days.includes(startDayOfWeek)) return alert("시작 날짜의 요일이 선택된 반복 요일에 포함되지 않습니다.");
         const weeks = parseInt(weeksVal);
         if (!weeks || weeks < 1) return alert("반복할 주(Week) 수를 1 이상 입력해주세요.");
-        for (let i = 0; i < weeks * 7; i++) {
-            const cur = new Date(startObj); cur.setDate(startObj.getDate() + i); 
-            if (days.includes(cur.getDay())) {
-                const off = cur.getTimezoneOffset() * 60000;
-                const dStr = new Date(cur.getTime() - off).toISOString().split('T')[0];
+    }
+
+    isScheduleSaving = true;
+    const saveBtn = document.getElementById('schedule-save-btn');
+    const saveWithoutBtn = document.getElementById('schedule-save-without-btn');
+    if (saveBtn) saveBtn.disabled = true;
+    if (saveWithoutBtn) {
+        saveWithoutBtn.disabled = true;
+        saveWithoutBtn.dataset.originalHtml = saveWithoutBtn.innerHTML;
+        saveWithoutBtn.textContent = '생성 중...';
+    }
+
+    try {
+        let totalCount = 0;
+        const scheduleBatch = [];
+        for (const sid of targetStudentIds) {
+            const student = students.find(s => String(s.id) === String(sid));
+            if (!student) return alert("학생 정보를 찾을 수 없습니다.");
+
+            if(!teacherScheduleData[currentTeacherId]) teacherScheduleData[currentTeacherId] = {};
+            if(!teacherScheduleData[currentTeacherId][sid]) teacherScheduleData[currentTeacherId][sid] = {};
+
+            assignStudentToTeacher(sid);
+
+            let count = 0;
+            let skipOverlapForAll = false;
+            if (days.length === 0) {
+                const off = startObj.getTimezoneOffset() * 60000;
+                const dStr = new Date(startObj.getTime() - off).toISOString().split('T')[0];
                 const holidayInfo = getHolidayInfo(dStr);
-                if (!holidayInfo && !teacherScheduleData[currentTeacherId][sid][dStr]) {
-                    teacherScheduleData[currentTeacherId][sid][dStr] = { start: startTime, duration: durInt }; count++;
+                const entries = getScheduleEntries(currentTeacherId, String(sid), dStr);
+                const exists = entries.some(item => item.start === startTime);
+                if (holidayInfo && !confirm(`${student.name} - ${dStr}은 ${holidayInfo.name}입니다. 계속 진행하시겠습니까?`)) {
+                    continue;
                 }
+                if (exists && !confirm(`${student.name} - ${dStr} ${startTime}에 이미 일정이 있습니다. 덮어씌우시겠습니까?`)) {
+                    continue;
+                }
+                // ★ 시간 겹침 확인
+                const overlaps = await checkScheduleOverlap(sid, dStr, startTime, durInt, exists ? currentTeacherId : null, exists ? startTime : null);
+                if (overlaps.length > 0 && !confirm(formatOverlapMessage(student.name, dStr, overlaps))) {
+                    continue;
+                }
+                const updated = upsertScheduleEntry(entries, { start: startTime, duration: durInt });
+                setScheduleEntries(currentTeacherId, String(sid), dStr, updated.list);
+                scheduleBatch.push({ teacherId: currentTeacherId, studentId: sid, date: dStr, startTime, duration: durInt });
+                count++;
+            } else {
+                const weeks = parseInt(weeksVal);
+                for (let i = 0; i < weeks * 7; i++) {
+                    const cur = new Date(startObj); cur.setDate(startObj.getDate() + i); 
+                    if (days.includes(cur.getDay())) {
+                        const off = cur.getTimezoneOffset() * 60000;
+                        const dStr = new Date(cur.getTime() - off).toISOString().split('T')[0];
+                        const holidayInfo = getHolidayInfo(dStr);
+                        if (holidayInfo) continue;
+                        const entries = getScheduleEntries(currentTeacherId, String(sid), dStr);
+                        const exists = entries.some(item => item.start === startTime);
+                        if (!exists) {
+                            // ★ 시간 겹침 확인 (반복 일정)
+                            if (!skipOverlapForAll) {
+                                const overlaps = await checkScheduleOverlap(sid, dStr, startTime, durInt, null, null);
+                                if (overlaps.length > 0) {
+                                    const overlapMsg = formatOverlapMessage(student.name, dStr, overlaps) + `\n\n[확인] = 이 날만 추가\n[취소] = 이 날 건너뛰기`;
+                                    if (!confirm(overlapMsg)) {
+                                        continue;
+                                    }
+                                }
+                            }
+                            const updated = upsertScheduleEntry(entries, { start: startTime, duration: durInt });
+                            setScheduleEntries(currentTeacherId, String(sid), dStr, updated.list);
+                            scheduleBatch.push({ teacherId: currentTeacherId, studentId: sid, date: dStr, startTime, duration: durInt });
+                            count++;
+                        }
+                    }
+                }
+            }
+
+            totalCount += count;
+        }
+        saveData();
+        persistTeacherScheduleLocal();
+        if (scheduleBatch.length) {
+            if (typeof saveSchedulesToDatabaseBatch === 'function') {
+                await saveSchedulesToDatabaseBatch(scheduleBatch);
+            } else if (typeof saveScheduleToDatabase === 'function') {
+                await Promise.allSettled(scheduleBatch.map(item => saveScheduleToDatabase(item)));
+            }
+        }
+        saveLayouts();
+        closeModal('schedule-modal');
+        renderCalendar();
+        // ★ 일정 생성 후 다른 선생님 데이터 갱신 + 타이머 갱신
+        await loadAllTeachersScheduleData();
+        if (typeof window.initMissedScanChecks === 'function') window.initMissedScanChecks();
+        if (typeof scheduleKstMidnightAutoAbsent === 'function') scheduleKstMidnightAutoAbsent();
+        alert(totalCount === 0 ? "새로 등록된 일정이 없습니다. (공휴일이 제외되었을 수 있습니다)" : `${totalCount}개의 일정이 생성되었습니다.`);
+    } finally {
+        isScheduleSaving = false;
+        if (saveBtn) saveBtn.disabled = false;
+        if (saveWithoutBtn) {
+            saveWithoutBtn.disabled = false;
+            if (saveWithoutBtn.dataset.originalHtml) {
+                saveWithoutBtn.innerHTML = saveWithoutBtn.dataset.originalHtml;
+                delete saveWithoutBtn.dataset.originalHtml;
             }
         }
     }
-    saveData();
-    await saveTeacherScheduleData();
-    saveLayouts();
-    closeModal('schedule-modal');
-    await loadTeacherScheduleData(currentTeacherId);
-    // 현재 선생님의 학생 목록 다시 로드 (새 학생의 일정이 즉시 보이도록)
-    await refreshCurrentTeacherStudents();
-    renderCalendar();
-    alert(count === 0 ? "새로 등록된 일정이 없습니다. (공휴일이 제외되었을 수 있습니다)" : `${count}개의 일정이 생성되었습니다.`);
 }
 window.prepareBulkDelete = function() {
     const sid = document.getElementById('edit-id').value;
@@ -1792,35 +2758,56 @@ window.executeBulkDelete = async function() {
     const startDate = new Date(startStr); const endDate = new Date(endStr);
     
     let deletedCount = 0;
+    let deletedAny = false;
+    let deleteDates = [];
     
     // 현재 선생님의 schedule 데이터에서 삭제할 일정 수집
     if(teacherScheduleData[currentTeacherId] && teacherScheduleData[currentTeacherId][sid]) {
-        const deleteDates = Object.keys(teacherScheduleData[currentTeacherId][sid]).filter(dStr => {
+        deleteDates = Object.keys(teacherScheduleData[currentTeacherId][sid]).filter(dStr => {
             const d = new Date(dStr);
             return d >= startDate && d <= endDate;
         });
-        
-        // 1. 데이터베이스에서 각각 삭제
-        for (const dStr of deleteDates) {
-            try {
-                const deleteSuccess = await deleteScheduleFromDatabase(sid, dStr, currentTeacherId);
-                if (deleteSuccess) {
-                    delete teacherScheduleData[currentTeacherId][sid][dStr];
-                    deletedCount++;
-                }
-                console.log('[executeBulkDelete] 삭제 완료:', dStr);
-            } catch (dbError) {
-                console.error('[executeBulkDelete] 데이터베이스 삭제 실패 (' + dStr + '):', dbError);
-            }
+    }
+
+    if (deleteDates.length > 0) deletedAny = true;
+    try {
+        if (typeof deleteSchedulesByRange === 'function') {
+            await deleteSchedulesByRange(sid, startStr, endStr, currentTeacherId);
+            deletedAny = true;
+        } else if (deleteDates.length > 0) {
+            await Promise.allSettled(
+                deleteDates.map(dStr => deleteScheduleFromDatabase(sid, dStr, currentTeacherId))
+            );
+            deletedAny = true;
         }
+
+        deleteDates.forEach(dStr => {
+            const entries = getScheduleEntries(currentTeacherId, String(sid), dStr);
+            if (entries.length > 0) {
+                setScheduleEntries(currentTeacherId, String(sid), dStr, []);
+                deletedCount += entries.length;
+            }
+        });
+
+        await loadTeacherScheduleData(currentTeacherId);
+    } catch (dbError) {
+        console.error('[executeBulkDelete] 데이터베이스 삭제 실패:', dbError);
+        alert('데이터베이스 삭제 중 오류가 발생했습니다: ' + dbError.message);
+        return;
     }
     
     // 2. 데이터 저장 및 화면 업데이트
     saveData(); 
-    await saveTeacherScheduleData();
+    persistTeacherScheduleLocal();
     closeModal('bulk-delete-modal'); 
     renderCalendar();
-    alert(`${deletedCount}개의 일정이 삭제되었습니다.`);
+    if (deletedCount > 0) {
+        alert(`${deletedCount}개의 일정이 삭제되었습니다.`);
+    } else if (deletedAny) {
+        alert('일정이 삭제되었습니다.');
+    } else {
+        alert('삭제할 일정이 없습니다.');
+    }
 }
 function handleDragOver(e) { e.preventDefault(); e.currentTarget.classList.add('drag-over'); }
 function handleDragLeave(e) { e.currentTarget.classList.remove('drag-over'); }
@@ -1839,26 +2826,27 @@ async function handleDrop(e) {
         // 선생님별 일정 데이터 이동 (현재 선생님의 데이터만 이동)
         if(teacherScheduleData[currentTeacherId] && teacherScheduleData[currentTeacherId][sid]) {
             if(teacherScheduleData[currentTeacherId][sid][oldD]) {
-                const scheduleInfo = teacherScheduleData[currentTeacherId][sid][oldD];
+                const rawInfo = teacherScheduleData[currentTeacherId][sid][oldD];
+                const entries = Array.isArray(rawInfo) ? rawInfo : [rawInfo];
                 
-                // 데이터베이스에서 삭제 후 새로 추가
                 try {
-                    // 1. 구 일정 삭제
                     await deleteScheduleFromDatabase(sid, oldD, currentTeacherId);
                     console.log('[handleDrop] 구 일정 삭제 완료:', oldD);
                     
-                    // 2. 신 일정 추가
-                    await saveScheduleToDatabase({
-                        teacherId: currentTeacherId,
-                        studentId: sid,
-                        date: newD,
-                        startTime: scheduleInfo.start,
-                        duration: scheduleInfo.duration
-                    });
+                    for (const entry of entries) {
+                        if (entry && entry.start) {
+                            await saveScheduleToDatabase({
+                                teacherId: currentTeacherId,
+                                studentId: sid,
+                                date: newD,
+                                startTime: entry.start,
+                                duration: entry.duration || 60
+                            });
+                        }
+                    }
                     console.log('[handleDrop] 신 일정 추가 완료:', newD);
                     
-                    // 3. 메모리 업데이트
-                    teacherScheduleData[currentTeacherId][sid][newD] = scheduleInfo;
+                    teacherScheduleData[currentTeacherId][sid][newD] = rawInfo;
                     delete teacherScheduleData[currentTeacherId][sid][oldD];
                     
                 } catch (dbError) {
@@ -1869,7 +2857,7 @@ async function handleDrop(e) {
             }
         }
         saveData();
-        await saveTeacherScheduleData();
+        persistTeacherScheduleLocal();
         renderCalendar();
         if (document.getElementById('day-detail-modal').style.display === 'flex') closeModal('day-detail-modal');
     }
@@ -1877,34 +2865,32 @@ async function handleDrop(e) {
 window.deleteSingleSchedule = async function() {
     const sid = document.getElementById('att-student-id').value;
     const dateStr = document.getElementById('att-date').value;
+    const originalStart = document.getElementById('att-original-time').value;
     if(!confirm("이 날짜의 일정을 삭제하시겠습니까?")) return;
     const sIdx = students.findIndex(s => String(s.id) === String(sid));
     if(sIdx > -1) {
-        // 1. 데이터베이스에서 먼저 삭제
-        try {
-            const deleteSuccess = await deleteScheduleFromDatabase(sid, dateStr, currentTeacherId);
-            console.log('[deleteSingleSchedule] 데이터베이스 삭제:', deleteSuccess);
-        } catch (dbError) {
-            console.error('[deleteSingleSchedule] 데이터베이스 삭제 실패:', dbError);
-            alert('데이터베이스 삭제 중 오류가 발생했습니다: ' + dbError.message);
-            return;
-        }
-        
-        // 2. 로컬 메모리에서 삭제
+        // 1. 로컬 메모리에서 먼저 삭제
         if(students[sIdx].attendance) delete students[sIdx].attendance[dateStr]; 
         if(students[sIdx].records) delete students[sIdx].records[dateStr];
         // 현재 선생님의 일정 데이터 삭제
-        if(teacherScheduleData[currentTeacherId] && teacherScheduleData[currentTeacherId][sid]) {
-            delete teacherScheduleData[currentTeacherId][sid][dateStr];
-        }
+        const entries = getScheduleEntries(currentTeacherId, String(sid), dateStr);
+        const nextEntries = originalStart ? entries.filter(item => item.start !== originalStart) : [];
+        setScheduleEntries(currentTeacherId, String(sid), dateStr, nextEntries);
         
-        // 3. 데이터 저장 및 화면 업데이트
+        // 2. 데이터 저장 및 화면 업데이트
         saveData();
-        await saveTeacherScheduleData();
+        persistTeacherScheduleLocal();
         renderCalendar();
         if (document.getElementById('day-detail-modal').style.display === 'flex') renderDayEvents(dateStr);
         
         alert('일정이 삭제되었습니다.');
+
+        // 3. 데이터베이스 삭제는 백그라운드 처리
+        deleteScheduleFromDatabase(sid, dateStr, currentTeacherId, originalStart || null)
+            .then(result => console.log('[deleteSingleSchedule] 데이터베이스 삭제:', result))
+            .catch(dbError => {
+                console.error('[deleteSingleSchedule] 데이터베이스 삭제 실패:', dbError);
+            });
     }
     closeModal('attendance-modal');
 }
@@ -1915,13 +2901,41 @@ window.togglePeriodDeleteStudent = function() {
     const studentGroup = document.getElementById('period-del-student-group');
     if (scope === 'student') {
         studentGroup.style.display = 'block';
-        // 전체 활성 학생 표시
-        const studentSelect = document.getElementById('period-del-student');
-        const activeStudents = students.filter(s => s.status === 'active');
-        studentSelect.innerHTML = '<option value="">학생을 선택하세요</option>' +
-            activeStudents.map(s => `<option value="${s.id}">${s.name} (${s.grade})</option>`).join('');
+        const searchInput = document.getElementById('period-del-student-search');
+        const dropdown = document.getElementById('period-del-student-dropdown');
+        const selectedList = document.getElementById('period-del-student-selected');
+
+        selectedPeriodDeleteStudents = [];
+        if (selectedList) selectedList.innerHTML = '';
+        if (searchInput) searchInput.value = '';
+        if (dropdown) {
+            dropdown.classList.remove('active');
+            dropdown.innerHTML = '';
+        }
+
+        const searchable = students;
+        if (searchInput) {
+            searchInput.oninput = function() {
+                const query = this.value.trim();
+                if (query === '') {
+                    dropdown.classList.remove('active');
+                    dropdown.innerHTML = '';
+                    return;
+                }
+
+                const queryLower = query.toLowerCase();
+                const filtered = searchable.filter(s =>
+                    s.name.toLowerCase().includes(queryLower) ||
+                    s.grade.toLowerCase().includes(queryLower)
+                );
+                renderPeriodDeleteStudentDropdown(filtered);
+            };
+        }
     } else {
         studentGroup.style.display = 'none';
+        selectedPeriodDeleteStudents = [];
+        const selectedList = document.getElementById('period-del-student-selected');
+        if (selectedList) selectedList.innerHTML = '';
     }
 }
 
@@ -1941,67 +2955,91 @@ window.executePeriodDelete = async function() {
         return;
     }
     
-    let targetStudents = [];
+    let targetStudentIds = [];
     
     if (scope === 'all') {
         if (!confirm(`${startDate} ~ ${endDate} 기간의 모든 학생 일정을 삭제하시겠습니까?\n(출석체크가 안된 일정만 삭제됩니다)`)) return;
-        targetStudents = students.filter(s => s.status === 'active');
+        targetStudentIds = Object.keys(teacherScheduleData[currentTeacherId] || {});
     } else {
-        const studentId = document.getElementById('period-del-student').value;
-        if (!studentId) {
+        if (!selectedPeriodDeleteStudents.length) {
             alert('학생을 선택해주세요.');
             return;
         }
-        const student = students.find(s => String(s.id) === String(studentId));
-        if (!student) return;
-        
-        if (!confirm(`${student.name} 학생의 ${startDate} ~ ${endDate} 기간 일정을 삭제하시겠습니까?\n(출석체크가 안된 일정만 삭제됩니다)`)) return;
-        targetStudents = [student];
+        if (!confirm(`${startDate} ~ ${endDate} 기간의 선택한 학생 일정을 삭제하시겠습니까?\n(출석체크가 안된 일정만 삭제됩니다)`)) return;
+        targetStudentIds = [...selectedPeriodDeleteStudents];
     }
     
     let deletedCount = 0;
-    
-    // 1. 데이터베이스에서 먼저 삭제
-    for (const student of targetStudents) {
-        const sid = student.id;
-        const sIdx = students.findIndex(s => String(s.id) === String(sid));
-        if (sIdx === -1) continue;
-        
-        // 현재 선생님의 일정 데이터에서 기간 내 이벤트 필터링
+    let deletedAny = false;
+
+    // 1. 데이터베이스에서 먼저 삭제 (병렬 처리)
+    const deleteRequests = [];
+
+    if (scope === 'all' && typeof deleteSchedulesByTeacherRange === 'function') {
+        deleteRequests.push(deleteSchedulesByTeacherRange(startDate, endDate, currentTeacherId));
+        deletedAny = true;
+    }
+
+    for (const sid of targetStudentIds) {
+        const student = students.find(s => String(s.id) === String(sid));
+
+        // 항상 DB 삭제 요청을 보냄 (로컬에 없어도 DB에 있을 수 있음)
+        if (typeof deleteSchedulesByRange === 'function') {
+            deleteRequests.push(deleteSchedulesByRange(sid, startDate, endDate, currentTeacherId));
+            deletedAny = true;
+        }
+        // 로컬에서도 삭제 (있을 경우)
         if (teacherScheduleData[currentTeacherId] && teacherScheduleData[currentTeacherId][sid]) {
             const eventsToDelete = Object.keys(teacherScheduleData[currentTeacherId][sid]).filter(dateStr => {
                 if (dateStr < startDate || dateStr > endDate) return false;
-                // 출석 체크가 없는 일정만 삭제
-                const hasAttendance = student.attendance && student.attendance[dateStr];
+                // ★ 객체 형태 호환: 빈 객체 {}도 출석 없음으로 처리
+                let hasAttendance = false;
+                if (student && student.attendance && student.attendance[dateStr]) {
+                    if (typeof student.attendance[dateStr] === 'object') {
+                        hasAttendance = Object.keys(student.attendance[dateStr]).length > 0;
+                    } else {
+                        hasAttendance = true;
+                    }
+                }
                 return !hasAttendance;
             });
-            
-            // 데이터베이스에서 각각 삭제
-            for (const dateStr of eventsToDelete) {
-                try {
-                    const deleteSuccess = await deleteScheduleFromDatabase(sid, dateStr, currentTeacherId);
-                    if (deleteSuccess) {
-                        delete teacherScheduleData[currentTeacherId][sid][dateStr];
-                        deletedCount++;
-                    }
-                    console.log('[executePeriodDelete] 삭제 완료:', dateStr);
-                } catch (dbError) {
-                    console.error('[executePeriodDelete] 데이터베이스 삭제 실패 (' + dateStr + '):', dbError);
+            eventsToDelete.forEach(dateStr => {
+                const entries = getScheduleEntries(currentTeacherId, String(sid), dateStr);
+                if (entries.length > 0) {
+                    setScheduleEntries(currentTeacherId, String(sid), dateStr, []);
+                    deletedCount += entries.length;
                 }
-            }
+            });
         }
     }
-    
+
     if (deletedCount > 0) {
         saveData();
-        await saveTeacherScheduleData();
+        persistTeacherScheduleLocal();
         renderCalendar();
         alert(`총 ${deletedCount}개의 일정이 삭제되었습니다.`);
+    } else if (deletedAny) {
+        saveData();
+        persistTeacherScheduleLocal();
+        renderCalendar();
+        alert('일정이 삭제되었습니다.');
     } else {
         alert('삭제할 일정이 없습니다.');
     }
-    
+
     closeModal('period-delete-modal');
+
+    if (deleteRequests.length > 0) {
+        Promise.allSettled(deleteRequests).then(async results => {
+            const failed = results.filter(r => r.status === 'rejected');
+            if (failed.length) {
+                console.error('[executePeriodDelete] DB 삭제 실패:', failed);
+                return;
+            }
+            await loadTeacherScheduleData(currentTeacherId);
+            renderCalendar();
+        });
+    }
 }
 
 window.openHistoryModal = function() {
@@ -2028,7 +3066,24 @@ window.openHistoryModal = function() {
     const monthlyEvents = Array.from(allDates).filter(date => date.startsWith(monthPrefix)).sort();
     if (monthlyEvents.length === 0) { container.innerHTML = '<div style="text-align:center;padding:20px;color:#999;">이번 달 수업/기록이 없습니다.</div>'; return; }
     monthlyEvents.forEach(date => {
-        const status = (s.attendance && s.attendance[date]) || 'none';
+        // ★ 객체/문자열 모두 호환 처리
+        let status = 'none';
+        if (s.attendance && s.attendance[date]) {
+            if (typeof s.attendance[date] === 'object') {
+                // 해당 날짜의 스케줄 시작시간 기준으로 찾거나, 첫 번째 값 사용
+                const rawEntry = studentSchedule[date] || null;
+                const scheduleEntry = Array.isArray(rawEntry) ? rawEntry[0] : rawEntry;
+                const startTime = scheduleEntry?.start || null;
+                if (startTime && s.attendance[date][startTime]) {
+                    status = s.attendance[date][startTime];
+                } else {
+                    const vals = Object.values(s.attendance[date]);
+                    status = vals.length > 0 ? vals[0] : 'none';
+                }
+            } else {
+                status = s.attendance[date];
+            }
+        }
         const record = (s.records && s.records[date]) || "";
         const isScheduled = studentSchedule && studentSchedule[date];
         let statusText = "미처리", statusClass = "bg-none", dotClass = "t-dot-none";
@@ -2120,6 +3175,7 @@ async function loadAndCleanData() {
                 memo: s.memo || '',
                 registerDate: s.register_date || '',
                 status: s.status || 'active',
+                statusChangedDate: s.status_changed_date || null,
                 events: [],
                 attendance: {},
                 records: {},
@@ -2143,12 +3199,15 @@ async function loadAndCleanData() {
 
     try {
         // 출석 기록: 소유자 기준으로 로드하여 학생에 반영 (모든 선생님 공통)
+        // ★ 시간별 객체 형태로 저장: student.attendance[date][scheduled_time] = status
         if (typeof getAttendanceRecordsByOwner === 'function') {
             const records = await getAttendanceRecordsByOwner(currentTeacherId || null);
             if (records && records.length > 0 && students.length > 0) {
+                // scheduled_time까지 포함한 키로 중복 제거
                 const recordMap = new Map();
                 records.forEach(r => {
-                    const key = `${r.student_id}__${r.attendance_date}`;
+                    const timeKey = r.scheduled_time || 'default';
+                    const key = `${r.student_id}__${r.attendance_date}__${timeKey}`;
                     const timeVal = r.qr_scan_time || r.check_in_time || r.updated_at || r.created_at || null;
                     if (!recordMap.has(key)) {
                         recordMap.set(key, { record: r, time: timeVal });
@@ -2166,7 +3225,19 @@ async function loadAndCleanData() {
                     const student = students.find(s => String(s.id) === String(record.student_id));
                     if (!student) return;
                     if (!student.attendance) student.attendance = {};
-                    student.attendance[record.attendance_date] = record.status;
+                    
+                    // ★ 시간별 객체로 저장 (기존 flat string → object 마이그레이션)
+                    const dateKey = record.attendance_date;
+                    const scheduledTimeKey = record.scheduled_time || 'default';
+                    if (typeof student.attendance[dateKey] === 'string') {
+                        const prev = student.attendance[dateKey];
+                        student.attendance[dateKey] = {};
+                        student.attendance[dateKey]['default'] = prev;
+                    }
+                    if (!student.attendance[dateKey] || typeof student.attendance[dateKey] !== 'object') {
+                        student.attendance[dateKey] = {};
+                    }
+                    student.attendance[dateKey][scheduledTimeKey] = record.status;
 
                     // QR 스캔 시간 동기화 (상세기록 표시용)
                     if (!student.qr_scan_time) student.qr_scan_time = {};
@@ -2270,7 +3341,18 @@ async function ensureAttendanceForDate(dateStr) {
                 const student = students.find(s => String(s.id) === String(r.student_id));
                 if (!student) return;
                 if (!student.attendance) student.attendance = {};
-                student.attendance[r.attendance_date] = r.status;
+                // ★ 시간별 객체로 저장 (flat string → object 마이그레이션)
+                const dateKey = r.attendance_date;
+                const scheduledTimeKey = r.scheduled_time || 'default';
+                if (typeof student.attendance[dateKey] === 'string') {
+                    const prev = student.attendance[dateKey];
+                    student.attendance[dateKey] = {};
+                    student.attendance[dateKey]['default'] = prev;
+                }
+                if (!student.attendance[dateKey] || typeof student.attendance[dateKey] !== 'object') {
+                    student.attendance[dateKey] = {};
+                }
+                student.attendance[dateKey][scheduledTimeKey] = r.status;
             });
         }
     } catch (e) {
@@ -2297,10 +3379,13 @@ async function loadTeacherScheduleData(teacherId) {
                         teacherScheduleData[teacherId][studentId] = {};
                     }
                     
-                    teacherScheduleData[teacherId][studentId][date] = {
-                        start: schedule.start_time.substring(0, 5), // HH:MM 형식
+                    const entry = {
+                        start: schedule.start_time.substring(0, 5),
                         duration: schedule.duration
                     };
+                    const entries = getScheduleEntries(teacherId, studentId, date);
+                    const updated = upsertScheduleEntry(entries, entry);
+                    setScheduleEntries(teacherId, studentId, date, updated.list);
                 });
                 
                 console.log(`일정 DB 로드 (${teacherId}): ${dbSchedules.length}개`);
@@ -2336,6 +3421,62 @@ async function loadTeacherScheduleData(teacherId) {
     } catch (e) {
         console.error('선생님 일정 데이터 로드 실패:', e);
         teacherScheduleData[teacherId] = {};
+    }
+}
+
+// ★ 모든 선생님의 일정 데이터 로드 (겹침 확인/알림 등에 필요)
+async function loadAllTeachersScheduleData() {
+    try {
+        if (typeof supabase === 'undefined') return;
+        const ownerId = localStorage.getItem('current_owner_id');
+        if (!ownerId) return;
+
+        const { data, error } = await supabase
+            .from('schedules')
+            .select('teacher_id, student_id, schedule_date, start_time, duration')
+            .eq('owner_user_id', ownerId);
+
+        if (error) {
+            console.error('[loadAllTeachersScheduleData] DB 에러:', error);
+            return;
+        }
+
+        // 현재 선생님의 데이터는 보존하고, 다른 선생님 데이터만 추가/갱신
+        const otherTeachers = {};
+        (data || []).forEach(schedule => {
+            const tid = String(schedule.teacher_id);
+            const sid = String(schedule.student_id);
+            const date = schedule.schedule_date;
+            const entry = {
+                start: schedule.start_time ? schedule.start_time.substring(0, 5) : schedule.start_time,
+                duration: schedule.duration
+            };
+
+            if (!otherTeachers[tid]) otherTeachers[tid] = {};
+            if (!otherTeachers[tid][sid]) otherTeachers[tid][sid] = {};
+
+            const existing = otherTeachers[tid][sid][date];
+            if (!existing) {
+                otherTeachers[tid][sid][date] = [entry];
+            } else {
+                const arr = Array.isArray(existing) ? existing : [existing];
+                const dupIdx = arr.findIndex(e => e.start === entry.start);
+                if (dupIdx >= 0) arr[dupIdx] = entry;
+                else arr.push(entry);
+                otherTeachers[tid][sid][date] = arr;
+            }
+        });
+
+        // 현재 선생님 데이터는 유지하고, 다른 선생님 데이터를 병합
+        for (const tid in otherTeachers) {
+            if (String(tid) === String(currentTeacherId)) continue; // 현재 선생님은 건드리지 않음
+            teacherScheduleData[tid] = otherTeachers[tid];
+        }
+
+        const otherCount = Object.keys(otherTeachers).filter(t => String(t) !== String(currentTeacherId)).length;
+        console.log(`[loadAllTeachersScheduleData] 다른 선생님 ${otherCount}명 일정 로드 완료 (총 ${(data || []).length}건)`);
+    } catch (e) {
+        console.error('[loadAllTeachersScheduleData] 예외:', e);
     }
 }
 
@@ -2381,6 +3522,12 @@ async function saveTeacherScheduleData() {
         console.error('선생님 일정 데이터 저장 실패:', e);
     }
 }
+
+function persistTeacherScheduleLocal() {
+    if (!currentTeacherId) return;
+    const key = `teacher_schedule_data__${currentTeacherId}`;
+    localStorage.setItem(key, JSON.stringify(teacherScheduleData[currentTeacherId] || {}));
+}
 function saveData() { 
     // ✅ 세션 검증: current_owner_id가 없으면 저장 불가
     const ownerId = localStorage.getItem('current_owner_id');
@@ -2414,7 +3561,27 @@ function getActiveStudentsForTeacher(teacherId) {
     const scheduleIds = Object.keys(teacherScheduleData[teacherId] || {});
     const mergedIds = new Set([ ...mappedIds.map(String), ...scheduleIds.map(String) ]);
 
-    return students.filter(s => mergedIds.has(String(s.id)) && s.status === 'active');
+    // 활성 학생 + 퇴원/휴원 학생 (퇴원/휴원 학생은 상태 변경일 이전 일정 표시용)
+    return students.filter(s => {
+        if (!mergedIds.has(String(s.id))) return false;
+        if (s.status === 'active') return true;
+        // 퇴원/휴원 학생은 statusChangedDate가 있으면 포함 (이전 일정 표시용)
+        if ((s.status === 'archived' || s.status === 'paused') && s.statusChangedDate) return true;
+        return false;
+    });
+}
+
+// 퇴원/휴원 학생의 일정을 해당 날짜에 표시할지 판단
+function shouldShowScheduleForStudent(student, dateStr) {
+    if (!student) return false;
+    // 재원생은 항상 표시
+    if (student.status === 'active') return true;
+    // 퇴원/휴원 학생은 상태 변경일 당일까지 표시, 그 이후만 숨김
+    if ((student.status === 'archived' || student.status === 'paused') && student.statusChangedDate) {
+        return dateStr <= student.statusChangedDate;
+    }
+    // statusChangedDate가 없는 퇴원/휴원 학생은 표시하지 않음
+    return false;
 }
 
 // 현재 선생님의 학생 목록 새로고침
@@ -2812,16 +3979,66 @@ window.updateStudentStatus = async function(id, newStatus) {
     try {
         console.log(`[updateStudentStatus] 상태 변경 시작 - ${student.name}: ${originalStatus} -> ${newStatus}`);
         
+        // 퇴원/휴원 시 상태 변경 날짜 기록 (이 날짜 이전의 일정은 보존)
+        const updatePayload = { status: newStatus };
+        if (newStatus === 'archived' || newStatus === 'paused') {
+            const today = new Date();
+            const yyyy = today.getFullYear();
+            const mm = String(today.getMonth() + 1).padStart(2, '0');
+            const dd = String(today.getDate()).padStart(2, '0');
+            updatePayload.status_changed_date = `${yyyy}-${mm}-${dd}`;
+        } else if (newStatus === 'active') {
+            // 재원으로 복귀 시 상태 변경 날짜 초기화
+            updatePayload.status_changed_date = null;
+        }
+        
         // 상태 변경을 Supabase에 반영
-        const updated = await updateStudent(id, { status: newStatus });
+        const updated = await updateStudent(id, updatePayload);
         console.log(`[updateStudentStatus] updateStudent 결과:`, updated);
         
         if (updated) {
-            students[idx].status = newStatus; 
+            students[idx].status = newStatus;
+            if (updatePayload.status_changed_date !== undefined) {
+                students[idx].statusChangedDate = updatePayload.status_changed_date;
+            }
             saveData(); 
             renderDrawerList(); 
             renderCalendar();
-            console.log(`[updateStudentStatus] 상태 변경 성공 - ${student.name}: ${newStatus}`);
+            console.log(`[updateStudentStatus] 상태 변경 성공 - ${student.name}: ${newStatus}, 변경일: ${updatePayload.status_changed_date || '없음'}`);
+            
+            // 퇴원/휴원 시 이후 일정 삭제 여부 확인
+            if (newStatus === 'archived' || newStatus === 'paused') {
+                const statusLabel = newStatus === 'archived' ? '퇴원' : '휴원';
+                const todayStr = updatePayload.status_changed_date;
+                
+                if (confirm(`${student.name} 학생이 ${statusLabel} 처리되었습니다.\n\n${todayStr} 이후의 일정을 모두 삭제하시겠습니까?\n\n• 삭제: DB 공간 절약 (되돌릴 수 없음)\n• 취소: 일정 데이터 유지 (캘린더에서만 숨김)`)) {
+                    try {
+                        // DB에서 이후 일정 삭제
+                        if (typeof deleteSchedulesByRange === 'function') {
+                            await deleteSchedulesByRange(id, todayStr, '2099-12-31', currentTeacherId);
+                            console.log(`[updateStudentStatus] ${student.name} 이후 일정 DB 삭제 완료`);
+                        }
+                        
+                        // 로컬 메모리에서도 이후 일정 삭제
+                        if (teacherScheduleData[currentTeacherId] && teacherScheduleData[currentTeacherId][String(id)]) {
+                            const studentSchedule = teacherScheduleData[currentTeacherId][String(id)];
+                            Object.keys(studentSchedule).forEach(dateStr => {
+                                if (dateStr >= todayStr) {
+                                    delete studentSchedule[dateStr];
+                                }
+                            });
+                        }
+                        
+                        persistTeacherScheduleLocal();
+                        saveData();
+                        renderCalendar();
+                        alert(`${student.name} 학생의 ${todayStr} 이후 일정이 삭제되었습니다.`);
+                    } catch (delError) {
+                        console.error('[updateStudentStatus] 이후 일정 삭제 실패:', delError);
+                        alert('이후 일정 삭제에 실패했습니다. 수동으로 삭제해주세요.');
+                    }
+                }
+            }
         } else {
             throw new Error('상태 업데이트 실패');
         }
@@ -2842,6 +4059,7 @@ window.openModal = function(id) {
         const searchInput = document.getElementById('sch-student-search');
         const dropdown = document.getElementById('sch-student-dropdown');
         const hiddenSelect = document.getElementById('sch-student-select');
+        const selectedList = document.getElementById('sch-selected-students');
         
         // 전체 활성 학생 표시 (모든 선생님이 등록 가능)
         const activeStudents = students.filter(s => s.status === 'active');
@@ -2851,6 +4069,8 @@ window.openModal = function(id) {
         hiddenSelect.value = '';
         dropdown.classList.remove('active');
         dropdown.innerHTML = '';
+        selectedScheduleStudents = [];
+        if (selectedList) selectedList.innerHTML = '';
         
         // 검색 이벤트 리스너
         searchInput.oninput = function() {
@@ -2869,7 +4089,12 @@ window.openModal = function(id) {
             renderStudentDropdown(filtered, query);
         };
         
-        document.getElementById('sch-start-date').valueAsDate = new Date();
+        // 캘린더에서 보고 있는 날짜로 시작일 설정
+        const calDate = new Date(currentDate);
+        const yyyy = calDate.getFullYear();
+        const mm = String(calDate.getMonth() + 1).padStart(2, '0');
+        const dd = String(calDate.getDate()).padStart(2, '0');
+        document.getElementById('sch-start-date').value = `${yyyy}-${mm}-${dd}`;
         document.querySelectorAll('.day-check').forEach(c => c.checked = false);
     }
 }
@@ -2893,9 +4118,92 @@ window.renderStudentDropdown = function(studentList, query) {
 }
 
 window.selectStudent = function(id, name, grade) {
-    document.getElementById('sch-student-select').value = id;
-    document.getElementById('sch-student-search').value = name + ' (' + grade + ')';
-    document.getElementById('sch-student-dropdown').classList.remove('active');
+    if (!selectedScheduleStudents.map(String).includes(String(id))) {
+        selectedScheduleStudents.push(id);
+    }
+    const searchInput = document.getElementById('sch-student-search');
+    const dropdown = document.getElementById('sch-student-dropdown');
+    const hiddenSelect = document.getElementById('sch-student-select');
+    if (hiddenSelect) hiddenSelect.value = id;
+    if (searchInput) searchInput.value = '';
+    if (dropdown) {
+        dropdown.classList.remove('active');
+        dropdown.innerHTML = '';
+    }
+    renderSelectedScheduleStudents();
+}
+
+function renderSelectedScheduleStudents() {
+    const selectedList = document.getElementById('sch-selected-students');
+    if (!selectedList) return;
+    if (!selectedScheduleStudents.length) {
+        selectedList.textContent = '';
+        return;
+    }
+    const chips = selectedScheduleStudents.map(id => {
+        const student = students.find(s => String(s.id) === String(id));
+        const label = student ? `${student.name} ${student.grade}` : String(id);
+        return `<button type="button" class="schedule-selected-chip" onclick="removeScheduleStudent('${id}')">${label} ×</button>`;
+    });
+    selectedList.innerHTML = chips.join('');
+}
+
+window.removeScheduleStudent = function(id) {
+    selectedScheduleStudents = selectedScheduleStudents.filter(sid => String(sid) !== String(id));
+    renderSelectedScheduleStudents();
+}
+
+function renderPeriodDeleteStudentDropdown(studentList) {
+    const dropdown = document.getElementById('period-del-student-dropdown');
+    if (!dropdown) return;
+    if (studentList.length === 0) {
+        dropdown.innerHTML = '<div class="search-option" style="color: var(--gray); cursor: default;">검색 결과가 없습니다.</div>';
+        dropdown.classList.add('active');
+        return;
+    }
+
+    dropdown.innerHTML = studentList.map(s =>
+        `<div class="search-option" onclick="selectPeriodDeleteStudent('${s.id}', '${s.name}', '${s.grade}')">
+            <span class="search-option-label">${s.name}</span>
+            <span class="search-option-grade">${s.grade}</span>
+        </div>`
+    ).join('');
+
+    dropdown.classList.add('active');
+}
+
+window.selectPeriodDeleteStudent = function(id, name, grade) {
+    if (!selectedPeriodDeleteStudents.map(String).includes(String(id))) {
+        selectedPeriodDeleteStudents.push(String(id));
+    }
+    const searchInput = document.getElementById('period-del-student-search');
+    const dropdown = document.getElementById('period-del-student-dropdown');
+    if (searchInput) searchInput.value = '';
+    if (dropdown) {
+        dropdown.classList.remove('active');
+        dropdown.innerHTML = '';
+    }
+    renderPeriodDeleteSelectedStudents();
+}
+
+function renderPeriodDeleteSelectedStudents() {
+    const selectedList = document.getElementById('period-del-student-selected');
+    if (!selectedList) return;
+    if (!selectedPeriodDeleteStudents.length) {
+        selectedList.textContent = '';
+        return;
+    }
+    const chips = selectedPeriodDeleteStudents.map(id => {
+        const student = students.find(s => String(s.id) === String(id));
+        const label = student ? `${student.name} ${student.grade}` : String(id);
+        return `<button type="button" class="schedule-selected-chip" onclick="removePeriodDeleteStudent('${id}')">${label} ×</button>`;
+    });
+    selectedList.innerHTML = chips.join('');
+}
+
+window.removePeriodDeleteStudent = function(id) {
+    selectedPeriodDeleteStudents = selectedPeriodDeleteStudents.filter(sid => String(sid) !== String(id));
+    renderPeriodDeleteSelectedStudents();
 }
 
 window.closeModal = function(id) { document.getElementById(id).style.display = 'none'; }
@@ -2928,6 +4236,7 @@ window.prepareEdit = function(id) {
     openModal('register-modal');
 }
 window.handleStudentSave = async function() {
+    if (isStudentSaving) return;
     const id = document.getElementById('edit-id').value;
     const name = document.getElementById('reg-name').value;
     const school = document.getElementById('reg-school').value;
@@ -2940,6 +4249,14 @@ window.handleStudentSave = async function() {
     const memo = document.getElementById('reg-memo').value;
     const regDate = document.getElementById('reg-register-date').value;
     if (!name.trim()) return alert("이름을 입력해주세요.");
+
+    isStudentSaving = true;
+    const saveButton = document.getElementById('student-save-btn');
+    if (saveButton) {
+        saveButton.disabled = true;
+        saveButton.dataset.originalHtml = saveButton.innerHTML;
+        saveButton.textContent = '저장 중...';
+    }
     
     const localData = {
         name,
@@ -3027,6 +4344,15 @@ window.handleStudentSave = async function() {
     } catch (error) {
         console.error('학생 저장 중 오류:', error);
         alert('학생 정보 저장에 실패했습니다: ' + error.message);
+    } finally {
+        isStudentSaving = false;
+        if (saveButton) {
+            saveButton.disabled = false;
+            if (saveButton.dataset.originalHtml) {
+                saveButton.innerHTML = saveButton.dataset.originalHtml;
+                delete saveButton.dataset.originalHtml;
+            }
+        }
     }
 }
 
@@ -3055,7 +4381,7 @@ window.openParentPortal = function() {
     const defaultUrl = hasOrigin ? `${window.location.origin}/parent-portal/` : './parent-portal/';
     const targetUrl = storedUrl || defaultUrl;
 
-    window.location.href = targetUrl;
+    window.open(targetUrl, '_blank');
 }
 
 window.movePaymentMonth = function(offset) {
@@ -3068,6 +4394,14 @@ window.movePaymentMonth = function(offset) {
     renderPaymentList();
 }
 
+function isStudentEligibleForPaymentMonth(student, monthKey) {
+    if (!student || !monthKey) return true;
+    const regDate = student.registerDate || '';
+    if (!regDate || regDate.length < 7) return true;
+    const regMonthKey = regDate.slice(0, 7);
+    return regMonthKey <= monthKey;
+}
+
 window.renderPaymentList = function() {
     const container = document.getElementById('payment-list-container');
     const title = document.getElementById('payment-month-title');
@@ -3078,14 +4412,15 @@ window.renderPaymentList = function() {
     title.textContent = `${year}년 ${month}월`;
 
     const activeStudents = students.filter(s => s.status === 'active');
-    if (activeStudents.length === 0) {
+    const eligibleStudents = activeStudents.filter(s => isStudentEligibleForPaymentMonth(s, monthKey));
+    if (eligibleStudents.length === 0) {
         container.innerHTML = '<div class="empty-list-placeholder">등록된 재원생이 없습니다.</div>';
-        updateSummary(monthKey, activeStudents);
+        updateSummary(monthKey, eligibleStudents);
         return;
     }
 
     // 1. 데이터 준비
-    let paymentData = activeStudents.map(s => {
+    let paymentData = eligibleStudents.map(s => {
         const studentMonthData = s.payments?.[monthKey] || {};
 
         const tuition = {
@@ -3144,10 +4479,11 @@ window.renderPaymentList = function() {
 }
 
 function updateSummary(monthKey, allPaymentData) {
-    const activeStudents = students.filter(s => s.status === 'active');
     const year = currentPaymentDate.getFullYear();
     const month = currentPaymentDate.getMonth() + 1;
     const mKey = monthKey || `${year}-${String(month).padStart(2, '0')}`;
+    const activeStudents = students.filter(s => s.status === 'active');
+    const eligibleStudents = activeStudents.filter(s => isStudentEligibleForPaymentMonth(s, mKey));
 
     let totalCollected = 0;
     let paidCount = 0;
@@ -3181,7 +4517,7 @@ function updateSummary(monthKey, allPaymentData) {
     } else {
         // 특정 항목(수강료, 교재비, 특강비) 필터: 해당 항목만 기준
         const feeType = currentPaymentFilter;
-        activeStudents.forEach(s => {
+        eligibleStudents.forEach(s => {
             const studentMonthData = s.payments?.[mKey] || {};
             const fee = studentMonthData[feeType] || {};
             const amount = fee.amount ?? (feeType === 'tuition' ? s.defaultFee : feeType === 'textbook' ? s.defaultTextbookFee : s.specialLectureFee) ?? 0;
@@ -3205,6 +4541,7 @@ function updateSummary(monthKey, allPaymentData) {
 function getPaymentRowHtml(item) {
     const { student, summary } = item;
     const { totalDue, totalPaid, status } = summary;
+    const registerText = student.registerDate ? `등록: ${student.registerDate}` : '등록: -';
 
     let statusText, statusClass, statusBgColor;
     switch (status) {
@@ -3220,6 +4557,7 @@ function getPaymentRowHtml(item) {
                 <div class="p-cell-student">
                     <span class="p-name">${student.name}</span>
                     <span class="p-grade">${student.grade}</span>
+                    <span class="p-register">${registerText}</span>
                 </div>
                 <div class="p-cell">${(totalDue || 0).toLocaleString()}원</div>
                 <div class="p-cell">${(totalPaid || 0).toLocaleString()}원</div>
@@ -3703,23 +5041,26 @@ window.saveTeacherDetail = async function() {
     try {
         const modal = document.getElementById('teacher-detail-modal');
         const teacherId = modal.dataset.teacherId;
-        
         if (!teacherId) return alert('선생님 정보를 찾을 수 없습니다.');
-        
+
+        const name = document.getElementById('detail-teacher-name').value.trim();
         const phone = document.getElementById('detail-teacher-phone').value.trim();
         const address = document.getElementById('detail-teacher-address').value.trim();
         const addressDetail = document.getElementById('detail-teacher-address-detail').value.trim();
         const memo = document.getElementById('detail-teacher-memo').value.trim();
-        
+
+        if (!name) return alert('이름을 입력하세요.');
+
         const ownerId = localStorage.getItem('current_owner_id');
         if (!ownerId) {
             alert('로그인이 필요합니다.');
             return;
         }
-        
+
         const { error } = await supabase
             .from('teachers')
             .update({
+                name: name,
                 phone: phone || null,
                 address: address || null,
                 address_detail: addressDetail || null,
@@ -3727,11 +5068,11 @@ window.saveTeacherDetail = async function() {
             })
             .eq('id', teacherId)
             .eq('owner_user_id', ownerId);
-        
+
         if (error) throw error;
-        
+
         alert('선생님 정보가 저장되었습니다.');
-        
+
         // 선생님 목록 새로고침
         await loadTeachers();
         renderTeacherListModal();

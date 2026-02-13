@@ -15,13 +15,23 @@ function removeTabValue(key) {
 }
 
 window.signUp = async function() {
-    const email = document.getElementById('signup-email').value;
+    const email = (document.getElementById('signup-email')?.value || '').trim();
     const password = document.getElementById('signup-password').value;
     const passwordConfirm = document.getElementById('signup-password-confirm')?.value || '';
     const name = document.getElementById('signup-name').value;
 
-    if (!email || !password || !name || !passwordConfirm) {
-        alert('모든 항목을 입력해주세요');
+    if (!name) {
+        alert('이름을 입력해주세요.');
+        return;
+    }
+
+    if (!email) {
+        alert('구글 이메일 인증이 필요합니다.\n"구글 이메일 인증" 버튼을 눌러 인증해주세요.');
+        return;
+    }
+
+    if (!password || !passwordConfirm) {
+        alert('비밀번호를 입력해주세요.');
         return;
     }
 
@@ -31,7 +41,7 @@ window.signUp = async function() {
     }
 
     try {
-        // Supabase에서 회원가입
+        // Supabase에서 회원가입 (구글 인증된 이메일 사용)
         const { data, error } = await supabase.auth.signUp({
             email: email,
             password: password
@@ -63,6 +73,10 @@ window.signUp = async function() {
         const passwordConfirmInput = document.getElementById('signup-password-confirm');
         if (passwordConfirmInput) passwordConfirmInput.value = '';
         document.getElementById('signup-name').value = '';
+        
+        // Google 인증 상태 초기화
+        if (typeof resetGoogleAuthAdmin === 'function') resetGoogleAuthAdmin();
+        
         toggleAuthForm();
     } catch (error) {
         alert('오류 발생: ' + error.message);
@@ -180,6 +194,26 @@ window.signOut = async function() {
     }
 }
 
+// 선생님 선택 화면에서 관리자 로그인 화면으로 돌아가기
+window.backToAdminLogin = async function() {
+    // 세션 정리 및 로그아웃
+    localStorage.removeItem('current_owner_id');
+    localStorage.removeItem('current_user_role');
+    localStorage.removeItem('current_user_name');
+    removeTabValue('current_teacher_id');
+    removeTabValue('current_teacher_name');
+    removeTabValue('current_teacher_role');
+    removeTabValue('active_page');
+
+    try {
+        await supabase.auth.signOut();
+    } catch (e) {
+        console.error('[backToAdminLogin] 로그아웃 에러:', e);
+    }
+
+    navigateToPage('AUTH');
+}
+
 window.toggleAuthForm = function() {
     const loginForm = document.getElementById('login-form');
     const signupForm = document.getElementById('signup-form');
@@ -187,6 +221,8 @@ window.toggleAuthForm = function() {
     if (loginForm.style.display === 'none') {
         loginForm.style.display = 'flex';
         signupForm.style.display = 'none';
+        // 로그인 폼으로 전환 시 회원가입 Google 인증 상태 초기화
+        if (typeof resetGoogleAuthAdmin === 'function') resetGoogleAuthAdmin();
     } else {
         loginForm.style.display = 'none';
         signupForm.style.display = 'flex';
@@ -215,13 +251,50 @@ window.closeAdminPasswordResetModal = function() {
     if (modal) modal.style.display = 'none';
 }
 
-window.requestAdminPasswordReset = async function() {
-    const emailInput = document.getElementById('admin-reset-email');
-    const email = emailInput ? emailInput.value.trim() : '';
-    if (!email) {
-        alert('이메일을 입력해주세요');
-        return;
+// 기존 비밀번호 확인 후 관리자 비밀번호 변경
+window.confirmAdminPasswordChange = async function() {
+    const email = (document.getElementById('admin-reset-email')?.value || '').trim();
+    const currentPassword = (document.getElementById('admin-current-password')?.value || '').trim();
+    const newPassword = (document.getElementById('admin-reset-new-password')?.value || '').trim();
+    const confirmPassword = (document.getElementById('admin-reset-new-password-confirm')?.value || '').trim();
+
+    if (!email) return alert('이메일을 입력해주세요.');
+    if (!currentPassword) return alert('기존 비밀번호를 입력해주세요.');
+    if (!newPassword || !confirmPassword) return alert('새 비밀번호를 입력해주세요.');
+    if (newPassword.length < 6) return alert('비밀번호는 6자 이상으로 설정해주세요.');
+    if (newPassword !== confirmPassword) return alert('새 비밀번호가 일치하지 않습니다.');
+
+    try {
+        // 1. 기존 비밀번호 확인 (재로그인으로 검증)
+        const { error: signInError } = await supabase.auth.signInWithPassword({ email, password: currentPassword });
+        if (signInError) {
+            alert('기존 비밀번호가 올바르지 않습니다.');
+            return;
+        }
+
+        // 2. 새 비밀번호로 변경
+        const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
+        if (updateError) {
+            alert('비밀번호 변경 실패: ' + updateError.message);
+            return;
+        }
+
+        alert('비밀번호가 변경되었습니다.');
+        document.getElementById('admin-current-password').value = '';
+        document.getElementById('admin-reset-new-password').value = '';
+        document.getElementById('admin-reset-new-password-confirm').value = '';
+        window.closeAdminPasswordResetModal();
+    } catch (err) {
+        alert('오류 발생: ' + (err.message || err));
     }
+}
+
+// 관리자 비밀번호 초기화 (123123으로)
+window.resetAdminPassword = async function() {
+    const email = (document.getElementById('admin-reset-email')?.value || '').trim();
+    if (!email) return alert('관리자 이메일을 입력해주세요.');
+
+    if (!confirm(`${email} 계정의 비밀번호를 123123으로 초기화하시겠습니까?\n\n⚠️ Supabase 대시보드에서 초기화해야 합니다.\n이메일로 재설정 링크를 보내드립니다.`)) return;
 
     try {
         const redirectTo = getPasswordResetRedirectUrl();
@@ -230,8 +303,7 @@ window.requestAdminPasswordReset = async function() {
             alert('메일 전송 실패: ' + error.message);
             return;
         }
-
-        alert('비밀번호 변경 링크를 이메일로 보냈습니다. 메일함을 확인해주세요.');
+        alert('비밀번호 재설정 링크를 이메일로 보냈습니다.\n메일의 링크를 클릭하면 새 비밀번호를 설정할 수 있습니다.');
         window.closeAdminPasswordResetModal();
     } catch (err) {
         alert('오류 발생: ' + (err.message || err));

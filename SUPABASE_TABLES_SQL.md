@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS public.schedules (
     duration INTEGER NOT NULL, -- 분 단위
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(owner_user_id, teacher_id, student_id, schedule_date)
+    UNIQUE(owner_user_id, teacher_id, student_id, schedule_date, start_time)
 );
 
 -- 인덱스 생성
@@ -243,3 +243,22 @@ CREATE TRIGGER trigger_student_evaluations_updated_at
 - 학생별 평가 코멘트 저장
 - 최대 500자 제한
 - 선택사항으로 1~5점 평가 기능
+
+## DB 최적화 (OPTIMIZE_DB.sql)
+
+테이블 생성 후 `OPTIMIZE_DB.sql`을 실행하면 다음이 적용됩니다:
+
+### 1. attendance_records UNIQUE 제약 수정
+- 기존: `UNIQUE(student_id, attendance_date)` → 같은 날 1건만 가능
+- 변경: `UNIQUE(student_id, attendance_date, teacher_id, scheduled_time)` → 같은 날 다른 수업 출석 가능
+
+### 2. 복합 인덱스 추가 (성능 개선)
+- `schedules`: owner+teacher+date, owner+student+date
+- `attendance_records`: owner+teacher+date, owner+student+date, student+date
+- `payments`: owner+teacher+month, owner+student+month
+- `holidays`: owner+teacher+date
+- `teachers`: owner_user_id
+- `students`: owner_user_id
+
+### 3. 트리거 함수 보안
+- 모든 `updated_at` 트리거 함수에 `SET search_path = public` 적용

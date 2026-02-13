@@ -1,428 +1,958 @@
-/* 모바일 반응형 스타일 */
-
-/* 태블릿 이하 */
-@media (max-width: 768px) {
+/* ============================================
+   Mobile Responsive - Tablet (≤ 1024px)
+   ============================================ */
+@media (max-width: 1024px) {
     .main-header {
-        flex-wrap: wrap;
-        padding: 8px 12px;
+        padding: 10px 16px;
         gap: 8px;
     }
-    
-    .header-left {
-        order: 1;
-        flex: 0 0 100%;
-        justify-content: space-between;
-    }
-    
+
     .header-left h1 {
         font-size: 16px !important;
     }
-    
+
+    #current-display {
+        font-size: 16px !important;
+        min-width: 120px !important;
+    }
+
+    .calendar-wrapper {
+        padding: 0 12px;
+    }
+
+    .grid-cell {
+        height: 120px;
+    }
+
+    .drawer {
+        width: 380px;
+    }
+}
+
+/* ============================================
+   Mobile Responsive - Mobile Landscape (≤ 768px)
+   ============================================ */
+@media (max-width: 768px) {
+    /* --- Header --- */
+    .main-header {
+        flex-wrap: wrap;
+        padding: 8px 12px;
+        gap: 6px;
+    }
+
+    .header-left {
+        order: 1;
+        flex: 1 1 auto;
+    }
+
+    .header-left h1 {
+        font-size: 15px !important;
+    }
+
     .teacher-chip {
         font-size: 11px;
         padding: 4px 8px;
+        gap: 6px;
     }
-    
+
     .header-center {
         order: 3;
         flex: 0 0 100%;
-        justify-content: space-between;
+        justify-content: center;
         gap: 8px;
-        margin-top: 8px;
+        padding: 6px 0 2px;
     }
-    
+
     .header-right {
         order: 2;
         flex: 0 0 auto;
-        gap: 8px;
+        gap: 6px;
     }
-    
+
     .btn-today {
         padding: 6px 12px;
         font-size: 12px;
     }
-    
+
     .date-controller {
         gap: 8px;
     }
-    
+
     #current-display {
-        font-size: 16px !important;
+        font-size: 15px !important;
+        min-width: 110px !important;
     }
-    
+
     .nav-arrow {
         width: 32px;
         height: 32px;
-        font-size: 14px;
+        font-size: 13px;
     }
-    
+
     .btn-header-action {
         padding: 8px 12px !important;
         font-size: 12px !important;
     }
-    
-    .btn-header-action i {
-        font-size: 14px;
-    }
-    
+
     .jump-date-input {
         font-size: 11px;
-        padding: 4px 8px;
+        padding: 5px 8px;
     }
-    
-    /* 캘린더 그리드 */
+
+    /* --- Calendar --- */
+    .calendar-wrapper {
+        margin: 10px auto;
+        padding: 0 8px;
+        border-radius: 12px;
+    }
+
+    .weekday-header {
+        padding: 10px 0;
+        font-size: 12px;
+    }
+
     .grid-cell {
-        height: 120px;
-        padding: 4px;
+        height: 110px;
+        padding: 5px;
     }
-    
+
     .date-num {
-        font-size: 13px;
+        font-size: 12px;
+        padding: 2px 5px;
     }
-    
+
     .holiday-name {
         font-size: 9px;
     }
-    
+
     .summary-badge {
         font-size: 10px;
         padding: 4px 8px;
     }
-    
-    /* 학생 드로어 */
+
+    /* --- View Tabs --- */
+    .view-btn {
+        padding: 7px 14px;
+        font-size: 12px;
+    }
+
+    /* --- Drawer --- */
     .drawer {
-        width: 90% !important;
+        width: 90vw !important;
+        max-width: 420px;
     }
-    
-    /* 모달 */
+
+    .feature-drawer {
+        width: 85vw !important;
+        max-width: 340px;
+    }
+
+    .drawer-header {
+        padding: 14px 16px;
+    }
+
+    .drawer-controls {
+        padding: 12px 16px;
+    }
+
+    /* --- Modals --- */
+    .modal {
+        padding: 12px;
+        align-items: flex-end;
+    }
+
     .modal-card {
-        width: 95% !important;
-        max-width: 95% !important;
-        margin: 10px;
+        width: 100% !important;
+        max-width: 100% !important;
+        max-height: 92vh;
+        border-radius: 20px 20px 0 0;
+        animation: modalSlideUp 0.3s ease-out;
     }
-    
+
+    @keyframes modalSlideUp {
+        from { opacity: 0; transform: translateY(100%); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    .modal-card .modal-header {
+        padding: 16px 20px 12px;
+    }
+
+    .modal-header h2 {
+        font-size: 17px !important;
+    }
+
     .modal-body-scrollable {
+        padding: 0 20px;
         max-height: 60vh;
     }
-    
-    /* 수납 관리 모달 */
+
+    /* --- Attendance Modal --- */
+    .attendance-card {
+        max-width: 100% !important;
+        max-height: 92vh !important;
+    }
+
+    .attendance-modal-body {
+        padding: 0 16px 16px;
+    }
+
+    .attendance-options {
+        grid-template-columns: repeat(4, 1fr);
+        gap: 6px;
+    }
+
+    .att-btn {
+        padding: 12px 6px;
+        font-size: 12px;
+        gap: 4px;
+        min-height: 64px;
+    }
+
+    .att-btn i {
+        font-size: 18px !important;
+    }
+
+    .current-attendance-status {
+        padding: 12px 10px;
+        margin-bottom: 14px;
+    }
+
+    .attendance-modal-footer {
+        padding: 12px 16px;
+    }
+
+    /* --- Day Settings Card --- */
+    .day-settings-card {
+        max-width: 100% !important;
+    }
+
+    /* --- Schedule Modal --- */
+    .schedule-modal-card {
+        max-width: 100% !important;
+    }
+
+    .schedule-modal-card .input-group {
+        padding: 0 20px;
+    }
+
+    .schedule-modal-card .day-chip-container {
+        padding: 0 20px;
+    }
+
+    .schedule-action-buttons {
+        padding: 14px 20px 18px;
+        flex-wrap: wrap;
+    }
+
+    .schedule-action-buttons .btn-save-main {
+        flex: 1;
+        min-width: 120px;
+    }
+
+    /* --- Payment Modal --- */
     .payment-card {
-        height: 90vh !important;
-        max-height: 90vh;
+        height: 92vh !important;
+        max-height: 92vh;
     }
-    
+
     .payment-controls {
-        padding: 12px;
+        padding: 10px;
+        gap: 12px;
     }
-    
+
     .payment-controls h3 {
-        font-size: 16px;
+        font-size: 15px;
     }
-    
+
     .payment-filter-container {
         padding: 8px 12px;
         gap: 6px;
-        overflow-x: auto;
         flex-wrap: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
     }
-    
+
     .p-filter-btn {
         padding: 6px 12px;
         font-size: 12px;
-        white-space: nowrap;
     }
-    
+
     .payment-summary-box {
         padding: 12px;
         gap: 8px;
     }
-    
-    .s-label {
-        font-size: 11px;
-    }
-    
-    .s-value {
-        font-size: 16px;
-    }
-    
+
+    .s-label { font-size: 11px; }
+    .s-value { font-size: 15px; }
+
     .payment-list-container {
         overflow-x: hidden !important;
     }
-    
+
     .p-summary-row {
         grid-template-columns: 2fr 1fr 1fr 1fr 40px;
         padding: 10px 12px;
         min-width: unset;
-        font-size: 13px;
     }
-    
-    .p-name {
-        font-size: 14px;
-    }
-    
-    .p-grade {
-        font-size: 11px;
-    }
-    
-    .p-cell {
-        font-size: 13px;
-    }
-    
-    .p-details-row {
-        padding: 0 12px;
-    }
-    
-    .p-details-row:not(.hidden) {
-        padding: 16px 12px;
-    }
-    
+
+    .p-name { font-size: 14px; }
+    .p-grade { font-size: 11px; }
+    .p-cell { font-size: 13px; }
+
+    .p-details-row { padding: 0 12px; }
+    .p-details-row:not(.hidden) { padding: 14px 12px; }
+
     .p-detail-grid {
         grid-template-columns: 1fr;
-        gap: 12px;
+        gap: 10px;
         min-width: unset;
     }
-    
-    .p-detail-item {
-        padding: 12px;
-    }
-    
-    .p-detail-item .d-title {
-        font-size: 12px;
-        margin-bottom: 8px;
-    }
-    
-    .money-input,
-    .date-input {
+
+    .p-detail-item { padding: 10px; }
+
+    .money-input, .date-input {
         font-size: 13px;
         padding: 8px;
     }
-    
+
     .d-btn {
         padding: 6px 8px;
         font-size: 12px;
     }
-    
-    /* 기능 패널 */
-    .feature-panel {
-        width: 90% !important;
-        right: 5% !important;
-    }
-    
-    /* 뷰 전환 버튼 */
-    .view-btn {
-        padding: 8px 16px;
-        font-size: 13px;
-    }
-    
-    /* 일정 카드 */
+
+    /* --- Event Block --- */
     .event-block {
         font-size: 11px;
         padding: 6px 8px;
     }
+
+    /* --- Auth Page --- */
+    .auth-box {
+        padding: 28px 24px;
+    }
+
+    .auth-logo {
+        font-size: 22px;
+        margin-bottom: 24px;
+    }
+
+    /* --- History Card --- */
+    .history-card {
+        max-width: 100% !important;
+    }
+
+    .history-card .modal-body {
+        padding: 16px 20px;
+    }
+
+    /* --- Register Modal --- */
+    #register-modal .modal-card #edit-mode-actions {
+        padding: 14px 20px;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    /* --- QR Scan Toast --- */
+    .qr-scan-toast {
+        top: 10px;
+        min-width: 260px;
+        padding: 14px 18px;
+    }
+
+    .qr-toast-icon { font-size: 28px; }
+    .qr-toast-name { font-size: 15px; }
+    .qr-toast-status { font-size: 13px; }
+
+    /* --- Time Edit --- */
+    .time-edit-container {
+        gap: 8px !important;
+    }
+
+    .time-row {
+        gap: 6px !important;
+    }
+
+    .btn-time-update {
+        padding: 8px 12px !important;
+        font-size: 12px !important;
+    }
+
+    /* --- Student Attendance History Modal --- */
+    #student-attendance-history-modal .modal-card {
+        max-width: 100% !important;
+    }
+
+    /* --- Attendance Check Modal --- */
+    #attendance-check-modal .modal-card {
+        max-width: 100% !important;
+    }
 }
 
-/* 모바일 세로 */
+/* ============================================
+   Mobile Responsive - Mobile Portrait (≤ 480px)
+   ============================================ */
 @media (max-width: 480px) {
     .main-header {
-        padding: 6px 8px;
+        padding: 6px 10px;
     }
-    
+
+    .header-left {
+        gap: 8px;
+    }
+
     .header-left h1 {
-        font-size: 14px !important;
+        font-size: 13px !important;
     }
-    
+
     .teacher-chip {
         font-size: 10px;
         padding: 3px 6px;
+        gap: 4px;
     }
-    
-    .teacher-chip-label,
-    .teacher-chip-name {
-        display: none;
-    }
-    
+
+    .teacher-chip-label { display: none; }
+
     .teacher-switch-btn {
         padding: 3px 6px;
         font-size: 10px;
     }
-    
-    .btn-header-action span {
-        display: none;
-    }
-    
+
+    /* Header buttons - icon only on small screens */
     .btn-header-action {
         padding: 8px !important;
         min-width: 36px;
+        font-size: 13px !important;
+        justify-content: center;
+        gap: 0 !important;
     }
-    
-    .btn-header-action i {
-        margin: 0 !important;
+
+    .btn-header-action > span {
+        display: none;
     }
-    
+
+    .header-center {
+        gap: 6px;
+    }
+
     #current-display {
         font-size: 14px !important;
+        min-width: 100px !important;
     }
-    
+
     .nav-arrow {
-        width: 28px;
-        height: 28px;
+        width: 30px;
+        height: 30px;
         font-size: 12px;
     }
-    
+
     .btn-today {
-        padding: 6px 10px;
+        padding: 5px 10px;
         font-size: 11px;
     }
-    
+
+    .jump-date-wrapper {
+        display: none;
+    }
+
+    /* --- Calendar --- */
+    .calendar-wrapper {
+        margin: 8px auto;
+        padding: 0 4px;
+        border-radius: 10px;
+    }
+
+    .weekday-header {
+        padding: 8px 0;
+        font-size: 11px;
+    }
+
     .grid-cell {
-        height: 100px;
+        height: 90px;
         padding: 3px;
     }
-    
+
     .date-num {
-        font-size: 12px;
+        font-size: 11px;
+        padding: 2px 4px;
     }
-    
+
     .holiday-name {
         font-size: 8px;
+        min-height: 10px;
     }
-    
+
     .summary-badge {
         font-size: 9px;
         padding: 3px 6px;
     }
-    
+
+    /* --- View Tabs --- */
     .view-btn {
         padding: 6px 12px;
+        font-size: 11px;
+    }
+
+    /* --- Drawer --- */
+    .drawer {
+        width: 100vw !important;
+        max-width: 100vw;
+    }
+
+    .feature-drawer {
+        width: 100vw !important;
+        max-width: 100vw;
+    }
+
+    .drawer-header {
+        padding: 12px 14px;
+    }
+
+    .drawer-header h2 {
+        font-size: 16px !important;
+    }
+
+    .drawer-controls {
+        padding: 10px 14px;
+    }
+
+    .student-tab-group {
+        gap: 6px;
+    }
+
+    .student-tab-btn {
+        font-size: 12px;
+        padding: 6px 10px;
+    }
+
+    .student-sort-btn {
+        font-size: 11px;
+        padding: 4px 8px;
+    }
+
+    .student-item {
+        padding: 10px 12px;
+    }
+
+    .student-info b {
+        font-size: 14px;
+    }
+
+    /* --- Modals --- */
+    .modal {
+        padding: 0;
+    }
+
+    .modal-card {
+        border-radius: 16px 16px 0 0;
+        max-height: 95vh;
+    }
+
+    .modal-card .modal-header {
+        padding: 14px 16px 10px;
+    }
+
+    .modal-header h2 {
+        font-size: 16px !important;
+    }
+
+    .modal-body-scrollable {
+        padding: 0 16px;
+    }
+
+    /* --- Attendance Modal --- */
+    .attendance-card {
+        max-height: 95vh !important;
+    }
+
+    .attendance-modal-body {
+        padding: 0 14px 14px;
+    }
+
+    .att-info {
+        font-size: 13px;
+        margin-bottom: 14px;
+    }
+
+    .attendance-options {
+        gap: 5px;
+    }
+
+    .att-btn {
+        padding: 10px 4px;
+        font-size: 11px;
+        gap: 3px;
+        min-height: 58px;
+        border-radius: 10px;
+    }
+
+    .att-btn i {
+        font-size: 16px !important;
+    }
+
+    .current-attendance-status {
+        padding: 10px 8px;
+    }
+
+    .status-display {
+        font-size: 14px;
+        padding: 10px;
+    }
+
+    .section-label {
+        font-size: 13px !important;
+    }
+
+    .memo-editor {
+        min-height: 80px;
+        font-size: 13px;
+    }
+
+    .attendance-modal-footer {
+        padding: 10px 14px;
+        gap: 8px;
+    }
+
+    .btn-history, .btn-delete-schedule {
+        padding: 9px 10px;
         font-size: 12px;
     }
-    
-    .drawer {
-        width: 95% !important;
+
+    /* --- Schedule Modal --- */
+    .schedule-modal-card .input-group {
+        padding: 0 16px;
     }
-    
+
+    .schedule-modal-card .day-chip-container {
+        padding: 0 16px;
+        gap: 6px;
+    }
+
+    .schedule-modal-card .day-chip-container label {
+        padding: 7px 10px;
+        font-size: 12px;
+    }
+
+    .schedule-action-buttons {
+        padding: 12px 16px 16px;
+        flex-direction: column;
+    }
+
+    .schedule-action-buttons .btn-save-main {
+        width: 100%;
+        min-width: unset;
+    }
+
+    .schedule-modal-card .form-row {
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    /* --- Payment Modal --- */
+    .payment-card {
+        height: 95vh !important;
+    }
+
+    .payment-controls {
+        padding: 8px;
+    }
+
+    .payment-controls h3 {
+        font-size: 14px;
+    }
+
+    .payment-summary-box {
+        padding: 10px 8px;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 4px;
+    }
+
+    .summary-divider { display: none; }
+
+    .summary-item {
+        flex: 0 0 auto;
+        padding: 4px 10px;
+    }
+
+    .s-label { font-size: 10px; }
+    .s-value { font-size: 14px; }
+
+    .p-summary-row {
+        grid-template-columns: 2fr 0.8fr 0.8fr 0.8fr 30px;
+        padding: 8px 10px;
+        font-size: 11px;
+    }
+
+    .p-name { font-size: 13px; }
+    .p-grade { font-size: 10px; }
+    .p-cell { font-size: 11px; }
+
+    .status-badge {
+        font-size: 10px !important;
+        padding: 3px 6px !important;
+    }
+
+    .p-details-row { padding: 0 8px; }
+    .p-details-row:not(.hidden) { padding: 10px 8px; max-height: 800px !important; }
+
+    .money-input, .date-input {
+        font-size: 12px;
+        padding: 6px;
+    }
+
+    .date-input { width: 80px; }
+
+    /* --- Event Block --- */
     .event-block {
         font-size: 10px;
         padding: 4px 6px;
         min-height: 50px;
     }
-    
-    /* 수납 관리 모달 - 모바일 세로 */
+
+    /* --- Auth Box --- */
+    .auth-box {
+        padding: 24px 20px;
+        border-radius: 16px;
+    }
+
+    .auth-logo {
+        font-size: 20px;
+        margin-bottom: 20px;
+    }
+
+    .auth-input {
+        padding: 11px 12px;
+        font-size: 14px;
+    }
+
+    .auth-btn {
+        padding: 12px 14px;
+        font-size: 14px;
+    }
+
+    /* --- Feature Menu Buttons --- */
+    .feature-main-btn {
+        padding: 16px 14px;
+        font-size: 14px;
+        border-radius: 14px;
+    }
+
+    .feature-main-btn i {
+        font-size: 16px;
+    }
+
+    /* --- QR Scan Page --- */
+    #qr-scan-page > div {
+        padding: 12px !important;
+    }
+
+    #qr-scan-page h2 {
+        font-size: 16px !important;
+    }
+
+    /* --- Day Detail Timetable --- */
+    .timetable-container {
+        height: 500px;
+    }
+
+    .time-axis {
+        width: 45px;
+    }
+
+    .time-label {
+        font-size: 10px;
+    }
+
+    /* --- Attendance Check Modal --- */
+    #attendance-check-modal .modal-card {
+        border-radius: 16px 16px 0 0;
+    }
+
+    /* --- Footer --- */
+    .app-footer {
+        padding: 12px 16px;
+        margin-top: 24px;
+    }
+
+    .footer-content {
+        font-size: 11px;
+        gap: 8px;
+    }
+}
+
+/* ============================================
+   Mobile Responsive - Very Small (≤ 360px)
+   ============================================ */
+@media (max-width: 360px) {
+    .header-left h1 {
+        font-size: 12px !important;
+    }
+
+    .teacher-chip {
+        display: none;
+    }
+
+    .grid-cell {
+        height: 80px;
+        padding: 2px;
+    }
+
+    .date-num {
+        font-size: 10px;
+        padding: 1px 3px;
+    }
+
+    .summary-badge {
+        font-size: 8px;
+        padding: 2px 5px;
+    }
+
+    #current-display {
+        font-size: 13px !important;
+        min-width: 90px !important;
+    }
+
+    .att-btn {
+        padding: 8px 3px;
+        font-size: 10px;
+        min-height: 52px;
+    }
+
+    .att-btn i {
+        font-size: 14px !important;
+    }
+}
+
+/* ============================================
+   Touch Optimizations
+   ============================================ */
+@media (hover: none) and (pointer: coarse) {
+    /* Increase touch targets for touch devices */
+    .nav-arrow {
+        min-width: 40px;
+        min-height: 40px;
+    }
+
+    .btn-close-x {
+        min-width: 40px;
+        min-height: 40px;
+    }
+
+    .btn-today {
+        min-height: 36px;
+    }
+
+    .btn-header-action {
+        min-height: 40px;
+    }
+
+    .view-btn {
+        min-height: 36px;
+    }
+
+    .student-tab-btn {
+        min-height: 36px;
+    }
+
+    .p-filter-btn {
+        min-height: 36px;
+    }
+
+    .att-btn {
+        min-height: 60px;
+    }
+
+    .feature-main-btn {
+        min-height: 56px;
+    }
+
+    /* Disable hover effects on touch */
+    .event-block:hover {
+        transform: none;
+    }
+
+    .student-item:hover {
+        transform: none;
+    }
+
+    .summary-badge:hover {
+        transform: none;
+    }
+
+    .btn-save-main:hover {
+        transform: none;
+    }
+}
+
+/* ============================================
+   Safe Area (Notch) Support
+   ============================================ */
+@supports (padding-top: env(safe-area-inset-top)) {
+    .main-header {
+        padding-top: max(10px, env(safe-area-inset-top));
+    }
+
+    .modal {
+        padding-bottom: env(safe-area-inset-bottom);
+    }
+
+    .drawer {
+        padding-bottom: env(safe-area-inset-bottom);
+    }
+
+    .feature-drawer {
+        padding-bottom: env(safe-area-inset-bottom);
+    }
+
+    .app-footer {
+        padding-bottom: max(16px, env(safe-area-inset-bottom));
+    }
+}
+
+/* ============================================
+   Landscape Orientation Adjustments
+   ============================================ */
+@media (max-height: 500px) and (orientation: landscape) {
+    .modal-card {
+        max-height: 95vh;
+    }
+
+    .attendance-card {
+        max-height: 95vh !important;
+    }
+
     .payment-card {
         height: 95vh !important;
     }
-    
-    .payment-controls h3 {
-        font-size: 14px;
+
+    .grid-cell {
+        height: 80px;
     }
-    
-    .p-filter-btn {
-        padding: 5px 10px;
-        font-size: 11px;
+}
+
+/* ============================================
+   Print Styles
+   ============================================ */
+@media print {
+    .main-header,
+    .drawer-overlay,
+    .drawer,
+    .feature-overlay,
+    .feature-drawer,
+    .modal,
+    .app-footer,
+    .btn-header-action,
+    .view-btn {
+        display: none !important;
     }
-    
-    .payment-summary-box {
-        padding: 10px 8px;
-        flex-wrap: wrap;
+
+    .calendar-wrapper {
+        border: none;
+        box-shadow: none;
     }
-    
-    .summary-item {
-        flex: 0 0 auto;
+
+    body {
+        background: white;
     }
-    
-    .s-label {
-        font-size: 10px;
-    }
-    
-    .s-value {
-        font-size: 14px;
-    }
-    
-    .p-summary-row {
-        grid-template-columns: 2fr 0.8fr 0.8fr 0.8fr 35px;
-        padding: 8px;
-        font-size: 11px;
-    }
-    
-    .p-name {
-        font-size: 13px;
-    }
-    
-    .p-grade {
-        font-size: 10px;
-    }
-    
-    .p-cell {
-        font-size: 11px;
-    }
-    
-    .status-badge {
-        font-size: 10px !important;
-        padding: 3px 8px !important;
-    }
-    
-    .p-details-row {
-        padding: 0 8px;
-    }
-    
-    .p-details-row:not(.hidden) {
-        padding: 12px 8px;
-        max-height: 800px !important;
-    }
-    
-    .p-detail-item .d-title {
-        font-size: 11px;
-    }
-    
-    .money-input,
-    .date-input {
-        font-size: 12px;
-        padding: 6px;
-    }
-    
-    .date-input {
-        width: 80px;
-    }
-    
-    /* 수업관리 모달 - 모바일 반응형 */
-    .attendance-card {
-        width: 90% !important;
-        max-height: 90vh !important;
-    }
-    
-    .current-attendance-status {
-        padding: 12px 8px !important;
-        margin-bottom: 12px !important;
-    }
-    
-    .attendance-options {
-        gap: 6px !important;
-        margin-bottom: 12px !important;
-    }
-    
-    .att-btn {
-        padding: 12px 8px !important;
-        font-size: 12px !important;
-        gap: 4px !important;
-    }
-    
-    .att-btn i {
-        font-size: 18px !important;
-    }
-    
-    .time-edit-container {
-        gap: 6px !important;
-    }
-    
-    .time-row {
-        gap: 6px !important;
-    }
-    
-    .duration-input-wrapper {
-        flex: 1 !important;
-    }
-    
-    .btn-time-update {
-        padding: 8px 12px !important;
-        font-size: 12px !important;
-    }
+}

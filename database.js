@@ -1,38 +1,87 @@
 // Supabase 데이터베이스 함수들
+// 최적화: 세션 캐싱, 불필요한 쿼리 제거, select 최적화
 
-// 현재 로그인한 사용자 정보
-let currentUser = null;
+// ========== 세션 캐싱 ==========
+let _cachedUser = null;
+let _cachedSession = null;
+let _sessionCacheTime = 0;
+const SESSION_CACHE_TTL = 60000; // 1분
 
-// 사용자 정보 가져오기
-window.getCurrentUser = async function() {
-    try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session) {
-            // users 테이블에서 role 정보 포함하여 조회
-            const { data: userData, error: userError } = await supabase
-                .from('users')
-                .select('id, email, name, role')
-                .eq('id', session.user.id)
-                .single();
-            
-            if (userError) {
-                console.error('사용자 정보 조회 실패:', userError);
-                currentUser = { ...session.user, role: 'user' };
-            } else {
-                currentUser = userData;
-            }
-            return currentUser;
-        }
+// 캐시된 세션 가져오기 (불필요한 중복 호출 방지)
+async function _getSession() {
+    const now = Date.now();
+    if (_cachedSession && (now - _sessionCacheTime) < SESSION_CACHE_TTL) {
+        return _cachedSession;
+    }
+    const { data: { session }, error } = await supabase.auth.getSession();
+    if (error || !session) {
+        _cachedSession = null;
+        _cachedUser = null;
         return null;
+    }
+    _cachedSession = session;
+    _sessionCacheTime = now;
+    return session;
+}
+
+// owner_user_id 빠른 조회 (localStorage 우선, 없으면 세션에서)
+function _getOwnerId() {
+    const ownerId = localStorage.getItem('current_owner_id');
+    if (ownerId) return ownerId;
+    if (_cachedSession) return _cachedSession.user.id;
+    return null;
+}
+
+// 세션 변경 감지 → 캐시 무효화
+if (typeof supabase !== 'undefined') {
+    supabase.auth.onAuthStateChange((event) => {
+        if (event === 'SIGNED_OUT' || event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN') {
+            _cachedUser = null;
+            _cachedSession = null;
+            _sessionCacheTime = 0;
+        }
+    });
+}
+
+// ========== 사용자 정보 ==========
+
+window.getCurrentUser = async function() {
+    // 캐시된 사용자 정보가 있으면 바로 반환
+    if (_cachedUser) return _cachedUser;
+
+    try {
+        const session = await _getSession();
+        if (!session) return null;
+
+        const { data: userData, error } = await supabase
+            .from('users')
+            .select('id, email, name, role')
+            .eq('id', session.user.id)
+            .single();
+
+        if (error) {
+            console.error('사용자 정보 조회 실패:', error);
+            _cachedUser = { ...session.user, role: 'user' };
+        } else {
+            _cachedUser = userData;
+        }
+        return _cachedUser;
     } catch (error) {
         console.error('사용자 정보 조회 실패:', error);
         return null;
     }
 }
 
+// 캐시 강제 초기화 (로그아웃 등)
+window.clearUserCache = function() {
+    _cachedUser = null;
+    _cachedSession = null;
+    _sessionCacheTime = 0;
+}
+
+
 // ========== 학생 관련 함수 ==========
 
-// 모든 학생 조회 (모든 선생님의 학생들)
 window.getAllStudents = async function() {
     try {
         const { data, error } = await supabase
@@ -48,38 +97,17 @@ window.getAllStudents = async function() {
     }
 }
 
-// 현재 선생님이 등록한 학생만 조회
-window.getMyStudents = async function() {
-    try {
-        const user = await getCurrentUser();
-        if (!user) return [];
-
-        const { data, error } = await supabase
-            .from('students')
-            .select('*')
-            .eq('teacher_id', user.id)
-            .order('created_at', { ascending: false });
-
-        if (error) throw error;
-        return data || [];
-    } catch (error) {
-        console.error('내 학생 조회 실패:', error);
-        return [];
-    }
-}
-
-// 학생 추가
 window.addStudent = async function(studentData) {
     try {
-        const user = await getCurrentUser();
+        const user = _cachedUser || await getCurrentUser();
         if (!user) {
             alert('로그인이 필요합니다');
             return null;
         }
 
-        // 날짜 필드가 빈 문자열이면 null로 변환
         let regDate = studentData.register_date;
         if (!regDate || regDate === '' || regDate === '연도-월-일') regDate = null;
+
         const { data, error } = await supabase
             .from('students')
             .insert([{
@@ -97,61 +125,84 @@ window.addStudent = async function(studentData) {
                 register_date: regDate,
                 status: studentData.status || 'active'
             }])
-            .select();
+            .select()
+            .single();
 
         if (error) throw error;
-        return data ? data[0] : null;
+        return data || null;
     } catch (error) {
         console.error('학생 추가 실패:', error);
         return null;
     }
 }
 
-// 학생 수정
 window.updateStudent = async function(studentId, updateData) {
     try {
         const { data, error } = await supabase
             .from('students')
             .update(updateData)
             .eq('id', studentId)
-            .select();
+            .select()
+            .single();
 
         if (error) throw error;
-        return data ? data[0] : null;
+        return data || null;
     } catch (error) {
         console.error('학생 수정 실패:', error);
         return null;
     }
 }
 
-// 학생 삭제 (관련 출석 기록도 함께 삭제)
 window.deleteStudent = async function(studentId) {
     try {
-        // studentId를 숫자로 변환 (문자열인 경우 대비)
         const numericId = parseInt(studentId);
-        
         if (isNaN(numericId)) {
             console.error('[deleteStudent] 잘못된 학생 ID:', studentId);
             throw new Error('잘못된 학생 ID');
         }
-        
-        console.log('[deleteStudent] 학생 삭제 시작 - ID:', numericId, '(원본:', studentId, ')');
-        
-        // 1단계: 해당 학생의 모든 출석 기록 삭제
-        console.log('[deleteStudent] 1단계: 출석 기록 삭제 중...');
+
+        // 1단계: 관련 일정 삭제
+        const { error: scheduleError } = await supabase
+            .from('schedules')
+            .delete()
+            .eq('student_id', numericId);
+
+        if (scheduleError) {
+            console.error('[deleteStudent] 일정 삭제 실패:', scheduleError);
+            // 일정 삭제 실패해도 계속 진행 (일정이 없을 수 있음)
+        }
+
+        // 2단계: 출석 기록 삭제
         const { error: attendanceError } = await supabase
             .from('attendance_records')
             .delete()
             .eq('student_id', numericId);
-        
+
         if (attendanceError) {
             console.error('[deleteStudent] 출석 기록 삭제 실패:', attendanceError);
-            throw new Error('출석 기록 삭제 실패: ' + attendanceError.message);
         }
-        console.log('[deleteStudent] 출석 기록 삭제 완료');
-        
-        // 2단계: 학생 데이터 삭제
-        console.log('[deleteStudent] 2단계: 학생 데이터 삭제 중...');
+
+        // 3단계: 결제 기록 삭제
+        const { error: paymentError } = await supabase
+            .from('payments')
+            .delete()
+            .eq('student_id', numericId);
+
+        if (paymentError) {
+            console.error('[deleteStudent] 결제 기록 삭제 실패:', paymentError);
+        }
+
+        // 4단계: 평가 기록 삭제
+        const { error: evalError } = await supabase
+            .from('student_evaluations')
+            .delete()
+            .eq('student_id', numericId);
+
+        if (evalError) {
+            console.error('[deleteStudent] 평가 기록 삭제 실패:', evalError);
+        }
+
+        // 5단계: 학생 데이터 삭제
         const { error: studentError } = await supabase
             .from('students')
             .delete()
@@ -161,7 +212,7 @@ window.deleteStudent = async function(studentId) {
             console.error('[deleteStudent] 학생 삭제 실패:', studentError);
             throw new Error('학생 삭제 실패: ' + studentError.message);
         }
-        
+
         console.log('[deleteStudent] 학생 삭제 완료 - ID:', numericId);
         return true;
     } catch (error) {
@@ -170,16 +221,17 @@ window.deleteStudent = async function(studentId) {
     }
 }
 
-// ========== 출석 기록 조회 (소유자 기준) ==========
+
+// ========== 출석 기록 조회 ==========
 
 window.getAttendanceRecordsByOwner = async function(teacherId = null) {
     try {
-        const ownerId = localStorage.getItem('current_owner_id');
+        const ownerId = _getOwnerId();
         if (!ownerId) return [];
 
         let query = supabase
             .from('attendance_records')
-            .select('*')
+            .select('id, student_id, teacher_id, attendance_date, status, scheduled_time, check_in_time, qr_scanned, memo')
             .eq('owner_user_id', ownerId)
             .order('attendance_date', { ascending: true });
 
@@ -189,7 +241,6 @@ window.getAttendanceRecordsByOwner = async function(teacherId = null) {
         }
 
         const { data, error } = await query;
-
         if (error) throw error;
         return data || [];
     } catch (error) {
@@ -198,20 +249,20 @@ window.getAttendanceRecordsByOwner = async function(teacherId = null) {
     }
 }
 
-// ========== 일정 관련 함수 ==========
 
-// ========== 선생님 관리 (Supabase) ==========
+// ========== 선생님 관리 ==========
 
-// 내가 등록한 선생님 목록
 window.getMyTeachers = async function() {
     try {
-        const { data: { session } } = await supabase.auth.getSession();
+        const session = await _getSession();
         if (!session) return [];
+
         const { data, error } = await supabase
             .from('teachers')
-            .select('id, name, phone, created_at')
+            .select('id, name, phone, email, google_email, google_sub, created_at')
             .eq('owner_user_id', session.user.id)
             .order('created_at', { ascending: true });
+
         if (error) throw error;
         return data || [];
     } catch (err) {
@@ -220,10 +271,9 @@ window.getMyTeachers = async function() {
     }
 }
 
-// 관리자(소유자) 강제 삭제 - PIN 없이 진행
 window.deleteTeacherById = async function(teacherId) {
     try {
-        const { data: { session } } = await supabase.auth.getSession();
+        const session = await _getSession();
         if (!session) {
             alert('로그인이 필요합니다');
             return false;
@@ -245,179 +295,32 @@ window.deleteTeacherById = async function(teacherId) {
 }
 
 
-// 모든 일정 조회 (모든 선생님의 일정)
-window.getAllSchedules = async function() {
-    try {
-        const { data, error } = await supabase
-            .from('schedules')
-            .select('*')
-            .order('date', { ascending: true });
+// ========== 일정(Schedules) 관련 함수 ==========
 
-        if (error) throw error;
-        return data || [];
-    } catch (error) {
-        console.error('일정 조회 실패:', error);
-        return [];
-    }
-}
-
-// 특정 날짜의 일정 조회
-window.getScheduleByDate = async function(dateStr) {
-    try {
-        const { data, error } = await supabase
-            .from('schedules')
-            .select('*')
-            .eq('date', dateStr);
-
-        if (error) throw error;
-        return data || [];
-    } catch (error) {
-        console.error('특정 날짜 일정 조회 실패:', error);
-        return [];
-    }
-}
-
-// 일정 추가
-window.addSchedule = async function(scheduleData) {
-    try {
-        const user = await getCurrentUser();
-        if (!user) {
-            alert('로그인이 필요합니다');
-            return null;
-        }
-
-        const { data, error } = await supabase
-            .from('schedules')
-            .insert([{
-                teacher_id: user.id,
-                date: scheduleData.date,
-                student_ids: scheduleData.student_ids || [],
-                notes: scheduleData.notes || ''
-            }])
-            .select();
-
-        if (error) throw error;
-        return data ? data[0] : null;
-    } catch (error) {
-        console.error('일정 추가 실패:', error);
-        return null;
-    }
-}
-
-// 일정 수정
-window.updateSchedule = async function(scheduleId, updateData) {
-    try {
-        const { data, error } = await supabase
-            .from('schedules')
-            .update(updateData)
-            .eq('id', scheduleId)
-            .select();
-
-        if (error) throw error;
-        return data ? data[0] : null;
-    } catch (error) {
-        console.error('일정 수정 실패:', error);
-        return null;
-    }
-}
-
-// 일정 삭제
-window.deleteSchedule = async function(scheduleId) {
-    try {
-        const { error } = await supabase
-            .from('schedules')
-            .delete()
-            .eq('id', scheduleId);
-
-        if (error) throw error;
-        return true;
-    } catch (error) {
-        console.error('일정 삭제 실패:', error);
-        return false;
-    }
-}
-
-// ========== 공휴일 관련 함수 ==========
-
-// 모든 공휴일 조회
-window.getHolidays = async function() {
-    try {
-        const { data, error } = await supabase
-            .from('holidays')
-            .select('*')
-            .order('date', { ascending: true });
-
-        if (error) throw error;
-        return data || [];
-    } catch (error) {
-        console.error('공휴일 조회 실패:', error);
-        return [];
-    }
-}
-
-// 공휴일 추가
-window.addHoliday = async function(date, name) {
-    try {
-        const { data, error } = await supabase
-            .from('holidays')
-            .insert([{ date: date, name: name }])
-            .select();
-
-        if (error) throw error;
-        return data ? data[0] : null;
-    } catch (error) {
-        console.error('공휴일 추가 실패:', error);
-        return null;
-    }
-}
-
-// 공휴일 삭제
-window.deleteHoliday = async function(holidayId) {
-    try {
-        const { error } = await supabase
-            .from('holidays')
-            .delete()
-            .eq('id', holidayId);
-
-        if (error) throw error;
-        return true;
-    } catch (error) {
-        console.error('공휴일 삭제 실패:', error);
-        return false;
-    }
-}
-
-// ========== Schedules (일정) 관련 함수 ==========
-
-// 일정 저장/업데이트 (Upsert)
 window.saveScheduleToDatabase = async function(scheduleData) {
     try {
-        const ownerId = localStorage.getItem('current_owner_id');
-        
-        // ✅ 세션 검증: owner_user_id가 없으면 저장 불가
+        const ownerId = _getOwnerId();
         if (!ownerId) {
             console.warn('[saveScheduleToDatabase] current_owner_id 없음 - 저장 중단');
             throw new Error('로그인이 필요합니다');
         }
-        
-        const schedule = {
-            owner_user_id: ownerId,
-            teacher_id: scheduleData.teacherId,
-            student_id: parseInt(scheduleData.studentId),
-            schedule_date: scheduleData.date,
-            start_time: scheduleData.startTime,
-            duration: parseInt(scheduleData.duration)
-        };
-        
+
         const { data, error } = await supabase
             .from('schedules')
-            .upsert(schedule, {
-                onConflict: 'owner_user_id,teacher_id,student_id,schedule_date',
+            .upsert({
+                owner_user_id: ownerId,
+                teacher_id: scheduleData.teacherId,
+                student_id: parseInt(scheduleData.studentId),
+                schedule_date: scheduleData.date,
+                start_time: scheduleData.startTime,
+                duration: parseInt(scheduleData.duration)
+            }, {
+                onConflict: 'owner_user_id,teacher_id,student_id,schedule_date,start_time',
                 ignoreDuplicates: false
             })
             .select()
             .single();
-        
+
         if (error) throw error;
         return data;
     } catch (error) {
@@ -426,18 +329,81 @@ window.saveScheduleToDatabase = async function(scheduleData) {
     }
 }
 
-// 특정 선생님의 일정 조회
+window.saveSchedulesToDatabaseBatch = async function(scheduleList) {
+    try {
+        const ownerId = _getOwnerId();
+        if (!ownerId) {
+            console.warn('[saveSchedulesToDatabaseBatch] current_owner_id 없음 - 저장 중단');
+            throw new Error('로그인이 필요합니다');
+        }
+
+        if (!Array.isArray(scheduleList) || scheduleList.length === 0) return [];
+
+        const payload = scheduleList.map(item => ({
+            owner_user_id: ownerId,
+            teacher_id: item.teacherId,
+            student_id: parseInt(item.studentId),
+            schedule_date: item.date,
+            start_time: item.startTime,
+            duration: parseInt(item.duration)
+        }));
+
+        // 청크 사이즈를 500으로 증가 (Supabase 기본 제한 1000)
+        const chunkSize = 500;
+        
+        if (payload.length <= chunkSize) {
+            // 단일 청크면 바로 전송
+            const { data, error } = await supabase
+                .from('schedules')
+                .upsert(payload, {
+                    onConflict: 'owner_user_id,teacher_id,student_id,schedule_date,start_time',
+                    ignoreDuplicates: false
+                })
+                .select();
+            if (error) throw error;
+            return data || [];
+        }
+
+        // 다중 청크: 병렬 처리
+        const chunks = [];
+        for (let i = 0; i < payload.length; i += chunkSize) {
+            chunks.push(payload.slice(i, i + chunkSize));
+        }
+
+        const results = await Promise.all(chunks.map(chunk =>
+            supabase
+                .from('schedules')
+                .upsert(chunk, {
+                    onConflict: 'owner_user_id,teacher_id,student_id,schedule_date,start_time',
+                    ignoreDuplicates: false
+                })
+                .select()
+        ));
+
+        // 결과 합치기 & 에러 체크
+        let combined = [];
+        for (const result of results) {
+            if (result.error) throw result.error;
+            if (result.data) combined = combined.concat(result.data);
+        }
+        return combined;
+    } catch (error) {
+        console.error('[saveSchedulesToDatabaseBatch] 에러:', error);
+        throw error;
+    }
+}
+
 window.getSchedulesByTeacher = async function(teacherId) {
     try {
-        const ownerId = localStorage.getItem('current_owner_id');
-        
+        const ownerId = _getOwnerId();
+
         const { data, error } = await supabase
             .from('schedules')
-            .select('*')
+            .select('id, student_id, schedule_date, start_time, duration')
             .eq('owner_user_id', ownerId)
             .eq('teacher_id', teacherId)
             .order('schedule_date', { ascending: true });
-        
+
         if (error) throw error;
         return data || [];
     } catch (error) {
@@ -446,19 +412,18 @@ window.getSchedulesByTeacher = async function(teacherId) {
     }
 }
 
-// 특정 학생의 일정 조회
 window.getSchedulesByStudent = async function(studentId) {
     try {
-        const ownerId = localStorage.getItem('current_owner_id');
+        const ownerId = _getOwnerId();
         const numericId = parseInt(studentId);
-        
+
         const { data, error } = await supabase
             .from('schedules')
-            .select('*')
+            .select('id, teacher_id, schedule_date, start_time, duration')
             .eq('owner_user_id', ownerId)
             .eq('student_id', numericId)
             .order('schedule_date', { ascending: true });
-        
+
         if (error) throw error;
         return data || [];
     } catch (error) {
@@ -467,8 +432,7 @@ window.getSchedulesByStudent = async function(studentId) {
     }
 }
 
-// 일정 삭제
-window.deleteScheduleFromDatabase = async function(studentId, date, teacherId = null) {
+window.deleteScheduleFromDatabase = async function(studentId, date, teacherId = null, startTime = null) {
     try {
         const numericId = parseInt(studentId);
         const effectiveTeacherId = teacherId || (typeof currentTeacherId !== 'undefined' ? currentTeacherId : null);
@@ -476,14 +440,17 @@ window.deleteScheduleFromDatabase = async function(studentId, date, teacherId = 
             console.warn('[deleteScheduleFromDatabase] teacherId가 없어 삭제를 중단합니다.');
             return false;
         }
-        
-        const { error } = await supabase
+
+        let query = supabase
             .from('schedules')
             .delete()
             .eq('student_id', numericId)
             .eq('schedule_date', date)
             .eq('teacher_id', effectiveTeacherId);
-        
+
+        if (startTime) query = query.eq('start_time', startTime);
+
+        const { error } = await query;
         if (error) throw error;
         return true;
     } catch (error) {
@@ -492,36 +459,88 @@ window.deleteScheduleFromDatabase = async function(studentId, date, teacherId = 
     }
 }
 
-// ========== Holidays (커스텀 휴일) 관련 함수 ==========
+window.deleteSchedulesByRange = async function(studentId, startDate, endDate, teacherId = null) {
+    try {
+        const numericId = parseInt(studentId);
+        const effectiveTeacherId = teacherId || (typeof currentTeacherId !== 'undefined' ? currentTeacherId : null);
+        if (!effectiveTeacherId) {
+            console.warn('[deleteSchedulesByRange] teacherId가 없어 삭제를 중단합니다.');
+            return false;
+        }
 
-// 커스텀 휴일 저장/업데이트
+        const ownerId = _getOwnerId();
+        let query = supabase
+            .from('schedules')
+            .delete()
+            .eq('student_id', numericId)
+            .eq('teacher_id', effectiveTeacherId);
+
+        if (ownerId) query = query.eq('owner_user_id', ownerId);
+        if (startDate) query = query.gte('schedule_date', startDate);
+        if (endDate) query = query.lte('schedule_date', endDate);
+
+        const { error } = await query;
+        if (error) throw error;
+        return true;
+    } catch (error) {
+        console.error('[deleteSchedulesByRange] 에러:', error);
+        throw error;
+    }
+}
+
+window.deleteSchedulesByTeacherRange = async function(startDate, endDate, teacherId = null) {
+    try {
+        const effectiveTeacherId = teacherId || (typeof currentTeacherId !== 'undefined' ? currentTeacherId : null);
+        if (!effectiveTeacherId) {
+            console.warn('[deleteSchedulesByTeacherRange] teacherId가 없어 삭제를 중단합니다.');
+            return false;
+        }
+
+        const ownerId = _getOwnerId();
+        let query = supabase
+            .from('schedules')
+            .delete()
+            .eq('teacher_id', effectiveTeacherId);
+
+        if (ownerId) query = query.eq('owner_user_id', ownerId);
+        if (startDate) query = query.gte('schedule_date', startDate);
+        if (endDate) query = query.lte('schedule_date', endDate);
+
+        const { error } = await query;
+        if (error) throw error;
+        return true;
+    } catch (error) {
+        console.error('[deleteSchedulesByTeacherRange] 에러:', error);
+        throw error;
+    }
+}
+
+
+// ========== 커스텀 휴일(Holidays) 관련 함수 ==========
+
 window.saveHolidayToDatabase = async function(holidayData) {
     try {
-        const ownerId = localStorage.getItem('current_owner_id');
-        
-        // ✅ 세션 검증: owner_user_id가 없으면 저장 불가
+        const ownerId = _getOwnerId();
         if (!ownerId) {
             console.warn('[saveHolidayToDatabase] current_owner_id 없음 - 저장 중단');
             throw new Error('로그인이 필요합니다');
         }
-        
-        const holiday = {
-            owner_user_id: ownerId,
-            teacher_id: holidayData.teacherId,
-            holiday_date: holidayData.date,
-            holiday_name: holidayData.name,
-            color: holidayData.color || '#ef4444'
-        };
-        
+
         const { data, error } = await supabase
             .from('holidays')
-            .upsert(holiday, {
+            .upsert({
+                owner_user_id: ownerId,
+                teacher_id: holidayData.teacherId,
+                holiday_date: holidayData.date,
+                holiday_name: holidayData.name,
+                color: holidayData.color || '#ef4444'
+            }, {
                 onConflict: 'owner_user_id,teacher_id,holiday_date',
                 ignoreDuplicates: false
             })
             .select()
             .single();
-        
+
         if (error) throw error;
         return data;
     } catch (error) {
@@ -530,18 +549,17 @@ window.saveHolidayToDatabase = async function(holidayData) {
     }
 }
 
-// 특정 선생님의 커스텀 휴일 조회
 window.getHolidaysByTeacher = async function(teacherId) {
     try {
-        const ownerId = localStorage.getItem('current_owner_id');
-        
+        const ownerId = _getOwnerId();
+
         const { data, error } = await supabase
             .from('holidays')
-            .select('*')
+            .select('id, holiday_date, holiday_name, color')
             .eq('owner_user_id', ownerId)
             .eq('teacher_id', teacherId)
             .order('holiday_date', { ascending: true });
-        
+
         if (error) throw error;
         return data || [];
     } catch (error) {
@@ -550,18 +568,17 @@ window.getHolidaysByTeacher = async function(teacherId) {
     }
 }
 
-// 커스텀 휴일 삭제
 window.deleteHolidayFromDatabase = async function(teacherId, date) {
     try {
-        const ownerId = localStorage.getItem('current_owner_id');
-        
+        const ownerId = _getOwnerId();
+
         const { error } = await supabase
             .from('holidays')
             .delete()
             .eq('owner_user_id', ownerId)
             .eq('teacher_id', teacherId)
             .eq('holiday_date', date);
-        
+
         if (error) throw error;
         return true;
     } catch (error) {
@@ -570,40 +587,36 @@ window.deleteHolidayFromDatabase = async function(teacherId, date) {
     }
 }
 
-// ========== Payments (결제) 관련 함수 ==========
 
-// 결제 정보 저장/업데이트
+// ========== 결제(Payments) 관련 함수 ==========
+
 window.savePaymentToDatabase = async function(paymentData) {
     try {
-        const ownerId = localStorage.getItem('current_owner_id');
-        
-        // ✅ 세션 검증: owner_user_id가 없으면 저장 불가
+        const ownerId = _getOwnerId();
         if (!ownerId) {
             console.warn('[savePaymentToDatabase] current_owner_id 없음 - 저장 중단');
             throw new Error('로그인이 필요합니다');
         }
-        
-        const payment = {
-            owner_user_id: ownerId,
-            teacher_id: paymentData.teacherId,
-            student_id: parseInt(paymentData.studentId),
-            payment_month: paymentData.month, // YYYY-MM
-            amount: parseInt(paymentData.amount),
-            paid_amount: parseInt(paymentData.paidAmount || 0),
-            payment_status: paymentData.status || 'unpaid',
-            payment_date: paymentData.paymentDate || null,
-            memo: paymentData.memo || null
-        };
-        
+
         const { data, error } = await supabase
             .from('payments')
-            .upsert(payment, {
+            .upsert({
+                owner_user_id: ownerId,
+                teacher_id: paymentData.teacherId,
+                student_id: parseInt(paymentData.studentId),
+                payment_month: paymentData.month,
+                amount: parseInt(paymentData.amount),
+                paid_amount: parseInt(paymentData.paidAmount || 0),
+                payment_status: paymentData.status || 'unpaid',
+                payment_date: paymentData.paymentDate || null,
+                memo: paymentData.memo || null
+            }, {
                 onConflict: 'student_id,payment_month',
                 ignoreDuplicates: false
             })
             .select()
             .single();
-        
+
         if (error) throw error;
         return data;
     } catch (error) {
@@ -612,18 +625,17 @@ window.savePaymentToDatabase = async function(paymentData) {
     }
 }
 
-// 특정 월의 결제 정보 조회
 window.getPaymentsByMonth = async function(teacherId, month) {
     try {
-        const ownerId = localStorage.getItem('current_owner_id');
-        
+        const ownerId = _getOwnerId();
+
         const { data, error } = await supabase
             .from('payments')
-            .select('*')
+            .select('id, student_id, amount, paid_amount, payment_status, payment_date, memo')
             .eq('owner_user_id', ownerId)
             .eq('teacher_id', teacherId)
             .eq('payment_month', month);
-        
+
         if (error) throw error;
         return data || [];
     } catch (error) {
@@ -632,19 +644,18 @@ window.getPaymentsByMonth = async function(teacherId, month) {
     }
 }
 
-// 특정 학생의 결제 정보 조회
 window.getPaymentsByStudent = async function(studentId) {
     try {
-        const ownerId = localStorage.getItem('current_owner_id');
+        const ownerId = _getOwnerId();
         const numericId = parseInt(studentId);
-        
+
         const { data, error } = await supabase
             .from('payments')
-            .select('*')
+            .select('id, payment_month, amount, paid_amount, payment_status, payment_date, memo')
             .eq('owner_user_id', ownerId)
             .eq('student_id', numericId)
             .order('payment_month', { ascending: false });
-        
+
         if (error) throw error;
         return data || [];
     } catch (error) {
@@ -652,4 +663,3 @@ window.getPaymentsByStudent = async function(studentId) {
         return [];
     }
 }
-
