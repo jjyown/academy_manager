@@ -747,7 +747,7 @@ async function loadTeachers() {
         
         teacherList = (data || []).map(t => ({
             ...t,
-            role: t.role || t.teacher_role || 'teacher'  // role/teacher_role이 없으면 기본값 'teacher'
+            teacher_role: t.teacher_role || 'teacher'  // teacher_role이 없으면 기본값 'teacher'
         }));
         renderTeacherDropdown();
         
@@ -837,25 +837,24 @@ async function setCurrentTeacher(teacher) {
             return;
         }
         
-        // Supabase에서 최신 role 정보 조회
-        console.log('[setCurrentTeacher] Supabase에서 최신 role 정보 조회 중...');
+        // Supabase에서 최신 teacher_role 정보 조회
+        console.log('[setCurrentTeacher] Supabase에서 최신 teacher_role 정보 조회 중...');
         const { data: latestTeacher, error } = await supabase
             .from('teachers')
-            .select('role, teacher_role')
+            .select('teacher_role')
             .eq('id', teacher.id)
             .single();
         
         if (error) {
-            console.error('[setCurrentTeacher] role 조회 실패:', error);
+            console.error('[setCurrentTeacher] teacher_role 조회 실패:', error);
         } else if (latestTeacher) {
-            // role 또는 teacher_role 중 하나 사용 (우선순위: role > teacher_role)
-            teacher.role = latestTeacher.role || latestTeacher.teacher_role || 'teacher';
-            console.log('[setCurrentTeacher] 최신 role 반영:', teacher.role);
+            teacher.teacher_role = latestTeacher.teacher_role || 'teacher';
+            console.log('[setCurrentTeacher] 최신 teacher_role 반영:', teacher.teacher_role);
         }
         
-        // 기본값 설정 (role이 없으면 'teacher')
-        if (!teacher.role) {
-            teacher.role = 'teacher';
+        // 기본값 설정 (teacher_role이 없으면 'teacher')
+        if (!teacher.teacher_role) {
+            teacher.teacher_role = 'teacher';
         }
         
         // 전역 변수 설정
@@ -865,8 +864,8 @@ async function setCurrentTeacher(teacher) {
         // 선택된 선생님을 로컬 저장해 새로고침 후에도 유지
         setTabValue('current_teacher_id', teacher.id);
         setTabValue('current_teacher_name', teacher.name || '');
-        setTabValue('current_teacher_role', teacher.role);
-        console.log('[setCurrentTeacher] 로컬 저장 완료, teacherId:', teacher.id, '역할:', teacher.role);
+        setTabValue('current_teacher_role', teacher.teacher_role);
+        console.log('[setCurrentTeacher] 로컬 저장 완료, teacherId:', teacher.id, '역할:', teacher.teacher_role);
         
         // 1단계: 관리자별 모든 학생 로드
         console.log('[setCurrentTeacher] 1단계: 학생 데이터 로드 중...');
@@ -1658,7 +1657,6 @@ window.registerTeacher = async function() {
                 address: address || null,
                 address_detail: addressDetail || null,
                 pin_hash: passwordHash, 
-                role: 'teacher', 
                 teacher_role: 'teacher' 
             })
             .select()
@@ -4843,7 +4841,7 @@ window.renderTeacherListModal = function() {
     container.innerHTML = teacherList.map(teacher => {
         // 로컬스토리지에서 role 확인
         const storedRole = localStorage.getItem('teacher_' + teacher.name + '_role');
-        const role = storedRole || teacher.teacher_role || teacher.role || 'teacher';
+        const role = storedRole || teacher.teacher_role || 'teacher';
         const roleText = role === 'admin' ? '관리자' : role === 'teacher' ? '선생님' : '직원';
         const roleColor = role === 'admin' ? '#ef4444' : role === 'teacher' ? '#3b82f6' : '#8b5cf6';
         
@@ -4917,7 +4915,77 @@ window.deleteTeacherFromModal = async function(teacherId) {
 window.handleRoleChange = function(teacherId, newRole) {
     const teacher = teacherList.find(t => t.id === teacherId);
     if (!teacher) return;
+
+    // 관리자 권한으로 변경하려면 관리자 비밀번호 확인 필요
+    if (newRole === 'admin') {
+        openAdminVerifyModal(teacherId, newRole);
+        return;
+    }
+
+    // 관리자에서 다른 역할로 변경할 때도 확인
+    const currentRole = teacher.teacher_role || 'teacher';
+    if (currentRole === 'admin' && newRole !== 'admin') {
+        if (!confirm(`${teacher.name}의 관리자 권한을 해제하시겠습니까?`)) {
+            renderTeacherListModal(); // 드롭다운 원래 값으로 복원
+            return;
+        }
+    }
+
     updateTeacherRole(teacherId, newRole);
+}
+
+// 관리자 인증 모달 열기
+window.openAdminVerifyModal = function(teacherId, newRole) {
+    const modal = document.getElementById('admin-verify-modal');
+    if (!modal) return;
+
+    document.getElementById('admin-verify-teacher-id').value = teacherId;
+    document.getElementById('admin-verify-new-role').value = newRole;
+    document.getElementById('admin-verify-email').value = '';
+    document.getElementById('admin-verify-password').value = '';
+    modal.style.display = 'flex';
+}
+
+// 관리자 인증 모달 닫기
+window.closeAdminVerifyModal = function() {
+    const modal = document.getElementById('admin-verify-modal');
+    if (modal) modal.style.display = 'none';
+    // 드롭다운 원래 값으로 복원
+    renderTeacherListModal();
+}
+
+// 관리자 비밀번호 확인 후 역할 변경
+window.confirmAdminVerifyAndChangeRole = async function() {
+    const email = (document.getElementById('admin-verify-email')?.value || '').trim();
+    const password = (document.getElementById('admin-verify-password')?.value || '').trim();
+    const teacherId = document.getElementById('admin-verify-teacher-id')?.value || '';
+    const newRole = document.getElementById('admin-verify-new-role')?.value || '';
+
+    if (!email) return alert('관리자 이메일을 입력해주세요.');
+    if (!password) return alert('관리자 비밀번호를 입력해주세요.');
+    if (!teacherId || !newRole) return alert('선생님 정보가 없습니다. 다시 시도해주세요.');
+
+    try {
+        // 관리자 이메일/비밀번호로 인증 시도
+        const { data, error } = await supabase.auth.signInWithPassword({
+            email: email,
+            password: password
+        });
+
+        if (error) {
+            return alert('관리자 인증 실패: 이메일 또는 비밀번호가 올바르지 않습니다.');
+        }
+
+        // 인증 성공 - 역할 변경 진행
+        const modal = document.getElementById('admin-verify-modal');
+        if (modal) modal.style.display = 'none';
+
+        await updateTeacherRole(teacherId, newRole);
+
+    } catch (err) {
+        console.error('[confirmAdminVerifyAndChangeRole] 예외:', err);
+        alert('인증 오류: ' + (err.message || err));
+    }
 }
 
 // 선생님 역할 업데이트
@@ -4933,10 +5001,10 @@ async function updateTeacherRole(teacherId, newRole) {
         
         const { data, error } = await supabase
             .from('teachers')
-            .update({ role: newRole, teacher_role: newRole })
+            .update({ teacher_role: newRole })
             .eq('id', teacherId)
             .eq('owner_user_id', ownerId)
-            .select('id, role, teacher_role');
+            .select('id, teacher_role');
 
         if (error) throw error;
 
@@ -4945,7 +5013,6 @@ async function updateTeacherRole(teacherId, newRole) {
         }
 
         // DB 업데이트 성공 시 로컬 데이터와 캐시 동기화
-        teacher.role = newRole;
         teacher.teacher_role = newRole;
         localStorage.setItem('teacher_' + teacher.name + '_role', newRole);
         await loadTeachers();
