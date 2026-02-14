@@ -1,4 +1,10 @@
 {
   "buildCommand": "echo 'Static site'",
-  "name": "academy-manager"
+  "name": "academy-manager",
+  "cleanUrls": true,
+  "trailingSlash": false,
+  "rewrites": [
+    { "source": "/homework", "destination": "/homework/index.html" },
+    { "source": "/homework/", "destination": "/homework/index.html" }
+  ]
 }
