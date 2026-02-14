@@ -60,6 +60,7 @@
 				radial-gradient(circle at 80% 80%, rgba(139,92,246,0.06) 0%, transparent 50%);
 		}
 		#page-upload { display: none; min-height: 100vh; min-height: 100dvh; }
+		#page-status { display: none; min-height: 100vh; min-height: 100dvh; }
 		#page-success { display: none; min-height: 100vh; min-height: 100dvh; }
 
 		.landing-hero {
@@ -555,6 +556,156 @@
 		}
 		@keyframes spin { to { transform: rotate(360deg); } }
 
+		/* ===== Status Page ===== */
+		.status-header {
+			background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #6366f1 100%);
+			padding: 20px 20px 60px;
+			position: relative;
+		}
+		.status-container {
+			max-width: 640px;
+			margin: -40px auto 0;
+			padding: 0 16px 100px;
+			position: relative;
+		}
+
+		/* Calendar */
+		.cal-nav {
+			display: flex; align-items: center; justify-content: space-between;
+			margin-bottom: 16px;
+		}
+		.cal-nav-btn {
+			width: 36px; height: 36px;
+			background: var(--bg-elevated); border: 1px solid var(--border);
+			border-radius: 10px; color: var(--text-sec);
+			cursor: pointer; font-size: 14px;
+			display: flex; align-items: center; justify-content: center;
+			transition: all var(--transition);
+		}
+		.cal-nav-btn:hover { background: rgba(255,255,255,0.08); color: var(--text); }
+		.cal-month-label {
+			font-size: 16px; font-weight: 700; color: var(--text);
+		}
+
+		.cal-grid {
+			display: grid; grid-template-columns: repeat(7, 1fr);
+			gap: 4px;
+		}
+		.cal-dow {
+			text-align: center; font-size: 11px; font-weight: 600;
+			color: var(--gray); padding: 6px 0;
+		}
+		.cal-dow.sun { color: var(--red); }
+		.cal-dow.sat { color: var(--blue); }
+		.cal-cell {
+			aspect-ratio: 1; display: flex; flex-direction: column;
+			align-items: center; justify-content: center;
+			border-radius: 10px; cursor: pointer;
+			transition: all var(--transition);
+			position: relative; font-size: 13px; font-weight: 500;
+			color: var(--text-sec);
+		}
+		.cal-cell:hover { background: rgba(255,255,255,0.06); }
+		.cal-cell.empty { cursor: default; }
+		.cal-cell.empty:hover { background: transparent; }
+		.cal-cell.today {
+			border: 1.5px solid var(--primary);
+			color: var(--primary); font-weight: 700;
+		}
+		.cal-cell.selected {
+			background: var(--primary-light);
+			color: var(--primary); font-weight: 700;
+		}
+		.cal-cell.has-submission::after {
+			content: '';
+			width: 6px; height: 6px;
+			background: var(--green);
+			border-radius: 50%;
+			position: absolute;
+			bottom: 4px;
+		}
+		.cal-cell.future { opacity: 0.3; cursor: default; }
+		.cal-cell.future:hover { background: transparent; }
+		.cal-cell.sun-day { color: var(--red); }
+		.cal-cell.sat-day { color: var(--blue); }
+		.cal-cell.selected.sun-day, .cal-cell.selected.sat-day { color: var(--primary); }
+
+		/* Monthly stats */
+		.cal-stats {
+			display: flex; gap: 12px; margin-top: 14px;
+			padding: 12px 14px;
+			background: var(--bg-elevated);
+			border-radius: 10px;
+		}
+		.cal-stat {
+			flex: 1; text-align: center;
+		}
+		.cal-stat-num {
+			font-size: 20px; font-weight: 800;
+		}
+		.cal-stat-num.green { color: var(--green); }
+		.cal-stat-num.gray { color: var(--gray); }
+		.cal-stat-label {
+			font-size: 11px; color: var(--text-sec); margin-top: 2px;
+		}
+
+		/* Detail list */
+		.detail-empty {
+			text-align: center; padding: 28px 16px;
+			color: var(--gray); font-size: 13px;
+		}
+		.detail-empty i { font-size: 28px; margin-bottom: 10px; display: block; opacity: 0.4; }
+		.detail-item {
+			display: flex; align-items: center; gap: 12px;
+			padding: 14px;
+			background: var(--bg-elevated);
+			border-radius: var(--radius);
+			border: 1px solid var(--border);
+			margin-bottom: 8px;
+			animation: fadeIn 0.2s;
+		}
+		.detail-item-icon {
+			width: 40px; height: 40px;
+			border-radius: 10px;
+			background: var(--green-bg);
+			color: var(--green);
+			display: flex; align-items: center; justify-content: center;
+			font-size: 16px; flex-shrink: 0;
+		}
+		.detail-item-info { flex: 1; min-width: 0; }
+		.detail-item-name {
+			font-size: 13px; font-weight: 600;
+			overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+		}
+		.detail-item-meta {
+			font-size: 11px; color: var(--text-sec); margin-top: 3px;
+			display: flex; gap: 10px;
+		}
+
+		/* Floating button */
+		.floating-submit-wrap {
+			position: fixed; bottom: 0; left: 0; right: 0;
+			padding: 12px 16px;
+			padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+			background: linear-gradient(transparent, var(--bg) 30%);
+			z-index: 100;
+			display: flex; justify-content: center;
+		}
+		.floating-submit-btn {
+			max-width: 400px; width: 100%;
+			padding: 15px;
+			background: linear-gradient(135deg, #6366f1, #7c3aed);
+			color: white; border: none;
+			border-radius: var(--radius);
+			font-size: 15px; font-weight: 700; font-family: inherit;
+			cursor: pointer;
+			transition: all var(--transition);
+			display: flex; align-items: center; justify-content: center; gap: 8px;
+			box-shadow: 0 8px 32px rgba(99,102,241,0.4);
+		}
+		.floating-submit-btn:hover { transform: translateY(-1px); box-shadow: 0 12px 40px rgba(99,102,241,0.5); }
+		.floating-submit-btn:active { transform: scale(0.98); }
+
 		/* ===== Responsive ===== */
 		@media (max-width: 640px) {
 			.landing-hero { padding: 32px 16px 16px; }
@@ -565,6 +716,9 @@
 			.upload-container { padding: 0 12px 24px; }
 			.upload-student-name { font-size: 20px; }
 			.section-card { padding: 16px; border-radius: 16px; }
+			.status-header { padding: 16px 16px 52px; }
+			.status-container { padding: 0 12px 100px; }
+			.cal-cell { font-size: 12px; }
 		}
 
 		@media (hover: none) and (pointer: coarse) {
@@ -616,6 +770,83 @@
 
 	<div class="landing-footer">
 		<i class="fas fa-shield-halved"></i> 파일은 선생님의 구글 드라이브에 안전하게 저장됩니다
+	</div>
+</div>
+
+<!-- ===== STATUS PAGE: 제출 현황 ===== -->
+<div id="page-status">
+	<div class="status-header">
+		<div class="upload-top-bar">
+			<button class="upload-back-btn" onclick="goBackFromStatus()">
+				<i class="fas fa-arrow-left"></i>
+			</button>
+			<span class="upload-top-label">제출 현황</span>
+			<div style="width:38px;"></div>
+		</div>
+		<div class="upload-student-info">
+			<div class="upload-avatar" id="status-avatar">-</div>
+			<div class="upload-student-name" id="status-name">-</div>
+			<div class="upload-student-meta">
+				<span id="status-grade">-</span>
+				<span class="sep">·</span>
+				<span id="status-teacher">-</span>
+			</div>
+		</div>
+	</div>
+
+	<div class="status-container">
+		<!-- 달력 카드 -->
+		<div class="section-card">
+			<div class="section-title">
+				<i class="fas fa-calendar-check"></i>
+				<span>월별 제출 현황</span>
+			</div>
+			<div class="cal-nav">
+				<button class="cal-nav-btn" onclick="moveCalMonth(-1)"><i class="fas fa-chevron-left"></i></button>
+				<span class="cal-month-label" id="cal-month-label">2026년 2월</span>
+				<button class="cal-nav-btn" onclick="moveCalMonth(1)"><i class="fas fa-chevron-right"></i></button>
+			</div>
+			<div class="cal-grid" id="cal-grid">
+				<div class="cal-dow sun">일</div>
+				<div class="cal-dow">월</div>
+				<div class="cal-dow">화</div>
+				<div class="cal-dow">수</div>
+				<div class="cal-dow">목</div>
+				<div class="cal-dow">금</div>
+				<div class="cal-dow sat">토</div>
+			</div>
+			<div class="cal-stats" id="cal-stats">
+				<div class="cal-stat">
+					<div class="cal-stat-num green" id="stat-submitted">0</div>
+					<div class="cal-stat-label">제출 완료</div>
+				</div>
+				<div class="cal-stat">
+					<div class="cal-stat-num gray" id="stat-total">0</div>
+					<div class="cal-stat-label">이번 달 전체</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- 선택 날짜 상세 -->
+		<div class="section-card" id="detail-card">
+			<div class="section-title">
+				<i class="fas fa-file-lines"></i>
+				<span id="detail-date-label">날짜를 선택하세요</span>
+			</div>
+			<div id="detail-list">
+				<div class="detail-empty">
+					<i class="fas fa-calendar-day"></i>
+					달력에서 날짜를 클릭하면<br>제출 기록을 확인할 수 있습니다
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<!-- 플로팅 제출 버튼 -->
+	<div class="floating-submit-wrap">
+		<button class="floating-submit-btn" onclick="goToUploadFromStatus()">
+			<i class="fas fa-paper-plane"></i> 숙제 제출하기
+		</button>
 	</div>
 </div>
 
@@ -983,8 +1214,8 @@ async function selectStudent(student) {
 		currentTeacher = teacher;
 	}
 
-	// 업로드 페이지 표시
-	showUploadPage();
+	// 제출 현황 페이지 표시 (업로드 대신)
+	showStatusPage();
 }
 
 // ============================================================
@@ -1009,13 +1240,17 @@ function clearPageState() {
 function restorePageState() {
 	try {
 		const page = sessionStorage.getItem('hw_page');
-		if (page === 'upload') {
+		if (page === 'status' || page === 'upload') {
 			const student = JSON.parse(sessionStorage.getItem('hw_student'));
 			const teacher = JSON.parse(sessionStorage.getItem('hw_teacher'));
 			if (student) {
 				currentStudent = student;
 				currentTeacher = teacher;
-				showUploadPage(true); // true = 복원 모드 (파일 초기화 건너뜀)
+				if (page === 'status') {
+					showStatusPage(true);
+				} else {
+					showUploadPage(true);
+				}
 				return true;
 			}
 		}
@@ -1029,10 +1264,243 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 // ============================================================
+// 제출 현황 페이지
+// ============================================================
+let calYear = new Date().getFullYear();
+let calMonth = new Date().getMonth(); // 0-indexed
+let calSelectedDate = null;
+let calSubmissions = []; // 이번 달 제출 데이터
+
+function showStatusPage(isRestore) {
+	document.getElementById('page-landing').style.display = 'none';
+	document.getElementById('page-upload').style.display = 'none';
+	document.getElementById('page-success').style.display = 'none';
+	document.getElementById('page-status').style.display = 'block';
+
+	// 학생 정보 표시
+	document.getElementById('status-avatar').textContent = currentStudent.name.charAt(0);
+	document.getElementById('status-name').textContent = currentStudent.name;
+	document.getElementById('status-grade').textContent = currentStudent.grade || '-';
+	document.getElementById('status-teacher').textContent = currentTeacher ? currentTeacher.name + ' 선생님' : '미배정';
+
+	// 현재 월로 달력 초기화
+	if (!isRestore) {
+		calYear = new Date().getFullYear();
+		calMonth = new Date().getMonth();
+		calSelectedDate = null;
+	}
+
+	// 달력 렌더링 + 데이터 로드
+	loadCalendarData();
+
+	// 상태 저장
+	savePageState('status');
+	window.scrollTo(0, 0);
+}
+
+function goBackFromStatus() {
+	document.getElementById('page-status').style.display = 'none';
+	document.getElementById('page-landing').style.display = 'flex';
+	currentStudent = null;
+	currentTeacher = null;
+	calSubmissions = [];
+	calSelectedDate = null;
+	clearPageState();
+}
+
+function goToUploadFromStatus() {
+	document.getElementById('page-status').style.display = 'none';
+	showUploadPage();
+}
+
+// 월 이동
+function moveCalMonth(delta) {
+	calMonth += delta;
+	if (calMonth < 0) { calMonth = 11; calYear--; }
+	if (calMonth > 11) { calMonth = 0; calYear++; }
+	calSelectedDate = null;
+	loadCalendarData();
+}
+
+// 데이터 로드 + 달력 렌더링
+async function loadCalendarData() {
+	const year = calYear;
+	const month = calMonth;
+	const firstDay = new Date(year, month, 1);
+	const lastDay = new Date(year, month + 1, 0);
+
+	const startDate = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+	const endDate = `${year}-${String(month + 1).padStart(2, '0')}-${String(lastDay.getDate()).padStart(2, '0')}`;
+
+	// 월 라벨 업데이트
+	document.getElementById('cal-month-label').textContent = `${year}년 ${month + 1}월`;
+
+	try {
+		const { data, error } = await db
+			.from('homework_submissions')
+			.select('id, submission_date, file_name, file_size, status, created_at')
+			.eq('student_id', currentStudent.id)
+			.gte('submission_date', startDate)
+			.lte('submission_date', endDate)
+			.eq('status', 'uploaded')
+			.order('created_at', { ascending: false });
+
+		if (error) {
+			console.error('Calendar data error:', error);
+			calSubmissions = [];
+		} else {
+			calSubmissions = data || [];
+		}
+	} catch (e) {
+		console.error('Calendar fetch error:', e);
+		calSubmissions = [];
+	}
+
+	renderCalendar();
+	updateCalStats();
+
+	// 상세 리스트 초기화
+	if (!calSelectedDate) {
+		document.getElementById('detail-date-label').textContent = '날짜를 선택하세요';
+		document.getElementById('detail-list').innerHTML =
+			'<div class="detail-empty"><i class="fas fa-calendar-day"></i>달력에서 날짜를 클릭하면<br>제출 기록을 확인할 수 있습니다</div>';
+	} else {
+		showDateDetail(calSelectedDate);
+	}
+}
+
+function renderCalendar() {
+	const grid = document.getElementById('cal-grid');
+	// 요일 헤더는 유지, 날짜 셀만 교체
+	const dowCells = grid.querySelectorAll('.cal-dow');
+	grid.innerHTML = '';
+	dowCells.forEach(c => grid.appendChild(c));
+
+	const year = calYear;
+	const month = calMonth;
+	const firstDay = new Date(year, month, 1);
+	const lastDay = new Date(year, month + 1, 0);
+	const today = new Date();
+	const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
+	// 제출 날짜 Set
+	const submittedDates = new Set();
+	calSubmissions.forEach(s => submittedDates.add(s.submission_date));
+
+	// 첫째 날 요일 (0=일, 1=월, ...)
+	const startDow = firstDay.getDay();
+
+	// 빈 셀 (이전 달)
+	for (let i = 0; i < startDow; i++) {
+		const cell = document.createElement('div');
+		cell.className = 'cal-cell empty';
+		grid.appendChild(cell);
+	}
+
+	// 날짜 셀
+	for (let d = 1; d <= lastDay.getDate(); d++) {
+		const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+		const dow = new Date(year, month, d).getDay();
+		const cell = document.createElement('div');
+		let cls = 'cal-cell';
+
+		if (dateStr === todayStr) cls += ' today';
+		if (calSelectedDate === dateStr) cls += ' selected';
+		if (submittedDates.has(dateStr)) cls += ' has-submission';
+
+		// 미래 날짜
+		const cellDate = new Date(year, month, d);
+		cellDate.setHours(23, 59, 59);
+		if (cellDate > today) cls += ' future';
+
+		// 주말 색상
+		if (dow === 0) cls += ' sun-day';
+		if (dow === 6) cls += ' sat-day';
+
+		cell.className = cls;
+		cell.textContent = d;
+
+		// 미래가 아닌 날짜만 클릭 가능
+		if (cellDate <= today) {
+			cell.onclick = () => selectCalDate(dateStr);
+		}
+
+		grid.appendChild(cell);
+	}
+}
+
+function updateCalStats() {
+	const today = new Date();
+	const year = calYear;
+	const month = calMonth;
+	const lastDay = new Date(year, month + 1, 0);
+
+	// 이번 달에서 오늘까지(또는 말일까지) 날짜 수
+	let totalDays;
+	if (year === today.getFullYear() && month === today.getMonth()) {
+		totalDays = today.getDate();
+	} else if (new Date(year, month, 1) > today) {
+		totalDays = 0; // 미래 달
+	} else {
+		totalDays = lastDay.getDate();
+	}
+
+	// 제출 고유 날짜 수
+	const submittedDates = new Set();
+	calSubmissions.forEach(s => submittedDates.add(s.submission_date));
+
+	document.getElementById('stat-submitted').textContent = submittedDates.size;
+	document.getElementById('stat-total').textContent = totalDays;
+}
+
+function selectCalDate(dateStr) {
+	calSelectedDate = dateStr;
+	renderCalendar();
+	showDateDetail(dateStr);
+}
+
+function showDateDetail(dateStr) {
+	const parts = dateStr.split('-');
+	const labelText = `${parseInt(parts[0])}년 ${parseInt(parts[1])}월 ${parseInt(parts[2])}일 기록`;
+	document.getElementById('detail-date-label').textContent = labelText;
+
+	const daySubmissions = calSubmissions.filter(s => s.submission_date === dateStr);
+	const listEl = document.getElementById('detail-list');
+
+	if (daySubmissions.length === 0) {
+		listEl.innerHTML =
+			'<div class="detail-empty"><i class="fas fa-inbox"></i>이 날짜에 제출한 숙제가 없습니다</div>';
+		return;
+	}
+
+	listEl.innerHTML = '';
+	daySubmissions.forEach(sub => {
+		const createdAt = new Date(sub.created_at);
+		const timeStr = `${String(createdAt.getHours()).padStart(2, '0')}:${String(createdAt.getMinutes()).padStart(2, '0')}`;
+		const sizeStr = formatFileSize(sub.file_size || 0);
+
+		const item = document.createElement('div');
+		item.className = 'detail-item';
+		item.innerHTML = `
+			<div class="detail-item-icon"><i class="fas fa-file-zipper"></i></div>
+			<div class="detail-item-info">
+				<div class="detail-item-name">${sub.file_name}</div>
+				<div class="detail-item-meta">
+					<span><i class="fas fa-clock" style="margin-right:3px;"></i>${timeStr}</span>
+					<span><i class="fas fa-weight-hanging" style="margin-right:3px;"></i>${sizeStr}</span>
+				</div>
+			</div>
+		`;
+		listEl.appendChild(item);
+	});
+}
+
+// ============================================================
 // 업로드 페이지
 // ============================================================
 function showUploadPage(isRestore) {
 	document.getElementById('page-landing').style.display = 'none';
+	document.getElementById('page-status').style.display = 'none';
 	document.getElementById('page-upload').style.display = 'block';
 
 	// 학생 정보 표시
@@ -1070,11 +1538,9 @@ function showUploadPage(isRestore) {
 
 function goBackToLanding() {
 	document.getElementById('page-upload').style.display = 'none';
-	document.getElementById('page-landing').style.display = 'flex';
+	// 제출 현황 페이지로 돌아가기
 	selectedFiles = [];
-	currentStudent = null;
-	currentTeacher = null;
-	clearPageState();
+	showStatusPage(true);
 }
 
 // ============================================================
@@ -1332,6 +1798,7 @@ async function handleSubmit() {
 // ============================================================
 function showSuccessPage(fileName, fileSize) {
 	document.getElementById('page-upload').style.display = 'none';
+	document.getElementById('page-status').style.display = 'none';
 	document.getElementById('page-success').style.display = 'flex';
 
 	document.getElementById('success-filename').textContent = fileName;
@@ -1344,6 +1811,7 @@ function showSuccessPage(fileName, fileSize) {
 
 function resetToLanding() {
 	document.getElementById('page-success').style.display = 'none';
+	document.getElementById('page-status').style.display = 'none';
 	document.getElementById('page-landing').style.display = 'flex';
 
 	// 모든 상태 초기화
