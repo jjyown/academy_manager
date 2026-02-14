@@ -1235,6 +1235,25 @@
                     </button>
                 </div>
                 <div class="form-group">
+                    <label>Google Drive 연결 <span style="font-size:11px;color:#94a3b8;font-weight:400;">(숙제 제출 시스템)</span></label>
+                    <div id="my-info-drive-connected" style="padding:10px 14px;background:#f0fdf4;border:1px solid #86efac;border-radius:10px;font-size:13px;color:#166534;font-weight:600;display:none;">
+                        <i class="fas fa-check-circle" style="margin-right:4px;"></i> Drive 연결됨 <span id="my-info-drive-email" style="font-weight:400;margin-left:4px;"></span>
+                    </div>
+                    <div id="my-info-drive-disconnected" style="padding:10px 14px;background:#fef2f2;border:1px solid #fca5a5;border-radius:10px;font-size:13px;color:#991b1b;display:none;">
+                        <i class="fas fa-exclamation-circle" style="margin-right:4px;"></i> Drive 미연결 - 학생이 숙제를 제출할 수 없습니다
+                    </div>
+                    <button type="button" id="my-info-drive-connect-btn" onclick="connectGoogleDrive()" style="margin-top:8px;width:100%;padding:10px 14px;background:white;border:1.5px solid var(--border);border-radius:10px;cursor:pointer;font-size:13px;font-weight:600;color:#334155;display:flex;align-items:center;justify-content:center;gap:8px;transition:all 0.15s;" onmouseover="this.style.borderColor='#6366f1';this.style.color='#4f46e5'" onmouseout="this.style.borderColor='';this.style.color='#334155'">
+                        <svg width="16" height="16" viewBox="0 0 87.3 78" xmlns="http://www.w3.org/2000/svg"><path d="M6.6 66.85L1.1 57.1 28.9 9.3l5.5 9.75z" fill="#0066DA"/><path d="M43.65 78L28.9 52.2h55.4l14.75 25.8z" fill="#00AC47"/><path d="M58.4 52.2L28.9 0h30.5L88.9 52.2z" fill="#EA4335"/><path d="M43.65 78L28.9 52.2 58.4 0" fill="#00832D"/><path d="M28.9 52.2H0L28.9 0" fill="#2684FC"/><path d="M58.4 52.2h29.5L58.4 0" fill="#FFBA00"/></svg>
+                        Google Drive 연결하기
+                    </button>
+                    <button type="button" id="my-info-drive-disconnect-btn" onclick="disconnectGoogleDrive()" style="margin-top:6px;width:100%;padding:8px 14px;background:transparent;border:1px solid #fca5a5;border-radius:10px;cursor:pointer;font-size:12px;font-weight:500;color:#ef4444;display:none;text-align:center;transition:all 0.15s;" onmouseover="this.style.background='#fef2f2'" onmouseout="this.style.background='transparent'">
+                        <i class="fas fa-unlink" style="margin-right:4px;"></i>Drive 연결 해제
+                    </button>
+                    <div style="margin-top:6px;font-size:11px;color:#94a3b8;padding-left:2px;">
+                        <i class="fas fa-info-circle" style="margin-right:2px;"></i>연결하면 학생들의 숙제가 자동으로 내 Google Drive에 업로드됩니다
+                    </div>
+                </div>
+                <div class="form-group">
                     <label>주소</label>
                     <div style="display:flex;gap:8px;">
                         <input type="text" id="my-info-address" class="m-input" placeholder="주소를 검색하세요" readonly style="flex:1;cursor:pointer;" onclick="searchAddressForMyInfo()">

@@ -1,0 +1,1312 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+	<title>숙제 제출 - 학원 관리</title>
+	<link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.8/dist/web/static/pretendard.css" />
+	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+	<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+	<style>
+		:root {
+			--primary: #818cf8;
+			--primary-hover: #6366f1;
+			--primary-light: rgba(129,140,248,0.12);
+			--accent: #7c3aed;
+			--text: #e2e0ea;
+			--text-sec: #9b97ad;
+			--gray: #6b6880;
+			--border: rgba(255,255,255,0.08);
+			--card: #2a2740;
+			--card-hover: #312d4a;
+			--bg: #1e1b2e;
+			--bg-elevated: rgba(255,255,255,0.04);
+			--green: #4ade80;
+			--green-bg: rgba(74,222,128,0.12);
+			--yellow: #fbbf24;
+			--yellow-bg: rgba(251,191,36,0.12);
+			--red: #f87171;
+			--red-bg: rgba(248,113,113,0.12);
+			--teal: #2dd4bf;
+			--teal-bg: rgba(45,212,191,0.12);
+			--blue: #60a5fa;
+			--blue-bg: rgba(96,165,250,0.12);
+			--radius: 12px;
+			--radius-lg: 18px;
+			--radius-xl: 24px;
+			--shadow: 0 4px 24px rgba(0,0,0,0.15);
+			--transition: 0.2s cubic-bezier(0.4,0,0.2,1);
+			color-scheme: dark;
+		}
+
+		* { margin:0; padding:0; box-sizing:border-box; }
+
+		body {
+			font-family: Pretendard, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+			background: var(--bg);
+			min-height: 100vh;
+			min-height: 100dvh;
+			color: var(--text);
+			-webkit-font-smoothing: antialiased;
+			overflow-x: hidden;
+		}
+
+		/* ===== Landing Page ===== */
+		#page-landing {
+			display: flex; flex-direction: column; min-height: 100vh; min-height: 100dvh;
+			background: var(--bg);
+			background-image: radial-gradient(circle at 20% 20%, rgba(99,102,241,0.06) 0%, transparent 50%),
+				radial-gradient(circle at 80% 80%, rgba(139,92,246,0.06) 0%, transparent 50%);
+		}
+		#page-upload { display: none; min-height: 100vh; min-height: 100dvh; }
+		#page-success { display: none; min-height: 100vh; min-height: 100dvh; }
+
+		.landing-hero {
+			flex: 1;
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			justify-content: center;
+			padding: 40px 20px 24px;
+			text-align: center;
+		}
+
+		.landing-icon {
+			width: 80px; height: 80px;
+			background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+			border-radius: 24px;
+			display: flex; align-items: center; justify-content: center;
+			font-size: 36px; color: white;
+			margin-bottom: 24px;
+			box-shadow: 0 8px 32px rgba(99,102,241,0.3);
+			animation: iconFloat 3s ease-in-out infinite;
+		}
+		@keyframes iconFloat {
+			0%, 100% { transform: translateY(0); }
+			50% { transform: translateY(-6px); }
+		}
+
+		.landing-title { font-size: 26px; font-weight: 800; letter-spacing: -0.5px; margin-bottom: 8px; }
+		.landing-subtitle { font-size: 14px; color: var(--text-sec); line-height: 1.6; }
+
+		.landing-form {
+			width: 100%; max-width: 400px;
+			padding: 0 20px 40px;
+		}
+
+		.landing-card {
+			background: var(--card);
+			border-radius: var(--radius-xl);
+			padding: 28px 24px;
+			border: 1px solid var(--border);
+			box-shadow: var(--shadow);
+			animation: cardSlideUp 0.5s cubic-bezier(0.16,1,0.3,1) 0.15s both;
+		}
+		@keyframes cardSlideUp {
+			from { opacity: 0; transform: translateY(20px); }
+			to { opacity: 1; transform: translateY(0); }
+		}
+
+		.form-group { margin-bottom: 14px; }
+		.form-label {
+			display: block;
+			font-size: 12px; font-weight: 600; color: var(--text-sec);
+			margin-bottom: 6px; padding-left: 2px;
+		}
+
+		.form-input-wrap { position: relative; }
+		.form-input-wrap .form-icon {
+			position: absolute;
+			left: 14px; top: 50%; transform: translateY(-50%);
+			font-size: 14px; color: var(--gray);
+			pointer-events: none;
+			transition: color var(--transition);
+		}
+		.form-input-wrap .form-input { padding-left: 40px; }
+		.form-input-wrap:focus-within .form-icon { color: var(--primary); }
+
+		.form-input {
+			width: 100%;
+			padding: 13px 14px;
+			background: var(--bg-elevated);
+			border: 1.5px solid var(--border);
+			border-radius: var(--radius);
+			font-size: 15px; font-family: inherit;
+			color: var(--text);
+			transition: all var(--transition);
+			outline: none;
+		}
+		.form-input:focus {
+			border-color: var(--primary);
+			box-shadow: 0 0 0 3px rgba(129,140,248,0.15);
+			background: rgba(255,255,255,0.06);
+		}
+		.form-input::placeholder { color: var(--gray); }
+
+		.form-hint {
+			font-size: 11px; color: var(--gray); margin-top: 4px; padding-left: 2px;
+		}
+
+		.btn-row { display: flex; gap: 10px; margin-top: 20px; }
+
+		.btn-primary {
+			flex: 1; padding: 14px;
+			background: linear-gradient(135deg, #6366f1, #7c3aed);
+			color: white; border: none;
+			border-radius: var(--radius);
+			font-size: 15px; font-weight: 700; font-family: inherit;
+			cursor: pointer;
+			transition: all var(--transition);
+			display: flex; align-items: center; justify-content: center; gap: 8px;
+		}
+		.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(99,102,241,0.35); }
+		.btn-primary:active { transform: scale(0.98); }
+		.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+
+		.btn-secondary {
+			padding: 14px 18px;
+			background: var(--bg-elevated);
+			color: var(--text-sec); border: 1.5px solid var(--border);
+			border-radius: var(--radius);
+			font-size: 15px; font-weight: 700; font-family: inherit;
+			cursor: pointer;
+			transition: all var(--transition);
+			display: flex; align-items: center; justify-content: center; gap: 6px;
+		}
+		.btn-secondary:hover { background: rgba(255,255,255,0.08); }
+
+		.landing-alert {
+			margin-top: 14px;
+			padding: 11px 14px;
+			border-radius: 10px;
+			font-size: 13px; font-weight: 500;
+			display: none;
+			animation: fadeIn 0.2s;
+		}
+		.landing-alert.show { display: flex; align-items: center; gap: 8px; }
+		.landing-alert.error { background: var(--red-bg); color: var(--red); }
+		.landing-alert.success { background: var(--green-bg); color: var(--green); }
+		.landing-alert.info { background: var(--primary-light); color: var(--primary); }
+
+		.landing-footer {
+			text-align: center; padding: 16px 20px 32px;
+			font-size: 11px; color: var(--gray);
+			padding-bottom: calc(32px + env(safe-area-inset-bottom, 0px));
+		}
+		.landing-footer i { margin-right: 4px; opacity: 0.6; }
+
+		/* ===== Upload Page ===== */
+		.upload-header {
+			background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #6366f1 100%);
+			padding: 20px 20px 72px;
+			position: relative;
+		}
+
+		.upload-top-bar {
+			display: flex; align-items: center; justify-content: space-between;
+			margin-bottom: 20px;
+		}
+
+		.upload-back-btn {
+			background: rgba(255,255,255,0.15); border: none;
+			color: white; width: 38px; height: 38px;
+			border-radius: 12px; cursor: pointer;
+			display: flex; align-items: center; justify-content: center;
+			font-size: 16px;
+			transition: all var(--transition);
+			backdrop-filter: blur(4px);
+		}
+		.upload-back-btn:hover { background: rgba(255,255,255,0.25); }
+
+		.upload-top-label { font-size: 13px; color: rgba(255,255,255,0.7); font-weight: 500; }
+
+		.upload-student-info { text-align: center; }
+		.upload-avatar {
+			width: 52px; height: 52px;
+			border-radius: 50%;
+			background: rgba(255,255,255,0.2);
+			display: flex; align-items: center; justify-content: center;
+			font-size: 22px; font-weight: 800; color: white;
+			margin: 0 auto 10px;
+			border: 2px solid rgba(255,255,255,0.3);
+			backdrop-filter: blur(4px);
+		}
+		.upload-student-name { font-size: 24px; font-weight: 800; color: white; letter-spacing: -0.5px; }
+		.upload-student-meta {
+			display: flex; align-items: center; justify-content: center; gap: 8px;
+			margin-top: 6px; font-size: 13px; color: rgba(255,255,255,0.75);
+		}
+		.upload-student-meta .sep { opacity: 0.4; }
+
+		.upload-container {
+			max-width: 640px;
+			margin: -52px auto 0;
+			padding: 0 16px 32px;
+			padding-bottom: calc(32px + env(safe-area-inset-bottom, 0px));
+			position: relative;
+		}
+
+		/* File Drop Zone */
+		.file-drop-zone {
+			border: 2px dashed rgba(129,140,248,0.3);
+			border-radius: var(--radius-lg);
+			padding: 36px 20px;
+			text-align: center;
+			cursor: pointer;
+			transition: all var(--transition);
+			background: rgba(129,140,248,0.04);
+			min-height: 200px;
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			justify-content: center;
+		}
+		.file-drop-zone:hover {
+			border-color: var(--primary);
+			background: rgba(129,140,248,0.08);
+		}
+		.file-drop-zone.dragover {
+			border-color: var(--primary);
+			background: rgba(129,140,248,0.12);
+			transform: scale(1.01);
+		}
+		.file-drop-zone.has-files {
+			border-style: solid;
+			border-color: rgba(129,140,248,0.2);
+			min-height: auto;
+			padding: 20px;
+		}
+		.file-drop-zone i.upload-icon {
+			font-size: 40px;
+			color: var(--primary);
+			opacity: 0.6;
+			display: block;
+			margin-bottom: 14px;
+		}
+		.file-drop-zone .drop-text {
+			font-size: 15px;
+			font-weight: 600;
+			color: var(--text);
+			margin-bottom: 6px;
+		}
+		.file-drop-zone .drop-hint {
+			font-size: 12px;
+			color: var(--text-sec);
+		}
+
+		/* File List */
+		.file-list {
+			display: flex; flex-direction: column; gap: 8px;
+			width: 100%;
+		}
+		.file-item {
+			display: flex; align-items: center; gap: 12px;
+			padding: 12px 14px;
+			background: var(--bg-elevated);
+			border-radius: var(--radius);
+			border: 1px solid var(--border);
+			animation: fadeIn 0.2s;
+		}
+		.file-item-icon {
+			width: 40px; height: 40px;
+			border-radius: 10px;
+			display: flex; align-items: center; justify-content: center;
+			font-size: 18px;
+			flex-shrink: 0;
+		}
+		.file-item-icon.img { background: var(--blue-bg); color: var(--blue); }
+		.file-item-icon.doc { background: var(--green-bg); color: var(--green); }
+		.file-item-icon.other { background: var(--primary-light); color: var(--primary); }
+
+		.file-item-info { flex: 1; min-width: 0; }
+		.file-item-name {
+			font-size: 13px; font-weight: 600;
+			overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+		}
+		.file-item-size { font-size: 11px; color: var(--text-sec); margin-top: 2px; }
+
+		.file-item-thumb {
+			width: 40px; height: 40px;
+			border-radius: 8px;
+			object-fit: cover;
+			flex-shrink: 0;
+		}
+
+		.file-item-remove {
+			width: 32px; height: 32px;
+			background: var(--red-bg); border: none;
+			border-radius: 8px; color: var(--red);
+			cursor: pointer; font-size: 12px;
+			display: flex; align-items: center; justify-content: center;
+			transition: all var(--transition);
+			flex-shrink: 0;
+		}
+		.file-item-remove:hover { background: rgba(248,113,113,0.25); }
+
+		.file-add-btn {
+			display: flex; align-items: center; justify-content: center; gap: 8px;
+			padding: 12px;
+			background: transparent;
+			border: 1.5px dashed var(--border);
+			border-radius: var(--radius);
+			color: var(--text-sec);
+			font-size: 13px; font-weight: 600; font-family: inherit;
+			cursor: pointer;
+			transition: all var(--transition);
+			width: 100%;
+			margin-top: 4px;
+		}
+		.file-add-btn:hover { border-color: var(--primary); color: var(--primary); background: rgba(129,140,248,0.04); }
+
+		/* Section card */
+		.section-card {
+			background: var(--card);
+			border-radius: var(--radius-lg);
+			padding: 20px;
+			border: 1px solid var(--border);
+			box-shadow: var(--shadow);
+			margin-bottom: 14px;
+		}
+		.section-title {
+			font-size: 14px; font-weight: 700; color: var(--text);
+			display: flex; align-items: center; gap: 8px;
+			margin-bottom: 14px;
+		}
+		.section-title i { color: var(--primary); font-size: 14px; }
+
+		/* Info row */
+		.info-row {
+			display: flex; align-items: center; justify-content: space-between;
+			padding: 10px 0;
+			border-bottom: 1px solid var(--border);
+		}
+		.info-row:last-child { border-bottom: none; }
+		.info-label { font-size: 13px; color: var(--text-sec); }
+		.info-value { font-size: 13px; font-weight: 600; }
+
+		/* Size summary */
+		.size-summary {
+			display: flex; align-items: center; justify-content: space-between;
+			padding: 12px 14px;
+			background: var(--bg-elevated);
+			border-radius: 10px;
+			margin-top: 12px;
+		}
+		.size-label { font-size: 12px; color: var(--text-sec); }
+		.size-value { font-size: 14px; font-weight: 700; color: var(--primary); }
+		.size-warning { color: var(--red); }
+
+		/* Progress bar */
+		.progress-wrap {
+			margin-top: 16px;
+			display: none;
+		}
+		.progress-wrap.show { display: block; }
+		.progress-bar-bg {
+			width: 100%; height: 8px;
+			background: var(--bg-elevated);
+			border-radius: 4px;
+			overflow: hidden;
+		}
+		.progress-bar-fill {
+			height: 100%;
+			background: linear-gradient(90deg, #6366f1, #7c3aed);
+			border-radius: 4px;
+			width: 0%;
+			transition: width 0.3s ease;
+		}
+		.progress-text {
+			display: flex; align-items: center; justify-content: space-between;
+			margin-top: 8px;
+			font-size: 12px; color: var(--text-sec);
+		}
+
+		/* Success Page */
+		#page-success {
+			display: none;
+			flex-direction: column;
+			align-items: center;
+			justify-content: center;
+			min-height: 100vh; min-height: 100dvh;
+			padding: 40px 20px;
+			text-align: center;
+			background: var(--bg);
+			background-image: radial-gradient(circle at 50% 30%, rgba(74,222,128,0.06) 0%, transparent 50%);
+		}
+
+		.success-icon {
+			width: 100px; height: 100px;
+			background: var(--green-bg);
+			border-radius: 50%;
+			display: flex; align-items: center; justify-content: center;
+			font-size: 48px; color: var(--green);
+			margin-bottom: 28px;
+			animation: successPulse 0.6s cubic-bezier(0.16,1,0.3,1);
+		}
+		@keyframes successPulse {
+			0% { transform: scale(0); opacity: 0; }
+			60% { transform: scale(1.15); }
+			100% { transform: scale(1); opacity: 1; }
+		}
+
+		.success-title { font-size: 24px; font-weight: 800; margin-bottom: 8px; }
+		.success-subtitle { font-size: 14px; color: var(--text-sec); line-height: 1.6; margin-bottom: 32px; }
+
+		.success-detail {
+			background: var(--card);
+			border-radius: var(--radius-lg);
+			padding: 20px;
+			border: 1px solid var(--border);
+			width: 100%; max-width: 360px;
+			text-align: left;
+			margin-bottom: 28px;
+		}
+		.success-detail .info-row .info-value { color: var(--green); }
+
+		/* Student select modal */
+		.student-select-list {
+			display: flex; flex-direction: column; gap: 8px;
+			margin-top: 12px;
+			max-height: 300px; overflow-y: auto;
+		}
+		.student-select-item {
+			display: flex; align-items: center; gap: 12px;
+			padding: 14px 16px;
+			background: var(--bg-elevated);
+			border: 1.5px solid var(--border);
+			border-radius: var(--radius);
+			cursor: pointer;
+			transition: all var(--transition);
+		}
+		.student-select-item:hover { border-color: var(--primary); background: rgba(129,140,248,0.06); }
+		.student-select-item .s-avatar {
+			width: 40px; height: 40px;
+			border-radius: 50%;
+			background: var(--primary-light);
+			display: flex; align-items: center; justify-content: center;
+			font-size: 16px; font-weight: 800; color: var(--primary);
+			flex-shrink: 0;
+		}
+		.student-select-item .s-info { flex: 1; }
+		.student-select-item .s-name { font-size: 15px; font-weight: 700; }
+		.student-select-item .s-meta { font-size: 12px; color: var(--text-sec); margin-top: 2px; }
+		.student-select-item .s-teacher { font-size: 11px; color: var(--primary); margin-top: 2px; }
+
+		/* Modal */
+		.hw-modal {
+			display: none; position: fixed; inset: 0;
+			background: rgba(0,0,0,0.5);
+			backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+			z-index: 1000;
+			align-items: center; justify-content: center;
+			padding: 16px;
+		}
+		.hw-modal.active { display: flex; }
+		.hw-modal-box {
+			background: var(--card);
+			border-radius: var(--radius-xl);
+			padding: 28px 24px;
+			max-width: 400px; width: 100%;
+			border: 1px solid var(--border);
+			box-shadow: 0 32px 64px rgba(0,0,0,0.3);
+			animation: modalIn 0.25s cubic-bezier(0.16,1,0.3,1);
+		}
+		@keyframes modalIn {
+			from { opacity: 0; transform: scale(0.95) translateY(12px); }
+			to { opacity: 1; transform: scale(1) translateY(0); }
+		}
+		.hw-modal-header {
+			display: flex; align-items: center; justify-content: space-between;
+			margin-bottom: 14px;
+		}
+		.hw-modal-header h2 { font-size: 17px; font-weight: 800; }
+		.hw-modal-close {
+			width: 34px; height: 34px;
+			background: var(--bg-elevated); border: none;
+			border-radius: 10px; color: var(--gray);
+			cursor: pointer;
+			display: flex; align-items: center; justify-content: center;
+			transition: all var(--transition);
+		}
+		.hw-modal-close:hover { background: rgba(255,255,255,0.08); color: var(--text); }
+
+		@keyframes fadeIn {
+			from { opacity: 0; }
+			to { opacity: 1; }
+		}
+
+		/* Toast */
+		@keyframes toastSlide { from{opacity:0;transform:translateY(-20px)} to{opacity:1;transform:translateY(0)} }
+
+		/* Scrollbar */
+		::-webkit-scrollbar { width: 4px; }
+		::-webkit-scrollbar-track { background: transparent; }
+		::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+
+		/* Spinner */
+		.hw-spinner {
+			width: 20px; height: 20px;
+			border: 2.5px solid rgba(255,255,255,0.3);
+			border-top-color: white;
+			border-radius: 50%;
+			animation: spin 0.7s linear infinite;
+			display: inline-block;
+		}
+		@keyframes spin { to { transform: rotate(360deg); } }
+
+		/* ===== Responsive ===== */
+		@media (max-width: 640px) {
+			.landing-hero { padding: 32px 16px 16px; }
+			.landing-title { font-size: 22px; }
+			.landing-form { padding: 0 16px 32px; }
+			.landing-card { padding: 22px 18px; }
+			.upload-header { padding: 16px 16px 64px; }
+			.upload-container { padding: 0 12px 24px; }
+			.upload-student-name { font-size: 20px; }
+			.section-card { padding: 16px; border-radius: 16px; }
+		}
+
+		@media (hover: none) and (pointer: coarse) {
+			.btn-primary:hover, .btn-secondary:hover { transform: none; box-shadow: none; }
+		}
+
+		@supports (padding-bottom: env(safe-area-inset-bottom)) {
+			body { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+		}
+	</style>
+</head>
+<body>
+
+<!-- ===== LANDING PAGE: 학생 검색 ===== -->
+<div id="page-landing">
+	<div class="landing-hero">
+		<div class="landing-icon">
+			<i class="fas fa-file-arrow-up"></i>
+		</div>
+		<h1 class="landing-title">숙제 제출</h1>
+		<p class="landing-subtitle">파일을 업로드하면 선생님의<br>구글 드라이브로 자동 전송됩니다</p>
+	</div>
+
+	<div class="landing-form">
+		<div class="landing-card">
+			<div class="form-group">
+				<label class="form-label">학생 이름</label>
+				<div class="form-input-wrap">
+					<i class="fas fa-user form-icon"></i>
+					<input type="text" id="search-name" class="form-input" placeholder="이름을 입력하세요" autocomplete="off">
+				</div>
+			</div>
+			<div class="form-group">
+				<label class="form-label">학생 전화번호</label>
+				<div class="form-input-wrap">
+					<i class="fas fa-phone form-icon"></i>
+					<input type="tel" id="search-phone" class="form-input" placeholder="010-0000-0000" autocomplete="off" inputmode="numeric">
+				</div>
+				<div class="form-hint">학원에 등록된 학생 전화번호를 입력하세요</div>
+			</div>
+			<div class="btn-row">
+				<button class="btn-primary" id="search-btn" onclick="handleSearch()">
+					<i class="fas fa-search"></i> 조회하기
+				</button>
+			</div>
+			<div id="landing-alert" class="landing-alert"></div>
+		</div>
+	</div>
+
+	<div class="landing-footer">
+		<i class="fas fa-shield-halved"></i> 파일은 선생님의 구글 드라이브에 안전하게 저장됩니다
+	</div>
+</div>
+
+<!-- ===== UPLOAD PAGE: 파일 업로드 ===== -->
+<div id="page-upload">
+	<div class="upload-header">
+		<div class="upload-top-bar">
+			<button class="upload-back-btn" onclick="goBackToLanding()">
+				<i class="fas fa-arrow-left"></i>
+			</button>
+			<span class="upload-top-label">숙제 제출</span>
+			<div style="width:38px;"></div>
+		</div>
+		<div class="upload-student-info">
+			<div class="upload-avatar" id="upload-avatar">-</div>
+			<div class="upload-student-name" id="upload-name">-</div>
+			<div class="upload-student-meta">
+				<span id="upload-grade">-</span>
+				<span class="sep">·</span>
+				<span id="upload-teacher">-</span>
+				<span class="sep">·</span>
+				<span id="upload-date">-</span>
+			</div>
+		</div>
+	</div>
+
+	<div class="upload-container">
+		<!-- 파일 업로드 영역 -->
+		<div class="section-card">
+			<div class="section-title">
+				<i class="fas fa-cloud-arrow-up"></i>
+				<span>파일 업로드</span>
+				<span style="margin-left:auto;font-size:11px;color:var(--gray);font-weight:500;" id="file-count-label">0개 선택</span>
+			</div>
+
+			<input type="file" id="file-input" multiple accept="image/*,.pdf,.doc,.docx,.hwp,.hwpx,.txt,.ppt,.pptx,.xls,.xlsx,.zip" style="display:none;" onchange="handleFileSelect(event)">
+
+			<div id="file-drop-zone" class="file-drop-zone" onclick="document.getElementById('file-input').click();">
+				<i class="fas fa-cloud-arrow-up upload-icon"></i>
+				<div class="drop-text">파일을 여기에 끌어다 놓으세요</div>
+				<div class="drop-hint">또는 클릭하여 파일 선택 (사진, PDF, 문서 등)</div>
+			</div>
+
+			<!-- 파일 목록 (파일이 있을 때) -->
+			<div id="file-list-container" style="display:none;">
+				<div id="file-list" class="file-list"></div>
+				<button class="file-add-btn" onclick="document.getElementById('file-input').click();">
+					<i class="fas fa-plus"></i> 파일 추가
+				</button>
+				<div class="size-summary">
+					<span class="size-label">총 파일 크기</span>
+					<span class="size-value" id="total-size">0 KB</span>
+				</div>
+			</div>
+		</div>
+
+		<!-- 제출 정보 -->
+		<div class="section-card">
+			<div class="section-title">
+				<i class="fas fa-info-circle"></i>
+				<span>제출 정보</span>
+			</div>
+			<div class="info-row">
+				<span class="info-label">파일명</span>
+				<span class="info-value" id="zip-filename">-</span>
+			</div>
+			<div class="info-row">
+				<span class="info-label">담당 선생님</span>
+				<span class="info-value" id="info-teacher">-</span>
+			</div>
+			<div class="info-row">
+				<span class="info-label">Drive 연결</span>
+				<span class="info-value" id="info-drive-status">확인 중...</span>
+			</div>
+		</div>
+
+		<!-- 진행률 + 제출 버튼 -->
+		<div id="progress-wrap" class="progress-wrap">
+			<div class="progress-bar-bg">
+				<div class="progress-bar-fill" id="progress-bar"></div>
+			</div>
+			<div class="progress-text">
+				<span id="progress-label">압축 중...</span>
+				<span id="progress-percent">0%</span>
+			</div>
+		</div>
+
+		<div style="margin-top:16px;">
+			<button class="btn-primary" id="submit-btn" onclick="handleSubmit()" disabled style="width:100%;padding:16px;">
+				<i class="fas fa-paper-plane"></i> 숙제 제출하기
+			</button>
+		</div>
+	</div>
+</div>
+
+<!-- ===== SUCCESS PAGE ===== -->
+<div id="page-success">
+	<div class="success-icon">
+		<i class="fas fa-check"></i>
+	</div>
+	<h2 class="success-title">제출 완료!</h2>
+	<p class="success-subtitle">숙제가 선생님의 구글 드라이브에<br>성공적으로 업로드되었습니다</p>
+
+	<div class="success-detail">
+		<div class="info-row">
+			<span class="info-label">파일명</span>
+			<span class="info-value" id="success-filename">-</span>
+		</div>
+		<div class="info-row">
+			<span class="info-label">파일 크기</span>
+			<span class="info-value" id="success-size">-</span>
+		</div>
+		<div class="info-row">
+			<span class="info-label">제출 시간</span>
+			<span class="info-value" id="success-time">-</span>
+		</div>
+	</div>
+
+	<button class="btn-primary" onclick="resetToLanding()" style="max-width:300px;width:100%;padding:16px;">
+		<i class="fas fa-arrow-left"></i> 처음으로 돌아가기
+	</button>
+</div>
+
+<!-- ===== Student Select Modal ===== -->
+<div id="student-select-modal" class="hw-modal">
+	<div class="hw-modal-box">
+		<div class="hw-modal-header">
+			<h2><i class="fas fa-users" style="margin-right:8px;color:var(--primary);"></i>학생 선택</h2>
+			<button class="hw-modal-close" onclick="closeStudentModal()"><i class="fas fa-times"></i></button>
+		</div>
+		<p style="font-size:13px;color:var(--text-sec);line-height:1.6;">같은 이름의 학생이 여러 명입니다.<br>본인을 선택하세요.</p>
+		<div id="student-select-list" class="student-select-list"></div>
+	</div>
+</div>
+
+<!-- Toast -->
+<div id="toast-container" style="position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:99999;display:flex;flex-direction:column;gap:8px;pointer-events:none;max-width:360px;width:calc(100% - 32px);"></div>
+
+<script>
+// ============================================================
+// 설정
+// ============================================================
+const SUPABASE_URL = 'https://jzcrpdeomjmytfekcgqu.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_6X3mtsIpdMkLWgo9aUbZTg_ihtAA3cu';
+const EDGE_FUNCTION_URL = SUPABASE_URL + '/functions/v1';
+const MAX_FILE_SIZE = 10 * 1024 * 1024;  // 개별 10MB
+const MAX_TOTAL_SIZE = 50 * 1024 * 1024;  // 전체 50MB
+
+const { createClient } = supabase;
+const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// ============================================================
+// 상태
+// ============================================================
+let currentStudent = null;
+let currentTeacher = null;
+let selectedFiles = [];
+
+// ============================================================
+// Toast
+// ============================================================
+function showToast(msg, type) {
+	type = type || 'info';
+	const c = document.getElementById('toast-container'); if(!c) return;
+	const colors = {success:'#22c55e',error:'#ef4444',warning:'#f59e0b',info:'#7c3aed'};
+	const icons = {success:'fa-check-circle',error:'fa-xmark-circle',warning:'fa-exclamation-circle',info:'fa-info-circle'};
+	const t = document.createElement('div');
+	t.style.cssText = 'display:flex;align-items:center;gap:10px;padding:13px 16px;border-radius:14px;background:var(--card);box-shadow:0 8px 32px rgba(0,0,0,0.3);pointer-events:auto;cursor:pointer;animation:toastSlide 0.3s ease;border:1px solid var(--border);';
+	t.innerHTML = '<i class="fas '+(icons[type]||icons.info)+'" style="font-size:16px;color:'+(colors[type]||colors.info)+';flex-shrink:0;"></i><span style="flex:1;font-size:13px;color:var(--text);line-height:1.4;">'+msg+'</span>';
+	t.onclick = function(){ t.style.opacity='0'; t.style.transform='translateY(-20px)'; setTimeout(function(){t.remove()},300); };
+	c.appendChild(t);
+	while(c.children.length > 3) c.firstChild.remove();
+	setTimeout(function(){ if(t.parentElement){t.style.opacity='0';t.style.transform='translateY(-20px)';setTimeout(function(){t.remove()},300);} }, 4000);
+}
+
+// ============================================================
+// 유틸리티
+// ============================================================
+function formatFileSize(bytes) {
+	if (bytes === 0) return '0 B';
+	if (bytes < 1024) return bytes + ' B';
+	if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+	return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+function getFileIcon(file) {
+	const ext = file.name.split('.').pop().toLowerCase();
+	if (['jpg','jpeg','png','gif','webp','heic','heif','bmp','svg'].includes(ext)) return { cls: 'img', icon: 'fa-image' };
+	if (['pdf'].includes(ext)) return { cls: 'doc', icon: 'fa-file-pdf' };
+	if (['doc','docx','hwp','hwpx','txt'].includes(ext)) return { cls: 'doc', icon: 'fa-file-lines' };
+	if (['ppt','pptx'].includes(ext)) return { cls: 'doc', icon: 'fa-file-powerpoint' };
+	if (['xls','xlsx'].includes(ext)) return { cls: 'doc', icon: 'fa-file-excel' };
+	return { cls: 'other', icon: 'fa-file' };
+}
+
+function isImageFile(file) {
+	return file.type.startsWith('image/');
+}
+
+function getTodayString() {
+	const now = new Date();
+	const y = now.getFullYear();
+	const m = String(now.getMonth() + 1).padStart(2, '0');
+	const d = String(now.getDate()).padStart(2, '0');
+	return `${y}-${m}-${d}`;
+}
+
+function getTodayDisplay() {
+	const now = new Date();
+	return `${now.getFullYear()}년 ${now.getMonth()+1}월 ${now.getDate()}일`;
+}
+
+function getZipFilename(studentName) {
+	const now = new Date();
+	return `과제-${now.getFullYear()}년-${now.getMonth()+1}월-${now.getDate()}일-${studentName}.zip`;
+}
+
+function showAlert(msg, type) {
+	const el = document.getElementById('landing-alert');
+	el.className = 'landing-alert show ' + type;
+	el.innerHTML = '<i class="fas fa-' + (type === 'error' ? 'exclamation-circle' : type === 'success' ? 'check-circle' : 'info-circle') + '"></i>' + msg;
+}
+
+function hideAlert() {
+	document.getElementById('landing-alert').className = 'landing-alert';
+}
+
+// ============================================================
+// 전화번호 포맷팅
+// ============================================================
+document.getElementById('search-phone').addEventListener('input', function(e) {
+	let val = e.target.value.replace(/[^0-9]/g, '');
+	if (val.length > 11) val = val.slice(0, 11);
+	if (val.length >= 8) {
+		e.target.value = val.slice(0,3) + '-' + val.slice(3,7) + '-' + val.slice(7);
+	} else if (val.length >= 4) {
+		e.target.value = val.slice(0,3) + '-' + val.slice(3);
+	} else {
+		e.target.value = val;
+	}
+});
+
+// Enter 키로 검색
+document.getElementById('search-name').addEventListener('keydown', function(e) {
+	if (e.key === 'Enter') handleSearch();
+});
+document.getElementById('search-phone').addEventListener('keydown', function(e) {
+	if (e.key === 'Enter') handleSearch();
+});
+
+// ============================================================
+// 학생 검색
+// ============================================================
+async function handleSearch() {
+	const name = document.getElementById('search-name').value.trim();
+	const phone = document.getElementById('search-phone').value.trim().replace(/-/g, '');
+
+	if (!name) {
+		showAlert('학생 이름을 입력하세요.', 'error');
+		return;
+	}
+	if (!phone || phone.length < 10) {
+		showAlert('올바른 전화번호를 입력하세요.', 'error');
+		return;
+	}
+
+	hideAlert();
+	const btn = document.getElementById('search-btn');
+	btn.disabled = true;
+	btn.innerHTML = '<span class="hw-spinner"></span> 조회 중...';
+
+	try {
+		// 이름 + 전화번호로 학생 검색 (활성 학생만)
+		const phoneFormatted = phone.slice(0,3) + '-' + phone.slice(3,7) + '-' + phone.slice(7);
+		
+		const { data: students, error } = await db
+			.from('students')
+			.select('id, name, school, grade, phone, parent_phone, teacher_id, owner_user_id')
+			.eq('name', name)
+			.eq('status', 'active')
+			.or(`phone.eq.${phone},phone.eq.${phoneFormatted},parent_phone.eq.${phone},parent_phone.eq.${phoneFormatted}`);
+
+		if (error) throw error;
+
+		if (!students || students.length === 0) {
+			showAlert('일치하는 학생을 찾을 수 없습니다. 이름과 전화번호를 확인해주세요.', 'error');
+			return;
+		}
+
+		if (students.length === 1) {
+			await selectStudent(students[0]);
+		} else {
+			// 여러 명일 경우 선택 모달
+			await showStudentSelectModal(students);
+		}
+	} catch (err) {
+		console.error('Search error:', err);
+		showAlert('조회 중 오류가 발생했습니다: ' + err.message, 'error');
+	} finally {
+		btn.disabled = false;
+		btn.innerHTML = '<i class="fas fa-search"></i> 조회하기';
+	}
+}
+
+async function showStudentSelectModal(students) {
+	const list = document.getElementById('student-select-list');
+	list.innerHTML = '';
+
+	// 선생님 정보 가져오기
+	const teacherIds = [...new Set(students.map(s => s.teacher_id).filter(Boolean))];
+	let teacherMap = {};
+	if (teacherIds.length > 0) {
+		const { data: teachers } = await db
+			.from('teachers')
+			.select('id, name')
+			.in('id', teacherIds);
+		if (teachers) {
+			teachers.forEach(t => teacherMap[t.id] = t.name);
+		}
+	}
+
+	students.forEach(student => {
+		const item = document.createElement('div');
+		item.className = 'student-select-item';
+		item.onclick = () => {
+			closeStudentModal();
+			selectStudent(student);
+		};
+		const teacherName = teacherMap[student.teacher_id] || '미배정';
+		item.innerHTML = `
+			<div class="s-avatar">${student.name.charAt(0)}</div>
+			<div class="s-info">
+				<div class="s-name">${student.name}</div>
+				<div class="s-meta">${student.grade || ''} ${student.school ? '· ' + student.school : ''}</div>
+				<div class="s-teacher"><i class="fas fa-chalkboard-user" style="margin-right:4px;"></i>${teacherName} 선생님</div>
+			</div>
+			<i class="fas fa-chevron-right" style="color:var(--gray);"></i>
+		`;
+		list.appendChild(item);
+	});
+
+	document.getElementById('student-select-modal').classList.add('active');
+}
+
+function closeStudentModal() {
+	document.getElementById('student-select-modal').classList.remove('active');
+}
+
+async function selectStudent(student) {
+	currentStudent = student;
+
+	// 선생님 정보 조회
+	if (student.teacher_id) {
+		const { data: teacher } = await db
+			.from('teachers')
+			.select('id, name, google_drive_connected, owner_user_id')
+			.eq('id', student.teacher_id)
+			.single();
+		currentTeacher = teacher;
+	}
+
+	// 업로드 페이지 표시
+	showUploadPage();
+}
+
+// ============================================================
+// 업로드 페이지
+// ============================================================
+function showUploadPage() {
+	document.getElementById('page-landing').style.display = 'none';
+	document.getElementById('page-upload').style.display = 'block';
+
+	// 학생 정보 표시
+	document.getElementById('upload-avatar').textContent = currentStudent.name.charAt(0);
+	document.getElementById('upload-name').textContent = currentStudent.name;
+	document.getElementById('upload-grade').textContent = currentStudent.grade || '-';
+	document.getElementById('upload-teacher').textContent = currentTeacher ? currentTeacher.name + ' 선생님' : '미배정';
+	document.getElementById('upload-date').textContent = getTodayDisplay();
+
+	// 제출 정보
+	document.getElementById('zip-filename').textContent = getZipFilename(currentStudent.name);
+	document.getElementById('info-teacher').textContent = currentTeacher ? currentTeacher.name + ' 선생님' : '미배정';
+
+	// Drive 연결 상태
+	const driveStatusEl = document.getElementById('info-drive-status');
+	if (currentTeacher && currentTeacher.google_drive_connected) {
+		driveStatusEl.innerHTML = '<span style="color:var(--green);"><i class="fas fa-check-circle" style="margin-right:4px;"></i>연결됨</span>';
+	} else {
+		driveStatusEl.innerHTML = '<span style="color:var(--red);"><i class="fas fa-exclamation-circle" style="margin-right:4px;"></i>미연결</span>';
+	}
+
+	// 파일 초기화
+	selectedFiles = [];
+	updateFileUI();
+	updateSubmitButton();
+
+	// 스크롤 맨 위로
+	window.scrollTo(0, 0);
+}
+
+function goBackToLanding() {
+	document.getElementById('page-upload').style.display = 'none';
+	document.getElementById('page-landing').style.display = 'flex';
+	selectedFiles = [];
+	currentStudent = null;
+	currentTeacher = null;
+}
+
+// ============================================================
+// 파일 관리
+// ============================================================
+function handleFileSelect(event) {
+	const files = Array.from(event.target.files);
+	addFiles(files);
+	event.target.value = ''; // 같은 파일 다시 선택 가능하도록
+}
+
+function addFiles(newFiles) {
+	for (const file of newFiles) {
+		// 중복 체크
+		const exists = selectedFiles.some(f => f.name === file.name && f.size === file.size);
+		if (exists) {
+			showToast(`"${file.name}" 은(는) 이미 추가되어 있습니다.`, 'warning');
+			continue;
+		}
+
+		// 개별 크기 체크
+		if (file.size > MAX_FILE_SIZE) {
+			showToast(`"${file.name}" 파일이 너무 큽니다. (최대 ${formatFileSize(MAX_FILE_SIZE)})`, 'error');
+			continue;
+		}
+
+		// 전체 크기 체크
+		const totalSize = selectedFiles.reduce((sum, f) => sum + f.size, 0) + file.size;
+		if (totalSize > MAX_TOTAL_SIZE) {
+			showToast(`전체 파일 크기가 너무 큽니다. (최대 ${formatFileSize(MAX_TOTAL_SIZE)})`, 'error');
+			break;
+		}
+
+		selectedFiles.push(file);
+	}
+
+	updateFileUI();
+	updateSubmitButton();
+}
+
+function removeFile(index) {
+	selectedFiles.splice(index, 1);
+	updateFileUI();
+	updateSubmitButton();
+}
+
+function updateFileUI() {
+	const dropZone = document.getElementById('file-drop-zone');
+	const listContainer = document.getElementById('file-list-container');
+	const fileList = document.getElementById('file-list');
+	const countLabel = document.getElementById('file-count-label');
+
+	if (selectedFiles.length === 0) {
+		dropZone.style.display = 'flex';
+		listContainer.style.display = 'none';
+		countLabel.textContent = '0개 선택';
+		return;
+	}
+
+	dropZone.style.display = 'none';
+	listContainer.style.display = 'block';
+	countLabel.textContent = selectedFiles.length + '개 선택';
+
+	fileList.innerHTML = '';
+	selectedFiles.forEach((file, index) => {
+		const { cls, icon } = getFileIcon(file);
+		const item = document.createElement('div');
+		item.className = 'file-item';
+
+		let thumbHtml = '';
+		if (isImageFile(file)) {
+			const url = URL.createObjectURL(file);
+			thumbHtml = `<img src="${url}" class="file-item-thumb" onload="URL.revokeObjectURL(this.src)">`;
+		}
+
+		item.innerHTML = `
+			<div class="file-item-icon ${cls}"><i class="fas ${icon}"></i></div>
+			<div class="file-item-info">
+				<div class="file-item-name">${file.name}</div>
+				<div class="file-item-size">${formatFileSize(file.size)}</div>
+			</div>
+			${thumbHtml}
+			<button class="file-item-remove" onclick="removeFile(${index})" title="삭제">
+				<i class="fas fa-trash"></i>
+			</button>
+		`;
+		fileList.appendChild(item);
+	});
+
+	// 총 크기 표시
+	const totalSize = selectedFiles.reduce((sum, f) => sum + f.size, 0);
+	const totalSizeEl = document.getElementById('total-size');
+	totalSizeEl.textContent = formatFileSize(totalSize);
+	totalSizeEl.className = 'size-value' + (totalSize > MAX_TOTAL_SIZE ? ' size-warning' : '');
+}
+
+function updateSubmitButton() {
+	const btn = document.getElementById('submit-btn');
+	const hasFiles = selectedFiles.length > 0;
+	const hasDrive = currentTeacher && currentTeacher.google_drive_connected;
+	btn.disabled = !hasFiles || !hasDrive;
+
+	if (!hasDrive) {
+		btn.title = '선생님의 Google Drive가 연결되지 않았습니다';
+	} else if (!hasFiles) {
+		btn.title = '파일을 먼저 업로드하세요';
+	} else {
+		btn.title = '';
+	}
+}
+
+// 드래그 앤 드롭
+const dropTargets = ['file-drop-zone', 'file-list-container'];
+document.addEventListener('DOMContentLoaded', function() {
+	const dropZone = document.getElementById('file-drop-zone');
+	
+	['dragenter', 'dragover'].forEach(evt => {
+		dropZone.addEventListener(evt, function(e) {
+			e.preventDefault(); e.stopPropagation();
+			dropZone.classList.add('dragover');
+		});
+	});
+	['dragleave', 'drop'].forEach(evt => {
+		dropZone.addEventListener(evt, function(e) {
+			e.preventDefault(); e.stopPropagation();
+			dropZone.classList.remove('dragover');
+		});
+	});
+	dropZone.addEventListener('drop', function(e) {
+		const files = Array.from(e.dataTransfer.files);
+		if (files.length > 0) addFiles(files);
+	});
+
+	// 전체 페이지 드래그도 허용
+	document.body.addEventListener('dragover', function(e) { e.preventDefault(); });
+	document.body.addEventListener('drop', function(e) {
+		e.preventDefault();
+		if (document.getElementById('page-upload').style.display !== 'none') {
+			const files = Array.from(e.dataTransfer.files);
+			if (files.length > 0) addFiles(files);
+		}
+	});
+});
+
+// ============================================================
+// 숙제 제출
+// ============================================================
+async function handleSubmit() {
+	if (selectedFiles.length === 0) {
+		showToast('파일을 먼저 선택하세요.', 'warning');
+		return;
+	}
+
+	if (!currentTeacher || !currentTeacher.google_drive_connected) {
+		showToast('선생님의 Google Drive가 연결되지 않았습니다.', 'error');
+		return;
+	}
+
+	const submitBtn = document.getElementById('submit-btn');
+	const progressWrap = document.getElementById('progress-wrap');
+	const progressBar = document.getElementById('progress-bar');
+	const progressLabel = document.getElementById('progress-label');
+	const progressPercent = document.getElementById('progress-percent');
+
+	submitBtn.disabled = true;
+	submitBtn.innerHTML = '<span class="hw-spinner"></span> 처리 중...';
+	progressWrap.classList.add('show');
+
+	try {
+		// 1단계: JSZip으로 압축
+		progressLabel.textContent = '파일 압축 중...';
+		progressPercent.textContent = '0%';
+		progressBar.style.width = '0%';
+
+		const zip = new JSZip();
+		
+		for (let i = 0; i < selectedFiles.length; i++) {
+			const file = selectedFiles[i];
+			const arrayBuffer = await file.arrayBuffer();
+			zip.file(file.name, arrayBuffer);
+			
+			const pct = Math.round(((i + 1) / selectedFiles.length) * 40);
+			progressBar.style.width = pct + '%';
+			progressPercent.textContent = pct + '%';
+		}
+
+		progressLabel.textContent = 'ZIP 생성 중...';
+		progressBar.style.width = '45%';
+		progressPercent.textContent = '45%';
+
+		const zipBlob = await zip.generateAsync({
+			type: 'blob',
+			compression: 'DEFLATE',
+			compressionOptions: { level: 6 }
+		}, function(metadata) {
+			const pct = 40 + Math.round(metadata.percent * 0.2);
+			progressBar.style.width = pct + '%';
+			progressPercent.textContent = pct + '%';
+		});
+
+		const zipFileName = getZipFilename(currentStudent.name);
+
+		// 2단계: Edge Function으로 업로드
+		progressLabel.textContent = '구글 드라이브에 업로드 중...';
+		progressBar.style.width = '65%';
+		progressPercent.textContent = '65%';
+
+		const formData = new FormData();
+		formData.append('file', zipBlob, zipFileName);
+		formData.append('teacher_id', currentStudent.teacher_id);
+		formData.append('student_id', String(currentStudent.id));
+		formData.append('student_name', currentStudent.name);
+		formData.append('owner_user_id', currentStudent.owner_user_id);
+		formData.append('submission_date', getTodayString());
+
+		const response = await fetch(EDGE_FUNCTION_URL + '/upload-homework', {
+			method: 'POST',
+			headers: {
+				'apikey': SUPABASE_ANON_KEY,
+			},
+			body: formData,
+		});
+
+		progressBar.style.width = '90%';
+		progressPercent.textContent = '90%';
+
+		const result = await response.json();
+
+		if (!response.ok) {
+			throw new Error(result.error || '업로드에 실패했습니다.');
+		}
+
+		// 3단계: 완료
+		progressBar.style.width = '100%';
+		progressPercent.textContent = '100%';
+		progressLabel.textContent = '완료!';
+
+		// 성공 페이지 표시
+		setTimeout(() => {
+			showSuccessPage(result.fileName, result.fileSize);
+		}, 500);
+
+	} catch (err) {
+		console.error('Submit error:', err);
+		showToast('제출 실패: ' + err.message, 'error');
+		
+		submitBtn.disabled = false;
+		submitBtn.innerHTML = '<i class="fas fa-paper-plane"></i> 숙제 제출하기';
+		progressWrap.classList.remove('show');
+	}
+}
+
+// ============================================================
+// 성공 페이지
+// ============================================================
+function showSuccessPage(fileName, fileSize) {
+	document.getElementById('page-upload').style.display = 'none';
+	document.getElementById('page-success').style.display = 'flex';
+
+	document.getElementById('success-filename').textContent = fileName;
+	document.getElementById('success-size').textContent = formatFileSize(fileSize);
+	
+	const now = new Date();
+	const timeStr = `${now.getFullYear()}/${now.getMonth()+1}/${now.getDate()} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+	document.getElementById('success-time').textContent = timeStr;
+}
+
+function resetToLanding() {
+	document.getElementById('page-success').style.display = 'none';
+	document.getElementById('page-landing').style.display = 'flex';
+
+	// 모든 상태 초기화
+	selectedFiles = [];
+	currentStudent = null;
+	currentTeacher = null;
+	document.getElementById('search-name').value = '';
+	document.getElementById('search-phone').value = '';
+	hideAlert();
+
+	// 진행률 초기화
+	document.getElementById('progress-wrap').classList.remove('show');
+	document.getElementById('progress-bar').style.width = '0%';
+
+	window.scrollTo(0, 0);
+}
+</script>
+</body>
+</html>

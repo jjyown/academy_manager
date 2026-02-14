@@ -1,6 +1,6 @@
 -- ============================================================
 -- 출석관리 앱 - Supabase 전체 테이블 설정 SQL
--- 최종 업데이트: 2026-02-14
+-- 최종 업데이트: 2026-02-15
 -- ============================================================
 -- 이 파일은 Supabase SQL Editor에서 실행하세요.
 -- 기존 테이블이 있으면 ALTER TABLE로 누락 컬럼만 추가됩니다.
@@ -30,6 +30,8 @@ CREATE TABLE IF NOT EXISTS teachers (
     google_sub TEXT,
     pin_hash TEXT,
     teacher_role TEXT DEFAULT 'teacher' CHECK (teacher_role IN ('admin', 'teacher', 'staff')),
+    google_drive_refresh_token TEXT,    -- Google Drive API refresh token
+    google_drive_connected BOOLEAN DEFAULT FALSE,  -- Drive 연결 상태
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -182,6 +184,28 @@ CREATE TABLE IF NOT EXISTS teacher_reset_codes (
 CREATE INDEX IF NOT EXISTS idx_reset_codes_teacher ON teacher_reset_codes(teacher_id);
 CREATE INDEX IF NOT EXISTS idx_reset_codes_expires ON teacher_reset_codes(expires_at);
 
+-- ============================================================
+-- 10. homework_submissions 테이블 (숙제 제출 기록)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS homework_submissions (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    owner_user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    teacher_id UUID REFERENCES teachers(id) ON DELETE CASCADE,
+    student_id BIGINT REFERENCES students(id) ON DELETE CASCADE,
+    submission_date DATE NOT NULL,
+    file_name TEXT NOT NULL,              -- 압축 파일명 (과제-2026년-2월-20일-김민철.zip)
+    drive_file_id TEXT,                   -- Google Drive 파일 ID
+    drive_file_url TEXT,                  -- Google Drive 파일 URL
+    file_size INTEGER,                    -- 파일 크기 (bytes)
+    status TEXT DEFAULT 'uploaded' CHECK (status IN ('uploaded', 'failed', 'deleted')),
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_homework_owner ON homework_submissions(owner_user_id);
+CREATE INDEX IF NOT EXISTS idx_homework_teacher ON homework_submissions(teacher_id);
+CREATE INDEX IF NOT EXISTS idx_homework_student ON homework_submissions(student_id);
+CREATE INDEX IF NOT EXISTS idx_homework_date ON homework_submissions(submission_date);
+
 
 -- ============================================================
 -- 누락 컬럼 추가 (기존 테이블에 새 컬럼이 없을 때)
@@ -238,6 +262,14 @@ DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='teachers' AND column_name='address_detail') THEN
         ALTER TABLE teachers ADD COLUMN address_detail TEXT;
     END IF;
+    -- teachers.google_drive_refresh_token
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='teachers' AND column_name='google_drive_refresh_token') THEN
+        ALTER TABLE teachers ADD COLUMN google_drive_refresh_token TEXT;
+    END IF;
+    -- teachers.google_drive_connected
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='teachers' AND column_name='google_drive_connected') THEN
+        ALTER TABLE teachers ADD COLUMN google_drive_connected BOOLEAN DEFAULT FALSE;
+    END IF;
 END $$;
 
 
@@ -255,6 +287,7 @@ ALTER TABLE holidays ENABLE ROW LEVEL SECURITY;
 ALTER TABLE payments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE student_evaluations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE teacher_reset_codes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE homework_submissions ENABLE ROW LEVEL SECURITY;
 
 -- students 정책
 DROP POLICY IF EXISTS "students_owner_policy" ON students;
@@ -320,6 +353,20 @@ DROP POLICY IF EXISTS "reset_codes_owner_policy" ON teacher_reset_codes;
 CREATE POLICY "reset_codes_owner_policy" ON teacher_reset_codes
     FOR ALL USING (owner_user_id = auth.uid())
     WITH CHECK (owner_user_id = auth.uid());
+
+-- homework_submissions 정책
+DROP POLICY IF EXISTS "homework_owner_policy" ON homework_submissions;
+CREATE POLICY "homework_owner_policy" ON homework_submissions
+    FOR ALL USING (owner_user_id = auth.uid() OR owner_user_id IS NOT NULL)
+    WITH CHECK (owner_user_id = auth.uid());
+
+DROP POLICY IF EXISTS "homework_public_insert" ON homework_submissions;
+CREATE POLICY "homework_public_insert" ON homework_submissions
+    FOR INSERT WITH CHECK (true);
+
+DROP POLICY IF EXISTS "homework_public_read" ON homework_submissions;
+CREATE POLICY "homework_public_read" ON homework_submissions
+    FOR SELECT USING (true);
 
 
 -- ============================================================
