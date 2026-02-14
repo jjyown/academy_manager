@@ -1,84 +1,155 @@
-// 학생 출결 조회 시스템 - 학부모 포털
-console.log('[report.js] 파일 로드 시작');
+// 학부모 포털 - report.js (전면 개편)
+// ============================================================
 
 // ========== Supabase 초기화 ==========
 const SUPABASE_URL = 'https://jzcrpdeomjmytfekcgqu.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_6X3mtsIpdMkLWgo9aUbZTg_ihtAA3cu';
 const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-	auth: {
-		persistSession: false,
-		autoRefreshToken: false,
-		detectSessionInUrl: false
-	}
+	auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
 });
 
+// ========== State ==========
 let currentStudent = null;
 let html5QrcodeScanner = null;
-let currentFacingMode = "environment"; // 카메라 방향
-let pendingEvaluationSave = false;
+let currentFacingMode = 'environment';
 let teacherAuthList = [];
 let authorizedTeacher = null;
-let parentVerifiedStudentId = null;
+let pendingEvaluationSave = false;
+let currentTab = 'attendance';
 
-function normalizePhone(value) {
-	return String(value || '').replace(/\D/g, '');
+// ========== Utilities ==========
+function normalizePhone(v) { return String(v || '').replace(/\D/g, ''); }
+function normalizeName(v) { return String(v || '').trim().toLowerCase(); }
+function formatPhone(v) {
+	const d = normalizePhone(v).slice(0, 11);
+	if (d.length <= 3) return d;
+	if (d.length <= 7) return `${d.slice(0,3)}-${d.slice(3)}`;
+	return `${d.slice(0,3)}-${d.slice(3,7)}-${d.slice(7)}`;
 }
 
-function normalizeName(value) {
-	return String(value || '').trim().toLowerCase();
+function showAlert(msg, type) {
+	const el = document.getElementById('landing-alert');
+	if (!el) return;
+	el.className = `landing-alert show ${type || 'info'}`;
+	el.innerHTML = `<i class="fas fa-${type === 'error' ? 'exclamation-circle' : type === 'success' ? 'check-circle' : 'info-circle'}"></i>${msg}`;
+	clearTimeout(el._timer);
+	el._timer = setTimeout(() => { el.classList.remove('show'); }, 4000);
 }
 
-function formatPhone(value) {
-	const digits = normalizePhone(value).slice(0, 11);
-	if (digits.length <= 3) return digits;
-	if (digits.length <= 7) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
-	return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
+function getCurrentMonthStr() {
+	const d = new Date();
+	return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
 }
 
-function getEmptyStateElement() {
-	return document.getElementById('empty-state');
+function formatKoreanTime(timeStr) {
+	if (!timeStr) return '-';
+	const [h, m] = String(timeStr).split(':').map(Number);
+	if (isNaN(h) || isNaN(m)) return String(timeStr).substring(0, 5);
+	const base = new Date(2000, 0, 1, h, m);
+	return base.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
 }
 
-// ========== 검색 함수 ==========
+function getTimeLabel(record) {
+	if (record.scheduled_time) return formatKoreanTime(record.scheduled_time);
+	if (record.time) return formatKoreanTime(record.time);
+	if (record.check_in_time) return new Date(record.check_in_time).toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit' });
+	return '-';
+}
+
+function getStatusInfo(status) {
+	switch(status) {
+		case 'present': return { text: '출석', cls: 'present', icon: '✅' };
+		case 'late': return { text: '지각', cls: 'late', icon: '⏰' };
+		case 'makeup': case 'etc': return { text: '보강', cls: 'makeup', icon: '🔁' };
+		default: return { text: '결석', cls: 'absent', icon: '❌' };
+	}
+}
+
+function getDayOfWeek(dateStr) {
+	const days = ['일','월','화','수','목','금','토'];
+	return days[new Date(dateStr).getDay()];
+}
+
+// ========== Page Navigation ==========
+function showDashboard() {
+	const landing = document.getElementById('page-landing');
+	const dashboard = document.getElementById('page-dashboard');
+	landing.style.opacity = '0';
+	landing.style.transition = 'opacity 0.2s ease';
+	setTimeout(() => {
+		landing.style.display = 'none';
+		landing.style.opacity = '1';
+		dashboard.style.display = 'block';
+		dashboard.style.opacity = '0';
+		dashboard.style.transition = 'opacity 0.3s ease';
+		requestAnimationFrame(() => { dashboard.style.opacity = '1'; });
+		window.scrollTo(0, 0);
+	}, 200);
+}
+
+function goBackToLanding() {
+	const landing = document.getElementById('page-landing');
+	const dashboard = document.getElementById('page-dashboard');
+	dashboard.style.opacity = '0';
+	dashboard.style.transition = 'opacity 0.2s ease';
+	setTimeout(() => {
+		dashboard.style.display = 'none';
+		dashboard.style.opacity = '1';
+		landing.style.display = 'flex';
+		landing.style.opacity = '0';
+		landing.style.transition = 'opacity 0.3s ease';
+		requestAnimationFrame(() => { landing.style.opacity = '1'; });
+		currentStudent = null;
+		window.scrollTo(0, 0);
+	}, 200);
+}
+window.goBackToLanding = goBackToLanding;
+
+// ========== Tab Switching ==========
+function switchTab(tab) {
+	currentTab = tab;
+	document.querySelectorAll('.dash-tab').forEach(t => t.classList.remove('active'));
+	document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+	
+	const tabBtn = document.querySelector(`.dash-tab[onclick*="${tab}"]`);
+	const tabPanel = document.getElementById(`tab-${tab}`);
+	if (tabBtn) tabBtn.classList.add('active');
+	if (tabPanel) tabPanel.classList.add('active');
+}
+window.switchTab = switchTab;
+
+// ========== Search ==========
 async function handleSearch() {
-	const nameInput = document.getElementById('search-name');
-	const phoneInput = document.getElementById('search-phone');
-	const name = nameInput.value.trim();
-	const phoneRaw = phoneInput.value.trim();
+	const name = document.getElementById('search-name').value.trim();
+	const phoneRaw = document.getElementById('search-phone').value.trim();
 	const phoneDigits = normalizePhone(phoneRaw);
 
 	if (!name || !phoneRaw) {
 		showAlert('학생 이름과 전화번호를 모두 입력해주세요', 'info');
 		return;
 	}
-
 	if (phoneDigits.length < 8) {
 		showAlert('전화번호를 정확히 입력해주세요', 'info');
 		return;
 	}
 
-	showLoading();
+	// Disable button
+	const btn = document.querySelector('.btn-primary');
+	if (btn) { btn.disabled = true; btn.innerHTML = '<div class="pp-spinner" style="width:20px;height:20px;border-width:2px;"></div>'; }
 
 	try {
-		console.log('[검색] 이름:', name, '전화번호:', phoneDigits);
-        
 		const nameKey = normalizeName(name);
 		let candidates = [];
 
-		// 1) 이름으로 먼저 조회
+		// 1) 이름으로 조회
 		const { data: nameData, error: nameError } = await supabaseClient
 			.from('students')
-			.select('id, name, school, grade, phone, parent_phone, owner_user_id, teacher_id, qr_code_data')
+			.select('id, name, school, grade, phone, parent_phone, parent_code, owner_user_id, teacher_id, qr_code_data')
 			.ilike('name', `%${name}%`);
-
-		console.log('[검색 결과-이름] 에러:', nameError, '데이터:', nameData);
-
 		if (nameError) throw nameError;
-		if (Array.isArray(nameData) && nameData.length > 0) {
-			candidates = nameData;
-		}
+		if (nameData?.length > 0) candidates = nameData;
 
-		// 2) 이름 결과가 없으면 전화번호로 보조 조회
+		// 2) 이름 결과 없으면 전화번호로 보조 조회
 		if (candidates.length === 0) {
 			const formatted = formatPhone(phoneDigits);
 			const orQuery = [
@@ -90,212 +161,283 @@ async function handleSearch() {
 
 			const { data: phoneData, error: phoneError } = await supabaseClient
 				.from('students')
-				.select('id, name, school, grade, phone, parent_phone, owner_user_id, teacher_id, qr_code_data')
-				.or(orQuery);
-
-			console.log('[검색 결과-전화] 에러:', phoneError, '데이터:', phoneData);
+			.select('id, name, school, grade, phone, parent_phone, parent_code, owner_user_id, teacher_id, qr_code_data')
+			.or(orQuery);
 			if (phoneError) throw phoneError;
-			if (Array.isArray(phoneData) && phoneData.length > 0) {
-				candidates = phoneData;
-			}
+			if (phoneData?.length > 0) candidates = phoneData;
 		}
 
-		const matched = (candidates || []).find(student => {
-			const studentName = normalizeName(student.name || '');
-			if (!studentName || !studentName.includes(nameKey)) return false;
-			const studentPhone = normalizePhone(student.phone || '');
-			const parentPhone = normalizePhone(student.parent_phone || '');
-			const phoneList = [studentPhone, parentPhone].filter(Boolean);
-			return phoneList.some(storedPhone => (
-				storedPhone === phoneDigits
-				|| storedPhone.endsWith(phoneDigits)
-				|| phoneDigits.endsWith(storedPhone)
-			));
+		// 매칭
+		const matched = (candidates || []).find(s => {
+			const sName = normalizeName(s.name);
+			if (!sName.includes(nameKey)) return false;
+			const phones = [normalizePhone(s.phone), normalizePhone(s.parent_phone)].filter(Boolean);
+			return phones.some(p => p === phoneDigits || p.endsWith(phoneDigits) || phoneDigits.endsWith(p));
 		});
 
 		if (!matched) {
-			showAlert('이름과 전화번호가 일치하지 않습니다', 'info');
-			document.getElementById('result-section').classList.remove('active');
-			const emptyState = getEmptyStateElement();
-			if (emptyState) {
-				emptyState.style.display = 'block';
-			}
+			showAlert('학생 정보를 찾을 수 없습니다. 이름과 전화번호를 확인해주세요.', 'error');
 			return;
 		}
 
 		currentStudent = matched;
-		await displayStudentInfo();
-        
-		showAlert(`${currentStudent.name} 학생의 정보를 조회했습니다`, 'success');
-	} catch (error) {
-		console.error('검색 오류:', error);
+		await initDashboard();
+	} catch (err) {
+		console.error('검색 오류:', err);
 		showAlert('검색 중 오류가 발생했습니다', 'error');
+	} finally {
+		if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-search"></i> 조회하기'; }
 	}
 }
+window.handleSearch = handleSearch;
 
-// ========== QR 스캔 함수 ==========
+// ========== QR Scanner ==========
+let currentQRMode = 'camera';
+let selectedQRFile = null;
+
 function openQRScanner() {
 	document.getElementById('qr-modal').classList.add('active');
-	startQRScanner();
+	switchQRMode('camera');
 }
+window.openQRScanner = openQRScanner;
 
 function closeQRScanner() {
 	document.getElementById('qr-modal').classList.remove('active');
 	stopQRScanner();
+	resetQRFilePanel();
 }
+window.closeQRScanner = closeQRScanner;
+
+function switchQRMode(mode) {
+	currentQRMode = mode;
+	// 탭 활성화
+	document.getElementById('qr-tab-camera').classList.toggle('active', mode === 'camera');
+	document.getElementById('qr-tab-image').classList.toggle('active', mode === 'image');
+	// 패널 전환
+	document.getElementById('qr-camera-panel').style.display = mode === 'camera' ? '' : 'none';
+	document.getElementById('qr-image-panel').style.display = mode === 'image' ? '' : 'none';
+
+	if (mode === 'camera') {
+		startQRScanner();
+	} else {
+		stopQRScanner();
+	}
+}
+window.switchQRMode = switchQRMode;
 
 async function startQRScanner() {
+	if (html5QrcodeScanner) { try { await html5QrcodeScanner.stop(); } catch(e){} html5QrcodeScanner = null; }
 	try {
-		// 기존 스캐너 중지
-		if (html5QrcodeScanner) {
-			try {
-				await html5QrcodeScanner.stop();
-			} catch (e) {
-				// 무시
-			}
-			html5QrcodeScanner = null;
-		}
-
-		html5QrcodeScanner = new Html5Qrcode("qr-reader");
-		const config = {
-			fps: 10,
-			qrbox: { width: 250, height: 250 },
-			rememberLastUsedCamera: true,
-			facingMode: currentFacingMode
-		};
-
+		html5QrcodeScanner = new Html5Qrcode('qr-reader');
 		await html5QrcodeScanner.start(
 			{ facingMode: currentFacingMode },
-			config,
-			onQRCodeSuccess,
-			onQRCodeError
+			{ fps: 10, qrbox: { width: 250, height: 250 } },
+			onQRSuccess, () => {}
 		);
-
-		console.log('[QR 스캔] 시작 - 카메라:', currentFacingMode);
-	} catch (error) {
-		console.error('[QR 스캔] 시작 오류:', error);
-		showAlert('카메라를 사용할 수 없습니다. 권한을 확인해주세요.', 'error');
+	} catch(e) {
+		console.error('QR 스캔 오류:', e);
+		ppShowToast('카메라를 사용할 수 없습니다', 'error');
 	}
 }
 
 function stopQRScanner() {
 	if (html5QrcodeScanner) {
-		html5QrcodeScanner.stop()
-			.then(() => {
-				html5QrcodeScanner = null;
-			})
-			.catch(() => {
-				html5QrcodeScanner = null;
-			});
+		html5QrcodeScanner.stop().catch(()=>{});
+		html5QrcodeScanner = null;
 	}
 }
 
 function toggleCamera() {
-	currentFacingMode = currentFacingMode === "environment" ? "user" : "environment";
+	currentFacingMode = currentFacingMode === 'environment' ? 'user' : 'environment';
 	startQRScanner();
 }
+window.toggleCamera = toggleCamera;
 
-async function onQRCodeSuccess(decodedText, decodedResult) {
-	console.log('[QR 스캔] 성공:', decodedText);
+// ========== QR 이미지 파일 스캔 ==========
+function resetQRFilePanel() {
+	selectedQRFile = null;
+	const fileInput = document.getElementById('qr-file-input');
+	if (fileInput) fileInput.value = '';
+	const preview = document.getElementById('qr-preview-area');
+	const dropContent = document.getElementById('qr-drop-content');
+	const scanBtn = document.getElementById('qr-scan-file-btn');
+	const status = document.getElementById('qr-file-status');
+	if (preview) preview.style.display = 'none';
+	if (dropContent) dropContent.style.display = '';
+	if (scanBtn) scanBtn.style.display = 'none';
+	if (status) status.style.display = 'none';
+}
 
-	// QR 코드 형식: STUDENT_[ID]_[TOKEN]
-	const match = decodedText.match(/STUDENT_(\d+)_/);
-    
-	if (!match) {
-		showAlert('유효한 QR 코드가 아닙니다', 'error');
+function handleQRFileSelect(event) {
+	const file = event.target.files?.[0];
+	if (!file) return;
+	if (!file.type.startsWith('image/')) {
+		ppShowToast('이미지 파일만 선택 가능합니다', 'error');
 		return;
 	}
 
+	selectedQRFile = file;
+	showQRFilePreview(file);
+
+	// 이미지 선택 즉시 자동 스캔 시작
+	scanQRFromFile();
+}
+window.handleQRFileSelect = handleQRFileSelect;
+
+function showQRFilePreview(file) {
+	const reader = new FileReader();
+	reader.onload = function(e) {
+		const img = document.getElementById('qr-preview-img');
+		const previewArea = document.getElementById('qr-preview-area');
+		const dropContent = document.getElementById('qr-drop-content');
+		const scanBtn = document.getElementById('qr-scan-file-btn');
+
+		if (img) img.src = e.target.result;
+		if (previewArea) previewArea.style.display = 'block';
+		if (dropContent) dropContent.style.display = 'none';
+		if (scanBtn) scanBtn.style.display = '';
+	};
+	reader.readAsDataURL(file);
+}
+
+async function scanQRFromFile() {
+	if (!selectedQRFile) {
+		ppShowToast('이미지를 먼저 선택해주세요', 'info');
+		return;
+	}
+
+	const statusEl = document.getElementById('qr-file-status');
+	statusEl.style.display = 'flex';
+	statusEl.className = 'qr-file-status processing';
+	statusEl.innerHTML = '<div class="pp-spinner" style="width:18px;height:18px;border-width:2px;flex-shrink:0;"></div> QR 코드 인식 중...';
+
+	try {
+		// html5-qrcode의 scanFile 메서드 사용
+		const scanner = new Html5Qrcode('qr-file-scan-temp');
+		const decoded = await scanner.scanFile(selectedQRFile, /* showImage */ false);
+		try { scanner.clear(); } catch(_) {}
+
+		statusEl.className = 'qr-file-status success';
+		statusEl.innerHTML = '<i class="fas fa-check-circle"></i> QR 코드 인식 성공! 학생 정보를 조회합니다...';
+
+		// 인식 성공 → 기존 QR 처리 로직 호출
+		await onQRSuccess(decoded);
+	} catch(e) {
+		console.error('QR 이미지 인식 오류:', e);
+		statusEl.className = 'qr-file-status error';
+		statusEl.innerHTML = '<i class="fas fa-exclamation-triangle"></i> QR 코드를 인식할 수 없습니다. 다른 이미지를 시도해주세요.';
+	}
+}
+window.scanQRFromFile = scanQRFromFile;
+
+async function onQRSuccess(decoded) {
+	const match = decoded.match(/STUDENT_(\d+)_/);
+	if (!match) { ppShowToast('유효한 QR 코드가 아닙니다', 'error'); return; }
+
 	const studentId = match[1];
-	const token = decodedText.split('_').slice(2).join('_');
+	const token = decoded.split('_').slice(2).join('_');
 
 	try {
 		const { data: student, error } = await supabaseClient
 			.from('students')
-			.select('id, name, school, grade, phone, parent_phone, owner_user_id, teacher_id, qr_code_data')
+			.select('id, name, school, grade, phone, parent_phone, parent_code, owner_user_id, teacher_id, qr_code_data')
 			.eq('id', studentId)
 			.maybeSingle();
-
 		if (error) throw error;
-		if (!student) {
-			showAlert('등록되지 않은 학생입니다', 'error');
-			return;
-		}
-
+		if (!student) { ppShowToast('등록되지 않은 학생입니다', 'error'); return; }
 		if (student.qr_code_data && token && student.qr_code_data !== token) {
-			showAlert('유효하지 않은 QR 코드입니다', 'error');
-			return;
+			ppShowToast('유효하지 않은 QR 코드입니다', 'error'); return;
 		}
 
 		currentStudent = student;
-        
-		// 모달 닫기
-		document.getElementById('qr-modal').classList.remove('active');
-		if (html5QrcodeScanner) {
-			html5QrcodeScanner.stop().catch(() => {});
-			html5QrcodeScanner = null;
-		}
-        
-		await displayStudentInfo();
-		showAlert(`${currentStudent.name} 학생의 정보를 조회했습니다`, 'success');
-	} catch (error) {
-		console.error('QR 스캔 처리 오류:', error);
-		showAlert('QR 코드 처리 중 오류가 발생했습니다', 'error');
+		closeQRScanner();
+		await initDashboard();
+		ppShowToast(`${student.name} 학생 조회 완료`, 'success');
+	} catch(e) {
+		console.error('QR 처리 오류:', e);
+		ppShowToast('QR 처리 중 오류가 발생했습니다', 'error');
 	}
 }
 
-function onQRCodeError(errorMessage) {
-	// 에러를 계속 스캔하도록 무시
-	console.debug('[QR 스캔] 에러:', errorMessage);
-}
-
-// ========== 학생 정보 표시 ==========
-async function displayStudentInfo() {
+// ========== Dashboard Init ==========
+async function initDashboard() {
 	if (!currentStudent) return;
 
-	// 검색 결과 섹션 표시
-	document.getElementById('result-section').classList.add('active');
-	const emptyState = getEmptyStateElement();
-	if (emptyState) {
-		emptyState.style.display = 'none';
-	}
+	// Update header
+	document.getElementById('dash-avatar').textContent = (currentStudent.name || '?').charAt(0);
+	document.getElementById('dash-name').textContent = currentStudent.name;
+	document.getElementById('dash-grade').textContent = currentStudent.grade || '-';
+	document.getElementById('dash-school').textContent = currentStudent.school || '-';
 
-	// 학생 정보 표시
-	document.getElementById('student-name').textContent = currentStudent.name;
-	const displayPhone = currentStudent.parent_phone || currentStudent.phone || '미등록';
-	document.getElementById('student-phone').textContent = `📞 ${displayPhone}`;
-
-	// 월 선택기 초기화 (현재 월)
-	const today = new Date();
-	const monthStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+	// Set month selectors
+	const monthStr = getCurrentMonthStr();
 	document.getElementById('month-selector').value = monthStr;
-	updateEvaluationMonthLabel(monthStr);
-    
-	// 출결 데이터 가져오기
-	await displayMonthlyAttendance(monthStr);
+	document.getElementById('memo-month-selector').value = monthStr;
+	document.getElementById('eval-month-selector').value = monthStr;
 
-	// 출석률 통계 표시 (최근 30일)
-	await displayAttendanceStats();
+	showDashboard();
 
-	// 종합 평가 섹션 표시
-	document.getElementById('evaluation-section').classList.add('active');
-
-	// 학부모 인증 상태 반영
-	updateEvaluationLockState();
-	if (isParentVerified()) {
-		await loadEvaluation(monthStr);
-	}
-
-	// 검색창 초기화
-	document.getElementById('search-name').value = currentStudent.name || '';
-	document.getElementById('search-phone').value = currentStudent.parent_phone || currentStudent.phone || '';
+	// Load data
+	switchTab('attendance');
+	await Promise.all([
+		loadQuickStats(),
+		loadMonthlyAttendance(monthStr),
+		loadMemos(monthStr),
+		loadEvaluationState(monthStr)
+	]);
 }
 
-// ========== 월별 출결 기록 조회 ==========
-async function displayMonthlyAttendance(monthStr) {
+// ========== Quick Stats (최근 30일) ==========
+async function loadQuickStats() {
 	if (!currentStudent) return;
+	try {
+		const thirtyAgo = new Date();
+		thirtyAgo.setDate(thirtyAgo.getDate() - 30);
+		const isoDate = thirtyAgo.toISOString().split('T')[0];
 
-	showLoading();
+		const { data, error } = await supabaseClient
+			.from('attendance_records')
+			.select('status, attendance_date')
+			.eq('student_id', String(currentStudent.id))
+			.gte('attendance_date', isoDate);
+		if (error) throw error;
+
+		const stats = { present: 0, late: 0, absent: 0, total: 0 };
+		// 날짜별 최신 기록만 사용
+		const byDate = {};
+		(data || []).forEach(r => {
+			const key = r.attendance_date;
+			if (!byDate[key]) byDate[key] = r;
+		});
+		Object.values(byDate).forEach(r => {
+			stats.total++;
+			if (r.status === 'present' || r.status === 'makeup' || r.status === 'etc') stats.present++;
+			else if (r.status === 'late') stats.late++;
+			else stats.absent++;
+		});
+
+		const rate = stats.total > 0 ? Math.round((stats.present / stats.total) * 100) : 0;
+		document.getElementById('qs-rate').textContent = `${rate}%`;
+		document.getElementById('qs-present').textContent = stats.present;
+		document.getElementById('qs-late').textContent = stats.late;
+		document.getElementById('qs-absent').textContent = stats.absent;
+	} catch(e) { console.error('통계 오류:', e); }
+}
+
+// ========== Monthly Attendance ==========
+async function loadMonthlyAttendance(monthStr) {
+	if (!currentStudent) return;
+	const listEl = document.getElementById('att-list');
+	// 스켈레톤 로딩
+	let skeletonHtml = '';
+	for (let i = 0; i < 4; i++) {
+		skeletonHtml += `<div class="skeleton-row">
+			<div style="min-width:52px;"><div class="skeleton-block" style="width:32px;height:22px;margin-bottom:4px;"></div><div class="skeleton-block" style="width:40px;height:12px;"></div></div>
+			<div style="flex:1;"><div class="skeleton-block" style="width:80px;height:14px;margin-bottom:4px;"></div><div class="skeleton-block" style="width:120px;height:10px;"></div></div>
+			<div class="skeleton-block" style="width:52px;height:24px;border-radius:20px;"></div>
+		</div>`;
+	}
+	listEl.innerHTML = skeletonHtml;
 
 	try {
 		const [year, month] = monthStr.split('-');
@@ -305,154 +447,129 @@ async function displayMonthlyAttendance(monthStr) {
 
 		const { data: records, error } = await supabaseClient
 			.from('attendance_records')
-			.select('id, student_id, teacher_id, attendance_date, status, scheduled_time, check_in_time, qr_scanned, memo')
+			.select('id, student_id, teacher_id, attendance_date, status, scheduled_time, check_in_time, memo, shared_memo')
 			.eq('student_id', String(currentStudent.id))
 			.gte('attendance_date', startDate)
 			.lte('attendance_date', endDate)
 			.order('attendance_date', { ascending: false });
-
 		if (error) throw error;
 
-		const attendanceList = document.getElementById('attendance-list');
-		attendanceList.innerHTML = '';
+		// 날짜별 그룹
+		const byDate = new Map();
+		(records || []).forEach(r => {
+			const key = r.attendance_date;
+			if (!byDate.has(key)) byDate.set(key, []);
+			byDate.get(key).push(r);
+		});
 
-		if (!records || records.length === 0) {
-			attendanceList.innerHTML = `
-				<div class="empty-state">
-					<p>${year}년 ${month}월 출결 기록이 없습니다</p>
-				</div>
-			`;
-			await displayMonthlyStats(monthStr);
-			hideLoading();
+		// 월 통계 계산
+		const stats = { present: 0, late: 0, absent: 0, total: 0 };
+		const dateKeys = Array.from(byDate.keys()).sort((a, b) => b.localeCompare(a));
+
+		dateKeys.forEach(dateKey => {
+			const recs = byDate.get(dateKey);
+			// 담당 선생님 기록 우선
+			const primaryTid = currentStudent.teacher_id ? String(currentStudent.teacher_id) : '';
+			const primary = recs.find(r => primaryTid && String(r.teacher_id) === primaryTid);
+			const display = primary || recs[0];
+			if (!display) return;
+
+			stats.total++;
+			if (display.status === 'present' || display.status === 'makeup' || display.status === 'etc') stats.present++;
+			else if (display.status === 'late') stats.late++;
+			else stats.absent++;
+		});
+
+		const rate = stats.total > 0 ? Math.round((stats.present / stats.total) * 100) : 0;
+		document.getElementById('ms-rate').textContent = `${rate}%`;
+		document.getElementById('ms-present').textContent = stats.present;
+		document.getElementById('ms-late').textContent = stats.late;
+		document.getElementById('ms-absent').textContent = stats.absent;
+
+		// Render list
+		if (dateKeys.length === 0) {
+			listEl.innerHTML = `<div class="att-empty"><i class="fas fa-calendar-xmark"></i>${year}년 ${parseInt(month)}월 출결 기록이 없습니다</div>`;
 			return;
 		}
 
-		// 담당 선생님 기준 분리
-		const primaryTeacherId = currentStudent.teacher_id ? String(currentStudent.teacher_id) : '';
-		const primaryByDate = new Map();
-		const otherByDate = new Map();
+		let html = '';
+		dateKeys.forEach(dateKey => {
+			const recs = byDate.get(dateKey);
+			const primaryTid = currentStudent.teacher_id ? String(currentStudent.teacher_id) : '';
+			const primary = recs.find(r => primaryTid && String(r.teacher_id) === primaryTid);
+			const display = primary || recs[0];
+			if (!display) return;
 
-		records.forEach(r => {
-			const key = r.attendance_date;
-			if (primaryTeacherId && String(r.teacher_id) === primaryTeacherId) {
-				if (!primaryByDate.has(key)) primaryByDate.set(key, []);
-				primaryByDate.get(key).push(r);
-			} else {
-				if (!otherByDate.has(key)) otherByDate.set(key, []);
-				otherByDate.get(key).push(r);
-			}
+			const d = new Date(dateKey);
+			const dayNum = d.getDate();
+			const dow = getDayOfWeek(dateKey);
+			const dayOfWeek = d.getDay(); // 0=일, 6=토
+			const dowClass = dayOfWeek === 0 ? ' dow-sun' : dayOfWeek === 6 ? ' dow-sat' : '';
+			const time = getTimeLabel(display);
+			const si = getStatusInfo(display.status);
+			const stClass = si.cls === 'present' ? 'st-present' : si.cls === 'late' ? 'st-late' : si.cls === 'absent' ? 'st-absent' : 'st-makeup';
+			const memo = display.shared_memo ? display.shared_memo.substring(0, 30) : '';
+
+			html += `<div class="att-day ${stClass}">
+				<div class="att-date-col">
+					<div class="att-date-num">${dayNum}</div>
+					<div class="att-date-dow${dowClass}">${dow}요일</div>
+				</div>
+				<div class="att-mid">
+					<div class="att-time">${time}</div>
+					${memo ? `<div class="att-memo-preview"><i class="fas fa-comment" style="font-size:9px;margin-right:3px;opacity:0.5;"></i>${memo}${display.shared_memo.length > 30 ? '...' : ''}</div>` : ''}
+				</div>
+				<div class="att-badge ${si.cls}">${si.icon} ${si.text}</div>
+			</div>`;
 		});
 
-		// 담당 선생님 기록이 있는 날짜 (+ 담당만 있는 게 아니라 전체 날짜도 포함)
-		const allDates = new Set([...primaryByDate.keys(), ...otherByDate.keys()]);
-		const dateList = Array.from(allDates).sort((a, b) => new Date(b) - new Date(a));
-
-		const getTeacherName = (tid) => {
-			const t = teacherAuthList.find(t => String(t.id) === String(tid));
-			return t ? t.name : `선생님`;
-		};
-
-		dateList.forEach(dateKey => {
-			const myRecords = primaryByDate.get(dateKey) || [];
-			const otherRecords = otherByDate.get(dateKey) || [];
-			const primaryRecord = myRecords[0] || null;
-			const displayRecord = primaryRecord || otherRecords[0] || null;
-			if (!displayRecord) return;
-
-			const date = new Date(dateKey);
-			const formattedDate = date.toLocaleDateString('ko-KR', {
-				month: '2-digit', day: '2-digit', weekday: 'short'
-			});
-
-			const time = getAttendanceTimeLabel(displayRecord);
-			const status = displayRecord.status || '';
-
-			let statusClass = 'status-absent';
-			let statusText = '결석';
-			let statusIcon = '❌';
-			if (status === 'present') { statusClass = 'status-present'; statusText = '출석'; statusIcon = '✅'; }
-			else if (status === 'late') { statusClass = 'status-late'; statusText = '지각'; statusIcon = '⏰'; }
-			else if (status === 'makeup' || status === 'etc') { statusClass = 'status-makeup'; statusText = '보강'; statusIcon = '🔁'; }
-
-			// 호버 툴팁 (다른 선생님 일정이 있는 경우)
-			const hasOther = otherRecords.length > 0 && primaryRecord;
-			let tooltipHtml = '';
-			if (hasOther) {
-				const myName = getTeacherName(primaryTeacherId);
-				const myTime = getAttendanceTimeLabel(primaryRecord);
-				const myStatusInfo = ppGetStatusInfo(primaryRecord.status);
-
-				let items = `<div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.1);"><span style="font-weight:700;color:#93c5fd;">${myName}</span><span style="color:#94a3b8;font-size:12px;">${myTime}</span><span style="background:${myStatusInfo.color};color:white;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;">${myStatusInfo.label}</span></div>`;
-
-				const otherTeacherIds = [...new Set(otherRecords.map(r => String(r.teacher_id)))];
-				otherTeacherIds.forEach(tid => {
-					const rec = otherRecords.find(r => String(r.teacher_id) === tid);
-					if (!rec) return;
-					const tName = getTeacherName(tid);
-					const tTime = getAttendanceTimeLabel(rec);
-					const tInfo = ppGetStatusInfo(rec.status);
-					items += `<div style="display:flex;align-items:center;gap:6px;padding:5px 0;"><span style="font-weight:600;color:#e2e8f0;">${tName}</span><span style="color:#94a3b8;font-size:12px;">${tTime}</span><span style="background:${tInfo.color};color:white;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;">${tInfo.label}</span></div>`;
-				});
-
-				tooltipHtml = `<div class="pp-day-tooltip" style="display:none;position:absolute;bottom:calc(100% + 8px);left:12px;background:#1e293b;color:white;padding:12px 14px;border-radius:10px;font-size:13px;min-width:220px;max-width:300px;z-index:9999;box-shadow:0 8px 24px rgba(0,0,0,0.25);line-height:1.5;"><div style="font-weight:700;margin-bottom:6px;font-size:12px;color:#94a3b8;">${formattedDate} 전체 일정</div>${items}<div style="position:absolute;bottom:-6px;left:24px;width:12px;height:12px;background:#1e293b;rotate:45deg;border-radius:2px;"></div></div>`;
-			}
-
-			const item = document.createElement('div');
-			item.className = 'attendance-item';
-			if (hasOther) {
-				item.setAttribute('data-has-tooltip', 'true');
-				item.style.position = 'relative';
-				item.style.cursor = 'pointer';
-			}
-			item.innerHTML = `
-				${tooltipHtml}
-				<div class="attendance-date">${formattedDate}</div>
-				<div class="attendance-time">${time}</div>
-				<div class="attendance-status ${statusClass}">${statusIcon} ${statusText}</div>
-			`;
-			attendanceList.appendChild(item);
-		});
-
-		// 호버 툴팁 이벤트 바인딩
-		attendanceList.querySelectorAll('.attendance-item[data-has-tooltip="true"]').forEach(row => {
-			const tooltip = row.querySelector('.pp-day-tooltip');
-			if (!tooltip) return;
-			row.addEventListener('mouseenter', () => { tooltip.style.display = 'block'; });
-			row.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
-			row.addEventListener('click', (e) => {
-				e.stopPropagation();
-				const isVisible = tooltip.style.display === 'block';
-				attendanceList.querySelectorAll('.pp-day-tooltip').forEach(t => t.style.display = 'none');
-				tooltip.style.display = isVisible ? 'none' : 'block';
-			});
-		});
-		attendanceList.addEventListener('click', (e) => {
-			if (e.target.closest('.attendance-item[data-has-tooltip="true"]')) return;
-			attendanceList.querySelectorAll('.pp-day-tooltip').forEach(t => t.style.display = 'none');
-		});
-
-		await displayMonthlyStats(monthStr);
-		hideLoading();
-	} catch (error) {
-		console.error('월별 출결 기록 조회 오류:', error);
-		showAlert('출결 기록을 불러올 수 없습니다', 'error');
+		listEl.innerHTML = html;
+	} catch(e) {
+		console.error('출결 조회 오류:', e);
+		listEl.innerHTML = '<div class="att-empty"><i class="fas fa-exclamation-triangle"></i>출결 기록을 불러올 수 없습니다</div>';
 	}
 }
 
-// 학부모 포털용 상태 정보 헬퍼
-function ppGetStatusInfo(status) {
-	switch (status) {
-		case 'present': return { label: '출석', color: '#10b981' };
-		case 'late': return { label: '지각', color: '#f59e0b' };
-		case 'absent': return { label: '결석', color: '#ef4444' };
-		case 'makeup': case 'etc': return { label: '보강', color: '#8b5cf6' };
-		default: return { label: '미처리', color: '#94a3b8' };
-	}
+// ========== Month Navigation (Attendance) ==========
+function handleMonthChange() {
+	const v = document.getElementById('month-selector').value;
+	if (v && currentStudent) loadMonthlyAttendance(v);
 }
+window.handleMonthChange = handleMonthChange;
 
-// ========== 월별 통계 ==========
-async function displayMonthlyStats(monthStr) {
+function handlePrevMonth() {
+	const el = document.getElementById('month-selector');
+	const [y, m] = el.value.split('-').map(Number);
+	let pm = m - 1, py = y;
+	if (pm < 1) { pm = 12; py--; }
+	el.value = `${py}-${String(pm).padStart(2,'0')}`;
+	handleMonthChange();
+}
+window.handlePrevMonth = handlePrevMonth;
+
+function handleNextMonth() {
+	const el = document.getElementById('month-selector');
+	const [y, m] = el.value.split('-').map(Number);
+	let nm = m + 1, ny = y;
+	if (nm > 12) { nm = 1; ny++; }
+	el.value = `${ny}-${String(nm).padStart(2,'0')}`;
+	handleMonthChange();
+}
+window.handleNextMonth = handleNextMonth;
+
+// ========== Memos ==========
+async function loadMemos(monthStr) {
 	if (!currentStudent) return;
+	const listEl = document.getElementById('memo-list');
+	let memoSkel = '';
+	for (let i = 0; i < 3; i++) {
+		memoSkel += `<div style="padding:16px;background:var(--bg-elevated);border-radius:12px;border-left:3px solid var(--border);">
+			<div style="display:flex;justify-content:space-between;margin-bottom:10px;"><div class="skeleton-block" style="width:100px;height:14px;"></div><div class="skeleton-block" style="width:40px;height:18px;border-radius:6px;"></div></div>
+			<div class="skeleton-block" style="width:100%;height:12px;margin-bottom:6px;"></div>
+			<div class="skeleton-block" style="width:70%;height:12px;"></div>
+		</div>`;
+	}
+	listEl.innerHTML = memoSkel;
 
 	try {
 		const [year, month] = monthStr.split('-');
@@ -460,182 +577,249 @@ async function displayMonthlyStats(monthStr) {
 		const lastDay = new Date(year, month, 0).getDate();
 		const endDate = `${year}-${month}-${lastDay}`;
 
-		const { data: records, error } = await supabaseClient
+		const { data, error } = await supabaseClient
 			.from('attendance_records')
-			.select('status, attendance_date, check_in_time, created_at')
+			.select('attendance_date, status, scheduled_time, shared_memo, teacher_id')
 			.eq('student_id', String(currentStudent.id))
 			.gte('attendance_date', startDate)
-			.lte('attendance_date', endDate);
-
+			.lte('attendance_date', endDate)
+			.order('attendance_date', { ascending: false });
 		if (error) throw error;
 
-		const normalized = normalizeAttendanceRecordsByDate(records || []);
+		// shared_memo가 있는 기록만 필터
+		const withMemo = (data || []).filter(r => r.shared_memo && r.shared_memo.trim());
 
-		const stats = {
-			present: 0,
-			late: 0,
-			absent: 0,
-			total: normalized?.length || 0
-		};
+		if (withMemo.length === 0) {
+			listEl.innerHTML = `<div class="memo-empty"><i class="fas fa-sticky-note"></i>${year}년 ${parseInt(month)}월 수업 메모가 없습니다</div>`;
+			return;
+		}
 
-		normalized?.forEach(record => {
-			if (record.status === 'present' || record.status === 'makeup') {
-				stats.present++;
-			} else if (record.status === 'late') {
-				stats.late++;
-			} else {
-				stats.absent++;
-			}
+		let html = '';
+		withMemo.forEach(r => {
+			const d = new Date(r.attendance_date);
+			const dateLabel = `${d.getMonth()+1}/${d.getDate()} (${getDayOfWeek(r.attendance_date)})`;
+			const si = getStatusInfo(r.status);
+			const time = r.scheduled_time ? formatKoreanTime(r.scheduled_time) : '';
+
+			html += `<div class="memo-card">
+				<div class="memo-card-header">
+					<span class="memo-card-date"><i class="fas fa-calendar-day"></i>${dateLabel}${time ? ' ' + time : ''}</span>
+					<span class="memo-card-badge att-badge ${si.cls}" style="font-size:10px;padding:2px 8px;">${si.text}</span>
+				</div>
+				<div class="memo-card-text">${r.shared_memo}</div>
+			</div>`;
 		});
 
-		const monthlyRate = stats.total > 0 
-			? Math.round((stats.present / stats.total) * 100)
-			: 0;
-
-		document.getElementById('monthly-rate').textContent = `${monthlyRate}%`;
-		document.getElementById('monthly-present').textContent = stats.present;
-		document.getElementById('monthly-late').textContent = stats.late;
-		document.getElementById('monthly-absent').textContent = stats.absent;
-	} catch (error) {
-		console.error('월별 통계 조회 오류:', error);
+		listEl.innerHTML = html;
+	} catch(e) {
+		console.error('메모 조회 오류:', e);
+		listEl.innerHTML = '<div class="memo-empty"><i class="fas fa-exclamation-triangle"></i>메모를 불러올 수 없습니다</div>';
 	}
 }
 
-// ========== 월 선택 함수 ==========
-function handleMonthChange() {
-	const monthSelector = document.getElementById('month-selector');
-	const selectedMonth = monthSelector.value;
-	if (selectedMonth && currentStudent) {
-		updateEvaluationMonthLabel(selectedMonth);
-		displayMonthlyAttendance(selectedMonth);
-		loadEvaluation(selectedMonth);
-	}
+function handleMemoMonthChange() {
+	const v = document.getElementById('memo-month-selector').value;
+	if (v && currentStudent) loadMemos(v);
 }
+window.handleMemoMonthChange = handleMemoMonthChange;
 
-function handlePrevMonth() {
-	const monthSelector = document.getElementById('month-selector');
-	const [year, month] = monthSelector.value.split('-');
-	let prevMonth = parseInt(month) - 1;
-	let prevYear = parseInt(year);
-    
-	if (prevMonth < 1) {
-		prevMonth = 12;
-		prevYear -= 1;
-	}
-    
-	monthSelector.value = `${prevYear}-${String(prevMonth).padStart(2, '0')}`;
-	handleMonthChange();
+function handlePrevMonthMemo() {
+	const el = document.getElementById('memo-month-selector');
+	const [y, m] = el.value.split('-').map(Number);
+	let pm = m-1, py = y; if(pm<1){pm=12;py--;}
+	el.value = `${py}-${String(pm).padStart(2,'0')}`;
+	handleMemoMonthChange();
 }
+window.handlePrevMonthMemo = handlePrevMonthMemo;
 
-function handleNextMonth() {
-	const monthSelector = document.getElementById('month-selector');
-	const [year, month] = monthSelector.value.split('-');
-	let nextMonth = parseInt(month) + 1;
-	let nextYear = parseInt(year);
-    
-	if (nextMonth > 12) {
-		nextMonth = 1;
-		nextYear += 1;
-	}
-    
-	monthSelector.value = `${nextYear}-${String(nextMonth).padStart(2, '0')}`;
-	handleMonthChange();
+function handleNextMonthMemo() {
+	const el = document.getElementById('memo-month-selector');
+	const [y, m] = el.value.split('-').map(Number);
+	let nm = m+1, ny = y; if(nm>12){nm=1;ny++;}
+	el.value = `${ny}-${String(nm).padStart(2,'0')}`;
+	handleMemoMonthChange();
 }
+window.handleNextMonthMemo = handleNextMonthMemo;
 
-function updateEvaluationMonthLabel(monthStr) {
-	const label = document.getElementById('evaluation-month');
-	if (!label) return;
-	const [year, month] = monthStr.split('-');
-	label.textContent = `${year}년 ${parseInt(month)}월`;
-}
-
-// ========== 학부모 인증 ==========
+// ========== Evaluation ==========
 function isParentVerified() {
 	if (!currentStudent) return false;
-	const key = `parent_verified__${currentStudent.id}`;
-	return sessionStorage.getItem(key) === 'true';
+	return sessionStorage.getItem(`parent_verified__${currentStudent.id}`) === 'true';
 }
 
 function setParentVerified() {
 	if (!currentStudent) return;
-	const key = `parent_verified__${currentStudent.id}`;
-	sessionStorage.setItem(key, 'true');
+	sessionStorage.setItem(`parent_verified__${currentStudent.id}`, 'true');
 }
 
-function updateEvaluationLockState() {
-	const lock = document.getElementById('evaluation-lock');
-	const content = document.getElementById('evaluation-content');
-	if (!lock || !content) return;
+async function loadEvaluationState(monthStr) {
+	updateEvalLockUI();
 	if (isParentVerified()) {
-		lock.style.display = 'none';
-		content.classList.remove('hidden');
-	} else {
-		lock.style.display = 'block';
-		content.classList.add('hidden');
-		document.getElementById('evaluation-textarea').value = '';
-		updateCharCount();
+		await loadEvaluation(monthStr);
 	}
 }
 
-function openParentAuthModal() {
-	const modal = document.getElementById('parent-auth-modal');
-	if (modal) modal.classList.add('active');
-	const input = document.getElementById('parent-auth-password');
-	if (input) input.focus();
+function updateEvalLockUI() {
+	const lock = document.getElementById('eval-lock');
+	const content = document.getElementById('eval-content');
+	if (isParentVerified()) {
+		lock.style.display = 'none';
+		content.classList.add('visible');
+	} else {
+		lock.style.display = '';
+		content.classList.remove('visible');
+	}
 }
 
-function closeParentAuthModal() {
-	const modal = document.getElementById('parent-auth-modal');
-	if (modal) modal.classList.remove('active');
-	const input = document.getElementById('parent-auth-password');
-	if (input) input.value = '';
+async function loadEvaluation(monthStr) {
+	if (!currentStudent || !isParentVerified()) return;
+	const target = monthStr || document.getElementById('eval-month-selector')?.value;
+	if (!target) return;
+
+	const [y, m] = target.split('-');
+	document.getElementById('eval-month-label').textContent = `${y}년 ${parseInt(m)}월 종합 평가`;
+
+	try {
+		const { data, error } = await supabaseClient
+			.from('student_evaluations')
+			.select('comment')
+			.eq('student_id', currentStudent.id)
+			.eq('eval_month', target)
+			.maybeSingle();
+		if (error && error.code !== 'PGRST116') throw error;
+
+		const textarea = document.getElementById('eval-textarea');
+		textarea.value = data?.comment || '';
+		updateEvalCharCount();
+
+		// 선생님 인증 여부에 따라 수정 가능 여부 결정
+		const teacher = getAuthorizedTeacher();
+		if (teacher) {
+			textarea.readOnly = false;
+			textarea.placeholder = '학생에 대한 종합 평가를 작성하세요 (최대 500자)';
+			document.getElementById('eval-save-row').style.display = 'flex';
+			document.querySelector('.eval-hint').textContent = `${teacher.name} 선생님으로 수정 가능`;
+		} else {
+			textarea.readOnly = true;
+			textarea.placeholder = '이번 달 종합 평가가 아직 작성되지 않았습니다.';
+			document.getElementById('eval-save-row').style.display = 'none';
+			document.querySelector('.eval-hint').textContent = '읽기 전용';
+		}
+	} catch(e) {
+		console.error('평가 로드 오류:', e);
+	}
 }
+
+function updateEvalCharCount() {
+	const ta = document.getElementById('eval-textarea');
+	const cnt = document.getElementById('eval-char-count');
+	if (ta && cnt) cnt.textContent = ta.value.length;
+}
+
+function handleEvalMonthChange() {
+	const v = document.getElementById('eval-month-selector').value;
+	if (v && currentStudent) {
+		loadEvaluation(v);
+	}
+}
+window.handleEvalMonthChange = handleEvalMonthChange;
+
+function handlePrevMonthEval() {
+	const el = document.getElementById('eval-month-selector');
+	const [y, m] = el.value.split('-').map(Number);
+	let pm = m-1, py = y; if(pm<1){pm=12;py--;}
+	el.value = `${py}-${String(pm).padStart(2,'0')}`;
+	handleEvalMonthChange();
+}
+window.handlePrevMonthEval = handlePrevMonthEval;
+
+function handleNextMonthEval() {
+	const el = document.getElementById('eval-month-selector');
+	const [y, m] = el.value.split('-').map(Number);
+	let nm = m+1, ny = y; if(nm>12){nm=1;ny++;}
+	el.value = `${ny}-${String(nm).padStart(2,'0')}`;
+	handleEvalMonthChange();
+}
+window.handleNextMonthEval = handleNextMonthEval;
+
+// ========== Parent Auth ==========
+function openParentAuthModal() {
+	// 인증코드 미발급 체크
+	if (currentStudent && !currentStudent.parent_code) {
+		ppShowToast('인증코드가 발급되지 않았습니다. 선생님에게 요청하세요.', 'warning');
+		return;
+	}
+	document.getElementById('parent-auth-modal').classList.add('active');
+	const input = document.getElementById('parent-auth-password');
+	if (input) { input.value = ''; setTimeout(() => input.focus(), 200); }
+	// 실패 메시지 초기화
+	const failMsg = document.getElementById('parent-auth-fail-msg');
+	if (failMsg) failMsg.style.display = 'none';
+	// 버튼 활성화
+	const btn = document.getElementById('parent-auth-btn');
+	if (btn) { btn.disabled = false; btn.style.opacity = ''; }
+}
+window.openParentAuthModal = openParentAuthModal;
+
+function closeParentAuthModal() {
+	document.getElementById('parent-auth-modal').classList.remove('active');
+}
+window.closeParentAuthModal = closeParentAuthModal;
 
 async function handleParentAuth() {
 	if (!currentStudent) return;
-	const password = document.getElementById('parent-auth-password')?.value.trim();
-	if (!password) {
-		showAlert('학부모 비밀번호를 입력해주세요', 'info');
+	const code = document.getElementById('parent-auth-password')?.value.trim();
+	if (!code) { ppShowToast('인증코드를 입력해주세요', 'info'); return; }
+
+	const expected = currentStudent.parent_code;
+	if (!expected) {
+		ppShowToast('인증코드가 발급되지 않았습니다. 선생님에게 요청하세요.', 'warning');
 		return;
 	}
 
-	try {
-		const parentPhone = normalizePhone(currentStudent.parent_phone || currentStudent.phone || '');
-		console.log('[학부모 인증] 전화번호:', parentPhone);
-		if (parentPhone.length < 11) {
-			showAlert('학부모 전화번호가 등록되지 않았습니다', 'info');
-			return;
-		}
-		// 010-4539-7459 → 가운데 블록 뒤 2자리(39) + 마지막 블록 앞 2자리(74) = 3974
-		const middle2 = parentPhone.slice(5, 7); // 가운데 블록 뒤 2자리
-		const last2 = parentPhone.slice(7, 9);   // 마지막 블록 앞 2자리
-		const expected = middle2 + last2;
-		console.log('[학부모 인증] 가운데뒤2:', middle2, '마지막앞2:', last2, '→ 변환:', expected);
-		console.log('[학부모 인증] 입력값:', password);
-		if (password !== expected) {
-			showAlert('비밀번호가 일치하지 않습니다', 'error');
-			return;
-		}
-
-		setParentVerified();
-		closeParentAuthModal();
-		updateEvaluationLockState();
-		const monthStr = document.getElementById('month-selector')?.value;
-		if (monthStr) {
-			await loadEvaluation(monthStr);
-		}
-		showAlert('학부모 인증 완료', 'success');
-	} catch (error) {
-		console.error('학부모 인증 오류:', error);
-		showAlert('학부모 인증에 실패했습니다', 'error');
+	// 실패 횟수 체크
+	const failKey = `parent_auth_fail__${currentStudent.id}`;
+	const failCount = parseInt(sessionStorage.getItem(failKey) || '0');
+	if (failCount >= 5) {
+		const failMsg = document.getElementById('parent-auth-fail-msg');
+		if (failMsg) { failMsg.textContent = '인증 시도 횟수를 초과했습니다. 잠시 후 다시 시도하세요.'; failMsg.style.display = 'block'; }
+		return;
 	}
-}
 
-// ========== 선생님 인증 (종합평가 저장용) ==========
+	if (code !== expected) {
+		const newFail = failCount + 1;
+		sessionStorage.setItem(failKey, String(newFail));
+		const remaining = 5 - newFail;
+		const failMsg = document.getElementById('parent-auth-fail-msg');
+		if (remaining <= 0) {
+			if (failMsg) { failMsg.textContent = '인증 시도 횟수를 초과했습니다. 잠시 후 다시 시도하세요.'; failMsg.style.display = 'block'; }
+			const btn = document.getElementById('parent-auth-btn');
+			if (btn) { btn.disabled = true; btn.style.opacity = '0.5'; }
+			// 3분 후 자동 해제
+			setTimeout(() => { sessionStorage.removeItem(failKey); if (btn) { btn.disabled = false; btn.style.opacity = ''; } if (failMsg) failMsg.style.display = 'none'; }, 180000);
+		} else {
+			if (failMsg) { failMsg.textContent = `인증코드가 일치하지 않습니다. (${remaining}회 남음)`; failMsg.style.display = 'block'; }
+		}
+		ppShowToast('인증코드가 일치하지 않습니다', 'error');
+		return;
+	}
+
+	// 성공 - 실패 횟수 초기화
+	sessionStorage.removeItem(failKey);
+	setParentVerified();
+	closeParentAuthModal();
+	updateEvalLockUI();
+	const monthStr = document.getElementById('eval-month-selector')?.value;
+	if (monthStr) await loadEvaluation(monthStr);
+	ppShowToast('학부모 인증 완료', 'success');
+}
+window.handleParentAuth = handleParentAuth;
+
+// ========== Teacher Auth ==========
 async function hashPin(pin) {
 	const enc = new TextEncoder().encode(pin);
 	const hash = await crypto.subtle.digest('SHA-256', enc);
-	return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+	return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2,'0')).join('');
 }
 
 async function loadTeacherAuthList() {
@@ -644,7 +828,6 @@ async function loadTeacherAuthList() {
 			.from('teachers')
 			.select('id, name, pin_hash, owner_user_id')
 			.order('created_at', { ascending: true });
-
 		if (error) throw error;
 		teacherAuthList = data || [];
 
@@ -658,277 +841,70 @@ async function loadTeacherAuthList() {
 				select.appendChild(opt);
 			});
 		}
-	} catch (error) {
-		console.error('선생님 목록 로드 오류:', error);
-		showAlert('선생님 목록을 불러올 수 없습니다', 'error');
-	}
-}
-
-function openTeacherAuthModal() {
-	const modal = document.getElementById('admin-auth-modal');
-	if (modal) modal.classList.add('active');
-	loadTeacherAuthList();
-	const select = document.getElementById('teacher-auth-select');
-	if (select) select.focus();
-}
-
-function closeTeacherAuthModal() {
-	const modal = document.getElementById('admin-auth-modal');
-	if (modal) modal.classList.remove('active');
-	const pwInput = document.getElementById('teacher-auth-password');
-	if (pwInput) pwInput.value = '';
+	} catch(e) { console.error('선생님 목록 오류:', e); }
 }
 
 function getAuthorizedTeacher() {
 	if (authorizedTeacher) return authorizedTeacher;
 	const storedId = sessionStorage.getItem('parent_portal_teacher_id');
 	if (!storedId) return null;
-	const teacher = teacherAuthList.find(t => String(t.id) === String(storedId));
-	if (teacher) return teacher;
-	return null;
+	return teacherAuthList.find(t => String(t.id) === String(storedId)) || null;
 }
+
+function openTeacherAuthModal() {
+	document.getElementById('admin-auth-modal').classList.add('active');
+	loadTeacherAuthList();
+}
+window.openTeacherAuthModal = openTeacherAuthModal;
+
+function closeTeacherAuthModal() {
+	document.getElementById('admin-auth-modal').classList.remove('active');
+	const pw = document.getElementById('teacher-auth-password');
+	if (pw) pw.value = '';
+}
+window.closeTeacherAuthModal = closeTeacherAuthModal;
 
 async function handleTeacherAuth() {
 	const teacherId = document.getElementById('teacher-auth-select')?.value;
 	const password = document.getElementById('teacher-auth-password')?.value.trim();
-
-	if (!teacherId) {
-		showAlert('선생님을 선택해주세요', 'info');
-		return;
-	}
-	if (!password) {
-		showAlert('비밀번호를 입력해주세요', 'info');
-		return;
-	}
+	if (!teacherId) { ppShowToast('선생님을 선택해주세요', 'info'); return; }
+	if (!password) { ppShowToast('비밀번호를 입력해주세요', 'info'); return; }
 
 	const teacher = teacherAuthList.find(t => String(t.id) === String(teacherId));
-	if (!teacher) {
-		showAlert('선택한 선생님을 찾을 수 없습니다', 'error');
-		return;
-	}
+	if (!teacher) { ppShowToast('선생님을 찾을 수 없습니다', 'error'); return; }
 
 	try {
 		const inputHash = await hashPin(password);
 		if (inputHash !== teacher.pin_hash) {
-			showAlert('비밀번호가 일치하지 않습니다', 'error');
+			ppShowToast('비밀번호가 일치하지 않습니다', 'error');
 			return;
 		}
-
 		authorizedTeacher = teacher;
 		sessionStorage.setItem('parent_portal_teacher_id', teacher.id);
 		closeTeacherAuthModal();
-		showAlert('선생님 인증 완료', 'success');
+		ppShowToast('선생님 인증 완료', 'success');
+
+		// 평가 수정 가능 상태로 전환
+		const monthStr = document.getElementById('eval-month-selector')?.value;
+		if (monthStr) await loadEvaluation(monthStr);
 
 		if (pendingEvaluationSave) {
 			pendingEvaluationSave = false;
 			await saveEvaluation();
 		}
-	} catch (error) {
-		console.error('선생님 인증 오류:', error);
-		showAlert('선생님 인증에 실패했습니다', 'error');
+	} catch(e) {
+		console.error('선생님 인증 오류:', e);
+		ppShowToast('인증에 실패했습니다', 'error');
 	}
 }
+window.handleTeacherAuth = handleTeacherAuth;
 
-// ========== 기존 출결 기록 표시 함수 ==========
-
-function createAttendanceItem(record) {
-	const item = document.createElement('div');
-	item.className = 'attendance-item';
-
-	const recordDate = record.attendance_date || record.date;
-	const date = recordDate ? new Date(recordDate) : null;
-	const formattedDate = date
-		? date.toLocaleDateString('ko-KR', {
-			month: '2-digit',
-			day: '2-digit',
-			weekday: 'short'
-		})
-		: '-';
-
-	const time = getAttendanceTimeLabel(record);
-	const scheduleHint = record.scheduled_time || record.time;
-	if (scheduleHint) {
-		item.title = formatKoreanTimeLabel(scheduleHint);
-	}
-    
-	let statusClass = 'status-absent';
-	let statusText = '결석';
-	let statusIcon = '❌';
-
-	if (record.status === 'present') {
-		statusClass = 'status-present';
-		statusText = '출석';
-		statusIcon = '✅';
-	} else if (record.status === 'late') {
-		statusClass = 'status-late';
-		statusText = '지각';
-		statusIcon = '⏰';
-	} else if (record.status === 'makeup' || record.status === 'etc') {
-		statusClass = 'status-makeup';
-		statusText = '보강';
-		statusIcon = '🔁';
-	}
-
-	item.innerHTML = `
-		<div class="attendance-date">${formattedDate}</div>
-		<div class="attendance-time">${time}</div>
-		<div class="attendance-status ${statusClass}">${statusIcon} ${statusText}</div>
-	`;
-
-	return item;
-}
-
-// ========== 출석률 통계 ==========
-async function displayAttendanceStats() {
-	if (!currentStudent) return;
-
-	try {
-		const thirtyDaysAgo = new Date();
-		thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-		const isoDate = thirtyDaysAgo.toISOString().split('T')[0];
-
-		const { data: records, error } = await supabaseClient
-			.from('attendance_records')
-			.select('status, attendance_date, check_in_time, created_at')
-			.eq('student_id', String(currentStudent.id))
-			.gte('attendance_date', isoDate);
-
-		if (error) throw error;
-
-		const normalized = normalizeAttendanceRecordsByDate(records || []);
-
-		const stats = {
-			present: 0,
-			late: 0,
-			absent: 0,
-			total: normalized?.length || 0
-		};
-
-		normalized?.forEach(record => {
-			if (record.status === 'present' || record.status === 'makeup') {
-				stats.present++;
-			} else if (record.status === 'late') {
-				stats.late++;
-			} else {
-				stats.absent++;
-			}
-		});
-
-		const attendanceRate = stats.total > 0 
-			? Math.round((stats.present / stats.total) * 100)
-			: 0;
-
-		const statsContainer = document.getElementById('attendance-stats');
-		statsContainer.innerHTML = `
-			<div class="stat-item">
-				<div class="stat-value">${attendanceRate}%</div>
-				<div class="stat-label">출석률</div>
-			</div>
-			<div class="stat-item">
-				<div class="stat-value">${stats.present}</div>
-				<div class="stat-label">출석</div>
-			</div>
-			<div class="stat-item">
-				<div class="stat-value">${stats.late}</div>
-				<div class="stat-label">지각</div>
-			</div>
-		`;
-	} catch (error) {
-		console.error('통계 조회 오류:', error);
-	}
-}
-
-function normalizeAttendanceRecordsByDate(records) {
-	return (records || []).slice().sort((a, b) => {
-		const dateA = a.attendance_date ? new Date(a.attendance_date).getTime() : 0;
-		const dateB = b.attendance_date ? new Date(b.attendance_date).getTime() : 0;
-		if (dateA !== dateB) return dateB - dateA;
-		return getRecordTimeMs(a) - getRecordTimeMs(b);
-	});
-}
-
-function getRecordTimeMs(record) {
-	if (record.check_in_time) return new Date(record.check_in_time).getTime();
-	if (record.qr_scan_time) return new Date(record.qr_scan_time).getTime();
-	if (record.scheduled_time) return getScheduledTimeMs(record.attendance_date, record.scheduled_time);
-	if (record.time) return getScheduledTimeMs(record.attendance_date, record.time);
-	const timeVal = record.updated_at || record.created_at || null;
-	return timeVal ? new Date(timeVal).getTime() : 0;
-}
-
-function getAttendanceTimeLabel(record) {
-	if (record.scheduled_time) {
-		return formatKoreanTimeLabel(record.scheduled_time);
-	}
-	if (record.time) {
-		return formatKoreanTimeLabel(record.time);
-	}
-	if (record.check_in_time) {
-		return new Date(record.check_in_time).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
-	}
-	if (record.qr_scan_time) {
-		return new Date(record.qr_scan_time).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
-	}
-	return '-';
-}
-
-function formatKoreanTimeLabel(timeStr) {
-	if (!timeStr) return '-';
-	const base = new Date('2000-01-01T00:00:00');
-	const [h, m] = String(timeStr).split(':').map(Number);
-	if (Number.isNaN(h) || Number.isNaN(m)) return String(timeStr).substring(0, 5);
-	base.setHours(h, m, 0, 0);
-	return base.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
-}
-
-function getScheduledTimeMs(dateStr, timeStr) {
-	if (!timeStr) return 0;
-	const baseDate = dateStr ? new Date(dateStr) : new Date();
-	const [h, m] = String(timeStr).split(':').map(Number);
-	if (Number.isNaN(h) || Number.isNaN(m)) return baseDate.getTime();
-	const next = new Date(baseDate);
-	next.setHours(h, m, 0, 0);
-	return next.getTime();
-}
-
-// ========== 종합 평가 저장/로드 ==========
-async function loadEvaluation(monthStr) {
-	if (!currentStudent) return;
-	if (!isParentVerified()) return;
-
-	const targetMonth = monthStr || document.getElementById('month-selector')?.value;
-	if (!targetMonth) return;
-
-	try {
-		const { data: evaluation, error } = await supabaseClient
-			.from('student_evaluations')
-			.select('comment')
-			.eq('student_id', currentStudent.id)
-			.eq('eval_month', targetMonth)
-			.maybeSingle();
-
-		if (error && error.code !== 'PGRST116') { // PGRST116 = 레코드 없음
-			throw error;
-		}
-
-		const textarea = document.getElementById('evaluation-textarea');
-		textarea.value = evaluation?.comment || '';
-		updateCharCount();
-	} catch (error) {
-		console.error('평가 로드 오류:', error);
-	}
-}
-
+// ========== Save Evaluation ==========
 async function saveEvaluation() {
 	if (!currentStudent) return;
-
-	const comment = document.getElementById('evaluation-textarea').value.trim();
-	const monthStr = document.getElementById('month-selector')?.value;
-
-	if (!monthStr) {
-		showAlert('월을 선택해주세요', 'info');
-		return;
-	}
+	const comment = document.getElementById('eval-textarea').value.trim();
+	const monthStr = document.getElementById('eval-month-selector')?.value;
+	if (!monthStr) { ppShowToast('월을 선택해주세요', 'info'); return; }
 
 	const teacher = getAuthorizedTeacher();
 	if (!teacher) {
@@ -947,130 +923,102 @@ async function saveEvaluation() {
 				teacher_id: teacher.id,
 				comment: comment,
 				updated_at: new Date().toISOString()
-			}, {
-				onConflict: 'student_id,eval_month'
-			});
-
+			}, { onConflict: 'student_id,eval_month' });
 		if (error) throw error;
-
-		showAlert('평가가 저장되었습니다', 'success');
-	} catch (error) {
-		console.error('평가 저장 오류:', error);
-		showAlert('평가 저장에 실패했습니다', 'error');
+		ppShowToast('평가가 저장되었습니다', 'success');
+	} catch(e) {
+		console.error('평가 저장 오류:', e);
+		ppShowToast('저장에 실패했습니다', 'error');
 	}
 }
+window.saveEvaluation = saveEvaluation;
 
 async function resetEvaluation() {
-	if (await showConfirm('평가 내용을 초기화하시겠습니까?', { title: '초기화 확인', type: 'warn' })) {
-		document.getElementById('evaluation-textarea').value = '';
-		updateCharCount();
-	}
+	document.getElementById('eval-textarea').value = '';
+	updateEvalCharCount();
 }
+window.resetEvaluation = resetEvaluation;
 
-function updateCharCount() {
-	const textarea = document.getElementById('evaluation-textarea');
-	const charCount = document.getElementById('char-count');
-	charCount.textContent = textarea.value.length;
-}
-
-// ========== 알림 함수 ==========
-function showAlert(message, type = 'info') {
-	const container = document.getElementById('alert-container');
-	const alert = document.createElement('div');
-	alert.className = `alert alert-${type} show`;
-	alert.textContent = message;
-
-	container.innerHTML = '';
-	container.appendChild(alert);
-
-	// 3초 후 자동 삭제
-	setTimeout(() => {
-		alert.classList.remove('show');
-		setTimeout(() => alert.remove(), 300);
-	}, 3000);
-}
-
-function showLoading() {
-	const attendanceList = document.getElementById('attendance-list');
-	attendanceList.innerHTML = `
-		<div class="loading">
-			<div class="spinner"></div>
-			<p>로딩 중...</p>
-		</div>
-	`;
-}
-
-function hideLoading() {
-	// 로딩 상태 제거
-}
-
-// ========== 이벤트 리스너 ==========
+// ========== Event Listeners ==========
 document.addEventListener('DOMContentLoaded', () => {
-	console.log('[report.js] DOM 로드 완료');
-
-	// 검색창 엔터 키
+	// Enter key search
 	['search-name', 'search-phone'].forEach(id => {
-		const input = document.getElementById(id);
-		if (!input) return;
-		input.addEventListener('keypress', (e) => {
-			if (e.key === 'Enter') {
-				handleSearch();
-			}
-		});
+		const el = document.getElementById(id);
+		if (el) el.addEventListener('keypress', e => { if (e.key === 'Enter') handleSearch(); });
 	});
 
-	// 전화번호 입력 자동 하이픈
+	// Phone auto-format
 	const phoneInput = document.getElementById('search-phone');
 	if (phoneInput) {
-		phoneInput.addEventListener('input', (e) => {
+		phoneInput.addEventListener('input', e => {
 			const formatted = formatPhone(e.target.value);
-			if (e.target.value !== formatted) {
-				e.target.value = formatted;
-			}
+			if (e.target.value !== formatted) e.target.value = formatted;
 		});
 	}
 
-	// 평가 textarea 글자수 표시
-	document.getElementById('evaluation-textarea').addEventListener('input', updateCharCount);
+	// Eval char count
+	const evalTa = document.getElementById('eval-textarea');
+	if (evalTa) evalTa.addEventListener('input', updateEvalCharCount);
 
-	// 모달 외부 클릭 시 닫기
-	document.getElementById('qr-modal').addEventListener('click', (e) => {
-		if (e.target.id === 'qr-modal') {
-			closeQRScanner();
-		}
+	// Parent auth Enter key
+	const parentPw = document.getElementById('parent-auth-password');
+	if (parentPw) parentPw.addEventListener('keypress', e => { if (e.key === 'Enter') handleParentAuth(); });
+
+	// Teacher auth Enter key
+	const teacherPw = document.getElementById('teacher-auth-password');
+	if (teacherPw) teacherPw.addEventListener('keypress', e => { if (e.key === 'Enter') handleTeacherAuth(); });
+
+	// Modal outside click
+	['qr-modal', 'parent-auth-modal', 'admin-auth-modal'].forEach(id => {
+		const el = document.getElementById(id);
+		if (el) el.addEventListener('click', e => {
+			if (e.target === el) {
+				el.classList.remove('active');
+				if (id === 'qr-modal') stopQRScanner();
+			}
+		});
 	});
 
-	const adminModal = document.getElementById('admin-auth-modal');
-	if (adminModal) {
-		adminModal.addEventListener('click', (e) => {
-			if (e.target.id === 'admin-auth-modal') {
-				closeTeacherAuthModal();
-			}
-		});
-	}
-
-	const parentModal = document.getElementById('parent-auth-modal');
-	if (parentModal) {
-		parentModal.addEventListener('click', (e) => {
-			if (e.target.id === 'parent-auth-modal') {
-				closeParentAuthModal();
-			}
-		});
-	}
-
-	// ESC 키로 모달 닫기
-	document.addEventListener('keydown', (e) => {
+	// ESC key
+	document.addEventListener('keydown', e => {
 		if (e.key === 'Escape') {
 			closeQRScanner();
-			closeTeacherAuthModal();
 			closeParentAuthModal();
+			closeTeacherAuthModal();
 		}
 	});
+
+	// QR 이미지 드래그 앤 드롭
+	const dropZone = document.getElementById('qr-drop-zone');
+	if (dropZone) {
+		['dragenter', 'dragover'].forEach(evt => {
+			dropZone.addEventListener(evt, e => {
+				e.preventDefault();
+				e.stopPropagation();
+				dropZone.classList.add('dragover');
+			});
+		});
+		['dragleave', 'drop'].forEach(evt => {
+			dropZone.addEventListener(evt, e => {
+				e.preventDefault();
+				e.stopPropagation();
+				dropZone.classList.remove('dragover');
+			});
+		});
+		dropZone.addEventListener('drop', e => {
+			const file = e.dataTransfer?.files?.[0];
+			if (file && file.type.startsWith('image/')) {
+				selectedQRFile = file;
+				showQRFilePreview(file);
+				scanQRFromFile();
+			} else {
+				ppShowToast('이미지 파일만 지원됩니다', 'error');
+			}
+		});
+	}
+
+	// Pre-load teacher list
+	loadTeacherAuthList();
 });
 
-// ========== 정리 함수 ==========
-window.addEventListener('beforeunload', () => {
-	stopQRScanner();
-});
-
-console.log('[report.js] 로드 완료');
+window.addEventListener('beforeunload', () => { stopQRScanner(); });

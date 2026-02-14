@@ -137,7 +137,8 @@
     <div id="teacher-select-page" class="auth-page" style="display: none;">
         <div class="auth-container">
             <button onclick="backToAdminLogin()" style="align-self: flex-start; background: none; border: none; color: rgba(255,255,255,0.85); font-size: 14px; font-weight: 600; cursor: pointer; padding: 8px 4px; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='rgba(255,255,255,0.85)'"><i class="fas fa-arrow-left"></i> 관리자 로그인으로 돌아가기</button>
-            <div class="auth-box">
+            <div class="auth-box" style="position:relative;">
+                <button onclick="showQRPasswordModal()" style="position:absolute;top:18px;right:18px;background:linear-gradient(135deg,#4f46e5,#7c3aed);color:white;border:none;width:42px;height:42px;border-radius:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:17px;box-shadow:0 4px 12px rgba(99,102,241,0.35);transition:all 0.2s;" title="QR코드 스캔" onmouseover="this.style.transform='scale(1.08)';this.style.boxShadow='0 6px 18px rgba(99,102,241,0.45)'" onmouseout="this.style.transform='';this.style.boxShadow='0 4px 12px rgba(99,102,241,0.35)'"><i class="fas fa-qrcode"></i></button>
                 <h1 class="auth-logo">선생님 선택</h1>
                 
                 <!-- 선생님 선택 폼 -->
@@ -215,6 +216,25 @@
                     <button class="auth-btn" onclick="registerTeacher()">등록하기</button>
                     <p class="auth-toggle">이미 등록된 선생님이 있으신가요? <a href="#" onclick="toggleTeacherForm(); return false;">선생님 선택</a></p>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- QR 스캔 비밀번호 입력 모달 -->
+    <div id="qr-password-modal" style="display:none;position:fixed;inset:0;z-index:20000;background:rgba(0,0,0,0.5);backdrop-filter:blur(4px);justify-content:center;align-items:center;">
+        <div style="background:white;border-radius:16px;padding:28px 24px;width:90%;max-width:360px;box-shadow:0 20px 60px rgba(0,0,0,0.3);text-align:center;">
+            <div style="width:56px;height:56px;border-radius:14px;background:linear-gradient(135deg,#4f46e5,#7c3aed);display:flex;align-items:center;justify-content:center;margin:0 auto 16px;"><i class="fas fa-qrcode" style="color:white;font-size:24px;"></i></div>
+            <h3 style="margin:0 0 4px;font-size:18px;font-weight:700;color:#1e293b;">QR 코드 스캔</h3>
+            <p style="margin:0 0 20px;font-size:13px;color:#64748b;">선생님 비밀번호를 입력해주세요</p>
+            <div style="margin-bottom:12px;">
+                <select id="qr-teacher-dropdown" style="width:100%;padding:12px 14px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:14px;color:#334155;background:#f8fafc;outline:none;margin-bottom:10px;" onchange="document.getElementById('qr-scan-password').focus()">
+                    <option value="">선생님 선택</option>
+                </select>
+                <input type="password" id="qr-scan-password" placeholder="비밀번호" style="width:100%;padding:12px 14px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:14px;outline:none;box-sizing:border-box;" onkeydown="if(event.key==='Enter')confirmQRPassword()">
+            </div>
+            <div style="display:flex;gap:8px;">
+                <button onclick="closeQRPasswordModal()" style="flex:1;padding:12px;border:1.5px solid #e2e8f0;border-radius:10px;background:white;color:#64748b;font-size:14px;font-weight:600;cursor:pointer;">취소</button>
+                <button onclick="confirmQRPassword()" style="flex:1;padding:12px;border:none;border-radius:10px;background:linear-gradient(135deg,#4f46e5,#7c3aed);color:white;font-size:14px;font-weight:600;cursor:pointer;">확인</button>
             </div>
         </div>
     </div>
@@ -355,6 +375,7 @@
             <div class="teacher-chip">
                 <span class="teacher-chip-label">현재 선생님</span>
                 <span id="current-teacher-name" class="teacher-chip-name">미선택</span>
+                <button class="teacher-edit-btn" onclick="openMyInfoEditModal()">내 정보수정</button>
                 <button class="teacher-switch-btn" onclick="showTeacherSelectPage()">변경</button>
             </div>
         </div>
@@ -374,6 +395,17 @@
         </div>
 
         <div class="header-right">
+            <div class="theme-picker-wrapper">
+                <button class="btn-theme-toggle" onclick="toggleThemePicker()" title="테마 색상 변경">
+                    <i class="fas fa-palette"></i>
+                </button>
+                <div class="theme-picker-popup" id="theme-picker-popup">
+                    <div class="theme-picker-title">페이지 테마</div>
+                    <div class="theme-picker-grid" id="theme-picker-grid">
+                        <!-- JS에서 동적 생성 -->
+                    </div>
+                </div>
+            </div>
             <button class="btn-header-action" onclick="toggleFeaturePanel()" title="기능 메뉴">
                 <i class="fas fa-bars"></i> <span>메뉴</span>
             </button>
@@ -413,7 +445,7 @@
                 <button class="student-sort-btn" id="student-sort-grade" onclick="setStudentSort('grade')">학년별</button>
                 <button class="student-sort-btn" id="student-sort-school" onclick="setStudentSort('school')">학교별</button>
             </div>
-            <input type="text" id="drawer-search-input" class="m-input" placeholder="학생명/학년으로 검색..." style="margin-top: 10px;">
+            <input type="text" id="drawer-search-input" class="m-input" placeholder="이름, 학년, 학교로 검색..." style="margin-top: 10px;">
             <div class="checkbox-group" style="justify-content: flex-end; margin-top: 10px;">
                 <input type="checkbox" id="show-archived" class="custom-checkbox" onchange="renderDrawerList()">
                 <label for="show-archived" class="checkbox-label" style="font-size: 13px !important; color: var(--gray);">퇴원/휴원생만 보기</label>
@@ -425,7 +457,8 @@
     <!-- 기능 메뉴 드로어 -->
     <div class="feature-overlay" id="feature-overlay" onclick="closeFeaturePanel()"></div>
     <div class="feature-drawer" id="feature-drawer">
-        <div class="drawer-header" style="justify-content:flex-end;padding:16px 20px;">
+        <div class="drawer-header" style="padding:18px 20px;">
+            <h2 style="margin:0;font-size:17px;font-weight:700;color:#0f172a;">메뉴</h2>
             <button onclick="closeFeaturePanel()" style="border:none;background:none;font-size:28px;cursor:pointer;color:#64748b;">&times;</button>
         </div>
         <div class="feature-content custom-scroll">
@@ -441,9 +474,6 @@
             <button class="feature-main-btn" onclick="toggleStudentList(); closeFeaturePanel();">
                 <i class="fas fa-users"></i> 학생 관리
             </button>
-            <button class="feature-main-btn" onclick="showStudentQRList(); closeFeaturePanel();">
-                <i class="fas fa-qrcode"></i> 학생 QR코드
-            </button>
             <button class="feature-main-btn" id="qr-attendance-menu-btn" onclick="openQRScanPage(); closeFeaturePanel();">
                 <i class="fas fa-camera"></i> QR코드 스캔
             </button>
@@ -454,7 +484,7 @@
                 <i class="fas fa-unlock-alt"></i> 비밀번호 강제 초기화
             </button>
             <button class="feature-main-btn" onclick="openParentPortal(); closeFeaturePanel();">
-                <i class="fas fa-parent"></i> 학부모 포털
+                <i class="fas fa-people-roof"></i> 학부모 포털
             </button>
         </div>
     </div>
@@ -509,6 +539,36 @@
                 <div class="input-group">
                     <label>메모</label>
                     <textarea id="reg-memo" class="m-input m-textarea" placeholder="특이사항..."></textarea>
+                </div>
+                <!-- 코드 관리 통합 섹션 (수정 모드에서만 표시, 아코디언) -->
+                <div id="reg-code-section" class="reg-code-section" style="display:none;">
+                    <button type="button" class="reg-code-toggle" onclick="toggleCodeSection()">
+                        <span><i class="fas fa-shield-halved"></i> 코드 관리</span>
+                        <i class="fas fa-chevron-down reg-code-arrow"></i>
+                    </button>
+                    <div id="reg-code-body" class="reg-code-body">
+                        <!-- 학부모 인증코드 -->
+                        <div class="reg-code-block">
+                            <div class="reg-code-block-label"><i class="fas fa-key"></i> 학부모 인증코드</div>
+                            <div class="reg-code-row">
+                                <input type="text" id="reg-parent-code" class="reg-code-value" readonly>
+                                <button type="button" class="reg-code-btn" onclick="copyParentCode()" title="복사"><i class="fas fa-copy"></i></button>
+                                <button type="button" class="reg-code-btn danger" onclick="regenerateParentCode(document.getElementById('edit-id').value)" title="재발급"><i class="fas fa-rotate"></i></button>
+                            </div>
+                            <div class="reg-code-hint">학부모에게 전달하세요. 학부모 포털에서 종합평가 조회 시 필요합니다.</div>
+                        </div>
+
+                        <!-- QR 출석 코드 -->
+                        <div class="reg-code-block">
+                            <div class="reg-code-block-label"><i class="fas fa-qrcode"></i> QR 출석 코드</div>
+                            <div id="reg-qr-container" class="reg-qr-preview"></div>
+                            <div class="reg-code-row" style="justify-content:center;margin-top:8px;">
+                                <button type="button" class="reg-code-btn wide" onclick="downloadStudentQR(document.getElementById('edit-id').value)"><i class="fas fa-download"></i> 다운로드</button>
+                                <button type="button" class="reg-code-btn wide danger" onclick="regenerateStudentQR(document.getElementById('edit-id').value)"><i class="fas fa-rotate"></i> 재생성</button>
+                            </div>
+                            <div class="reg-code-hint">학생에게 QR코드를 전달하세요. 출석 체크 시 스캔합니다.</div>
+                        </div>
+                    </div>
                 </div>
             </div>
             <div id="edit-mode-actions">
@@ -575,17 +635,18 @@
                             </div>
                         </div>
                         <div class="sch-field">
-                            <span class="sch-field-label">수업 시간</span>
+                            <span class="sch-field-label">수업 시작 시간</span>
                             <input type="time" id="sch-time" class="m-input" value="16:00">
                         </div>
                         <div class="sch-field">
-                            <span class="sch-field-label">수업 길이</span>
+                            <span class="sch-field-label">수업 시간</span>
                             <div class="sch-input-unit">
                                 <input type="number" id="sch-duration-min" class="m-input" value="90" min="10" step="10">
                                 <span class="sch-unit">분</span>
                             </div>
                         </div>
                     </div>
+                    <div id="sch-duration-hint" class="sch-duration-hint" style="display:none;"></div>
                 </div>
             </div>
             <div class="schedule-action-buttons">
@@ -686,35 +747,49 @@
             <input type="hidden" id="att-date">
             <input type="hidden" id="att-original-time">
             <div class="attendance-modal-body custom-scroll">
-                <div class="att-info" id="att-info-text"></div>                
-                <!-- 현재 출석 상태 표시 -->
-                <div class="current-attendance-status">
-                    <div class="status-label">현재 상태</div>
-                    <div id="current-status-display" class="status-display">미등록</div>
+                <!-- 상단: 학생 정보 + 출석 상태 -->
+                <div class="am-header-row">
+                    <div class="am-info" id="att-info-text"></div>
+                    <div id="current-status-display" class="am-status-badge">미등록</div>
                 </div>
-                <div class="attendance-options">
-                    <button class="att-btn present" onclick="setAttendance('present', { startTime: document.getElementById('att-original-time').value })"><i class="fas fa-check-circle fa-lg"></i>출석</button>
-                    <button class="att-btn late" onclick="setAttendance('late', { startTime: document.getElementById('att-original-time').value })"><i class="fas fa-clock fa-lg"></i>지각</button>
-                    <button class="att-btn absent" onclick="setAttendance('absent', { startTime: document.getElementById('att-original-time').value })"><i class="fas fa-times-circle fa-lg"></i>결석</button>
-                    <button class="att-btn etc" onclick="setAttendance('makeup', { startTime: document.getElementById('att-original-time').value })"><i class="fas fa-exclamation-circle fa-lg"></i>보강</button>
+
+                <!-- 출석 버튼 -->
+                <div class="am-attendance-row">
+                    <button class="am-att-btn present" onclick="setAttendance('present', { startTime: document.getElementById('att-original-time').value })"><i class="fas fa-check-circle"></i> 출석</button>
+                    <button class="am-att-btn late" onclick="setAttendance('late', { startTime: document.getElementById('att-original-time').value })"><i class="fas fa-clock"></i> 지각</button>
+                    <button class="am-att-btn absent" onclick="setAttendance('absent', { startTime: document.getElementById('att-original-time').value })"><i class="fas fa-times-circle"></i> 결석</button>
+                    <button class="am-att-btn etc" onclick="setAttendance('makeup', { startTime: document.getElementById('att-original-time').value })"><i class="fas fa-redo"></i> 보강</button>
                 </div>
-                <div class="separator"></div>
-                <div class="input-group">
-                    <div class="section-label">일정 변경</div>
-                    <div class="time-edit-container">
-                        <input type="date" id="att-edit-date" class="m-input full-width-date">
-                        <div class="time-row">
+
+                <!-- 일정 변경 (접기/펼치기) -->
+                <div class="am-collapse-section">
+                    <button class="am-collapse-toggle" onclick="this.parentElement.classList.toggle('open')">
+                        <i class="fas fa-calendar-alt"></i> 일정 변경 <i class="fas fa-chevron-down am-chevron"></i>
+                    </button>
+                    <div class="am-collapse-body">
+                        <input type="date" id="att-edit-date" class="m-input">
+                        <div class="am-time-row">
                             <input type="time" id="att-edit-time" class="m-input">
-                            <div class="duration-input-wrapper">
-                                <input type="number" id="att-edit-duration" class="m-input duration-input" placeholder="90">
-                                <span class="unit-text">분</span>
+                            <div class="am-dur-wrap">
+                                <input type="number" id="att-edit-duration" class="m-input" placeholder="90">
+                                <span class="am-dur-unit">분</span>
                             </div>
-                            <button class="btn-time-update" onclick="updateClassTime()">변경</button>
+                            <button class="am-btn-change" onclick="updateClassTime()">변경</button>
                         </div>
                     </div>
                 </div>
-                <div class="input-group">
-                    <div class="section-label">수업 기록</div>
+
+                <!-- 수업 기록 탭 (개인 / 공유) -->
+                <div class="am-memo-section">
+                    <div class="am-memo-tabs">
+                        <button class="am-memo-tab active" data-tab="private" onclick="switchMemoTab('private')">
+                            <i class="fas fa-lock"></i> 개인 메모
+                        </button>
+                        <button class="am-memo-tab" data-tab="shared" onclick="switchMemoTab('shared')">
+                            <i class="fas fa-users"></i> 공유 메모
+                        </button>
+                    </div>
+                    <div class="am-memo-hint" id="am-memo-hint">나만 볼 수 있는 기록입니다.</div>
                     <div class="memo-editor-toolbar">
                         <button type="button" class="color-btn" onclick="applyMemoColor('#ef4444')" style="background:#ef4444;" title="빨강"></button>
                         <button type="button" class="color-btn" onclick="applyMemoColor('#f97316')" style="background:#f97316;" title="주황"></button>
@@ -722,12 +797,12 @@
                         <button type="button" class="color-btn" onclick="applyMemoColor('#22c55e')" style="background:#22c55e;" title="초록"></button>
                         <button type="button" class="color-btn" onclick="applyMemoColor('#0ea5e9')" style="background:#0ea5e9;" title="파랑"></button>
                         <button type="button" class="color-btn" onclick="applyMemoColor('#7c3aed')" style="background:#7c3aed;" title="보라"></button>
-                        <button type="button" class="color-btn" onclick="applyMemoColor('#000000')" style="background:#000000;" title="검정 (기본)"></button>
+                        <button type="button" class="color-btn" onclick="applyMemoColor('#000000')" style="background:#000000;" title="검정"></button>
                     </div>
                     <div id="att-memo" class="m-input m-textarea memo-editor" contenteditable="true" placeholder="진도 내용, 숙제 등"></div>
-                    <button class="btn-save-memo" onclick="saveOnlyMemo()">저장</button>
+                    <div id="att-shared-memo" class="m-input m-textarea memo-editor" contenteditable="true" placeholder="모든 선생님이 볼 수 있는 공유 기록" style="display:none;"></div>
+                    <button class="am-btn-save-memo" onclick="saveOnlyMemo()"><i class="fas fa-save"></i> 저장</button>
                 </div>
-                <div class="separator"></div>
             </div>
             <div class="attendance-modal-footer">
                 <button class="btn-history" onclick="openHistoryModal()"><i class="fas fa-history"></i> 이번달 기록</button>
@@ -799,12 +874,14 @@
             <div class="modal-header">
                 <div>
                     <h2 id="hist-title">학생 이름</h2>
-                    <span id="hist-subtitle" style="font-size: 13px; color: var(--gray);"></span>
+                    <span id="hist-subtitle" class="hist-subtitle"></span>
                 </div>
                 <button class="btn-close-x" onclick="closeModal('history-modal')"><i class="fas fa-times"></i></button>
             </div>
+            <!-- 통계 요약 -->
+            <div class="hist-stats" id="hist-stats"></div>
             <div class="modal-body custom-scroll">
-                <div id="history-timeline" class="timeline-container"></div>
+                <div id="history-timeline" class="hist-list"></div>
             </div>
         </div>
     </div>
@@ -907,6 +984,15 @@
                 <div class="input-group">
                     <label>전화번호</label>
                     <input type="text" id="detail-teacher-phone" class="m-input" placeholder="010-0000-0000" maxlength="13" oninput="formatPhoneNumber(this)">
+                </div>
+                <div class="input-group">
+                    <label>인증 이메일 (구글)</label>
+                    <div id="detail-teacher-email-display" style="display:none; padding: 10px 14px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px;">
+                        <span style="font-size: 13px; color: #16a34a;"><i class="fas fa-check-circle" style="margin-right: 6px;"></i><span id="detail-teacher-email-text"></span></span>
+                    </div>
+                    <div id="detail-teacher-no-email" style="display:none; padding: 10px 14px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
+                        <span style="font-size: 13px; color: #94a3b8;"><i class="fas fa-envelope" style="margin-right: 6px;"></i>등록된 이메일 없음</span>
+                    </div>
                 </div>
                 <div class="input-group">
                     <label>주소</label>
@@ -1057,7 +1143,7 @@
     </div>
 
     <!-- QR 스캔 페이지 (전체 화면) -->
-    <div id="qr-scan-page" class="auth-page" style="display: none; background: #1e293b;">
+    <div id="qr-scan-page" class="auth-page" style="display: none; background: #1e293b !important;">
         <div style="width: 100%; max-width: 600px; padding: 20px;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                 <h2 style="color: white; margin: 0;">QR 코드 스캔</h2>
@@ -1093,6 +1179,54 @@
             </div>
             <div class="modal-body-scrollable custom-scroll" style="padding-top:0;">
                 <div id="student-qr-list"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 내 정보 수정 모달 -->
+    <div id="my-info-modal" class="modal" style="display: none;">
+        <div class="modal-card" style="max-width: 460px;">
+            <div class="modal-header">
+                <h2><i class="fas fa-user-pen" style="color:var(--primary);font-size:15px;"></i> 내 정보수정</h2>
+                <button class="btn-close-x" onclick="closeModal('my-info-modal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body-scrollable custom-scroll" style="padding:20px 24px;">
+                <div class="form-group">
+                    <label>이름</label>
+                    <input type="text" id="my-info-name" class="m-input" placeholder="선생님 이름">
+                </div>
+                <div class="form-group">
+                    <label>연락처</label>
+                    <input type="text" id="my-info-phone" class="m-input" placeholder="010-0000-0000" maxlength="13" oninput="formatPhoneNumber(this)">
+                </div>
+                <div class="form-group">
+                    <label>이메일 (구글 인증)</label>
+                    <div id="my-info-email-display" style="padding:10px 14px;background:#f0fdf4;border:1px solid #86efac;border-radius:10px;font-size:13px;color:#166534;font-weight:600;display:none;">
+                        <i class="fas fa-check-circle" style="margin-right:4px;"></i> <span id="my-info-email-text"></span>
+                    </div>
+                    <div id="my-info-no-email" style="padding:10px 14px;background:#fef2f2;border:1px solid #fca5a5;border-radius:10px;font-size:13px;color:#991b1b;display:none;">
+                        <i class="fas fa-exclamation-circle" style="margin-right:4px;"></i> 이메일 미등록
+                    </div>
+                    <button type="button" onclick="startGoogleAuthForMyInfo()" style="margin-top:8px;width:100%;padding:10px 14px;background:white;border:1.5px solid var(--border);border-radius:10px;cursor:pointer;font-size:13px;font-weight:600;color:#334155;display:flex;align-items:center;justify-content:center;gap:8px;transition:all 0.15s;" onmouseover="this.style.borderColor='#6366f1';this.style.color='#4f46e5'" onmouseout="this.style.borderColor='';this.style.color='#334155'">
+                        <svg width="16" height="16" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+                        다른 계정으로 변경
+                    </button>
+                </div>
+                <div class="form-group">
+                    <label>주소</label>
+                    <div style="display:flex;gap:8px;">
+                        <input type="text" id="my-info-address" class="m-input" placeholder="주소를 검색하세요" readonly style="flex:1;cursor:pointer;" onclick="searchAddressForMyInfo()">
+                        <button type="button" onclick="searchAddressForMyInfo()" style="padding:10px 16px;background:var(--primary);color:white;border:none;border-radius:10px;cursor:pointer;font-weight:600;font-size:13px;white-space:nowrap;">검색</button>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>상세주소</label>
+                    <input type="text" id="my-info-address-detail" class="m-input" placeholder="예: 101동 1202호">
+                </div>
+            </div>
+            <div style="padding:16px 24px;border-top:1px solid var(--border);display:flex;gap:8px;">
+                <button onclick="closeModal('my-info-modal')" style="flex:1;padding:12px;border:1.5px solid var(--border);border-radius:10px;background:white;color:var(--gray);font-size:14px;font-weight:600;cursor:pointer;">취소</button>
+                <button onclick="saveMyInfo()" style="flex:1;padding:12px;border:none;border-radius:10px;background:var(--primary);color:white;font-size:14px;font-weight:600;cursor:pointer;">저장</button>
             </div>
         </div>
     </div>
@@ -1231,4 +1365,5 @@
 <script src="qr-token-test.js"></script>
 <script src="script.js"></script>
 </body>
+</html>
 </html>

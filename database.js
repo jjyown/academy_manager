@@ -205,7 +205,7 @@ window.getAttendanceRecordsByOwner = async function(teacherId = null) {
 
         let query = supabase
             .from('attendance_records')
-            .select('id, student_id, teacher_id, attendance_date, status, scheduled_time, check_in_time, qr_scanned, memo')
+            .select('id, student_id, teacher_id, attendance_date, status, scheduled_time, check_in_time, qr_scanned, memo, shared_memo')
             .eq('owner_user_id', ownerId)
             .order('attendance_date', { ascending: true });
 

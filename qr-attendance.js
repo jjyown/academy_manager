@@ -61,6 +61,17 @@ function showAttendanceCheckNotification(timeKey) {
         return;
     }
     
+    // ★ QR 스캔 페이지가 열려있으면 대기열에 보관 (스캔 종료 후 일괄 표시)
+    const scanPage = document.getElementById('qr-scan-page');
+    if (scanPage && scanPage.style.display && scanPage.style.display !== 'none') {
+        if (!window._qrDeferredNotifications) window._qrDeferredNotifications = [];
+        if (!window._qrDeferredNotifications.includes(timeKey)) {
+            window._qrDeferredNotifications.push(timeKey);
+        }
+        console.log('[재석확인] QR 스캔 중 - 대기열 보관:', timeKey);
+        return;
+    }
+    
     // ★ 현재 선생님의 항목만 필터링
     const myItems = items.filter(item => String(item.teacherId) === String(currentTeacherId));
     if (myItems.length === 0) return; // 내 일정이 아니면 알림 안 띄움
@@ -495,7 +506,7 @@ window.generateQRCode = function(containerId, qrData, size = 200) {
         colorDark: "#000000",
         colorLight: "#ffffff",
         correctLevel: QRCode.CorrectLevel.H,
-        quietZone: 10,
+        quietZone: 40,
         quietZoneColor: "#ffffff"
     });
 }
@@ -684,6 +695,128 @@ window.openQRScanPage = async function() {
     }
 }
 
+// ★ 선생님 선택 화면에서 QR 스캔 (비밀번호 인증 방식)
+let openedFromTeacherSelect = false;
+
+// QR 비밀번호 모달 열기 (세션 인증 기억 기능 포함)
+window.showQRPasswordModal = async function() {
+    console.log('[showQRPasswordModal] QR 비밀번호 모달 열기');
+
+    // ★ 세션에 이전 인증 정보가 있으면 비밀번호 없이 바로 진입
+    const savedTeacherId = sessionStorage.getItem('qr_scan_teacher_id');
+    if (savedTeacherId && typeof teacherList !== 'undefined' && teacherList.length > 0) {
+        const savedTeacher = teacherList.find(t => String(t.id) === String(savedTeacherId));
+        if (savedTeacher) {
+            console.log('[showQRPasswordModal] 세션 인증 기억 - 바로 진입:', savedTeacher.name);
+            openedFromTeacherSelect = true;
+            window._pendingQRScanOpen = true;
+            await setCurrentTeacher(savedTeacher);
+            if (window._pendingQRScanOpen) {
+                window._pendingQRScanOpen = false;
+                setTimeout(() => {
+                    if (typeof openQRScanPage === 'function') openQRScanPage();
+                }, 300);
+            }
+            return;
+        }
+    }
+
+    const modal = document.getElementById('qr-password-modal');
+    if (!modal) return;
+
+    // 선생님 드롭다운 채우기 (메인 드롭다운의 목록을 복사)
+    const qrDropdown = document.getElementById('qr-teacher-dropdown');
+    if (qrDropdown && typeof teacherList !== 'undefined' && teacherList.length > 0) {
+        qrDropdown.innerHTML = '<option value="">선생님 선택</option>';
+        teacherList.forEach(t => {
+            const opt = document.createElement('option');
+            opt.value = t.id;
+            opt.textContent = t.name;
+            qrDropdown.appendChild(opt);
+        });
+        // 선생님이 1명이면 자동 선택
+        if (teacherList.length === 1) {
+            qrDropdown.value = teacherList[0].id;
+        }
+    }
+
+    // 비밀번호 초기화
+    const pwInput = document.getElementById('qr-scan-password');
+    if (pwInput) pwInput.value = '';
+
+    modal.style.display = 'flex';
+    setTimeout(() => {
+        if (teacherList && teacherList.length === 1 && pwInput) {
+            pwInput.focus();
+        } else if (qrDropdown) {
+            qrDropdown.focus();
+        }
+    }, 100);
+}
+
+// QR 비밀번호 모달 닫기
+window.closeQRPasswordModal = function() {
+    const modal = document.getElementById('qr-password-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+// QR 비밀번호 확인 → 선생님 입장 후 QR 스캔 자동 열기
+window.confirmQRPassword = async function() {
+    const qrDropdown = document.getElementById('qr-teacher-dropdown');
+    const pwInput = document.getElementById('qr-scan-password');
+    const teacherId = qrDropdown ? qrDropdown.value : '';
+    const password = pwInput ? pwInput.value.trim() : '';
+
+    if (!teacherId) {
+        showToast('선생님을 선택해주세요.', 'warning');
+        return;
+    }
+    if (!password) {
+        showToast('비밀번호를 입력해주세요.', 'warning');
+        return;
+    }
+
+    const teacher = teacherList.find(t => String(t.id) === String(teacherId));
+    if (!teacher) {
+        showToast('선생님을 찾을 수 없습니다.', 'error');
+        return;
+    }
+
+    // 비밀번호 검증
+    const passwordHash = await hashPin(password);
+    if (passwordHash !== teacher.pin_hash) {
+        showToast('비밀번호가 일치하지 않습니다.', 'warning');
+        if (pwInput) { pwInput.value = ''; pwInput.focus(); }
+        return;
+    }
+
+    console.log('[confirmQRPassword] 비밀번호 인증 성공:', teacher.name);
+
+    // ★ 세션에 인증 정보 저장 (같은 탭에서 재인증 불필요)
+    sessionStorage.setItem('qr_scan_teacher_id', teacher.id);
+
+    // 모달 닫기
+    closeQRPasswordModal();
+
+    // ★ 플래그 설정: setCurrentTeacher 완료 후 QR 스캔 자동 오픈
+    openedFromTeacherSelect = true;
+    window._pendingQRScanOpen = true;
+
+    // 기존 선생님 입장 로직 그대로 사용
+    await setCurrentTeacher(teacher);
+
+    // setCurrentTeacher 완료 후 QR 스캔 페이지 열기
+    if (window._pendingQRScanOpen) {
+        window._pendingQRScanOpen = false;
+        console.log('[confirmQRPassword] QR 스캔 페이지 자동 열기');
+        setTimeout(() => {
+            if (typeof openQRScanPage === 'function') {
+                openQRScanPage();
+            }
+        }, 300);
+    }
+}
+
 // 카메라 전환 (전방 ↔ 후방)
 window.switchCamera = async function() {
     console.log('[switchCamera] 카메라 전환 시작');
@@ -744,6 +877,26 @@ window.closeQRScanPage = function() {
     
     // 페이지 숨기기
     document.getElementById('qr-scan-page').style.display = 'none';
+
+    // QR 스캔 중 보류된 재석 확인 알림 일괄 표시
+    if (window._qrDeferredNotifications && window._qrDeferredNotifications.length > 0) {
+        const deferred = [...window._qrDeferredNotifications];
+        window._qrDeferredNotifications = [];
+        console.log('[closeQRScanPage] 보류된 재석 확인 알림 표시:', deferred.length, '건');
+        deferred.forEach((timeKey, i) => {
+            setTimeout(() => showAttendanceCheckNotification(timeKey), (i + 1) * 500);
+        });
+    }
+
+    // 선생님 선택 화면에서 열었으면 선생님 선택 화면으로 복귀
+    if (openedFromTeacherSelect) {
+        openedFromTeacherSelect = false;
+        console.log('[closeQRScanPage] 선생님 선택 화면으로 복귀');
+        if (typeof navigateToPage === 'function') {
+            navigateToPage('TEACHER_SELECT');
+            if (typeof loadTeachers === 'function') loadTeachers();
+        }
+    }
 }
 
 // QR 스캐너 시작
@@ -753,32 +906,54 @@ function startQRScanner() {
         return;
     }
     
-    // ★ QR 스캔 속도 최적화 설정
+    try {
+        // ★ QR 스캔 속도 최적화 설정
+        const readerEl = document.getElementById('qr-reader');
+        const readerWidth = readerEl ? readerEl.clientWidth : 300;
+        const qrboxSize = Math.max(Math.min(Math.floor(readerWidth * 0.75), 300), 150);
+        
+        console.log('[startQRScanner] readerWidth:', readerWidth, 'qrboxSize:', qrboxSize);
+        
+        const config = {
+            fps: 20,  // ★ 10 → 20fps (스캔 빈도 2배 증가)
+            qrbox: { width: qrboxSize, height: qrboxSize },  // ★ 화면 비율에 맞게 자동 조정
+            experimentalFeatures: {
+                useBarCodeDetectorIfSupported: true  // ★ 브라우저 네이티브 API 사용 (훨씬 빠름)
+            }
+        };
+        
+        html5QrcodeScanner = new Html5Qrcode("qr-reader", {
+            formatsToSupport: [0]  // ★ QR_CODE만 스캔 (불필요한 바코드 무시로 속도 향상)
+        });
+        
+        html5QrcodeScanner.start(
+            { facingMode: currentFacingMode },
+            config,
+            onQRScanSuccess,
+            onQRScanFailure
+        ).catch(err => {
+            console.error('[startQRScanner] 카메라 시작 실패:', err);
+            showCameraFallbackUI();
+        });
+    } catch (err) {
+        console.error('[startQRScanner] 스캐너 초기화 실패:', err);
+        showCameraFallbackUI();
+    }
+}
+
+// 카메라를 사용할 수 없을 때 안내 UI 표시
+function showCameraFallbackUI() {
     const readerEl = document.getElementById('qr-reader');
-    const readerWidth = readerEl ? readerEl.clientWidth : 300;
-    const qrboxSize = Math.min(Math.floor(readerWidth * 0.75), 300);
-    
-    const config = {
-        fps: 20,  // ★ 10 → 20fps (스캔 빈도 2배 증가)
-        qrbox: { width: qrboxSize, height: qrboxSize },  // ★ 화면 비율에 맞게 자동 조정
-        experimentalFeatures: {
-            useBarCodeDetectorIfSupported: true  // ★ 브라우저 네이티브 API 사용 (훨씬 빠름)
-        }
-    };
-    
-    html5QrcodeScanner = new Html5Qrcode("qr-reader", {
-        formatsToSupport: [0]  // ★ QR_CODE만 스캔 (불필요한 바코드 무시로 속도 향상)
-    });
-    
-    html5QrcodeScanner.start(
-        { facingMode: currentFacingMode },
-        config,
-        onQRScanSuccess,
-        onQRScanFailure
-    ).catch(err => {
-        console.error('[startQRScanner] 카메라 시작 실패:', err);
-        showToast('카메라를 시작할 수 없습니다. 카메라 권한을 확인해주세요.', 'error');
-    });
+    if (readerEl) {
+        readerEl.innerHTML = `
+            <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 20px;color:#94a3b8;text-align:center;">
+                <i class="fas fa-video-slash" style="font-size:48px;margin-bottom:16px;color:#64748b;"></i>
+                <p style="font-size:18px;font-weight:600;color:#e2e8f0;margin:0 0 8px;">카메라를 사용할 수 없습니다</p>
+                <p style="font-size:14px;margin:0;line-height:1.6;">카메라 권한을 허용해주세요.<br>또는 모바일 기기에서 QR 스캔을 이용해주세요.</p>
+            </div>
+        `;
+    }
+    showToast('카메라를 시작할 수 없습니다.', 'error');
 }
 
 // QR 스캔 성공 콜백
@@ -1586,6 +1761,20 @@ window.showStudentQRList = async function() {
     }
 }
 
+// 동명이인 감지 (QR 모듈용)
+function getQRDuplicateNameSet() {
+    const nameCount = {};
+    (window.students || []).filter(s => s.status === 'active').forEach(s => {
+        const n = (s.name || '').trim();
+        if (n) nameCount[n] = (nameCount[n] || 0) + 1;
+    });
+    const dupNames = new Set();
+    for (const [name, count] of Object.entries(nameCount)) {
+        if (count > 1) dupNames.add(name);
+    }
+    return dupNames;
+}
+
 async function renderStudentQRList() {
     const listDiv = document.getElementById('student-qr-list');
     const countEl = document.getElementById('qr-student-count');
@@ -1596,78 +1785,94 @@ async function renderStudentQRList() {
         return;
     }
 
-    // 아바타 색상 팔레트
     const avatarColors = ['#6366f1','#ec4899','#f59e0b','#10b981','#8b5cf6','#ef4444','#0ea5e9','#f97316'];
-
+    const activeStudents = students.filter(s => s.status === 'active');
+    const dupNames = getQRDuplicateNameSet();
     let html = '';
-    let count = 0;
 
-    for (const student of students) {
+    activeStudents.forEach((student, idx) => {
+        const qrId = `qr-${student.id}`;
+        const accordionId = `accordion-${student.id}`;
+        const color = avatarColors[idx % avatarColors.length];
+        const initial = (student.name || '?').charAt(0);
+        // 이름/학년에서 특수문자 이스케이프
+        const safeName = (student.name || '').replace(/'/g, "\\'");
+        const isDup = dupNames.has((student.name || '').trim());
+        const schoolTag = isDup && student.school ? `<span class="qr-item-school">${student.school}</span>` : '';
+
+        html += `
+        <div class="qr-item" data-student-id="${student.id}">
+            <div class="qr-item-header" onclick="toggleQRAccordionLazy('${accordionId}', '${qrId}', '${student.id}')">
+                <div class="qr-item-info">
+                    <div class="qr-item-avatar" style="background:${color};">${initial}</div>
+                    <span class="qr-item-name">${student.name}</span>
+                    <span class="qr-item-grade">${student.grade}</span>
+                    ${schoolTag}
+                </div>
+                <div class="qr-item-actions">
+                    <button class="qr-regenerate-btn" onclick="event.stopPropagation(); regenerateQRCode('${student.id}', '${qrId}', '${accordionId}', '${safeName}')" title="QR코드 재발급">
+                        <i class="fas fa-sync-alt"></i> 재발급
+                    </button>
+                    <i id="icon-${accordionId}" class="fas fa-chevron-down qr-item-chevron"></i>
+                </div>
+            </div>
+            <div id="${accordionId}" class="qr-item-body">
+                <div class="qr-item-body-inner">
+                    <div id="${qrId}" style="display:flex;justify-content:center;margin-bottom:8px;"></div>
+                    <button class="qr-download-btn" onclick="downloadQRCode('${qrId}', '${safeName}')">
+                        <i class="fas fa-download"></i> 다운로드
+                    </button>
+                </div>
+            </div>
+        </div>`;
+    });
+
+    listDiv.innerHTML = html;
+    if (countEl) countEl.textContent = `${activeStudents.length}명`;
+}
+
+// QR 데이터 지연 로드 - 아코디언 열 때만 QR 생성
+window.toggleQRAccordionLazy = async function(accordionId, qrId, studentId) {
+    const accordion = document.getElementById(accordionId);
+    const icon = document.getElementById('icon-' + accordionId);
+    if (!accordion) return;
+
+    const isOpen = accordion.classList.contains('open');
+    if (isOpen) {
+        accordion.classList.remove('open');
+        accordion.style.maxHeight = '0px';
+        if (icon) icon.classList.remove('rotated');
+        return;
+    }
+
+    // QR이 아직 생성되지 않았으면 지연 로드
+    const qrContainer = document.getElementById(qrId);
+    if (qrContainer && qrContainer.children.length === 0) {
+        qrContainer.innerHTML = '<div style="text-align:center;padding:12px;color:#94a3b8;font-size:12px;"><i class="fas fa-spinner fa-spin"></i> QR 생성 중...</div>';
         try {
-            const qrData = await getOrCreateQRCodeData(student.id);
-            const qrId = `qr-${student.id}`;
-            const accordionId = `accordion-${student.id}`;
-            const color = avatarColors[count % avatarColors.length];
-            const initial = (student.name || '?').charAt(0);
-
-            console.log('[renderStudentQRList] 학생:', student.name, '| ID:', student.id, '| QR 데이터:', qrData);
-
-            html += `
-            <div class="qr-item">
-                <div class="qr-item-header" onclick="toggleQRAccordion('${accordionId}', '${qrId}', '${qrData}')">
-                    <div class="qr-item-info">
-                        <div class="qr-item-avatar" style="background:${color};">${initial}</div>
-                        <span class="qr-item-name">${student.name}</span>
-                        <span class="qr-item-grade">${student.grade}</span>
-                    </div>
-                    <div class="qr-item-actions">
-                        <button class="qr-regenerate-btn" onclick="event.stopPropagation(); regenerateQRCode('${student.id}', '${qrId}', '${accordionId}', '${student.name}')" title="QR코드 재발급">
-                            <i class="fas fa-sync-alt"></i> 재발급
-                        </button>
-                        <i id="icon-${accordionId}" class="fas fa-chevron-down qr-item-chevron"></i>
-                    </div>
-                </div>
-                <div id="${accordionId}" class="qr-item-body">
-                    <div class="qr-item-body-inner">
-                        <div id="${qrId}" style="display:flex;justify-content:center;margin-bottom:8px;"></div>
-                        <button class="qr-download-btn" onclick="downloadQRCode('${qrId}', '${student.name}')">
-                            <i class="fas fa-download"></i> 다운로드
-                        </button>
-                    </div>
-                </div>
-            </div>`;
-            count++;
-        } catch (error) {
-            console.error('[renderStudentQRList] 학생 QR 생성 실패:', student.name, error);
-            html += `<div class="qr-item-error"><i class="fas fa-exclamation-triangle"></i><span>${student.name} - QR 생성 실패</span></div>`;
+            const qrData = await getOrCreateQRCodeData(studentId);
+            qrContainer.innerHTML = '';
+            generateQRCode(qrId, qrData, 200);
+        } catch (e) {
+            qrContainer.innerHTML = '<div style="text-align:center;padding:12px;color:#ef4444;font-size:12px;"><i class="fas fa-exclamation-triangle"></i> QR 생성 실패</div>';
         }
     }
 
-    listDiv.innerHTML = html;
-    if (countEl) countEl.textContent = `${count}명`;
+    accordion.classList.add('open');
+    accordion.style.maxHeight = accordion.scrollHeight + 'px';
+    if (icon) icon.classList.add('rotated');
 }
 
 // QR 코드 재발급
 window.regenerateQRCode = async function(studentId, qrId, accordionId, cleanName) {
-    console.log('[regenerateQRCode] ========== QR 코드 재발급 시작 ==========');
-    console.log('[regenerateQRCode] 학생 ID:', studentId);
-    
-    // 반드시 토큰 포함된 최신 QR 생성 - await로 DB 저장 완료 대기
     const newQrData = await generateQRCodeData(studentId);
-    console.log('[regenerateQRCode] 새 QR 데이터 생성:', newQrData);
     
-    // ✅ DB에 실제로 저장되었는지 재조회하여 검증
+    // DB 저장 검증
     const savedToken = await getStudentQrTokenFromDb(studentId);
-    const expectedToken = newQrData.split('_').slice(2).join('_'); // STUDENT_{ID}_{token}에서 token 추출
-    
-    if (savedToken === expectedToken) {
-        console.log('[regenerateQRCode] ✅ DB 저장 검증 성공');
-    } else {
-        console.error('[regenerateQRCode] ⚠️ DB 저장 검증 실패!');
-        console.error('[regenerateQRCode] 예상 토큰:', expectedToken.substring(0, 20) + '...');
-        console.error('[regenerateQRCode] DB 토큰:', savedToken ? savedToken.substring(0, 20) + '...' : 'null');
+    const expectedToken = newQrData.split('_').slice(2).join('_');
+    if (savedToken !== expectedToken) {
+        console.warn('[regenerateQRCode] DB 저장 검증 실패');
     }
-    console.log('[regenerateQRCode] ========== DB 저장 완료 ==========');
 
     const qrContainer = document.getElementById(qrId);
     if (!qrContainer) return;
@@ -1736,6 +1941,21 @@ window.filterQRStudentList = function() {
     });
     const countEl = document.getElementById('qr-student-count');
     if (countEl) countEl.textContent = query ? `${visible}명 검색` : `${items.length}명`;
+
+    // 빈 검색 결과 메시지
+    let emptyMsg = document.getElementById('qr-search-empty');
+    if (query && visible === 0) {
+        if (!emptyMsg) {
+            emptyMsg = document.createElement('div');
+            emptyMsg.id = 'qr-search-empty';
+            emptyMsg.style.cssText = 'text-align:center;padding:30px 20px;color:#94a3b8;font-size:13px;';
+            emptyMsg.innerHTML = '<i class="fas fa-search" style="font-size:22px;margin-bottom:8px;display:block;opacity:0.4;"></i>검색 결과가 없습니다';
+            document.getElementById('student-qr-list').appendChild(emptyMsg);
+        }
+        emptyMsg.style.display = '';
+    } else if (emptyMsg) {
+        emptyMsg.style.display = 'none';
+    }
 };
 
 window.downloadQRCode = function(qrId, studentName) {
@@ -2365,7 +2585,8 @@ async function saveAttendanceRecord(recordData) {
             qr_scanned: recordData.qrScanned || false,
             qr_scan_time: recordData.qrScanTime || null,
             qr_judgment: recordData.qrJudgment || null,
-            memo: recordData.memo || null
+            memo: recordData.memo || null,
+            shared_memo: recordData.shared_memo !== undefined ? recordData.shared_memo : null
         };
         
         console.log('[saveAttendanceRecord] 저장 시도:', record);
@@ -2440,7 +2661,7 @@ async function getAttendanceRecordByStudentAndDate(studentId, dateStr, teacherId
         }
         let query = supabase
             .from('attendance_records')
-            .select('id, student_id, teacher_id, attendance_date, status, scheduled_time, check_in_time, qr_scanned, qr_judgment, memo')
+            .select('id, student_id, teacher_id, attendance_date, status, scheduled_time, check_in_time, qr_scanned, qr_judgment, memo, shared_memo')
             .eq('student_id', numericId)
             .eq('attendance_date', dateStr);
         if (teacherId) {
@@ -2467,7 +2688,7 @@ async function getAttendanceRecordsByDate(dateStr) {
         
         const { data, error } = await supabase
             .from('attendance_records')
-            .select('id, student_id, teacher_id, attendance_date, status, scheduled_time, check_in_time, qr_scanned, memo')
+            .select('id, student_id, teacher_id, attendance_date, status, scheduled_time, check_in_time, qr_scanned, memo, shared_memo')
             .eq('owner_user_id', ownerId)
             .eq('teacher_id', currentTeacherId)
             .eq('attendance_date', dateStr)
@@ -2492,7 +2713,7 @@ async function getStudentAttendanceRecordsByMonth(studentId, year, month) {
         
         let query = supabase
             .from('attendance_records')
-            .select('id, student_id, teacher_id, attendance_date, status, scheduled_time, check_in_time, qr_scanned, qr_scan_time, qr_judgment, memo')
+            .select('id, student_id, teacher_id, attendance_date, status, scheduled_time, check_in_time, qr_scanned, qr_scan_time, qr_judgment, memo, shared_memo')
             .eq('owner_user_id', ownerId)
             .eq('student_id', numericId)
             .gte('attendance_date', startDate)

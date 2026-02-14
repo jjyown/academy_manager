@@ -2,950 +2,1093 @@
 <html lang="ko">
 <head>
 	<meta charset="UTF-8">
-	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<title>학생 출결 조회 - 학부모 포털</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+	<title>학부모 포털 - 우리 아이 출결 관리</title>
 	<link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.8/dist/web/static/pretendard.css" />
 	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-	<link rel="stylesheet" href="style.css">
-	<!-- Supabase 라이브러리 -->
 	<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-	<!-- QR 스캔 라이브러리 -->
 	<script src="https://unpkg.com/html5-qrcode"></script>
 	<style>
 		:root {
 			--primary: #818cf8;
 			--primary-hover: #6366f1;
-			--primary-light: rgba(129,140,248,0.1);
+			--primary-light: rgba(129,140,248,0.12);
+			--accent: #7c3aed;
 			--text: #e2e0ea;
-			--text-secondary: #9b97ad;
+			--text-sec: #9b97ad;
 			--gray: #6b6880;
-			--border: rgba(255,255,255,0.1);
-			--white: #2a2740;
-			--bg: rgba(255,255,255,0.04);
+			--border: rgba(255,255,255,0.08);
+			--card: #2a2740;
+			--card-hover: #312d4a;
+			--bg: #1e1b2e;
+			--bg-elevated: rgba(255,255,255,0.04);
+			--green: #4ade80;
+			--green-bg: rgba(74,222,128,0.12);
+			--yellow: #fbbf24;
+			--yellow-bg: rgba(251,191,36,0.12);
 			--red: #f87171;
-			--orange: #fbbf24;
+			--red-bg: rgba(248,113,113,0.12);
 			--teal: #2dd4bf;
-			--success: #4ade80;
+			--teal-bg: rgba(45,212,191,0.12);
 			--radius: 12px;
-			--radius-md: 14px;
+			--radius-lg: 18px;
+			--radius-xl: 24px;
+			--shadow: 0 4px 24px rgba(0,0,0,0.15);
+			--transition: 0.2s cubic-bezier(0.4,0,0.2,1);
 			color-scheme: dark;
-			--radius-lg: 20px;
 		}
 
-		* { margin: 0; padding: 0; box-sizing: border-box; }
+		* { margin:0; padding:0; box-sizing:border-box; }
 
 		body {
 			font-family: Pretendard, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-			background: #1e1b2e;
+			background: var(--bg);
 			min-height: 100vh;
 			min-height: 100dvh;
-			padding: 0;
-			-webkit-font-smoothing: antialiased;
 			color: var(--text);
+			-webkit-font-smoothing: antialiased;
+			overflow-x: hidden;
 		}
 
-		/* --- Top Banner --- */
-		.top-banner {
-			background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
-			padding: 48px 20px 80px;
-			text-align: center;
+		/* ===== Landing Page ===== */
+		#page-landing {
+			display: flex; flex-direction: column; min-height: 100vh; min-height: 100dvh;
+			background: var(--bg);
+			background-image: radial-gradient(circle at 20% 20%, rgba(99,102,241,0.06) 0%, transparent 50%),
+				radial-gradient(circle at 80% 80%, rgba(139,92,246,0.06) 0%, transparent 50%);
 		}
+		#page-dashboard { display: none; min-height: 100vh; min-height: 100dvh; }
 
-		.container {
-			max-width: 640px;
-			margin: -56px auto 0;
-			padding: 0 16px 32px;
-			position: relative;
-		}
-
-		/* --- Header --- */
-		.header {
-			text-align: center;
-			color: white;
-			margin-bottom: 0;
-			margin-top: 0;
-			position: relative;
-		}
-
-		.header h1 {
-			font-size: 24px;
-			font-weight: 700;
-			margin-bottom: 6px;
-			letter-spacing: -0.5px;
-		}
-
-		.header p {
-			font-size: 14px;
-			opacity: 0.85;
-			font-weight: 400;
-		}
-
-		/* --- Cards Base --- */
-		.search-section,
-		.result-section,
-		.evaluation-section {
-			background: #2a2740;
-			border-radius: var(--radius-lg);
-			padding: 24px;
-			margin-bottom: 16px;
-			box-shadow: 0 2px 8px rgba(0,0,0,0.15), 0 8px 24px rgba(0,0,0,0.1);
-			border: 1px solid rgba(255,255,255,0.06);
-			color: #e2e0ea;
-		}
-
-		/* --- Search Section --- */
-		.search-header {
-			font-size: 15px;
-			font-weight: 600;
-			color: #e2e0ea;
-			margin-bottom: 16px;
-			display: flex;
-			align-items: center;
-			gap: 8px;
-		}
-
-		.search-header i { color: #a5b4fc; font-size: 14px; }
-
-		.search-container {
+		.landing-hero {
+			flex: 1;
 			display: flex;
 			flex-direction: column;
-			gap: 10px;
-			margin-bottom: 12px;
-		}
-
-		.search-fields {
-			display: grid;
-			grid-template-columns: 1fr 1fr;
-			gap: 10px;
-		}
-
-		.search-input {
-			flex: 1;
-			padding: 12px 14px;
-			border: 1px solid rgba(255,255,255,0.1);
-			border-radius: var(--radius);
-			font-size: 14px;
-			font-family: inherit;
-			transition: all 0.15s ease;
-			min-height: 46px;
-			background: rgba(255,255,255,0.06);
-			color: #e2e0ea;
-		}
-
-		.search-input:focus {
-			outline: none;
-			border-color: #818cf8;
-			box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.15);
-			background: rgba(255,255,255,0.08);
-		}
-
-		.search-input::placeholder { color: #6b6880; }
-
-		.search-btn-row {
-			display: flex;
-			gap: 10px;
-		}
-
-		.search-btn, .qr-scan-btn {
-			flex: 1;
-			padding: 12px 18px;
-			background: var(--primary);
-			color: white;
-			border: none;
-			border-radius: var(--radius);
-			font-size: 14px;
-			font-weight: 600;
-			cursor: pointer;
-			transition: all 0.15s ease;
-			min-height: 46px;
-			display: flex;
 			align-items: center;
 			justify-content: center;
-			gap: 8px;
-			white-space: nowrap;
-			font-family: inherit;
+			padding: 40px 20px 24px;
+			text-align: center;
 		}
 
-		.search-btn:hover { background: var(--primary-hover); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(99,102,241,0.3); }
-		.qr-scan-btn { background: #0f766e; }
-		.qr-scan-btn:hover { background: #0d9488; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(13,148,136,0.3); }
-		.search-btn:active, .qr-scan-btn:active { transform: translateY(0); }
-
-		/* --- QR Modal --- */
-		.qr-modal {
-			display: none;
-			position: fixed;
-			inset: 0;
-			background: rgba(15, 23, 42, 0.6);
-			z-index: 1000;
-			padding: 16px;
-			backdrop-filter: blur(8px);
-			-webkit-backdrop-filter: blur(8px);
+		.landing-icon {
+			width: 80px; height: 80px;
+			background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+			border-radius: 24px;
+			display: flex; align-items: center; justify-content: center;
+			font-size: 36px; color: white;
+			margin-bottom: 24px;
+			box-shadow: 0 8px 32px rgba(99,102,241,0.3);
+			animation: iconFloat 3s ease-in-out infinite;
+		}
+		@keyframes iconFloat {
+			0%, 100% { transform: translateY(0); }
+			50% { transform: translateY(-6px); }
 		}
 
-		.qr-modal.active {
-			display: flex;
-			align-items: center;
-			justify-content: center;
+		.landing-title { font-size: 26px; font-weight: 800; letter-spacing: -0.5px; margin-bottom: 8px; }
+		.landing-subtitle { font-size: 14px; color: var(--text-sec); line-height: 1.6; }
+
+		.landing-form {
+			width: 100%; max-width: 400px;
+			padding: 0 20px 40px;
 		}
 
-		.qr-modal-content {
-			background: #2a2740;
-			border-radius: var(--radius-lg);
-			padding: 28px;
-			max-width: 480px;
-			width: 100%;
-			max-height: 85vh;
-			overflow-y: auto;
-			position: relative;
-			border: 1px solid rgba(255,255,255,0.06);
-			animation: ppModalIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-			box-shadow: 0 24px 48px -12px rgba(0,0,0,0.15);
+		.landing-card {
+			background: var(--card);
+			border-radius: var(--radius-xl);
+			padding: 28px 24px;
+			border: 1px solid var(--border);
+			box-shadow: var(--shadow);
+			animation: cardSlideUp 0.5s cubic-bezier(0.16,1,0.3,1) 0.15s both;
 		}
-
-		@keyframes ppModalIn {
-			from { opacity: 0; transform: scale(0.96) translateY(12px); }
-			to { opacity: 1; transform: scale(1) translateY(0); }
-		}
-
-		.qr-modal-header {
-			display: flex;
-			justify-content: space-between;
-			align-items: center;
-			margin-bottom: 20px;
-			padding-bottom: 0;
-			border-bottom: none;
-		}
-
-		.qr-modal-header h2 {
-			font-size: 18px;
-			font-weight: 700;
-			color: #e2e0ea;
-		}
-
-		.qr-modal-close {
-			background: transparent;
-			border: none;
-			font-size: 16px;
-			cursor: pointer;
-			color: #6b6880;
-			width: 36px;
-			height: 36px;
-			display: flex;
-			align-items: center;
-			justify-content: center;
-			border-radius: 50%;
-			transition: all 0.15s;
-		}
-
-		.qr-modal-close:hover { background: rgba(255,255,255,0.06); color: #c4c0d4; }
-
-		#qr-reader {
-			width: 100% !important;
-			border-radius: var(--radius);
-			overflow: hidden;
-			margin-bottom: 16px;
-		}
-
-		.qr-reader-controls { display: flex; gap: 10px; justify-content: center; }
-
-		/* --- Result Section --- */
-		.result-section { display: none; }
-		.result-section.active { display: block; animation: ppFadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
-
-		@keyframes ppFadeIn {
-			from { opacity: 0; transform: translateY(10px); }
+		@keyframes cardSlideUp {
+			from { opacity: 0; transform: translateY(20px); }
 			to { opacity: 1; transform: translateY(0); }
 		}
 
-		/* --- Student Card --- */
-		.student-card {
-			background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
-			color: white;
-			padding: 28px;
-			border-radius: 16px;
-			margin-bottom: 24px;
-			box-shadow: 0 4px 20px rgba(79, 70, 229, 0.2);
+		.form-group { margin-bottom: 14px; }
+		.form-label {
+			display: block;
+			font-size: 12px; font-weight: 600; color: var(--text-sec);
+			margin-bottom: 6px; padding-left: 2px;
 		}
 
-		.student-info {
-			display: flex;
-			justify-content: space-between;
-			align-items: start;
+		.form-input-wrap {
+			position: relative;
+		}
+		.form-input-wrap .form-icon {
+			position: absolute;
+			left: 14px; top: 50%; transform: translateY(-50%);
+			font-size: 14px; color: var(--gray);
+			pointer-events: none;
+			transition: color var(--transition);
+		}
+		.form-input-wrap .form-input { padding-left: 40px; }
+		.form-input-wrap:focus-within .form-icon { color: var(--primary); }
+
+		.form-input {
+			width: 100%;
+			padding: 13px 14px;
+			background: var(--bg-elevated);
+			border: 1.5px solid var(--border);
+			border-radius: var(--radius);
+			font-size: 15px; font-family: inherit;
+			color: var(--text);
+			transition: all var(--transition);
+			outline: none;
+		}
+		.form-input:focus {
+			border-color: var(--primary);
+			box-shadow: 0 0 0 3px rgba(129,140,248,0.15);
+			background: rgba(255,255,255,0.06);
+		}
+		.form-input::placeholder { color: var(--gray); }
+
+		.form-hint {
+			font-size: 11px; color: var(--gray); margin-top: 4px; padding-left: 2px;
+		}
+
+		.btn-row { display: flex; gap: 10px; margin-top: 20px; }
+
+		.btn-primary {
+			flex: 1; padding: 14px;
+			background: linear-gradient(135deg, #6366f1, #7c3aed);
+			color: white; border: none;
+			border-radius: var(--radius);
+			font-size: 15px; font-weight: 700; font-family: inherit;
+			cursor: pointer;
+			transition: all var(--transition);
+			display: flex; align-items: center; justify-content: center; gap: 8px;
+		}
+		.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(99,102,241,0.35); }
+		.btn-primary:active { transform: scale(0.98); }
+
+		.btn-qr {
+			padding: 14px 18px;
+			background: rgba(45,212,191,0.12);
+			color: var(--teal); border: 1.5px solid rgba(45,212,191,0.25);
+			border-radius: var(--radius);
+			font-size: 15px; font-weight: 700; font-family: inherit;
+			cursor: pointer;
+			transition: all var(--transition);
+			display: flex; align-items: center; justify-content: center; gap: 6px;
+			white-space: nowrap;
+		}
+		.btn-qr:hover { background: rgba(45,212,191,0.2); border-color: var(--teal); }
+
+		.landing-alert {
+			margin-top: 14px;
+			padding: 11px 14px;
+			border-radius: 10px;
+			font-size: 13px; font-weight: 500;
+			display: none;
+			animation: fadeIn 0.2s;
+		}
+		.landing-alert.show { display: flex; align-items: center; gap: 8px; }
+		.landing-alert.error { background: var(--red-bg); color: var(--red); }
+		.landing-alert.success { background: var(--green-bg); color: var(--green); }
+		.landing-alert.info { background: var(--primary-light); color: var(--primary); }
+
+		.landing-footer {
+			text-align: center; padding: 16px 20px 32px;
+			font-size: 11px; color: var(--gray);
+			padding-bottom: calc(32px + env(safe-area-inset-bottom, 0px));
+		}
+		.landing-footer i { margin-right: 4px; opacity: 0.6; }
+
+		/* ===== Dashboard ===== */
+		.dash-header {
+			background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #6366f1 100%);
+			padding: 20px 20px 72px;
+			position: relative;
+		}
+
+		.dash-top-bar {
+			display: flex; align-items: center; justify-content: space-between;
 			margin-bottom: 20px;
 		}
 
-		.student-name { font-size: 22px; font-weight: 700; letter-spacing: -0.3px; }
-		.student-phone { font-size: 13px; opacity: 0.8; margin-top: 4px; font-weight: 400; }
-
-		.attendance-stats {
-			display: grid;
-			grid-template-columns: repeat(3, 1fr);
-			gap: 10px;
-			margin-top: 0;
-		}
-
-		.stat-item {
-			text-align: center;
-			background: rgba(255, 255, 255, 0.15);
-			padding: 14px 8px;
-			border-radius: var(--radius);
+		.dash-back-btn {
+			background: rgba(255,255,255,0.15); border: none;
+			color: white; width: 38px; height: 38px;
+			border-radius: 12px; cursor: pointer;
+			display: flex; align-items: center; justify-content: center;
+			font-size: 16px;
+			transition: all var(--transition);
 			backdrop-filter: blur(4px);
 		}
+		.dash-back-btn:hover { background: rgba(255,255,255,0.25); }
 
-		.stat-value { font-size: 20px; font-weight: 700; }
-		.stat-label { font-size: 11px; opacity: 0.75; margin-top: 4px; font-weight: 400; }
+		.dash-top-label { font-size: 13px; color: rgba(255,255,255,0.7); font-weight: 500; }
 
-		/* --- Attendance Section --- */
-		.attendance-section { margin-bottom: 0; }
+		.dash-student-info { text-align: center; }
+		.dash-avatar {
+			width: 52px; height: 52px;
+			border-radius: 50%;
+			background: rgba(255,255,255,0.2);
+			display: flex; align-items: center; justify-content: center;
+			font-size: 22px; font-weight: 800; color: white;
+			margin: 0 auto 10px;
+			border: 2px solid rgba(255,255,255,0.3);
+			backdrop-filter: blur(4px);
+		}
+		.dash-student-name { font-size: 24px; font-weight: 800; color: white; letter-spacing: -0.5px; }
+		.dash-student-meta {
+			display: flex; align-items: center; justify-content: center; gap: 8px;
+			margin-top: 6px; font-size: 13px; color: rgba(255,255,255,0.75);
+		}
+		.dash-student-meta .sep { opacity: 0.4; }
 
-		.section-title {
-			font-size: 15px;
-			font-weight: 600;
-			color: #e2e0ea;
-			margin-bottom: 16px;
-			display: flex;
-			align-items: center;
-			gap: 8px;
+		.dash-container {
+			max-width: 640px;
+			margin: -52px auto 0;
+			padding: 0 16px 32px;
+			padding-bottom: calc(32px + env(safe-area-inset-bottom, 0px));
+			position: relative;
 		}
 
-		.section-title i { color: #a5b4fc; font-size: 15px; }
-
-		.attendance-list {
-			display: flex;
-			flex-direction: column;
-			gap: 6px;
-			max-height: 400px;
-			overflow-y: auto;
-			padding-right: 4px;
+		/* Quick Stats */
+		.quick-stats {
+			display: grid; grid-template-columns: repeat(4, 1fr);
+			gap: 8px; margin-bottom: 16px;
 		}
-
-		.month-btn {
-			padding: 8px 12px;
-			background: rgba(255,255,255,0.06);
-			border: 1px solid rgba(255,255,255,0.1);
-			border-radius: 10px;
-			color: #c4c0d4;
-			cursor: pointer;
-			font-size: 15px;
-			transition: all 0.15s;
-			display: flex;
-			align-items: center;
-			justify-content: center;
-			min-width: 42px;
-			height: 42px;
-		}
-
-		.month-btn:hover { border-color: #818cf8; color: #a5b4fc; background: rgba(129,140,248,0.1); }
-
-		.month-selector {
-			font-family: Pretendard, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-			color: #e2e0ea;
-			font-weight: 600;
-		}
-
-		.attendance-item {
-			display: flex;
-			justify-content: space-between;
-			align-items: center;
-			padding: 14px 16px;
-			background: rgba(255,255,255,0.04);
-			border-left: 3px solid #818cf8;
-			border-radius: 10px;
-			transition: background 0.15s;
-		}
-
-		.attendance-item:hover { background: rgba(255,255,255,0.07); }
-
-		.attendance-date { font-size: 13px; color: #9b97ad; min-width: 90px; }
-		.attendance-time { font-size: 13px; font-weight: 600; color: #e2e0ea; }
-
-		.attendance-status {
-			display: flex;
-			align-items: center;
-			gap: 5px;
-			font-size: 12px;
-			font-weight: 600;
-			padding: 4px 12px;
-			border-radius: 20px;
-			min-width: 56px;
-			justify-content: center;
-		}
-
-		.status-present { background: rgba(34,197,94,0.12); color: #86efac; }
-		.status-late { background: rgba(234,179,8,0.12); color: #fcd34d; }
-		.status-absent { background: rgba(239,68,68,0.12); color: #fca5a5; }
-		.status-makeup { background: rgba(20,184,166,0.12); color: #5eead4; }
-
-		/* --- Evaluation Section --- */
-		.evaluation-section { display: none; }
-		.evaluation-section.active { display: block; animation: ppFadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
-
-		.evaluation-textarea {
-			width: 100%;
-			min-height: 120px;
-			padding: 14px;
-			border: 1px solid rgba(255,255,255,0.1);
-			border-radius: var(--radius);
-			font-size: 14px;
-			font-family: inherit;
-			resize: vertical;
-			transition: all 0.15s;
-			line-height: 1.7;
-			color: #e2e0ea;
-			background: rgba(255,255,255,0.04);
-		}
-
-		.evaluation-textarea:focus {
-			outline: none;
-			border-color: #818cf8;
-			box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.15);
-			background: rgba(255,255,255,0.06);
-		}
-
-		.char-count { font-size: 12px; color: #6b6880; margin-top: 8px; text-align: right; }
-		.evaluation-buttons { display: flex; gap: 10px; margin-top: 16px; }
-
-		.evaluation-lock {
-			background: rgba(139, 92, 246, 0.08);
-			border: 1px dashed rgba(139, 92, 246, 0.3);
-			border-radius: var(--radius);
-			padding: 20px;
-			color: #c4c0d4;
-			margin-bottom: 12px;
+		.qs-item {
+			background: var(--card);
+			border: 1px solid var(--border);
+			border-radius: var(--radius-lg);
+			padding: 16px 8px;
 			text-align: center;
+			box-shadow: var(--shadow);
+			transition: transform var(--transition), box-shadow var(--transition);
 		}
+		.qs-item:active { transform: scale(0.97); }
+		.qs-icon { font-size: 18px; margin-bottom: 6px; }
+		.qs-value { font-size: 20px; font-weight: 800; }
+		.qs-label { font-size: 10px; color: var(--text-sec); margin-top: 3px; font-weight: 500; }
 
-		.evaluation-lock p { margin: 0 0 14px 0; font-size: 13px; color: #9b97ad; }
-		.evaluation-content.hidden { display: none; }
-
-		.admin-auth-btn {
-			padding: 11px 20px;
-			background: rgba(129, 140, 248, 0.1);
-			color: #a5b4fc;
-			border: 1px solid rgba(129, 140, 248, 0.25);
-			border-radius: var(--radius);
-			font-size: 14px;
-			font-weight: 600;
+		/* Tabs */
+		.dash-tabs {
+			display: flex; gap: 4px;
+			background: var(--card);
+			border-radius: 14px;
+			padding: 4px;
+			margin-bottom: 16px;
+			border: 1px solid var(--border);
+			box-shadow: var(--shadow);
+		}
+		.dash-tab {
+			flex: 1; padding: 11px 8px;
+			background: transparent; border: none;
+			border-radius: 10px;
+			font-size: 13px; font-weight: 600; font-family: inherit;
+			color: var(--text-sec);
 			cursor: pointer;
-			transition: all 0.15s;
-			min-height: 42px;
+			transition: all var(--transition);
+			display: flex; align-items: center; justify-content: center; gap: 6px;
+		}
+		.dash-tab.active {
+			background: linear-gradient(135deg, #6366f1, #7c3aed);
+			color: white;
+			box-shadow: 0 2px 8px rgba(99,102,241,0.3);
+		}
+		.dash-tab:not(.active):hover { background: rgba(255,255,255,0.05); color: var(--text); }
+
+		/* Tab content */
+		.tab-panel { display: none; }
+		.tab-panel.active { display: block; animation: fadeSlideIn 0.3s ease; }
+
+		@keyframes fadeSlideIn {
+			from { opacity: 0; transform: translateY(8px); }
+			to { opacity: 1; transform: translateY(0); }
+		}
+		@keyframes fadeIn {
+			from { opacity: 0; }
+			to { opacity: 1; }
+		}
+
+		/* Section card */
+		.section-card {
+			background: var(--card);
+			border-radius: var(--radius-lg);
+			padding: 20px;
+			border: 1px solid var(--border);
+			box-shadow: var(--shadow);
+			margin-bottom: 14px;
+		}
+		.section-title {
+			font-size: 14px; font-weight: 700; color: var(--text);
+			display: flex; align-items: center; gap: 8px;
+			margin-bottom: 14px;
+		}
+		.section-title i { color: var(--primary); font-size: 14px; }
+
+		/* Month selector */
+		.month-nav {
+			display: flex; align-items: center; gap: 6px;
+			background: var(--bg-elevated);
+			padding: 6px 8px;
+			border-radius: 12px;
+			border: 1px solid var(--border);
+			margin-bottom: 14px;
+		}
+		.month-arrow {
+			width: 36px; height: 36px;
+			background: transparent; border: 1px solid var(--border);
+			border-radius: 10px; color: var(--text-sec);
+			cursor: pointer; font-size: 13px;
+			display: flex; align-items: center; justify-content: center;
+			transition: all var(--transition);
+		}
+		.month-arrow:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-light); }
+
+		.month-input {
+			flex: 1; padding: 8px; text-align: center;
+			background: transparent; border: none;
+			font-size: 15px; font-weight: 700; font-family: inherit;
+			color: var(--text); outline: none;
+		}
+
+		/* Monthly stats bar */
+		.month-stats {
+			display: grid; grid-template-columns: repeat(4,1fr);
+			gap: 6px; margin-bottom: 14px;
+		}
+		.ms-item {
+			text-align: center;
+			padding: 10px 4px;
+			border-radius: 10px;
+			background: var(--bg-elevated);
+		}
+		.ms-value { font-size: 18px; font-weight: 800; }
+		.ms-label { font-size: 10px; color: var(--text-sec); margin-top: 2px; }
+
+		/* Attendance list */
+		.att-list { display: flex; flex-direction: column; gap: 6px; }
+		.att-day {
+			display: flex; align-items: center; gap: 10px;
+			padding: 13px 14px;
+			background: var(--bg-elevated);
+			border-radius: 12px;
+			transition: background var(--transition);
+			border-left: 3px solid transparent;
+		}
+		.att-day:hover { background: rgba(255,255,255,0.06); }
+		.att-day.st-present { border-left-color: var(--green); }
+		.att-day.st-late { border-left-color: var(--yellow); }
+		.att-day.st-absent { border-left-color: var(--red); }
+		.att-day.st-makeup { border-left-color: var(--teal); }
+
+		.att-date-col {
+			min-width: 52px;
+		}
+		.att-date-num { font-size: 18px; font-weight: 800; line-height: 1; }
+		.att-date-dow { font-size: 10px; color: var(--text-sec); margin-top: 2px; }
+		.att-date-dow.dow-sun { color: var(--red); }
+		.att-date-dow.dow-sat { color: #60a5fa; }
+
+		.att-mid { flex: 1; }
+		.att-time { font-size: 13px; font-weight: 600; }
+		.att-memo-preview {
+			font-size: 11px; color: var(--text-sec); margin-top: 2px;
+			overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+			max-width: 200px;
+		}
+
+		.att-badge {
+			font-size: 11px; font-weight: 700;
+			padding: 5px 12px;
+			border-radius: 20px;
 			white-space: nowrap;
-			font-family: inherit;
+		}
+		.att-badge.present { background: var(--green-bg); color: var(--green); }
+		.att-badge.late { background: var(--yellow-bg); color: var(--yellow); }
+		.att-badge.absent { background: var(--red-bg); color: var(--red); }
+		.att-badge.makeup { background: var(--teal-bg); color: var(--teal); }
+
+		.att-empty {
+			text-align: center; padding: 48px 20px;
+			color: var(--gray); font-size: 13px;
+			line-height: 1.6;
+		}
+		.att-empty i {
+			font-size: 32px; display: block; margin-bottom: 12px; opacity: 0.3;
+			animation: emptyPulse 2s ease-in-out infinite;
+		}
+		@keyframes emptyPulse {
+			0%, 100% { opacity: 0.3; }
+			50% { opacity: 0.5; }
 		}
 
-		.admin-auth-btn:hover { background: rgba(129, 140, 248, 0.2); border-color: #818cf8; }
-
-		/* --- Auth Modal --- */
-		.admin-modal {
-			position: fixed;
-			inset: 0;
-			background: rgba(0, 0, 0, 0.5);
-			display: none;
-			align-items: center;
-			justify-content: center;
-			z-index: 1000;
+		/* Memo tab panel */
+		.memo-list { display: flex; flex-direction: column; gap: 10px; }
+		.memo-card {
 			padding: 16px;
-			backdrop-filter: blur(10px);
-			-webkit-backdrop-filter: blur(10px);
-			animation: ppOverlayIn 0.2s ease;
+			background: var(--bg-elevated);
+			border-radius: 12px;
+			border-left: 3px solid var(--primary);
+			transition: background var(--transition);
+		}
+		.memo-card:hover { background: rgba(255,255,255,0.06); }
+		.memo-card-header {
+			display: flex; align-items: center; justify-content: space-between;
+			margin-bottom: 8px;
+		}
+		.memo-card-date {
+			font-size: 13px; font-weight: 700;
+			display: flex; align-items: center; gap: 6px;
+		}
+		.memo-card-date i { font-size: 11px; color: var(--primary); opacity: 0.7; }
+		.memo-card-badge { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 6px; }
+		.memo-card-text { font-size: 13px; color: var(--text-sec); line-height: 1.7; white-space: pre-wrap; }
+		.memo-empty {
+			text-align: center; padding: 48px 20px;
+			color: var(--gray); font-size: 13px;
+			line-height: 1.6;
+		}
+		.memo-empty i {
+			font-size: 32px; display: block; margin-bottom: 12px; opacity: 0.3;
+			animation: emptyPulse 2s ease-in-out infinite;
 		}
 
-		@keyframes ppOverlayIn { from{opacity:0} to{opacity:1} }
+		/* Evaluation panel */
+		.eval-lock {
+			text-align: center;
+			padding: 32px 20px;
+			background: rgba(139,92,246,0.06);
+			border: 1.5px dashed rgba(139,92,246,0.2);
+			border-radius: var(--radius);
+		}
+		.eval-lock-icon {
+			width: 56px; height: 56px;
+			background: rgba(139,92,246,0.12);
+			border-radius: 50%;
+			display: flex; align-items: center; justify-content: center;
+			margin: 0 auto 14px;
+			font-size: 22px; color: var(--accent);
+		}
+		.eval-lock p { font-size: 13px; color: var(--text-sec); margin-bottom: 16px; line-height: 1.6; }
 
-		.admin-modal.active { display: flex; }
+		.btn-auth {
+			padding: 12px 24px;
+			background: var(--primary-light);
+			color: var(--primary);
+			border: 1.5px solid rgba(129,140,248,0.25);
+			border-radius: var(--radius);
+			font-size: 14px; font-weight: 700; font-family: inherit;
+			cursor: pointer;
+			transition: all var(--transition);
+		}
+		.btn-auth:hover { background: rgba(129,140,248,0.2); border-color: var(--primary); }
 
-		.admin-modal-content {
-			background: #2a2740;
-			border-radius: 22px;
-			padding: 28px;
-			max-width: 400px;
+		.eval-content { display: none; }
+		.eval-content.visible { display: block; }
+
+		.eval-textarea {
 			width: 100%;
-			box-shadow: 0 32px 64px -16px rgba(0,0,0,0.5);
-			border: 1px solid rgba(255,255,255,0.08);
-			animation: ppModalIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+			min-height: 140px;
+			padding: 14px;
+			background: var(--bg-elevated);
+			border: 1.5px solid var(--border);
+			border-radius: var(--radius);
+			font-size: 14px; font-family: inherit;
+			color: var(--text);
+			resize: vertical;
+			line-height: 1.7;
+			transition: all var(--transition);
+			outline: none;
+		}
+		.eval-textarea:focus {
+			border-color: var(--primary);
+			box-shadow: 0 0 0 3px rgba(129,140,248,0.15);
+		}
+		.eval-textarea:read-only {
+			opacity: 0.7; cursor: default;
 		}
 
-		.admin-modal-header {
-			display: flex;
-			align-items: center;
-			justify-content: space-between;
+		.eval-footer {
+			display: flex; align-items: center; justify-content: space-between;
+			margin-top: 10px;
+		}
+		.eval-char { font-size: 11px; color: var(--gray); }
+		.eval-hint { font-size: 11px; color: var(--text-sec); font-style: italic; }
+
+		.eval-save-row {
+			display: flex; gap: 8px; margin-top: 14px;
+		}
+		.btn-save {
+			flex: 1; padding: 12px;
+			background: linear-gradient(135deg, #6366f1, #7c3aed);
+			color: white; border: none;
+			border-radius: var(--radius);
+			font-size: 14px; font-weight: 700; font-family: inherit;
+			cursor: pointer;
+			transition: all var(--transition);
+		}
+		.btn-save:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(99,102,241,0.3); }
+
+		.btn-cancel {
+			padding: 12px 18px;
+			background: var(--bg-elevated);
+			color: var(--text-sec);
+			border: 1.5px solid var(--border);
+			border-radius: var(--radius);
+			font-size: 14px; font-weight: 600; font-family: inherit;
+			cursor: pointer;
+			transition: all var(--transition);
+		}
+		.btn-cancel:hover { background: rgba(255,255,255,0.08); }
+
+		/* ===== Modals ===== */
+		.pp-modal {
+			display: none; position: fixed; inset: 0;
+			background: rgba(0,0,0,0.5);
+			backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+			z-index: 1000;
+			align-items: center; justify-content: center;
+			padding: 16px;
+		}
+		.pp-modal.active { display: flex; }
+
+		.pp-modal-box {
+			background: var(--card);
+			border-radius: var(--radius-xl);
+			padding: 28px 24px;
+			max-width: 400px; width: 100%;
+			border: 1px solid var(--border);
+			box-shadow: 0 32px 64px rgba(0,0,0,0.3);
+			animation: modalIn 0.25s cubic-bezier(0.16,1,0.3,1);
+		}
+		@keyframes modalIn {
+			from { opacity: 0; transform: scale(0.95) translateY(12px); }
+			to { opacity: 1; transform: scale(1) translateY(0); }
+		}
+
+		.pp-modal-header {
+			display: flex; align-items: center; justify-content: space-between;
 			margin-bottom: 18px;
 		}
+		.pp-modal-header h2 { font-size: 17px; font-weight: 800; }
 
-		.admin-modal-header h2 { font-size: 17px; font-weight: 700; color: #e2e0ea; letter-spacing: -0.3px; }
-
-		.admin-modal-close {
-			border: none;
-			background: rgba(255,255,255,0.06);
-			color: #6b6880;
-			width: 34px;
-			height: 34px;
-			border-radius: 10px;
+		.pp-modal-close {
+			width: 34px; height: 34px;
+			background: var(--bg-elevated); border: none;
+			border-radius: 10px; color: var(--gray);
 			cursor: pointer;
-			display: flex;
-			align-items: center;
-			justify-content: center;
-			transition: all 0.2s;
+			display: flex; align-items: center; justify-content: center;
+			transition: all var(--transition);
 		}
+		.pp-modal-close:hover { background: rgba(255,255,255,0.08); color: var(--text); }
 
-		.admin-modal-close:hover { background: rgba(239,68,68,0.15); color: #ef4444; }
-
-		.admin-modal-close:hover { background: rgba(255,255,255,0.06); color: #c4c0d4; }
-
-		.admin-input {
-			width: 100%;
-			padding: 11px 14px;
-			border: 1px solid rgba(255,255,255,0.1);
+		.pp-modal-input {
+			width: 100%; padding: 12px 14px;
+			background: var(--bg-elevated);
+			border: 1.5px solid var(--border);
 			border-radius: 10px;
-			font-size: 14px;
+			font-size: 14px; font-family: inherit;
+			color: var(--text); outline: none;
+			transition: all var(--transition);
 			margin-top: 10px;
-			font-family: inherit;
-			transition: all 0.15s;
-			color: #e2e0ea;
-			background: rgba(255,255,255,0.04);
+		}
+		.pp-modal-input:focus {
+			border-color: var(--primary);
+			box-shadow: 0 0 0 3px rgba(129,140,248,0.15);
 		}
 
-		.admin-input:focus {
-			outline: none;
-			border-color: #818cf8;
-			box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.15);
-			background: rgba(255,255,255,0.06);
+		.pp-modal-hint {
+			font-size: 11px; color: var(--text-sec); margin-top: 8px;
+			padding: 8px 12px;
+			background: rgba(129,140,248,0.06);
+			border-radius: 8px;
+			line-height: 1.5;
 		}
 
-		.save-btn {
-			flex: 1;
-			padding: 12px;
-			background: var(--primary);
-			color: white;
-			border: none;
+		.pp-modal-btn {
+			width: 100%; padding: 13px;
+			background: linear-gradient(135deg, #6366f1, #7c3aed);
+			color: white; border: none;
 			border-radius: var(--radius);
-			font-size: 14px;
-			font-weight: 600;
-			cursor: pointer;
-			transition: all 0.15s;
-			min-height: 46px;
-			font-family: inherit;
+			font-size: 14px; font-weight: 700; font-family: inherit;
+			cursor: pointer; margin-top: 14px;
+			transition: all var(--transition);
 		}
-
-		.save-btn:hover { background: var(--primary-hover); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(79,70,229,0.25); }
-		.save-btn:active { transform: translateY(0); }
-
-		.cancel-btn {
-			flex: 1;
-			padding: 12px;
-			background: rgba(255,255,255,0.06);
-			color: #c4c0d4;
-			border: 1px solid rgba(255,255,255,0.1);
-			border-radius: var(--radius);
-			font-size: 14px;
-			font-weight: 600;
-			cursor: pointer;
-			transition: all 0.15s;
-			min-height: 46px;
-			font-family: inherit;
-		}
-
-		.cancel-btn:hover { background: rgba(255,255,255,0.1); }
-
-		/* --- Empty / Loading States --- */
-		.empty-state {
-			text-align: center;
-			padding: 40px 20px;
-			color: #6b6880;
-			background: rgba(255,255,255,0.03);
-			border: 1px dashed rgba(255,255,255,0.1);
-			border-radius: var(--radius);
-		}
-
-		.empty-state p { font-size: 14px; margin-bottom: 4px; }
-		.loading { text-align: center; padding: 24px; }
-
-		.spinner {
-			width: 36px;
-			height: 36px;
-			border: 3px solid rgba(255,255,255,0.1);
-			border-top: 3px solid #818cf8;
-			border-radius: 50%;
-			animation: spin 0.8s linear infinite;
-			margin: 0 auto 16px;
-		}
-
-		@keyframes spin {
-			0% { transform: rotate(0deg); }
-			100% { transform: rotate(360deg); }
-		}
-
-		.alert {
-			padding: 12px 16px;
-			border-radius: 10px;
-			margin-bottom: 12px;
-			display: none;
-			font-size: 13px;
-			font-weight: 500;
-		}
-
-		.alert.show { display: block; }
-		.alert-success { background: rgba(34,197,94,0.1); color: #86efac; border-left: 3px solid #22c55e; }
-		.alert-error { background: rgba(239,68,68,0.1); color: #fca5a5; border-left: 3px solid var(--red); }
-		.alert-info { background: rgba(99,102,241,0.1); color: #a5b4fc; border-left: 3px solid #818cf8; }
+		.pp-modal-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(99,102,241,0.3); }
 
 		/* Scrollbar */
 		::-webkit-scrollbar { width: 4px; }
 		::-webkit-scrollbar-track { background: transparent; }
-		::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 4px; }
-		::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+		::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
 
-		/* ============================================
-		   Tablet Responsive (≤ 768px)
-		   ============================================ */
-		@media (max-width: 768px) {
-			.top-banner { padding: 40px 16px 72px; }
-			.container { margin-top: -48px; }
-			.header h1 { font-size: 22px; }
-
-			.search-section, .result-section, .evaluation-section { padding: 20px; }
-			.student-card { padding: 22px; }
-			.student-name { font-size: 20px; }
-			.stat-item { padding: 12px 6px; }
-			.stat-value { font-size: 18px; }
-		}
-
-		/* ============================================
-		   Mobile Responsive (≤ 640px)
-		   ============================================ */
+		/* ===== Responsive ===== */
 		@media (max-width: 640px) {
-			.top-banner { padding: 36px 12px 64px; }
-			.container { margin-top: -44px; padding: 0 12px 24px; }
+			.landing-hero { padding: 32px 16px 16px; }
+			.landing-title { font-size: 22px; }
+			.landing-form { padding: 0 16px 32px; }
+			.landing-card { padding: 22px 18px; }
 
-			.header h1 { font-size: 20px; }
-			.header p { font-size: 13px; }
+			.dash-header { padding: 16px 16px 64px; }
+			.dash-container { padding: 0 12px 24px; }
+			.dash-student-name { font-size: 20px; }
 
-			.search-section, .result-section, .evaluation-section {
-				border-radius: 16px;
-				padding: 18px;
-				margin-bottom: 12px;
-			}
+			.quick-stats { gap: 6px; }
+			.qs-item { padding: 12px 4px; }
+			.qs-value { font-size: 17px; }
+			.qs-icon { font-size: 16px; }
 
-			.search-header { font-size: 14px; margin-bottom: 12px; }
-			.search-fields { grid-template-columns: 1fr; gap: 8px; }
+			.section-card { padding: 16px; border-radius: 16px; }
+			.att-day { padding: 11px 12px; gap: 8px; }
+			.att-date-num { font-size: 16px; }
 
-			.search-input { padding: 11px 12px; font-size: 14px; min-height: 44px; }
-			.search-btn, .qr-scan-btn { padding: 11px 14px; font-size: 14px; min-height: 44px; }
-
-			.student-card { padding: 18px; border-radius: 14px; }
-			.student-name { font-size: 18px; }
-			.student-phone { font-size: 12px; }
-			.stat-item { padding: 10px 4px; }
-			.stat-value { font-size: 16px; }
-			.stat-label { font-size: 10px; }
-
-			.attendance-item { padding: 12px; }
-			.attendance-date { font-size: 12px; min-width: 80px; }
-			.attendance-time { font-size: 12px; }
-			.attendance-status { font-size: 11px; padding: 4px 10px; }
-			.attendance-list { gap: 5px; max-height: 350px; }
-
-			.qr-modal-content { border-radius: 20px 20px 0 0; max-width: 100%; max-height: 90vh; padding: 22px; }
-			.admin-modal-content { padding: 22px; }
-			.evaluation-textarea { min-height: 100px; font-size: 13px; }
+			.pp-modal-box { padding: 22px 18px; border-radius: 20px; }
 		}
 
-		/* ============================================
-		   Small Mobile (≤ 400px)
-		   ============================================ */
 		@media (max-width: 400px) {
-			.top-banner { padding: 28px 8px 56px; }
-			.container { margin-top: -40px; padding: 0 8px 20px; }
-			.header h1 { font-size: 18px; }
-
-			.search-section, .result-section, .evaluation-section { padding: 14px; border-radius: 14px; }
-			.student-card { padding: 14px; border-radius: 12px; }
-			.stat-item { padding: 8px 3px; }
-			.stat-value { font-size: 14px; }
-			.stat-label { font-size: 9px; }
-
-			.attendance-item { padding: 10px 8px; flex-wrap: wrap; gap: 4px; }
-			.attendance-date { min-width: auto; font-size: 11px; }
-			.attendance-time { font-size: 11px; }
-			.attendance-status { font-size: 10px; padding: 3px 8px; }
-			.month-btn { min-width: 36px; height: 36px; font-size: 14px; }
-			.section-title { font-size: 14px; }
+			.quick-stats { grid-template-columns: repeat(2, 1fr); }
+			.month-stats { grid-template-columns: repeat(2, 1fr); }
+			.dash-tabs { font-size: 12px; }
+			.dash-tab { padding: 10px 4px; font-size: 12px; }
 		}
 
-		/* ============================================
-		   Touch Optimization
-		   ============================================ */
 		@media (hover: none) and (pointer: coarse) {
-			.search-btn:hover, .qr-scan-btn:hover,
-			.save-btn:hover, .admin-auth-btn:hover,
-			.attendance-item:hover { transform: none; box-shadow: none; }
+			.btn-primary:hover, .btn-qr:hover, .btn-save:hover,
+			.att-day:hover { transform: none; box-shadow: none; }
 		}
 
-		/* ============================================
-		   Safe Area Support
-		   ============================================ */
 		@supports (padding-bottom: env(safe-area-inset-bottom)) {
-			body { padding-bottom: max(20px, env(safe-area-inset-bottom)); }
-			.qr-modal-content { padding-bottom: max(20px, env(safe-area-inset-bottom)); }
+			body { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+		}
+
+		/* QR Mode Tabs */
+		.qr-mode-tabs {
+			display: flex; gap: 4px;
+			background: var(--bg-elevated);
+			border-radius: 12px;
+			padding: 3px;
+			margin-bottom: 14px;
+			border: 1px solid var(--border);
+		}
+		.qr-mode-tab {
+			flex: 1; padding: 10px 8px;
+			background: transparent; border: none;
+			border-radius: 9px;
+			font-size: 13px; font-weight: 600; font-family: inherit;
+			color: var(--text-sec); cursor: pointer;
+			transition: all var(--transition);
+			display: flex; align-items: center; justify-content: center; gap: 6px;
+		}
+		.qr-mode-tab.active {
+			background: rgba(45,212,191,0.15);
+			color: var(--teal);
+		}
+		.qr-mode-tab:not(.active):hover { background: rgba(255,255,255,0.04); }
+
+		/* QR Drop Zone */
+		.qr-drop-zone {
+			border: 2px dashed rgba(45,212,191,0.25);
+			border-radius: 16px;
+			padding: 32px 20px;
+			text-align: center;
+			cursor: pointer;
+			transition: all var(--transition);
+			background: rgba(45,212,191,0.04);
+			min-height: 180px;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+		}
+		.qr-drop-zone:hover {
+			border-color: var(--teal);
+			background: rgba(45,212,191,0.08);
+		}
+		.qr-drop-zone.dragover {
+			border-color: var(--teal);
+			background: rgba(45,212,191,0.12);
+			transform: scale(1.01);
+		}
+		.qr-drop-zone i {
+			font-size: 36px;
+			color: var(--teal);
+			opacity: 0.6;
+			display: block;
+			margin-bottom: 12px;
+		}
+		.qr-drop-zone p {
+			font-size: 14px;
+			font-weight: 600;
+			color: var(--text);
+			margin-bottom: 4px;
+		}
+		.qr-drop-zone span {
+			font-size: 12px;
+			color: var(--text-sec);
+		}
+
+		.qr-file-status {
+			margin-top: 10px;
+			padding: 10px 14px;
+			border-radius: 10px;
+			font-size: 13px;
+			font-weight: 500;
+			display: flex;
+			align-items: center;
+			gap: 8px;
+			animation: fadeIn 0.2s;
+		}
+		.qr-file-status.processing {
+			background: var(--primary-light);
+			color: var(--primary);
+		}
+		.qr-file-status.success {
+			background: var(--green-bg);
+			color: var(--green);
+		}
+		.qr-file-status.error {
+			background: var(--red-bg);
+			color: var(--red);
+		}
+
+		/* Loading spinner */
+		.pp-spinner {
+			width: 32px; height: 32px;
+			border: 3px solid var(--border);
+			border-top-color: var(--primary);
+			border-radius: 50%;
+			animation: spin 0.7s linear infinite;
+			margin: 0 auto;
+		}
+		@keyframes spin { to { transform: rotate(360deg); } }
+
+		/* Skeleton loading */
+		.skeleton-row {
+			display: flex; align-items: center; gap: 10px;
+			padding: 13px 14px;
+			background: var(--bg-elevated);
+			border-radius: 12px;
+			border-left: 3px solid var(--border);
+		}
+		.skeleton-block {
+			border-radius: 6px;
+			background: linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.04) 75%);
+			background-size: 200% 100%;
+			animation: shimmer 1.5s infinite;
+		}
+		@keyframes shimmer {
+			0% { background-position: 200% 0; }
+			100% { background-position: -200% 0; }
 		}
 	</style>
 </head>
 <body>
-	<!-- 상단 배너 -->
-	<div class="top-banner">
-		<div class="header">
-			<h1><i class="fas fa-graduation-cap" style="margin-right: 8px; opacity: 0.9;"></i>학생 출결 조회</h1>
-			<p>학생의 출결 현황과 종합 평가를 확인하세요</p>
+
+<!-- ===== LANDING PAGE ===== -->
+<div id="page-landing">
+	<div class="landing-hero">
+		<div class="landing-icon">
+			<i class="fas fa-graduation-cap"></i>
+		</div>
+		<h1 class="landing-title">학부모 포털</h1>
+		<p class="landing-subtitle">우리 아이의 출결 현황과 선생님 메모를<br>간편하게 확인하세요</p>
+	</div>
+
+	<div class="landing-form">
+		<div class="landing-card">
+			<div class="form-group">
+				<label class="form-label">학생 이름</label>
+				<div class="form-input-wrap">
+					<i class="fas fa-user form-icon"></i>
+					<input type="text" id="search-name" class="form-input" placeholder="이름을 입력하세요" autocomplete="off">
+				</div>
+			</div>
+			<div class="form-group">
+				<label class="form-label">학부모 전화번호</label>
+				<div class="form-input-wrap">
+					<i class="fas fa-phone form-icon"></i>
+					<input type="tel" id="search-phone" class="form-input" placeholder="010-0000-0000" autocomplete="off" inputmode="numeric">
+				</div>
+				<div class="form-hint">등록된 학부모 또는 학생 전화번호를 입력하세요</div>
+			</div>
+			<div class="btn-row">
+				<button class="btn-primary" onclick="handleSearch()">
+					<i class="fas fa-search"></i> 조회하기
+				</button>
+				<button class="btn-qr" onclick="openQRScanner()">
+					<i class="fas fa-qrcode"></i> QR
+				</button>
+			</div>
+			<div id="landing-alert" class="landing-alert"></div>
 		</div>
 	</div>
 
-	<div class="container">
+	<div class="landing-footer">
+		<i class="fas fa-info-circle"></i> 학생 등록 시 발급된 QR코드를 스캔하면 바로 조회됩니다
+	</div>
+</div>
 
-		<!-- 검색 섹션 -->
-		<div class="search-section">
-			<div class="search-header">
-				<i class="fas fa-search"></i>
-				학생 검색
-			</div>
-			<div class="search-container">
-				<div class="search-fields">
-					<input 
-						type="text" 
-						id="search-name" 
-						class="search-input" 
-						placeholder="학생 이름 입력"
-						autocomplete="off"
-					>
-					<input 
-						type="tel" 
-						id="search-phone" 
-						class="search-input" 
-						placeholder="학부모 전화번호 입력"
-						autocomplete="off"
-						inputmode="numeric"
-					>
-				</div>
-				<div class="search-btn-row">
-					<button class="search-btn" onclick="handleSearch()">
-						<i class="fas fa-search"></i>검색
-					</button>
-					<button class="qr-scan-btn" onclick="openQRScanner()">
-						<i class="fas fa-qrcode"></i>QR 코드 스캔
-					</button>
-				</div>
-			</div>
-			<div id="alert-container"></div>
+<!-- ===== DASHBOARD PAGE ===== -->
+<div id="page-dashboard">
+	<div class="dash-header">
+		<div class="dash-top-bar">
+			<button class="dash-back-btn" onclick="goBackToLanding()">
+				<i class="fas fa-arrow-left"></i>
+			</button>
+			<span class="dash-top-label">학부모 포털</span>
+			<div style="width:38px;"></div>
 		</div>
-
-		<!-- QR 스캔 모달 -->
-		<div id="qr-modal" class="qr-modal">
-			<div class="qr-modal-content">
-				<div class="qr-modal-header">
-					<h2>QR 코드 스캔</h2>
-					<button class="qr-modal-close" onclick="closeQRScanner()">
-						<i class="fas fa-times"></i>
-					</button>
-				</div>
-				<div id="qr-reader"></div>
-				<div class="qr-reader-controls">
-					<button class="qr-scan-btn" style="flex: 1;" onclick="toggleCamera()">
-						<i class="fas fa-camera"></i>카메라 전환
-					</button>
-				</div>
+		<div class="dash-student-info">
+			<div class="dash-avatar" id="dash-avatar">-</div>
+			<div class="dash-student-name" id="dash-name">-</div>
+			<div class="dash-student-meta">
+				<span id="dash-grade">-</span>
+				<span class="sep">·</span>
+				<span id="dash-school">-</span>
 			</div>
 		</div>
+	</div>
 
-		<!-- 결과 섹션 -->
-		<div id="result-section" class="result-section">
-			<!-- 학생 카드 -->
-			<div id="student-card" class="student-card">
-				<div class="student-info">
-					<div>
-						<div class="student-name" id="student-name">-</div>
-						<div class="student-phone" id="student-phone">-</div>
-					</div>
-				</div>
-				<div class="attendance-stats" id="attendance-stats"></div>
+	<div class="dash-container">
+		<!-- Quick Stats -->
+		<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;padding:0 4px;">
+			<span style="font-size:12px;font-weight:700;color:var(--text-sec);">최근 30일 요약</span>
+			<span style="font-size:10px;color:var(--gray);"><i class="fas fa-clock" style="margin-right:3px;"></i>자동 업데이트</span>
+		</div>
+		<div class="quick-stats" id="quick-stats">
+			<div class="qs-item">
+				<div class="qs-icon" style="color:var(--primary);">📊</div>
+				<div class="qs-value" id="qs-rate" style="color:var(--primary);">-</div>
+				<div class="qs-label">출석률</div>
 			</div>
-
-			<!-- 출결 현황 -->
-			<div class="attendance-section">
-				<div class="section-title">
-					<i class="fas fa-calendar-check"></i>
-					월별 출결 현황
-				</div>
-                
-				<!-- 월 선택 -->
-				<!-- 월 선택 -->
-				<div style="display: flex; gap: 8px; align-items: center; margin-bottom: 14px; background: rgba(255,255,255,0.03); padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.06);">
-					<button class="month-btn" onclick="handlePrevMonth()" style="flex-shrink: 0;">
-						<i class="fas fa-chevron-left"></i>
-					</button>
-					<input 
-						type="month" 
-						id="month-selector" 
-						class="month-selector"
-						onchange="handleMonthChange()"
-						style="flex: 1; padding: 8px 10px; border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; font-size: 14px; font-weight: 600; background: rgba(255,255,255,0.04); min-height: 40px; color: #e2e0ea;"
-					>
-					<button class="month-btn" onclick="handleNextMonth()" style="flex-shrink: 0;">
-						<i class="fas fa-chevron-right"></i>
-					</button>
-				</div>
-
-				<!-- 월별 출석율 -->
-				<div id="monthly-stats" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 16px; padding: 14px; background: rgba(255,255,255,0.03); border-radius: 12px; border: 1px solid rgba(255,255,255,0.06);">
-					<div style="text-align: center;">
-						<div style="font-size: 11px; color: #6b6880; margin-bottom: 4px; font-weight: 500;">출석률</div>
-						<div id="monthly-rate" style="font-size: 17px; font-weight: 700; color: #a5b4fc;">-</div>
-					</div>
-					<div style="text-align: center;">
-						<div style="font-size: 11px; color: #6b6880; margin-bottom: 4px; font-weight: 500;">출석</div>
-						<div id="monthly-present" style="font-size: 17px; font-weight: 700; color: #86efac;">-</div>
-					</div>
-					<div style="text-align: center;">
-						<div style="font-size: 11px; color: #6b6880; margin-bottom: 4px; font-weight: 500;">지각</div>
-						<div id="monthly-late" style="font-size: 17px; font-weight: 700; color: #fcd34d;">-</div>
-					</div>
-					<div style="text-align: center;">
-						<div style="font-size: 11px; color: #6b6880; margin-bottom: 4px; font-weight: 500;">결석</div>
-						<div id="monthly-absent" style="font-size: 17px; font-weight: 700; color: #fca5a5;">-</div>
-					</div>
-				</div>
-
-				<div id="attendance-list" class="attendance-list">
-					<div class="empty-state">
-						<p>출결 기록이 없습니다</p>
-					</div>
-				</div>
+			<div class="qs-item">
+				<div class="qs-icon" style="color:var(--green);">✅</div>
+				<div class="qs-value" id="qs-present" style="color:var(--green);">-</div>
+				<div class="qs-label">출석</div>
 			</div>
+			<div class="qs-item">
+				<div class="qs-icon" style="color:var(--yellow);">⏰</div>
+				<div class="qs-value" id="qs-late" style="color:var(--yellow);">-</div>
+				<div class="qs-label">지각</div>
+			</div>
+			<div class="qs-item">
+				<div class="qs-icon" style="color:var(--red);">❌</div>
+				<div class="qs-value" id="qs-absent" style="color:var(--red);">-</div>
+				<div class="qs-label">결석</div>
+			</div>
+		</div>
 
-			<!-- 종합 평가 -->
-			<div id="evaluation-section" class="evaluation-section">
-				<div class="section-title">
-					<i class="fas fa-comment-dots"></i>
-					종합 평가 <span id="evaluation-month" style="margin-left: 6px; font-size: 12px; color: var(--gray);"></span>
-					<span style="margin-left: auto; font-size: 12px; color: var(--gray);">(종합평가는 선생님만 수정가능)</span>
+		<!-- Tabs -->
+		<div class="dash-tabs">
+			<button class="dash-tab active" onclick="switchTab('attendance')">
+				<i class="fas fa-calendar-check"></i> 출결
+			</button>
+			<button class="dash-tab" onclick="switchTab('memo')">
+				<i class="fas fa-sticky-note"></i> 수업메모
+			</button>
+			<button class="dash-tab" onclick="switchTab('eval')">
+				<i class="fas fa-star"></i> 종합평가
+			</button>
+		</div>
+
+		<!-- TAB: Attendance -->
+		<div id="tab-attendance" class="tab-panel active">
+			<div class="section-card">
+				<div class="month-nav">
+					<button class="month-arrow" onclick="handlePrevMonth()"><i class="fas fa-chevron-left"></i></button>
+					<input type="month" id="month-selector" class="month-input" onchange="handleMonthChange()">
+					<button class="month-arrow" onclick="handleNextMonth()"><i class="fas fa-chevron-right"></i></button>
 				</div>
-				<div id="evaluation-lock" class="evaluation-lock">
-					<p>학부모 인증 후에 종합 평가를 확인할 수 있습니다.</p>
-					<button class="admin-auth-btn" onclick="openParentAuthModal()">
+				<div class="month-stats" id="month-stats">
+					<div class="ms-item">
+						<div class="ms-value" id="ms-rate" style="color:var(--primary);">-</div>
+						<div class="ms-label">출석률</div>
+					</div>
+					<div class="ms-item">
+						<div class="ms-value" id="ms-present" style="color:var(--green);">-</div>
+						<div class="ms-label">출석</div>
+					</div>
+					<div class="ms-item">
+						<div class="ms-value" id="ms-late" style="color:var(--yellow);">-</div>
+						<div class="ms-label">지각</div>
+					</div>
+					<div class="ms-item">
+						<div class="ms-value" id="ms-absent" style="color:var(--red);">-</div>
+						<div class="ms-label">결석</div>
+					</div>
+				</div>
+				<div id="att-list" class="att-list"></div>
+			</div>
+		</div>
+
+		<!-- TAB: Memos -->
+		<div id="tab-memo" class="tab-panel">
+			<div class="section-card">
+				<div class="section-title"><i class="fas fa-sticky-note"></i> 선생님 수업 메모</div>
+				<div class="month-nav">
+					<button class="month-arrow" onclick="handlePrevMonthMemo()"><i class="fas fa-chevron-left"></i></button>
+					<input type="month" id="memo-month-selector" class="month-input" onchange="handleMemoMonthChange()">
+					<button class="month-arrow" onclick="handleNextMonthMemo()"><i class="fas fa-chevron-right"></i></button>
+				</div>
+				<div id="memo-list" class="memo-list"></div>
+			</div>
+		</div>
+
+		<!-- TAB: Evaluation -->
+		<div id="tab-eval" class="tab-panel">
+			<div class="section-card">
+				<div class="section-title">
+					<i class="fas fa-star"></i>
+					<span id="eval-month-label">종합 평가</span>
+					<span style="margin-left:auto;font-size:11px;color:var(--gray);font-weight:500;">선생님만 수정 가능</span>
+				</div>
+				<div class="month-nav">
+					<button class="month-arrow" onclick="handlePrevMonthEval()"><i class="fas fa-chevron-left"></i></button>
+					<input type="month" id="eval-month-selector" class="month-input" onchange="handleEvalMonthChange()">
+					<button class="month-arrow" onclick="handleNextMonthEval()"><i class="fas fa-chevron-right"></i></button>
+				</div>
+
+				<!-- Lock -->
+				<div id="eval-lock" class="eval-lock">
+					<div class="eval-lock-icon"><i class="fas fa-key"></i></div>
+					<p>선생님이 발급한 인증코드로<br>종합 평가를 확인할 수 있습니다</p>
+					<button class="btn-auth" onclick="openParentAuthModal()">
 						<i class="fas fa-user-check"></i> 학부모 인증
 					</button>
 				</div>
-				<div id="evaluation-content" class="evaluation-content hidden">
-				<textarea 
-					id="evaluation-textarea" 
-					class="evaluation-textarea" 
-					placeholder="학생에 대한 평가 내용을 입력하세요. 최대 500자입니다."
-					maxlength="500"
-				></textarea>
-				<div class="char-count">
-					<span id="char-count">0</span>/500
-				</div>
-				<div class="evaluation-buttons">
-					<button class="save-btn" onclick="saveEvaluation()">
-						<i class="fas fa-save"></i> 저장
-					</button>
-					<button class="cancel-btn" onclick="resetEvaluation()">
-						<i class="fas fa-undo"></i> 초기화
-					</button>
-				</div>
+
+				<!-- Content (hidden until auth) -->
+				<div id="eval-content" class="eval-content">
+					<textarea id="eval-textarea" class="eval-textarea" placeholder="이번 달 종합 평가가 아직 작성되지 않았습니다." maxlength="500" readonly></textarea>
+					<div class="eval-footer">
+						<span class="eval-char"><span id="eval-char-count">0</span>/500</span>
+						<span class="eval-hint">읽기 전용</span>
+					</div>
+					<div class="eval-save-row" id="eval-save-row" style="display:none;">
+						<button class="btn-save" onclick="saveEvaluation()"><i class="fas fa-save"></i> 저장</button>
+						<button class="btn-cancel" onclick="resetEvaluation()"><i class="fas fa-undo"></i></button>
+					</div>
 				</div>
 			</div>
 		</div>
-	</div>
 
-	<!-- 관리자 인증 모달 -->
-	<div id="admin-auth-modal" class="admin-modal">
-		<div class="admin-modal-content">
-			<div class="admin-modal-header">
-				<h2>선생님 인증</h2>
-				<button class="admin-modal-close" onclick="closeTeacherAuthModal()">
-					<i class="fas fa-times"></i>
-				</button>
+	</div>
+</div>
+
+<!-- ===== QR MODAL ===== -->
+<div id="qr-modal" class="pp-modal">
+	<div class="pp-modal-box" style="max-width:440px;">
+		<div class="pp-modal-header">
+			<h2><i class="fas fa-qrcode" style="margin-right:8px;color:var(--teal);"></i>QR 코드 인식</h2>
+			<button class="pp-modal-close" onclick="closeQRScanner()"><i class="fas fa-times"></i></button>
+		</div>
+
+		<!-- QR 모드 탭 -->
+		<div class="qr-mode-tabs">
+			<button class="qr-mode-tab active" id="qr-tab-camera" onclick="switchQRMode('camera')">
+				<i class="fas fa-camera"></i> 카메라 스캔
+			</button>
+			<button class="qr-mode-tab" id="qr-tab-image" onclick="switchQRMode('image')">
+				<i class="fas fa-image"></i> 이미지 인식
+			</button>
+		</div>
+
+		<!-- 카메라 스캔 영역 -->
+		<div id="qr-camera-panel" class="qr-panel">
+			<div id="qr-reader" style="width:100%;border-radius:12px;overflow:hidden;margin-bottom:12px;"></div>
+			<button class="btn-qr" style="width:100%" onclick="toggleCamera()">
+				<i class="fas fa-camera-rotate"></i> 카메라 전환
+			</button>
+		</div>
+
+		<!-- 이미지 업로드 영역 -->
+		<div id="qr-image-panel" class="qr-panel" style="display:none;">
+			<input type="file" id="qr-file-input" accept="image/*" style="display:none;" onchange="handleQRFileSelect(event)">
+			
+			<div id="qr-drop-zone" class="qr-drop-zone" onclick="document.getElementById('qr-file-input').click();">
+				<div id="qr-drop-content">
+					<i class="fas fa-cloud-arrow-up"></i>
+					<p>QR 코드 이미지를 선택하세요</p>
+					<span>저장된 QR 이미지를 터치하여 불러오기</span>
+				</div>
+				<div id="qr-preview-area" style="display:none;">
+					<img id="qr-preview-img" style="max-width:100%;max-height:240px;border-radius:10px;">
+				</div>
 			</div>
-			<p style="font-size: 13px; color: var(--gray); margin-bottom: 8px;">등록된 선생님을 선택하고 비밀번호를 입력하세요.</p>
-			<select id="teacher-auth-select" class="admin-input">
-				<option value="">선생님 선택</option>
-			</select>
-			<input id="teacher-auth-password" class="admin-input" type="password" placeholder="선생님 비밀번호">
-			<div style="display: flex; gap: 10px; margin-top: 12px;">
-				<button class="save-btn" style="flex: 1;" onclick="handleTeacherAuth()">
-					<i class="fas fa-lock"></i> 인증하기
+			
+			<div id="qr-file-status" class="qr-file-status" style="display:none;"></div>
+			
+			<div style="display:flex;gap:8px;margin-top:12px;">
+				<button class="btn-qr" style="flex:1;" onclick="document.getElementById('qr-file-input').click();">
+					<i class="fas fa-folder-open"></i> 다른 이미지
+				</button>
+				<button class="btn-primary" id="qr-scan-file-btn" style="flex:1;display:none;" onclick="scanQRFromFile()">
+					<i class="fas fa-search"></i> QR 인식
 				</button>
 			</div>
 		</div>
 	</div>
+</div>
 
-	<!-- 학부모 인증 모달 -->
-	<div id="parent-auth-modal" class="admin-modal">
-		<div class="admin-modal-content">
-			<div class="admin-modal-header">
-				<h2>학부모 인증</h2>
-				<button class="admin-modal-close" onclick="closeParentAuthModal()">
-					<i class="fas fa-times"></i>
-				</button>
-			</div>
-			<input id="parent-auth-password" class="admin-input" type="password" placeholder="">
-			<div style="display: flex; gap: 10px; margin-top: 12px;">
-				<button class="save-btn" style="flex: 1;" onclick="handleParentAuth()">
-					<i class="fas fa-lock"></i> 인증하기
-				</button>
-			</div>
+<!-- ===== Parent Auth Modal ===== -->
+<div id="parent-auth-modal" class="pp-modal">
+	<div class="pp-modal-box">
+		<div class="pp-modal-header">
+			<h2><i class="fas fa-key" style="margin-right:8px;color:var(--accent);"></i>학부모 인증</h2>
+			<button class="pp-modal-close" onclick="closeParentAuthModal()"><i class="fas fa-times"></i></button>
 		</div>
-	</div>
-
-	<!-- 토스트 & 확인 다이얼로그 -->
-	<div id="toast-container" style="position:fixed;top:16px;right:16px;z-index:99999;display:flex;flex-direction:column;gap:8px;pointer-events:none;max-width:360px;"></div>
-	<div id="pp-confirm-dialog" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,0.5);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:99998;align-items:center;justify-content:center;padding:20px;">
-		<div style="background:#2a2740;border-radius:20px;padding:28px 24px 22px;max-width:360px;width:100%;box-shadow:0 24px 48px -12px rgba(0,0,0,0.3);text-align:center;border:1px solid rgba(255,255,255,0.06);">
-			<div id="pp-confirm-icon" style="width:52px;height:52px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;font-size:22px;background:rgba(245,158,11,0.15);color:#f59e0b;"><i class="fas fa-question-circle"></i></div>
-			<h3 id="pp-confirm-title" style="font-size:16px;font-weight:700;color:#e2e0ea;margin:0 0 8px;">확인</h3>
-			<p id="pp-confirm-message" style="font-size:13px;color:#9b97ad;line-height:1.7;margin:0 0 20px;white-space:pre-line;"></p>
-			<div style="display:flex;gap:8px;">
-				<button id="pp-confirm-cancel" style="flex:1;padding:11px;border-radius:12px;font-size:13px;font-weight:600;border:1.5px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:#9b97ad;cursor:pointer;font-family:inherit;">취소</button>
-				<button id="pp-confirm-ok" style="flex:1;padding:11px;border-radius:12px;font-size:13px;font-weight:600;border:none;background:linear-gradient(135deg,#7c3aed,#6366f1);color:white;cursor:pointer;font-family:inherit;">확인</button>
-			</div>
+		<p style="font-size:13px;color:var(--text-sec);line-height:1.6;">선생님에게 받은 인증코드 6자리를 입력하세요.</p>
+		<input id="parent-auth-password" class="pp-modal-input" type="text" placeholder="인증코드 6자리" maxlength="6" inputmode="numeric" style="font-size:20px;letter-spacing:6px;text-align:center;font-weight:800;">
+		<div class="pp-modal-hint" id="parent-auth-hint">
+			<i class="fas fa-info-circle" style="color:var(--primary);margin-right:4px;"></i>
+			인증코드는 선생님이 발급한 6자리 숫자입니다
 		</div>
+		<div id="parent-auth-fail-msg" style="display:none;margin-top:8px;padding:8px 12px;border-radius:8px;background:var(--red-bg);color:var(--red);font-size:12px;font-weight:500;"></div>
+		<button class="pp-modal-btn" id="parent-auth-btn" onclick="handleParentAuth()">
+			<i class="fas fa-check"></i> 인증하기
+		</button>
 	</div>
-	<script>
-	// 학부모 포털 토스트
-	window.showToast = function(msg, type, dur) {
-		type = type || 'info'; dur = dur || 3000;
-		var c = document.getElementById('toast-container'); if(!c) return;
-		var colors = {success:'#22c55e',error:'#ef4444',warning:'#f59e0b',info:'#7c3aed'};
-		var icons = {success:'fa-check',error:'fa-xmark',warning:'fa-exclamation',info:'fa-info'};
-		var t = document.createElement('div');
-		t.style.cssText = 'display:flex;align-items:center;gap:10px;padding:12px 16px;border-radius:12px;background:#2a2740;box-shadow:0 8px 24px rgba(0,0,0,0.25);border-left:3px solid '+(colors[type]||colors.info)+';pointer-events:auto;cursor:pointer;animation:toastIn 0.3s ease;opacity:1;transition:all 0.3s;min-width:240px;border:1px solid rgba(255,255,255,0.06);';
-		t.innerHTML = '<div style="width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;background:rgba(255,255,255,0.08);color:'+(colors[type]||colors.info)+'"><i class="fas '+(icons[type]||icons.info)+'"></i></div><div style="flex:1;font-size:12px;color:#e2e0ea;line-height:1.5;">'+msg.replace(/\n/g,'<br>')+'</div>';
-		t.onclick = function(){ t.style.opacity='0'; t.style.transform='translateX(60px)'; setTimeout(function(){t.remove()},300); };
-		c.appendChild(t);
-		while(c.children.length > 4) c.firstChild.remove();
-		setTimeout(function(){ if(t.parentElement){t.style.opacity='0';t.style.transform='translateX(60px)';setTimeout(function(){t.remove()},300);} }, dur);
-	};
-	window.showConfirm = function(msg, opts) {
-		opts = opts || {};
-		return new Promise(function(resolve) {
-			var ov = document.getElementById('pp-confirm-dialog');
-			if(!ov){ resolve(confirm(msg)); return; }
-			document.getElementById('pp-confirm-title').textContent = opts.title || '확인';
-			document.getElementById('pp-confirm-message').innerHTML = msg.replace(/\n/g,'<br>');
-			document.getElementById('pp-confirm-ok').textContent = opts.okText || '확인';
-			document.getElementById('pp-confirm-cancel').textContent = opts.cancelText || '취소';
-			ov.style.display = 'flex';
-			function done(r){ ov.style.display='none'; resolve(r); }
-			document.getElementById('pp-confirm-ok').onclick = function(){ done(true); };
-			document.getElementById('pp-confirm-cancel').onclick = function(){ done(false); };
-			ov.onclick = function(e){ if(e.target===ov) done(false); };
-		});
-	};
-	</script>
-	<style>
-	@keyframes toastIn { from{opacity:0;transform:translateX(60px)} to{opacity:1;transform:translateX(0)} }
-	</style>
+</div>
 
-	<script src="report.js"></script>
+<!-- ===== Teacher Auth Modal ===== -->
+<div id="admin-auth-modal" class="pp-modal">
+	<div class="pp-modal-box">
+		<div class="pp-modal-header">
+			<h2><i class="fas fa-chalkboard-user" style="margin-right:8px;color:var(--primary);"></i>선생님 인증</h2>
+			<button class="pp-modal-close" onclick="closeTeacherAuthModal()"><i class="fas fa-times"></i></button>
+		</div>
+		<p style="font-size:13px;color:var(--text-sec);margin-bottom:4px;">평가 수정은 선생님 인증이 필요합니다.</p>
+		<select id="teacher-auth-select" class="pp-modal-input" style="margin-top:8px;">
+			<option value="">선생님 선택</option>
+		</select>
+		<input id="teacher-auth-password" class="pp-modal-input" type="password" placeholder="비밀번호">
+		<button class="pp-modal-btn" onclick="handleTeacherAuth()">
+			<i class="fas fa-lock-open"></i> 인증하기
+		</button>
+	</div>
+</div>
+
+<!-- Hidden container for QR file scan -->
+<div id="qr-file-scan-temp" style="display:none;"></div>
+
+<!-- Toast -->
+<div id="toast-container" style="position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:99999;display:flex;flex-direction:column;gap:8px;pointer-events:none;max-width:360px;width:calc(100% - 32px);"></div>
+
+<script>
+// Toast
+window.ppShowToast = function(msg, type) {
+	type = type || 'info';
+	var c = document.getElementById('toast-container'); if(!c) return;
+	var colors = {success:'#22c55e',error:'#ef4444',warning:'#f59e0b',info:'#7c3aed'};
+	var icons = {success:'fa-check-circle',error:'fa-xmark-circle',warning:'fa-exclamation-circle',info:'fa-info-circle'};
+	var t = document.createElement('div');
+	t.style.cssText = 'display:flex;align-items:center;gap:10px;padding:13px 16px;border-radius:14px;background:var(--card);box-shadow:0 8px 32px rgba(0,0,0,0.3);pointer-events:auto;cursor:pointer;animation:toastSlide 0.3s ease;border:1px solid var(--border);';
+	t.innerHTML = '<i class="fas '+(icons[type]||icons.info)+'" style="font-size:16px;color:'+(colors[type]||colors.info)+';flex-shrink:0;"></i><span style="flex:1;font-size:13px;color:var(--text);line-height:1.4;">'+msg+'</span>';
+	t.onclick = function(){ t.style.opacity='0'; t.style.transform='translateY(-20px)'; setTimeout(function(){t.remove()},300); };
+	c.appendChild(t);
+	while(c.children.length > 3) c.firstChild.remove();
+	setTimeout(function(){ if(t.parentElement){t.style.opacity='0';t.style.transform='translateY(-20px)';setTimeout(function(){t.remove()},300);} }, 3000);
+};
+window.showToast = window.ppShowToast;
+</script>
+<style>
+@keyframes toastSlide { from{opacity:0;transform:translateY(-20px)} to{opacity:1;transform:translateY(0)} }
+</style>
+
+<script src="report.js"></script>
 </body>
 </html>
