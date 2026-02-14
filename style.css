@@ -303,6 +303,83 @@ textarea:focus:not(:focus-visible) {
     max-height: 92vh !important;
 }
 
+/* 시간표 학생 검색 바 */
+.tt-search-bar {
+    padding: 0 20px 10px;
+    flex-shrink: 0;
+}
+.tt-search-input-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+.tt-search-icon {
+    position: absolute;
+    left: 12px;
+    color: #94a3b8;
+    font-size: 13px;
+    pointer-events: none;
+}
+.tt-search-input {
+    width: 100%;
+    padding: 9px 34px 9px 34px;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 10px;
+    font-size: 13px;
+    color: var(--text);
+    background: #f8fafc;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+.tt-search-input:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(99,102,241,0.1);
+    background: #fff;
+}
+.tt-search-input::placeholder { color: #cbd5e1; }
+.tt-search-clear {
+    position: absolute;
+    right: 8px;
+    background: none;
+    border: none;
+    color: #94a3b8;
+    font-size: 13px;
+    cursor: pointer;
+    padding: 4px;
+    line-height: 1;
+    border-radius: 50%;
+    transition: color 0.15s;
+}
+.tt-search-clear:hover { color: #475569; }
+
+/* 시간표 블록 하이라이트 */
+.event-block.tt-highlight {
+    outline: 3px solid #4f46e5 !important;
+    outline-offset: -1px;
+    box-shadow: 0 0 12px rgba(79,70,229,0.35) !important;
+    z-index: 10 !important;
+    animation: tt-pulse 1.5s ease-in-out infinite;
+}
+.event-block.tt-dim {
+    opacity: 0.3 !important;
+    filter: grayscale(0.5);
+    transition: opacity 0.25s, filter 0.25s;
+}
+/* 머지 그룹 내 학생 하이라이트 */
+.sub-event-item.tt-sub-highlight {
+    background: rgba(79,70,229,0.12) !important;
+    outline: 2px solid #4f46e5;
+    outline-offset: -1px;
+    border-radius: 8px;
+}
+.sub-event-item.tt-sub-dim {
+    opacity: 0.35;
+}
+@keyframes tt-pulse {
+    0%, 100% { outline-color: #4f46e5; box-shadow: 0 0 12px rgba(79,70,229,0.35); }
+    50% { outline-color: #818cf8; box-shadow: 0 0 20px rgba(79,70,229,0.5); }
+}
+
 .day-detail-card .modal-body {
     flex: 1;
     overflow: hidden;
@@ -670,6 +747,43 @@ textarea:focus:not(:focus-visible) {
     content: attr(placeholder);
     color: #cbd5e1;
     pointer-events: none;
+}
+/* 다른 선생님 공유 메모 읽기전용 표시 영역 */
+#att-shared-memo-others {
+    margin-bottom: 10px;
+    padding: 0;
+}
+#att-shared-memo-others .shared-memo-item {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 10px 14px;
+    margin-bottom: 8px;
+}
+#att-shared-memo-others .shared-memo-teacher {
+    display: inline-block;
+    background: #eef2ff;
+    color: #4f46e5;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 10px;
+    border-radius: 10px;
+    margin-bottom: 5px;
+}
+#att-shared-memo-others .shared-memo-text {
+    font-size: 13.5px;
+    color: var(--text);
+    line-height: 1.6;
+    word-wrap: break-word;
+}
+#att-shared-memo-others .shared-memo-header {
+    font-size: 12px;
+    font-weight: 600;
+    color: #64748b;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
 }
 .am-btn-save-memo {
     width: 100%;
@@ -3730,6 +3844,20 @@ textarea:focus:not(:focus-visible) {
     color: var(--text);
     border-color: var(--border);
 }
+[data-theme="night"] .tt-search-input,
+[data-theme="charcoal"] .tt-search-input {
+    background: var(--theme-header);
+    color: var(--text);
+    border-color: var(--border);
+}
+[data-theme="night"] .tt-search-icon,
+[data-theme="charcoal"] .tt-search-icon {
+    color: var(--text-secondary);
+}
+[data-theme="night"] .tt-search-clear,
+[data-theme="charcoal"] .tt-search-clear {
+    color: var(--text-secondary);
+}
 [data-theme="night"] .view-btn,
 [data-theme="charcoal"] .view-btn {
     background: var(--theme-cell);
@@ -3743,8 +3871,15 @@ textarea:focus:not(:focus-visible) {
 }
 [data-theme="night"] .btn-today,
 [data-theme="charcoal"] .btn-today {
+    background: var(--theme-cell);
     color: var(--text);
     border-color: var(--border);
+}
+[data-theme="night"] .btn-today:hover,
+[data-theme="charcoal"] .btn-today:hover {
+    background: rgba(99,102,241,0.2);
+    color: #a5b4fc;
+    border-color: rgba(99,102,241,0.4);
 }
 [data-theme="night"] .calendar-day-header th,
 [data-theme="charcoal"] .calendar-day-header th {
@@ -3825,11 +3960,34 @@ textarea:focus:not(:focus-visible) {
 }
 [data-theme="night"] .nav-arrow,
 [data-theme="charcoal"] .nav-arrow {
+    background: var(--theme-cell);
     color: var(--text);
+    border-color: var(--border);
+}
+[data-theme="night"] .nav-arrow:hover,
+[data-theme="charcoal"] .nav-arrow:hover {
+    background: rgba(99,102,241,0.2);
+    color: #a5b4fc;
+    border-color: rgba(99,102,241,0.4);
 }
 [data-theme="night"] #current-display,
 [data-theme="charcoal"] #current-display {
     color: var(--text);
+}
+[data-theme="night"] .jump-date-input,
+[data-theme="charcoal"] .jump-date-input {
+    background: var(--theme-cell);
+    color: var(--text);
+    border-color: var(--border);
+}
+[data-theme="night"] .jump-date-input:focus,
+[data-theme="charcoal"] .jump-date-input:focus {
+    border-color: #818cf8;
+    color: var(--text);
+}
+[data-theme="night"] .jump-date-input::-webkit-calendar-picker-indicator,
+[data-theme="charcoal"] .jump-date-input::-webkit-calendar-picker-indicator {
+    filter: invert(0.7);
 }
 [data-theme="night"] .day-cell:hover,
 [data-theme="charcoal"] .day-cell:hover {
@@ -3847,4 +4005,58 @@ textarea:focus:not(:focus-visible) {
 [data-theme="charcoal"] .summary-badge {
     background: rgba(99,102,241,0.15);
     color: #a5b4fc;
+}
+/* 다크 테마: 공유 메모 읽기전용 영역 */
+[data-theme="night"] #att-shared-memo-others .shared-memo-item,
+[data-theme="charcoal"] #att-shared-memo-others .shared-memo-item {
+    background: var(--theme-header);
+    border-color: var(--border);
+}
+[data-theme="night"] #att-shared-memo-others .shared-memo-teacher,
+[data-theme="charcoal"] #att-shared-memo-others .shared-memo-teacher {
+    background: rgba(99,102,241,0.2);
+    color: #a5b4fc;
+}
+[data-theme="night"] #att-shared-memo-others .shared-memo-text,
+[data-theme="charcoal"] #att-shared-memo-others .shared-memo-text {
+    color: var(--text);
+}
+[data-theme="night"] #att-shared-memo-others .shared-memo-header,
+[data-theme="charcoal"] #att-shared-memo-others .shared-memo-header {
+    color: var(--text-secondary);
+}
+/* 다크 테마: 이번달 기록 공유 메모 선생님 태그 */
+[data-theme="night"] .hist-memo-block span[style*="background:#eef2ff"],
+[data-theme="charcoal"] .hist-memo-block span[style*="background:#eef2ff"] {
+    background: rgba(99,102,241,0.2) !important;
+    color: #a5b4fc !important;
+}
+/* 다크 테마: 시간표 학생 검색 바 */
+[data-theme="night"] .tt-search-input,
+[data-theme="charcoal"] .tt-search-input {
+    background: var(--theme-header);
+    color: var(--text);
+    border-color: var(--border);
+}
+[data-theme="night"] .tt-search-input:focus,
+[data-theme="charcoal"] .tt-search-input:focus {
+    border-color: #818cf8;
+    box-shadow: 0 0 0 3px rgba(129,140,248,0.15);
+    background: var(--theme-cell);
+}
+[data-theme="night"] .tt-search-input::placeholder,
+[data-theme="charcoal"] .tt-search-input::placeholder {
+    color: var(--gray-light);
+}
+[data-theme="night"] .tt-search-icon,
+[data-theme="charcoal"] .tt-search-icon {
+    color: var(--gray-light);
+}
+[data-theme="night"] .tt-search-clear,
+[data-theme="charcoal"] .tt-search-clear {
+    color: var(--gray);
+}
+[data-theme="night"] .tt-search-clear:hover,
+[data-theme="charcoal"] .tt-search-clear:hover {
+    color: var(--text);
 }

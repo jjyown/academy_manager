@@ -206,6 +206,10 @@ DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='students' AND column_name='status_changed_date') THEN
         ALTER TABLE students ADD COLUMN status_changed_date DATE;
     END IF;
+    -- attendance_records.memo
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='attendance_records' AND column_name='memo') THEN
+        ALTER TABLE attendance_records ADD COLUMN memo TEXT;
+    END IF;
     -- attendance_records.shared_memo
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='attendance_records' AND column_name='shared_memo') THEN
         ALTER TABLE attendance_records ADD COLUMN shared_memo TEXT;

@@ -2610,9 +2610,88 @@ window.openDayDetail = async function(dateStr) {
     if (!modal) return;
     modal.style.display = 'flex';
     document.getElementById('day-detail-title').textContent = `${dateStr} 시간표`;
+    // 검색 초기화
+    const searchInput = document.getElementById('tt-search-input');
+    if (searchInput) { searchInput.value = ''; }
+    const clearBtn = document.getElementById('tt-search-clear');
+    if (clearBtn) clearBtn.style.display = 'none';
     currentDetailDate = dateStr;
     await ensureAttendanceForDate(dateStr);
     renderDayEvents(dateStr);
+    // 하이라이트 초기화
+    clearTimetableSearch();
+}
+
+// ── 시간표 학생 검색 ──
+window.searchStudentInTimetable = function(query) {
+    const clearBtn = document.getElementById('tt-search-clear');
+    const q = (query || '').trim();
+    if (clearBtn) clearBtn.style.display = q ? '' : 'none';
+
+    const blocks = document.querySelectorAll('#time-grid .event-block');
+    if (!q) {
+        // 검색어 비어있으면 모두 원래 상태
+        blocks.forEach(b => { b.classList.remove('tt-highlight', 'tt-dim'); });
+        document.querySelectorAll('.sub-event-item').forEach(s => { s.classList.remove('tt-sub-highlight', 'tt-sub-dim'); });
+        return;
+    }
+
+    let hasMatch = false;
+    blocks.forEach(b => {
+        const names = (b.dataset.studentNames || '').split(',');
+        const blockMatch = names.some(n => n.includes(q));
+        if (blockMatch) {
+            b.classList.add('tt-highlight');
+            b.classList.remove('tt-dim');
+            hasMatch = true;
+            // 머지 그룹 내 개별 학생 하이라이트
+            const subItems = b.querySelectorAll('.sub-event-item');
+            if (subItems.length > 0) {
+                subItems.forEach(si => {
+                    const sName = si.dataset.studentName || '';
+                    if (sName.includes(q)) {
+                        si.classList.add('tt-sub-highlight');
+                        si.classList.remove('tt-sub-dim');
+                    } else {
+                        si.classList.add('tt-sub-dim');
+                        si.classList.remove('tt-sub-highlight');
+                    }
+                });
+            }
+        } else {
+            b.classList.add('tt-dim');
+            b.classList.remove('tt-highlight');
+            b.querySelectorAll('.sub-event-item').forEach(si => {
+                si.classList.remove('tt-sub-highlight', 'tt-sub-dim');
+            });
+        }
+    });
+
+    // 검색 결과가 있으면 첫 번째 하이라이트 블록으로 스크롤
+    if (hasMatch) {
+        const firstMatch = document.querySelector('#time-grid .event-block.tt-highlight');
+        if (firstMatch) {
+            const container = document.querySelector('.day-detail-card .modal-body');
+            if (container) {
+                const blockTop = firstMatch.offsetTop;
+                const containerHeight = container.clientHeight;
+                container.scrollTop = Math.max(0, blockTop - containerHeight / 3);
+            }
+        }
+    }
+}
+
+window.clearTimetableSearch = function() {
+    const input = document.getElementById('tt-search-input');
+    if (input) input.value = '';
+    const clearBtn = document.getElementById('tt-search-clear');
+    if (clearBtn) clearBtn.style.display = 'none';
+    document.querySelectorAll('#time-grid .event-block').forEach(b => {
+        b.classList.remove('tt-highlight', 'tt-dim');
+    });
+    document.querySelectorAll('.sub-event-item').forEach(s => {
+        s.classList.remove('tt-sub-highlight', 'tt-sub-dim');
+    });
 }
 
 window.renderDayEvents = function(dateStr) {
@@ -2723,6 +2802,8 @@ window.renderDayEvents = function(dateStr) {
         const isMerged = ev.members.length > 1;
         const blockId = isMerged ? `group-${ev.startMin}-${ev.duration}` : `${ev.members[0].id}-${ev.originalStart}`;
         const block = document.createElement('div');
+        // 학생 검색용 데이터 속성
+        block.dataset.studentNames = ev.members.map(m => m.name).join(',');
         
         // Merged 그룹도 학년별 색상 적용
         if (isMerged) {
@@ -2771,7 +2852,7 @@ window.renderDayEvents = function(dateStr) {
                 else if (status === 'absent') badge = '<span style="background:#ef4444;color:white;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;">결석</span>';
                 else if (status === 'makeup' || status === 'etc') badge = '<span style="background:#8b5cf6;color:white;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;">보강</span>';
                 else badge = '<span style="background:#d1d5db;color:#374151;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;">미처리</span>';
-                return `<div class="sub-event-item ${getSubItemColorClass(m.grade)}" onclick="event.stopPropagation(); openAttendanceModal('${m.id}', '${dateStr}', '${ev.originalStart}')"><div class="sub-info"><span class="sub-name">${m.name} ${badge}</span><span class="sub-grade">${m.grade}</span></div></div>`;
+                return `<div class="sub-event-item ${getSubItemColorClass(m.grade)}" data-student-name="${m.name}" onclick="event.stopPropagation(); openAttendanceModal('${m.id}', '${dateStr}', '${ev.originalStart}')"><div class="sub-info"><span class="sub-name">${m.name} ${badge}</span><span class="sub-grade">${m.grade}</span></div></div>`;
             }).join('')}</div>`;
         } else {
             const s = ev.members[0];
@@ -2919,6 +3000,7 @@ window.switchMemoTab = function(tab) {
     currentMemoTab = tab;
     const privateMemo = document.getElementById('att-memo');
     const sharedMemo = document.getElementById('att-shared-memo');
+    const sharedOthers = document.getElementById('att-shared-memo-others');
     const hint = document.getElementById('am-memo-hint');
     const tabs = document.querySelectorAll('.am-memo-tab');
 
@@ -2927,11 +3009,16 @@ window.switchMemoTab = function(tab) {
     if (tab === 'private') {
         privateMemo.style.display = '';
         sharedMemo.style.display = 'none';
+        if (sharedOthers) sharedOthers.style.display = 'none';
         hint.textContent = '🔒 나만 볼 수 있는 기록입니다.';
         hint.className = 'am-memo-hint';
     } else {
         privateMemo.style.display = 'none';
         sharedMemo.style.display = '';
+        // 다른 선생님 공유 메모가 있으면 표시
+        if (sharedOthers) {
+            sharedOthers.style.display = sharedOthers.innerHTML.trim() ? '' : 'none';
+        }
         hint.textContent = '👥 모든 선생님이 볼 수 있는 공유 기록입니다.';
         hint.className = 'am-memo-hint shared';
     }
@@ -2949,7 +3036,7 @@ window.openAttendanceModal = async function(sid, dateStr, startTime) {
     document.getElementById('att-date').value = dateStr;
     document.getElementById('att-edit-date').value = dateStr;
 
-    // 개인 메모 로드
+    // 개인 메모 로드 (로컬 우선, 없으면 DB에서 조회)
     const memoDiv = document.getElementById('att-memo');
     let savedRecord = '';
     if (s.records && s.records[dateStr]) {
@@ -2959,19 +3046,59 @@ window.openAttendanceModal = async function(sid, dateStr, startTime) {
             savedRecord = s.records[dateStr];
         }
     }
-    memoDiv.innerHTML = savedRecord;
-
-    // 공유 메모 로드
-    const sharedMemoDiv = document.getElementById('att-shared-memo');
-    let savedShared = '';
-    if (s.shared_records && s.shared_records[dateStr]) {
-        if (startTime && typeof s.shared_records[dateStr] === 'object') {
-            savedShared = s.shared_records[dateStr][startTime] || '';
-        } else if (typeof s.shared_records[dateStr] === 'string') {
-            savedShared = s.shared_records[dateStr];
+    // 로컬에 없으면 DB에서 가져오기
+    if (!savedRecord) {
+        try {
+            if (typeof window.getAttendanceRecordByStudentAndDate === 'function') {
+                const dbRecord = await window.getAttendanceRecordByStudentAndDate(sid, dateStr, currentTeacherId, startTime);
+                if (dbRecord && dbRecord.memo) {
+                    savedRecord = dbRecord.memo;
+                    // 로컬에도 저장
+                    if (!s.records) s.records = {};
+                    if (!s.records[dateStr] || typeof s.records[dateStr] !== 'object') s.records[dateStr] = {};
+                    s.records[dateStr][startTime || 'default'] = savedRecord;
+                }
+            }
+        } catch (e) {
+            console.error('[openAttendanceModal] 개인 메모 DB 조회 실패:', e);
         }
     }
-    sharedMemoDiv.innerHTML = savedShared;
+    memoDiv.innerHTML = savedRecord;
+
+    // 공유 메모 로드 (구조화 데이터 활용 - 다른 선생님 메모는 읽기전용, 본인 메모는 편집 가능)
+    const sharedMemoDiv = document.getElementById('att-shared-memo');
+    const sharedOthersDiv = document.getElementById('att-shared-memo-others');
+    let mySharedMemo = '';
+    let othersHtml = '';
+    try {
+        if (typeof window.getSharedMemosStructured === 'function') {
+            const memoList = await window.getSharedMemosStructured(sid, dateStr);
+            const myId = String(currentTeacherId);
+            const otherMemos = [];
+            for (const m of memoList) {
+                if (String(m.teacher_id) === myId) {
+                    mySharedMemo = m.memo;
+                } else {
+                    otherMemos.push(m);
+                }
+            }
+            if (otherMemos.length > 0) {
+                othersHtml = '<div class="shared-memo-header"><i class="fas fa-users"></i> 다른 선생님 공유 메모</div>';
+                otherMemos.forEach(m => {
+                    othersHtml += `<div class="shared-memo-item"><span class="shared-memo-teacher">${m.teacher_name}</span><div class="shared-memo-text">${m.memo}</div></div>`;
+                });
+            }
+        }
+    } catch (e) {
+        console.error('[openAttendanceModal] 공유 메모 DB 조회 실패:', e);
+    }
+    // 다른 선생님 메모 표시 (읽기전용)
+    if (sharedOthersDiv) {
+        sharedOthersDiv.innerHTML = othersHtml;
+        // 표시/숨김은 switchMemoTab에서 처리
+    }
+    // 본인 공유 메모만 편집 영역에 로드
+    sharedMemoDiv.innerHTML = mySharedMemo;
 
     // 탭 초기화 (개인 메모 활성)
     switchMemoTab('private');
@@ -3119,12 +3246,13 @@ window.setAttendance = async function(status, options = {}) {
 
         // DB에도 상태 업데이트 (기존 시간/스캔 결과 유지)
         // 반드시 scheduled_time(수업 시작시간)까지 포함하여 upsert
+        const memoData = { memo: memo || null, shared_memo: sharedMemo || null };
         if (scope === 'all') {
             for (const tid of teacherIds) {
-                await persistAttendanceStatusToDbForTeacher(sid, dateStr, status, String(tid), startTime);
+                await persistAttendanceStatusToDbForTeacher(sid, dateStr, status, String(tid), startTime, memoData);
             }
         } else {
-            await persistAttendanceStatusToDbForTeacher(sid, dateStr, status, String(currentTeacherId || ''), startTime);
+            await persistAttendanceStatusToDbForTeacher(sid, dateStr, status, String(currentTeacherId || ''), startTime, memoData);
         }
 
         // currentTeacherStudents 배열도 즉시 업데이트
@@ -3136,6 +3264,9 @@ window.setAttendance = async function(status, options = {}) {
             if(!currentTeacherStudents[currentStudentIdx].records) currentTeacherStudents[currentStudentIdx].records = {};
             if(!currentTeacherStudents[currentStudentIdx].records[dateStr]) currentTeacherStudents[currentStudentIdx].records[dateStr] = {};
             currentTeacherStudents[currentStudentIdx].records[dateStr][startTime] = memo;
+            if(!currentTeacherStudents[currentStudentIdx].shared_records) currentTeacherStudents[currentStudentIdx].shared_records = {};
+            if(!currentTeacherStudents[currentStudentIdx].shared_records[dateStr]) currentTeacherStudents[currentStudentIdx].shared_records[dateStr] = {};
+            currentTeacherStudents[currentStudentIdx].shared_records[dateStr][startTime] = sharedMemo;
         }
 
         // 반드시 최신 참조로 갱신
@@ -3225,7 +3356,7 @@ async function persistAttendanceStatusToDb(studentId, dateStr, status, teacherId
     await persistAttendanceStatusToDbForTeacher(studentId, dateStr, status, teacherId);
 }
 
-async function persistAttendanceStatusToDbForTeacher(studentId, dateStr, status, teacherId, startTime) {
+async function persistAttendanceStatusToDbForTeacher(studentId, dateStr, status, teacherId, startTime, memoData) {
     if (typeof window.saveAttendanceRecord !== 'function') return;
 
     let existing = null;
@@ -3241,6 +3372,10 @@ async function persistAttendanceStatusToDbForTeacher(studentId, dateStr, status,
     const studentSchedule = teacherSchedule[String(studentId)] || {};
     const schedule = studentSchedule[dateStr] || null;
 
+    // memoData가 전달되면 해당 값 사용, 아니면 기존 DB 값 유지
+    const memoValue = (memoData && memoData.memo !== undefined) ? memoData.memo : (existing?.memo || null);
+    const sharedMemoValue = (memoData && memoData.shared_memo !== undefined) ? memoData.shared_memo : (existing?.shared_memo || null);
+
     const payload = {
         studentId: studentId,
         teacherId: String(existing?.teacher_id || teacherId || currentTeacherId || ''),
@@ -3251,7 +3386,8 @@ async function persistAttendanceStatusToDbForTeacher(studentId, dateStr, status,
         qrScanned: existing?.qr_scanned || false,
         qrScanTime: existing?.qr_scan_time || null,
         qrJudgment: existing?.qr_judgment || null,
-        memo: existing?.memo || null
+        memo: memoValue,
+        shared_memo: sharedMemoValue
     };
 
     try {
@@ -3304,12 +3440,13 @@ window.saveOnlyMemo = async function() {
                 const existing = typeof window.getAttendanceRecordByStudentAndDate === 'function'
                     ? await window.getAttendanceRecordByStudentAndDate(sid, dateStr, currentTeacherId, startTime)
                     : null;
+                const currentStatus = existing ? existing.status : (students[sIdx].attendance?.[dateStr]?.[startTime] || 'absent');
                 await window.saveAttendanceRecord({
                     studentId: sid,
                     teacherId: String(currentTeacherId || ''),
                     attendanceDate: dateStr,
                     scheduledTime: startTime || null,
-                    status: existing ? existing.status : (students[sIdx].attendance?.[dateStr]?.[startTime] || null),
+                    status: currentStatus,
                     checkInTime: existing ? existing.check_in_time : null,
                     qrScanned: existing ? existing.qr_scanned : false,
                     memo: privateMemo || null,
@@ -3366,6 +3503,7 @@ async function _generateScheduleCore(excludeHolidays) {
 
     try {
         let totalCount = 0;
+        let cancelledByUser = false; // 사용자가 겹침 취소로 중단했는지 추적
         const scheduleBatch = [];
         for (const sid of targetStudentIds) {
             const student = students.find(s => String(s.id) === String(sid));
@@ -3383,12 +3521,12 @@ async function _generateScheduleCore(excludeHolidays) {
                 const off = startObj.getTimezoneOffset() * 60000;
                 const dStr = new Date(startObj.getTime() - off).toISOString().split('T')[0];
                 const holidayInfo = excludeHolidays ? getHolidayInfo(dStr) : null;
-                if (holidayInfo && !(await showConfirm(`${student.name} - ${dStr}은 ${holidayInfo.name}입니다. 계속 진행하시겠습니까?`, { type: 'warn', title: '공휴일 안내' }))) continue;
+                if (holidayInfo && !(await showConfirm(`${student.name} - ${dStr}은 ${holidayInfo.name}입니다. 계속 진행하시겠습니까?`, { type: 'warn', title: '공휴일 안내' }))) { cancelledByUser = true; continue; }
                 const entries = getScheduleEntries(currentTeacherId, String(sid), dStr);
                 const exists = entries.some(item => item.start === startTime);
-                if (exists && !(await showConfirm(`${student.name} - ${dStr} ${startTime}에 이미 일정이 있습니다. 덮어씌우시겠습니까?`, { type: 'warn', title: '일정 겹침' }))) continue;
+                if (exists && !(await showConfirm(`${student.name} - ${dStr} ${startTime}에 이미 일정이 있습니다. 덮어씌우시겠습니까?`, { type: 'warn', title: '일정 겹침' }))) { cancelledByUser = true; continue; }
                 const overlaps = await checkScheduleOverlap(sid, dStr, startTime, durInt, exists ? currentTeacherId : null, exists ? startTime : null);
-                if (overlaps.length > 0 && !(await showConfirm(formatOverlapMessage(student.name, dStr, overlaps), { type: 'warn', title: '일정 겹침' }))) continue;
+                if (overlaps.length > 0 && !(await showConfirm(formatOverlapMessage(student.name, dStr, overlaps), { type: 'warn', title: '일정 겹침' }))) { cancelledByUser = true; continue; }
                 const updated = upsertScheduleEntry(entries, { start: startTime, duration: durInt });
                 setScheduleEntries(currentTeacherId, String(sid), dStr, updated.list);
                 scheduleBatch.push({ teacherId: currentTeacherId, studentId: sid, date: dStr, startTime, duration: durInt });
@@ -3410,7 +3548,7 @@ async function _generateScheduleCore(excludeHolidays) {
                         const overlaps = await checkScheduleOverlap(sid, dStr, startTime, durInt, null, null);
                         if (overlaps.length > 0) {
                             const overlapMsg = formatOverlapMessage(student.name, dStr, overlaps) + `\n\n[확인] = 추가\n[취소] = 건너뛰기`;
-                            if (!(await showConfirm(overlapMsg, { type: 'warn', title: '일정 겹침', okText: '추가', cancelText: '건너뛰기' }))) continue;
+                            if (!(await showConfirm(overlapMsg, { type: 'warn', title: '일정 겹침', okText: '추가', cancelText: '건너뛰기' }))) { cancelledByUser = true; continue; }
                         }
                     }
                     const updated = upsertScheduleEntry(entries, { start: startTime, duration: durInt });
@@ -3431,13 +3569,22 @@ async function _generateScheduleCore(excludeHolidays) {
             }
         }
         saveLayouts();
-        closeModal('schedule-modal');
+        // ★ 일정이 실제로 생성된 경우에만 모달 닫기 (취소로 0개면 모달 유지)
+        if (totalCount > 0) {
+            closeModal('schedule-modal');
+        } else if (cancelledByUser) {
+            // 사용자가 겹침/공휴일 확인에서 취소 → 모달 유지, 안내 토스트
+            showToast('일정 추가가 취소되었습니다. 설정을 변경 후 다시 시도하세요.', 'info');
+        } else {
+            closeModal('schedule-modal');
+        }
         renderCalendar();
         await loadAllTeachersScheduleData();
         if (typeof window.initMissedScanChecks === 'function') window.initMissedScanChecks();
         if (typeof scheduleKstMidnightAutoAbsent === 'function') scheduleKstMidnightAutoAbsent();
         const suffix = excludeHolidays && totalCount === 0 ? ' (공휴일이 제외되었을 수 있습니다)' : '';
-        showToast(totalCount === 0 ? `새로 등록된 일정이 없습니다.${suffix}` : `${totalCount}개의 일정이 생성되었습니다.`, totalCount === 0 ? 'info' : 'success');
+        if (totalCount > 0) showToast(`${totalCount}개의 일정이 생성되었습니다.`, 'success');
+        else if (!cancelledByUser) showToast(`새로 등록된 일정이 없습니다.${suffix}`, 'info');
     } finally {
         isScheduleSaving = false;
         if (activeBtn) { activeBtn.disabled = false; if (activeBtn.dataset.originalHtml) { activeBtn.innerHTML = activeBtn.dataset.originalHtml; delete activeBtn.dataset.originalHtml; } }
@@ -3752,7 +3899,7 @@ window.executePeriodDelete = async function() {
     }
 }
 
-window.openHistoryModal = function() {
+window.openHistoryModal = async function() {
     const sid = document.getElementById('att-student-id').value;
     const s = students.find(x => String(x.id) === String(sid));
     if(!s) return;
@@ -3762,9 +3909,80 @@ window.openHistoryModal = function() {
     document.getElementById('hist-title').textContent = `${s.name} (${s.grade})${s.school ? ' · ' + s.school : ''}`;
     document.getElementById('hist-subtitle').textContent = `${curYear}년 ${curMonth}월 학습 기록`;
     const container = document.getElementById('history-timeline');
-    container.innerHTML = '';
+    container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--gray);">로딩 중...</div>';
     const statsEl = document.getElementById('hist-stats');
     const monthPrefix = `${curYear}-${String(curMonth).padStart(2, '0')}`;
+
+    // DB에서 해당 학생의 이번 달 전체 출석 레코드를 조회 (메모 + 공유 메모 모두)
+    try {
+        const ownerId = localStorage.getItem('current_owner_id');
+        if (ownerId) {
+            const numericId = parseInt(sid);
+            const startDate = `${monthPrefix}-01`;
+            // 해당 월의 마지막 날짜를 정확히 계산 (2월 31일 같은 잘못된 날짜 방지)
+            const lastDay = new Date(curYear, curMonth, 0).getDate();
+            const endDate = `${monthPrefix}-${String(lastDay).padStart(2, '0')}`;
+
+            // 1) 공유 메모: teacher_id 무관하게 전체 조회
+            const { data: allRecords, error: allErr } = await supabase
+                .from('attendance_records')
+                .select('attendance_date, scheduled_time, teacher_id, memo, shared_memo, status')
+                .eq('owner_user_id', ownerId)
+                .eq('student_id', numericId)
+                .gte('attendance_date', startDate)
+                .lte('attendance_date', endDate);
+
+            if (!allErr && allRecords && allRecords.length > 0) {
+                if (!s.shared_records) s.shared_records = {};
+                if (!s.records) s.records = {};
+
+                // 선생님 이름 매핑
+                const teacherNames = {};
+                if (typeof teacherList !== 'undefined' && teacherList) {
+                    teacherList.forEach(t => { teacherNames[String(t.id)] = t.name; });
+                }
+
+                allRecords.forEach(rec => {
+                    const dk = rec.attendance_date;
+                    const tk = rec.scheduled_time || 'default';
+                    const sharedKey = `${tk}__${rec.teacher_id || 'unknown'}`;
+
+                    // 공유 메모 (선생님 이름 태그 포함)
+                    if (rec.shared_memo && rec.shared_memo.trim()) {
+                        if (!s.shared_records[dk] || typeof s.shared_records[dk] !== 'object') {
+                            s.shared_records[dk] = {};
+                        }
+                        const tName = teacherNames[String(rec.teacher_id)] || '알 수 없음';
+                        s.shared_records[dk][sharedKey] = `<span style="display:inline-block;background:#eef2ff;color:#4f46e5;font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;margin-bottom:3px;">${tName}</span><div>${rec.shared_memo}</div>`;
+                    }
+
+                    // 개인 메모 (현재 선생님의 것만)
+                    if (rec.memo && rec.memo.trim() && String(rec.teacher_id) === String(currentTeacherId)) {
+                        if (!s.records[dk] || typeof s.records[dk] !== 'object') {
+                            s.records[dk] = {};
+                        }
+                        s.records[dk][tk] = rec.memo;
+                    }
+
+                    // 출석 상태도 동기화 (누락 방지)
+                    if (rec.status) {
+                        if (!s.attendance) s.attendance = {};
+                        if (!s.attendance[dk] || typeof s.attendance[dk] !== 'object') {
+                            s.attendance[dk] = {};
+                        }
+                        // 현재 선생님 레코드이거나, 아직 상태 없으면 반영
+                        if (String(rec.teacher_id) === String(currentTeacherId) || !s.attendance[dk][tk]) {
+                            s.attendance[dk][tk] = rec.status;
+                        }
+                    }
+                });
+            }
+        }
+    } catch (e) {
+        console.error('[openHistoryModal] DB 메모 조회 실패:', e);
+    }
+
+    container.innerHTML = '';
 
     const teacherSchedule = teacherScheduleData[currentTeacherId] || {};
     const studentSchedule = teacherSchedule[sid] || {};
@@ -3800,16 +4018,25 @@ window.openHistoryModal = function() {
         return s.attendance[date];
     }
 
-    // Helper: 메모 가져오기 (객체/문자열 호환)
+    // Helper: 메모 가져오기 (해당 날짜의 모든 메모를 합쳐서 반환, 중복 제거)
     function getMemo(recordObj, date) {
         if (!recordObj || !recordObj[date]) return '';
         if (typeof recordObj[date] === 'object') {
-            const rawEntry = studentSchedule[date] || null;
-            const scheduleEntry = Array.isArray(rawEntry) ? rawEntry[0] : rawEntry;
-            const startTime = scheduleEntry?.start || null;
-            if (startTime && recordObj[date][startTime]) return recordObj[date][startTime];
-            const vals = Object.values(recordObj[date]);
-            return vals.length > 0 ? vals[0] : '';
+            const entries = Object.values(recordObj[date]);
+            const seen = new Set();
+            const memos = [];
+            entries.forEach(v => {
+                if (v && String(v).trim()) {
+                    const trimmed = String(v).trim();
+                    if (!seen.has(trimmed)) {
+                        seen.add(trimmed);
+                        memos.push(v);
+                    }
+                }
+            });
+            if (memos.length === 0) return '';
+            if (memos.length === 1) return memos[0];
+            return memos.join('<hr style="margin:4px 0; border:none; border-top:1px dashed #e2e8f0;">');
         }
         return recordObj[date];
     }
@@ -4051,6 +4278,7 @@ async function loadAndCleanData() {
                 events: [],
                 attendance: {},
                 records: {},
+                shared_records: {},
                 payments: {}
             }));
             // 로컬 스토리지에도 백업 저장
@@ -4111,6 +4339,34 @@ async function loadAndCleanData() {
                     }
                     student.attendance[dateKey][scheduledTimeKey] = record.status;
 
+                    // 개인 메모 동기화 (DB → 로컬 records)
+                    if (record.memo) {
+                        if (!student.records) student.records = {};
+                        if (typeof student.records[dateKey] === 'string') {
+                            const prev = student.records[dateKey];
+                            student.records[dateKey] = {};
+                            student.records[dateKey]['default'] = prev;
+                        }
+                        if (!student.records[dateKey] || typeof student.records[dateKey] !== 'object') {
+                            student.records[dateKey] = {};
+                        }
+                        student.records[dateKey][scheduledTimeKey] = record.memo;
+                    }
+
+                    // 공유 메모 동기화 (DB → 로컬 shared_records)
+                    if (record.shared_memo) {
+                        if (!student.shared_records) student.shared_records = {};
+                        if (typeof student.shared_records[dateKey] === 'string') {
+                            const prev = student.shared_records[dateKey];
+                            student.shared_records[dateKey] = {};
+                            student.shared_records[dateKey]['default'] = prev;
+                        }
+                        if (!student.shared_records[dateKey] || typeof student.shared_records[dateKey] !== 'object') {
+                            student.shared_records[dateKey] = {};
+                        }
+                        student.shared_records[dateKey][scheduledTimeKey] = record.shared_memo;
+                    }
+
                     // QR 스캔 시간 동기화 (상세기록 표시용)
                     if (!student.qr_scan_time) student.qr_scan_time = {};
                     if (time) {
@@ -4130,11 +4386,43 @@ async function loadAndCleanData() {
                     }
                 });
 
-                const ownerKey = `academy_students__${cachedLsGet('current_owner_id') || 'no-owner'}`;
-                localStorage.setItem(ownerKey, JSON.stringify(students));
                 console.log(`[loadAndCleanData] 출석 기록 동기화 완료: ${recordMap.size}건`);
             }
         }
+
+        // ★ 공유 메모 별도 조회: teacher_id 무관하게 모든 공유 메모를 가져와서 students에 반영
+        const ownerId = cachedLsGet('current_owner_id');
+        if (ownerId && students.length > 0) {
+            try {
+                const { data: sharedData, error: sharedErr } = await supabase
+                    .from('attendance_records')
+                    .select('student_id, attendance_date, scheduled_time, teacher_id, shared_memo')
+                    .eq('owner_user_id', ownerId)
+                    .not('shared_memo', 'is', null);
+
+                if (!sharedErr && sharedData && sharedData.length > 0) {
+                    sharedData.forEach(rec => {
+                        if (!rec.shared_memo || !rec.shared_memo.trim()) return;
+                        const student = students.find(s => String(s.id) === String(rec.student_id));
+                        if (!student) return;
+                        if (!student.shared_records) student.shared_records = {};
+                        const dk = rec.attendance_date;
+                        const tk = `${rec.scheduled_time || 'default'}__${rec.teacher_id || 'unknown'}`;
+                        if (!student.shared_records[dk] || typeof student.shared_records[dk] !== 'object') {
+                            student.shared_records[dk] = {};
+                        }
+                        student.shared_records[dk][tk] = rec.shared_memo;
+                    });
+                    console.log(`[loadAndCleanData] 공유 메모 동기화 완료: ${sharedData.length}건`);
+                }
+            } catch (sharedErr) {
+                console.error('[loadAndCleanData] 공유 메모 동기화 실패:', sharedErr);
+            }
+        }
+
+        // localStorage에 최종 데이터 저장
+        const ownerKey = `academy_students__${cachedLsGet('current_owner_id') || 'no-owner'}`;
+        localStorage.setItem(ownerKey, JSON.stringify(students));
     } catch (e) {
         console.error('[loadAndCleanData] 출석 기록 동기화 실패:', e);
     }

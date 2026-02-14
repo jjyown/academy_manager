@@ -725,6 +725,9 @@
         border-radius: 16px !important;
     }
 
+    .tt-search-bar { padding: 0 14px 8px; }
+    .tt-search-input { font-size: 13px; padding: 8px 32px 8px 32px; }
+
     .timetable-container {
         min-height: 400px;
     }

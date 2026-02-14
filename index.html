@@ -728,6 +728,13 @@
                 <h2 id="day-detail-title">날짜</h2>
                 <button class="btn-close-x" onclick="closeModal('day-detail-modal')"><i class="fas fa-times"></i></button>
             </div>
+            <div class="tt-search-bar">
+                <div class="tt-search-input-wrap">
+                    <i class="fas fa-search tt-search-icon"></i>
+                    <input type="text" id="tt-search-input" class="tt-search-input" placeholder="학생 이름 검색" oninput="searchStudentInTimetable(this.value)">
+                    <button type="button" class="tt-search-clear" id="tt-search-clear" onclick="clearTimetableSearch()" style="display:none;"><i class="fas fa-times"></i></button>
+                </div>
+            </div>
             <div class="modal-body custom-scroll">
                 <div class="timetable-container">
                     <div class="time-axis" id="time-axis"></div>
@@ -800,6 +807,7 @@
                         <button type="button" class="color-btn" onclick="applyMemoColor('#000000')" style="background:#000000;" title="검정"></button>
                     </div>
                     <div id="att-memo" class="m-input m-textarea memo-editor" contenteditable="true" placeholder="진도 내용, 숙제 등"></div>
+                    <div id="att-shared-memo-others" style="display:none;"></div>
                     <div id="att-shared-memo" class="m-input m-textarea memo-editor" contenteditable="true" placeholder="모든 선생님이 볼 수 있는 공유 기록" style="display:none;"></div>
                     <button class="am-btn-save-memo" onclick="saveOnlyMemo()"><i class="fas fa-save"></i> 저장</button>
                 </div>

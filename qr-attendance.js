@@ -2613,11 +2613,116 @@ async function saveAttendanceRecord(recordData) {
     }
 }
 
+// 공유 메모 조회 (teacher_id, scheduled_time 모두 무관 - 해당 학생+날짜의 모든 레코드에서 공유 메모를 수집)
+// tagged=true이면 선생님 이름 태그 포함 (이번달 기록용), false이면 순수 텍스트 (편집용)
+async function getSharedMemoForStudent(studentId, dateStr, tagged) {
+    try {
+        const ownerId = localStorage.getItem('current_owner_id');
+        if (!ownerId) return '';
+        const numericId = parseInt(studentId);
+        if (isNaN(numericId)) return '';
+
+        const { data, error } = await supabase
+            .from('attendance_records')
+            .select('shared_memo, teacher_id, scheduled_time')
+            .eq('owner_user_id', ownerId)
+            .eq('student_id', numericId)
+            .eq('attendance_date', dateStr)
+            .not('shared_memo', 'is', null);
+
+        if (error) {
+            console.error('[getSharedMemoForStudent] 에러:', error);
+            return '';
+        }
+        if (!data || data.length === 0) return '';
+
+        // 선생님 이름 매핑
+        const teacherNames = {};
+        if (typeof teacherList !== 'undefined' && teacherList) {
+            teacherList.forEach(t => { teacherNames[String(t.id)] = t.name; });
+        }
+
+        // 모든 공유 메모를 수집 (중복 제거)
+        const memos = [];
+        const seen = new Set();
+        for (const rec of data) {
+            if (rec.shared_memo && rec.shared_memo.trim()) {
+                const trimmed = rec.shared_memo.trim();
+                if (!seen.has(trimmed)) {
+                    seen.add(trimmed);
+                    const tName = teacherNames[String(rec.teacher_id)] || '알 수 없음';
+                    if (tagged) {
+                        memos.push(`<div style="margin-bottom:6px;"><span style="display:inline-block;background:#eef2ff;color:#4f46e5;font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;margin-bottom:3px;">${tName}</span><div>${trimmed}</div></div>`);
+                    } else {
+                        memos.push(trimmed);
+                    }
+                }
+            }
+        }
+        if (tagged) {
+            return memos.join('');
+        }
+        return memos.join('<hr style="margin:4px 0; border:none; border-top:1px dashed #e2e8f0;">');
+    } catch (e) {
+        console.error('[getSharedMemoForStudent] 예외:', e);
+        return '';
+    }
+}
+
+// 공유 메모 구조화 조회 (선생님 ID, 이름, 메모를 배열로 반환)
+async function getSharedMemosStructured(studentId, dateStr) {
+    try {
+        const ownerId = localStorage.getItem('current_owner_id');
+        if (!ownerId) return [];
+        const numericId = parseInt(studentId);
+        if (isNaN(numericId)) return [];
+
+        const { data, error } = await supabase
+            .from('attendance_records')
+            .select('shared_memo, teacher_id, scheduled_time')
+            .eq('owner_user_id', ownerId)
+            .eq('student_id', numericId)
+            .eq('attendance_date', dateStr)
+            .not('shared_memo', 'is', null);
+
+        if (error) { console.error('[getSharedMemosStructured] 에러:', error); return []; }
+        if (!data || data.length === 0) return [];
+
+        // 선생님 이름 매핑
+        const teacherNames = {};
+        if (typeof teacherList !== 'undefined' && teacherList) {
+            teacherList.forEach(t => { teacherNames[String(t.id)] = t.name; });
+        }
+
+        const result = [];
+        const seen = new Set();
+        for (const rec of data) {
+            if (rec.shared_memo && rec.shared_memo.trim()) {
+                const key = `${rec.teacher_id}__${rec.shared_memo.trim()}`;
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    result.push({
+                        teacher_id: rec.teacher_id,
+                        teacher_name: teacherNames[String(rec.teacher_id)] || '알 수 없음',
+                        memo: rec.shared_memo.trim()
+                    });
+                }
+            }
+        }
+        return result;
+    } catch (e) {
+        console.error('[getSharedMemosStructured] 예외:', e);
+        return [];
+    }
+}
+
 // 다른 스크립트에서 재사용할 수 있도록 노출
 window.saveAttendanceRecord = saveAttendanceRecord;
 window.getAttendanceRecordByStudentAndDate = getAttendanceRecordByStudentAndDate;
 window.getTeacherIdsForStudentDate = getTeacherIdsForStudentDate;
 window.showAttendanceScopeModal = showAttendanceScopeModal;
+window.getSharedMemoForStudent = getSharedMemoForStudent;
+window.getSharedMemosStructured = getSharedMemosStructured;
 
 function syncAttendanceModalStatusIfOpen(studentId, dateStr, status) {
     const modal = document.getElementById('attendance-modal');
