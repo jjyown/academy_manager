@@ -988,9 +988,50 @@ async function selectStudent(student) {
 }
 
 // ============================================================
+// 페이지 상태 저장/복원 (새로고침 시 유지)
+// ============================================================
+function savePageState(page) {
+	try {
+		sessionStorage.setItem('hw_page', page);
+		if (currentStudent) sessionStorage.setItem('hw_student', JSON.stringify(currentStudent));
+		if (currentTeacher) sessionStorage.setItem('hw_teacher', JSON.stringify(currentTeacher));
+	} catch (e) {}
+}
+
+function clearPageState() {
+	try {
+		sessionStorage.removeItem('hw_page');
+		sessionStorage.removeItem('hw_student');
+		sessionStorage.removeItem('hw_teacher');
+	} catch (e) {}
+}
+
+function restorePageState() {
+	try {
+		const page = sessionStorage.getItem('hw_page');
+		if (page === 'upload') {
+			const student = JSON.parse(sessionStorage.getItem('hw_student'));
+			const teacher = JSON.parse(sessionStorage.getItem('hw_teacher'));
+			if (student) {
+				currentStudent = student;
+				currentTeacher = teacher;
+				showUploadPage(true); // true = 복원 모드 (파일 초기화 건너뜀)
+				return true;
+			}
+		}
+	} catch (e) {}
+	return false;
+}
+
+// 페이지 로드 시 상태 복원
+document.addEventListener('DOMContentLoaded', function() {
+	restorePageState();
+});
+
+// ============================================================
 // 업로드 페이지
 // ============================================================
-function showUploadPage() {
+function showUploadPage(isRestore) {
 	document.getElementById('page-landing').style.display = 'none';
 	document.getElementById('page-upload').style.display = 'block';
 
@@ -1013,10 +1054,15 @@ function showUploadPage() {
 		driveStatusEl.innerHTML = '<span style="color:var(--red);"><i class="fas fa-exclamation-circle" style="margin-right:4px;"></i>미연결</span>';
 	}
 
-	// 파일 초기화
-	selectedFiles = [];
-	updateFileUI();
+	// 파일 초기화 (복원 모드가 아닐 때만)
+	if (!isRestore) {
+		selectedFiles = [];
+		updateFileUI();
+	}
 	updateSubmitButton();
+
+	// 상태 저장
+	savePageState('upload');
 
 	// 스크롤 맨 위로
 	window.scrollTo(0, 0);
@@ -1028,6 +1074,7 @@ function goBackToLanding() {
 	selectedFiles = [];
 	currentStudent = null;
 	currentTeacher = null;
+	clearPageState();
 }
 
 // ============================================================
@@ -1306,6 +1353,7 @@ function resetToLanding() {
 	document.getElementById('search-name').value = '';
 	document.getElementById('search-phone').value = '';
 	hideAlert();
+	clearPageState();
 
 	// 진행률 초기화
 	document.getElementById('progress-wrap').classList.remove('show');
