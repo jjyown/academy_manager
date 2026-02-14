@@ -5420,6 +5420,45 @@ function getAssignedTeacherId(studentId) {
 
 window.getAssignedTeacherId = getAssignedTeacherId;
 
+// localStorage의 선생님-학생 매핑을 DB에 동기화 (한 번만 실행)
+async function syncTeacherAssignmentsToDb() {
+    const syncKey = 'teacher_assignment_db_synced';
+    if (localStorage.getItem(syncKey)) return; // 이미 동기화됨
+    
+    console.log('[syncTeacherAssignmentsToDb] 기존 매핑을 DB에 동기화 시작...');
+    const allKeys = Object.keys(localStorage);
+    const mappingKeys = allKeys.filter(key => key.startsWith('teacher_students_mapping__'));
+    let syncCount = 0;
+    
+    for (const key of mappingKeys) {
+        const teacherId = key.replace('teacher_students_mapping__', '');
+        try {
+            const saved = localStorage.getItem(key);
+            const studentIds = saved ? JSON.parse(saved) || [] : [];
+            for (const sid of studentIds) {
+                try {
+                    await updateStudent(sid, { teacher_id: teacherId });
+                    syncCount++;
+                } catch (e) {
+                    // 개별 실패 무시
+                }
+            }
+        } catch (e) {
+            console.error('[syncTeacherAssignmentsToDb] 매핑 동기화 실패:', e);
+        }
+    }
+    
+    localStorage.setItem(syncKey, 'true');
+    console.log(`[syncTeacherAssignmentsToDb] 동기화 완료: ${syncCount}건`);
+}
+
+// 페이지 로드 후 동기화 실행
+setTimeout(() => {
+    if (typeof updateStudent === 'function') {
+        syncTeacherAssignmentsToDb();
+    }
+}, 3000);
+
 function removeStudentFromAllMappings(studentId) {
     const allKeys = Object.keys(localStorage);
     const mappingKeys = allKeys.filter(key => key.startsWith('teacher_students_mapping__'));
@@ -5453,11 +5492,24 @@ function assignStudentToSpecificTeacher(studentId, teacherId) {
     }
 }
 
-window.setStudentAssignment = function(studentId, teacherId) {
+window.setStudentAssignment = async function(studentId, teacherId) {
     removeStudentFromAllMappings(studentId);
     if (teacherId) {
         assignStudentToSpecificTeacher(studentId, teacherId);
     }
+    
+    // DB에도 teacher_id 업데이트 (숙제 제출 페이지에서 조회 가능하도록)
+    try {
+        await updateStudent(studentId, { teacher_id: teacherId || null });
+        // 로컬 students 배열도 업데이트
+        const idx = students.findIndex(s => String(s.id) === String(studentId));
+        if (idx > -1) {
+            students[idx].teacher_id = teacherId || null;
+        }
+    } catch (e) {
+        console.error('[setStudentAssignment] DB teacher_id 업데이트 실패:', e);
+    }
+    
     if (typeof refreshCurrentTeacherStudents === 'function') {
         refreshCurrentTeacherStudents();
     }
