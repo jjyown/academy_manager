@@ -6119,6 +6119,13 @@ window.openPaymentModal = function() {
     setPaymentFilter('all');
 }
 
+// 숙제 제출 페이지 열기
+window.openHomeworkPage = function() {
+    const hasOrigin = window.location.origin && window.location.origin !== 'null';
+    const targetUrl = hasOrigin ? `${window.location.origin}/homework/` : './homework/';
+    window.open(targetUrl, '_blank');
+}
+
 // 학부모 포털 열기 (로컬/배포 환경 모두 지원)
 window.openParentPortal = function() {
     const storedUrl = (window.PARENT_PORTAL_URL || localStorage.getItem('parent_portal_url') || '').trim();

@@ -765,7 +765,13 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024;  // 개별 10MB
 const MAX_TOTAL_SIZE = 50 * 1024 * 1024;  // 전체 50MB
 
 const { createClient } = supabase;
-const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+	auth: {
+		autoRefreshToken: false,
+		persistSession: false,
+		detectSessionInUrl: false
+	}
+});
 
 // ============================================================
 // 상태
