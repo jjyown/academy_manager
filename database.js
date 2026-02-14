@@ -205,7 +205,7 @@ window.getAttendanceRecordsByOwner = async function(teacherId = null) {
 
         let query = supabase
             .from('attendance_records')
-            .select('id, student_id, teacher_id, attendance_date, status, scheduled_time, check_in_time, qr_scanned, memo, shared_memo')
+            .select('id, student_id, teacher_id, attendance_date, status, scheduled_time, check_in_time, qr_scanned, qr_scan_time, qr_judgment, memo, shared_memo')
             .eq('owner_user_id', ownerId)
             .order('attendance_date', { ascending: true });
 
@@ -639,5 +639,52 @@ window.getPaymentsByStudent = async function(studentId) {
     } catch (error) {
         console.error('[getPaymentsByStudent] 에러:', error);
         return [];
+    }
+}
+
+// ========== 종합평가 관리 ==========
+
+window.getStudentEvaluation = async function(studentId, evalMonth) {
+    try {
+        const { data, error } = await supabase
+            .from('student_evaluations')
+            .select('id, student_id, eval_month, teacher_id, comment, updated_at')
+            .eq('student_id', parseInt(studentId))
+            .eq('eval_month', evalMonth)
+            .maybeSingle();
+
+        if (error && error.code !== 'PGRST116') throw error;
+        return data || null;
+    } catch (error) {
+        console.error('[getStudentEvaluation] 에러:', error);
+        return null;
+    }
+}
+
+window.saveStudentEvaluation = async function(studentId, evalMonth, comment, teacherId) {
+    try {
+        const ownerId = _getOwnerId();
+        if (!ownerId) throw new Error('로그인이 필요합니다');
+
+        const payload = {
+            student_id: parseInt(studentId),
+            eval_month: evalMonth,
+            owner_user_id: ownerId,
+            teacher_id: String(teacherId || ''),
+            comment: comment || '',
+            updated_at: new Date().toISOString()
+        };
+
+        const { data, error } = await supabase
+            .from('student_evaluations')
+            .upsert(payload, { onConflict: 'student_id,eval_month' })
+            .select()
+            .single();
+
+        if (error) throw error;
+        return data;
+    } catch (error) {
+        console.error('[saveStudentEvaluation] 에러:', error);
+        throw error;
     }
 }

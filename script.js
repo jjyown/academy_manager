@@ -2702,7 +2702,7 @@ window.renderDayEvents = function(dateStr) {
 
     const pxPerMin = 1.0; // 1 minute = 1 pixel
     const paddingTop = 24; // 상단 여유 공간
-    const paddingBottom = 40; // 하단 여유 공간
+    const paddingBottom = 120; // 하단 여유 공간 (24:00 근처 블록 잘림 방지)
     const totalHeight = paddingTop + (24 * 60 * pxPerMin) + paddingBottom;
 
     // Set explicit heights for axis and grid
@@ -2822,8 +2822,8 @@ window.renderDayEvents = function(dateStr) {
         block.style.top = (paddingTop + ev.startMin * pxPerMin) + 'px';
         block.style.height = (ev.duration * pxPerMin) + 'px'; 
         block.style.left = (savedPositions[blockId] !== undefined ? savedPositions[blockId] : ev.colIndex * defaultSlotWidth) + '%';
-        // 기본은 컬럼 폭의 85%를 사용 (겹침 최소화)
-        const autoWidth = defaultSlotWidth * 0.85;
+        // 기본은 컬럼 폭의 55%를 사용 (컴팩트한 블록 크기)
+        const autoWidth = Math.min(defaultSlotWidth * 0.85, colCount === 1 ? 55 : defaultSlotWidth * 0.85);
         block.style.width = (savedWidths[blockId] !== undefined ? savedWidths[blockId] : autoWidth) + '%';
         
         
@@ -4093,7 +4093,85 @@ window.openHistoryModal = async function() {
         <div class="hist-stat-item absent"><div class="hist-stat-num">${stats.absent}</div><div class="hist-stat-label">결석</div></div>
         <div class="hist-stat-item makeup"><div class="hist-stat-num">${stats.makeup}</div><div class="hist-stat-label">보강</div></div>
     `;
+
+    // ★ 종합평가 로드
+    const evalMonthLabel = document.getElementById('eval-current-month');
+    const evalTextarea = document.getElementById('eval-textarea-main');
+    const evalCharCount = document.getElementById('eval-char-main');
+    const evalSaveBtn = document.getElementById('eval-save-btn');
+    if (evalMonthLabel) evalMonthLabel.textContent = `${curYear}년 ${curMonth}월`;
+    if (evalTextarea) {
+        evalTextarea.value = '';
+        evalTextarea.dataset.studentId = sid;
+        evalTextarea.dataset.evalMonth = monthPrefix;
+        // 글자수 카운터 이벤트
+        evalTextarea.oninput = function() {
+            if (evalCharCount) evalCharCount.textContent = this.value.length;
+        };
+    }
+    if (evalCharCount) evalCharCount.textContent = '0';
+    if (evalSaveBtn) {
+        evalSaveBtn.innerHTML = '<i class="fas fa-save"></i> 저장';
+        evalSaveBtn.classList.remove('saved');
+    }
+
+    // DB에서 기존 종합평가 불러오기
+    try {
+        if (typeof window.getStudentEvaluation === 'function') {
+            const evalData = await window.getStudentEvaluation(sid, monthPrefix);
+            if (evalData && evalData.comment && evalTextarea) {
+                evalTextarea.value = evalData.comment;
+                if (evalCharCount) evalCharCount.textContent = evalData.comment.length;
+            }
+        }
+    } catch (e) {
+        console.error('[openHistoryModal] 종합평가 로드 실패:', e);
+    }
 }
+// ★ 종합평가 저장
+window.saveEvalFromHistory = async function() {
+    const evalTextarea = document.getElementById('eval-textarea-main');
+    const evalSaveBtn = document.getElementById('eval-save-btn');
+    if (!evalTextarea) return;
+
+    const studentId = evalTextarea.dataset.studentId;
+    const evalMonth = evalTextarea.dataset.evalMonth;
+    const comment = evalTextarea.value.trim();
+
+    if (!studentId || !evalMonth) {
+        showToast('학생 정보를 찾을 수 없습니다.', 'warning');
+        return;
+    }
+
+    // 저장 중 상태
+    if (evalSaveBtn) {
+        evalSaveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 저장 중...';
+        evalSaveBtn.disabled = true;
+    }
+
+    try {
+        await window.saveStudentEvaluation(studentId, evalMonth, comment, currentTeacherId);
+
+        if (evalSaveBtn) {
+            evalSaveBtn.innerHTML = '<i class="fas fa-check"></i> 저장 완료';
+            evalSaveBtn.classList.add('saved');
+            evalSaveBtn.disabled = false;
+            setTimeout(() => {
+                evalSaveBtn.innerHTML = '<i class="fas fa-save"></i> 저장';
+                evalSaveBtn.classList.remove('saved');
+            }, 2000);
+        }
+        showToast('종합평가가 저장되었습니다.', 'success');
+    } catch (e) {
+        console.error('[saveEvalFromHistory] 종합평가 저장 실패:', e);
+        if (evalSaveBtn) {
+            evalSaveBtn.innerHTML = '<i class="fas fa-save"></i> 저장';
+            evalSaveBtn.disabled = false;
+        }
+        showToast('종합평가 저장에 실패했습니다.', 'error');
+    }
+}
+
 window.openDaySettings = function(dateStr) {
     document.getElementById('day-settings-modal').style.display = 'flex';
     document.getElementById('day-settings-title').textContent = `${dateStr} 설정`;

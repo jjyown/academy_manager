@@ -100,6 +100,8 @@ function goBackToLanding() {
 		landing.style.transition = 'opacity 0.3s ease';
 		requestAnimationFrame(() => { landing.style.opacity = '1'; });
 		currentStudent = null;
+		// ★ sessionStorage에서 학생 정보 제거
+		sessionStorage.removeItem('pp_current_student');
 		window.scrollTo(0, 0);
 	}, 200);
 }
@@ -363,6 +365,11 @@ async function onQRSuccess(decoded) {
 async function initDashboard() {
 	if (!currentStudent) return;
 
+	// ★ sessionStorage에 학생 정보 저장 (새로고침 시 복원용)
+	try {
+		sessionStorage.setItem('pp_current_student', JSON.stringify(currentStudent));
+	} catch (e) { /* 무시 */ }
+
 	// Update header
 	document.getElementById('dash-avatar').textContent = (currentStudent.name || '?').charAt(0);
 	document.getElementById('dash-name').textContent = currentStudent.name;
@@ -372,7 +379,6 @@ async function initDashboard() {
 	// Set month selectors
 	const monthStr = getCurrentMonthStr();
 	document.getElementById('month-selector').value = monthStr;
-	document.getElementById('memo-month-selector').value = monthStr;
 	document.getElementById('eval-month-selector').value = monthStr;
 
 	showDashboard();
@@ -382,7 +388,6 @@ async function initDashboard() {
 	await Promise.all([
 		loadQuickStats(),
 		loadMonthlyAttendance(monthStr),
-		loadMemos(monthStr),
 		loadEvaluationState(monthStr)
 	]);
 }
@@ -427,6 +432,10 @@ async function loadQuickStats() {
 // ========== Monthly Attendance ==========
 async function loadMonthlyAttendance(monthStr) {
 	if (!currentStudent) return;
+	// 선생님 목록이 아직 로드 안됐으면 대기 (호버 툴팁에 이름 필요)
+	if (teacherAuthList.length === 0) {
+		try { await loadTeacherAuthList(); } catch(e) { /* 무시 */ }
+	}
 	const listEl = document.getElementById('att-list');
 	// 스켈레톤 로딩
 	let skeletonHtml = '';
@@ -447,7 +456,7 @@ async function loadMonthlyAttendance(monthStr) {
 
 		const { data: records, error } = await supabaseClient
 			.from('attendance_records')
-			.select('id, student_id, teacher_id, attendance_date, status, scheduled_time, check_in_time, memo, shared_memo')
+			.select('id, student_id, teacher_id, attendance_date, status, scheduled_time, check_in_time, qr_scanned, qr_scan_time, memo, shared_memo')
 			.eq('student_id', String(currentStudent.id))
 			.gte('attendance_date', startDate)
 			.lte('attendance_date', endDate)
@@ -492,6 +501,13 @@ async function loadMonthlyAttendance(monthStr) {
 			return;
 		}
 
+		// 선생님 이름 매핑 함수
+		function getTeacherName(tid) {
+			if (!tid) return '알 수 없음';
+			const t = teacherAuthList.find(x => String(x.id) === String(tid));
+			return t ? t.name : '선생님';
+		}
+
 		let html = '';
 		dateKeys.forEach(dateKey => {
 			const recs = byDate.get(dateKey);
@@ -510,13 +526,43 @@ async function loadMonthlyAttendance(monthStr) {
 			const stClass = si.cls === 'present' ? 'st-present' : si.cls === 'late' ? 'st-late' : si.cls === 'absent' ? 'st-absent' : 'st-makeup';
 			const memo = display.shared_memo ? display.shared_memo.substring(0, 30) : '';
 
-			html += `<div class="att-day ${stClass}">
+			// ★ QR 스캔 시간 표시
+			let qrLabel = '';
+			if (display.qr_scanned && display.qr_scan_time) {
+				const scanTime = new Date(display.qr_scan_time).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+				qrLabel = `<div class="att-qr-tag"><i class="fas fa-qrcode"></i> ${scanTime} 스캔</div>`;
+			}
+
+			// ★ 같은 날짜에 다른 선생님 기록이 있으면 호버 툴팁 생성
+			const otherRecs = recs.filter(r => r !== display);
+			const hasMultiple = otherRecs.length > 0;
+			let tooltipHtml = '';
+			if (hasMultiple) {
+				const displayTName = getTeacherName(display.teacher_id);
+				const displayTime = getTimeLabel(display);
+				const displaySi = getStatusInfo(display.status);
+				let items = `<div class="pp-tooltip-item pp-tooltip-primary"><span class="pp-tooltip-name primary">${displayTName}</span><span class="pp-tooltip-time">${displayTime}</span><span class="pp-tooltip-badge" style="background:${displaySi.cls === 'present' ? '#10b981' : displaySi.cls === 'late' ? '#f59e0b' : displaySi.cls === 'absent' ? '#ef4444' : '#8b5cf6'}">${displaySi.text}</span></div>`;
+
+				otherRecs.forEach(r => {
+					const tName = getTeacherName(r.teacher_id);
+					const tTime = getTimeLabel(r);
+					const tSi = getStatusInfo(r.status);
+					items += `<div class="pp-tooltip-item"><span class="pp-tooltip-name">${tName}</span><span class="pp-tooltip-time">${tTime}</span><span class="pp-tooltip-badge" style="background:${tSi.cls === 'present' ? '#10b981' : tSi.cls === 'late' ? '#f59e0b' : tSi.cls === 'absent' ? '#ef4444' : '#8b5cf6'}">${tSi.text}</span></div>`;
+				});
+
+				const shortDate = `${d.getMonth()+1}/${dayNum}`;
+				tooltipHtml = `<div class="pp-att-tooltip">\n<div class="pp-tooltip-header">${shortDate} 전체 일정</div>\n${items}\n<div class="pp-tooltip-arrow"></div>\n</div>`;
+			}
+
+			html += `<div class="att-day ${stClass}${hasMultiple ? ' has-tooltip' : ''}">
+				${tooltipHtml}
 				<div class="att-date-col">
 					<div class="att-date-num">${dayNum}</div>
 					<div class="att-date-dow${dowClass}">${dow}요일</div>
 				</div>
 				<div class="att-mid">
 					<div class="att-time">${time}</div>
+					${qrLabel}
 					${memo ? `<div class="att-memo-preview"><i class="fas fa-comment" style="font-size:9px;margin-right:3px;opacity:0.5;"></i>${memo}${display.shared_memo.length > 30 ? '...' : ''}</div>` : ''}
 				</div>
 				<div class="att-badge ${si.cls}">${si.icon} ${si.text}</div>
@@ -524,6 +570,29 @@ async function loadMonthlyAttendance(monthStr) {
 		});
 
 		listEl.innerHTML = html;
+
+		// ★ 호버/터치 이벤트로 툴팁 표시
+		listEl.querySelectorAll('.att-day.has-tooltip').forEach(row => {
+			const tooltip = row.querySelector('.pp-att-tooltip');
+			if (!tooltip) return;
+			row.addEventListener('mouseenter', () => { tooltip.style.display = 'block'; });
+			row.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
+			row.addEventListener('click', (e) => {
+				if (e.target.closest('select')) return;
+				e.stopPropagation();
+				const isVisible = tooltip.style.display === 'block';
+				// 다른 툴팁 모두 닫기
+				listEl.querySelectorAll('.pp-att-tooltip').forEach(t => { t.style.display = 'none'; });
+				tooltip.style.display = isVisible ? 'none' : 'block';
+			});
+		});
+		// 외부 클릭 시 툴팁 닫기 (한 번만 등록)
+		if (!listEl._tooltipCloseRegistered) {
+			document.addEventListener('click', () => {
+				document.querySelectorAll('.pp-att-tooltip').forEach(t => { t.style.display = 'none'; });
+			});
+			listEl._tooltipCloseRegistered = true;
+		}
 	} catch(e) {
 		console.error('출결 조회 오류:', e);
 		listEl.innerHTML = '<div class="att-empty"><i class="fas fa-exclamation-triangle"></i>출결 기록을 불러올 수 없습니다</div>';
@@ -941,6 +1010,39 @@ window.resetEvaluation = resetEvaluation;
 
 // ========== Event Listeners ==========
 document.addEventListener('DOMContentLoaded', () => {
+	// ★ 새로고침 시 sessionStorage에서 학생 정보 복원
+	try {
+		const saved = sessionStorage.getItem('pp_current_student');
+		if (saved) {
+			const parsed = JSON.parse(saved);
+			if (parsed && parsed.id) {
+				currentStudent = parsed;
+				// 즉시 대시보드 표시 (페이드 애니메이션 없이)
+				document.getElementById('page-landing').style.display = 'none';
+				document.getElementById('page-dashboard').style.display = 'block';
+				document.getElementById('page-dashboard').style.opacity = '1';
+				// 헤더 정보 설정
+				document.getElementById('dash-avatar').textContent = (currentStudent.name || '?').charAt(0);
+				document.getElementById('dash-name').textContent = currentStudent.name;
+				document.getElementById('dash-grade').textContent = currentStudent.grade || '-';
+				document.getElementById('dash-school').textContent = currentStudent.school || '-';
+				// 월 선택기 설정
+				const monthStr = getCurrentMonthStr();
+				document.getElementById('month-selector').value = monthStr;
+				document.getElementById('eval-month-selector').value = monthStr;
+				// 데이터 로드
+				switchTab('attendance');
+				Promise.all([
+					loadQuickStats(),
+					loadMonthlyAttendance(monthStr),
+					loadEvaluationState(monthStr)
+				]).catch(e => console.error('[복원] 데이터 로드 실패:', e));
+			}
+		}
+	} catch (e) {
+		console.error('[복원] sessionStorage 파싱 실패:', e);
+	}
+
 	// Enter key search
 	['search-name', 'search-phone'].forEach(id => {
 		const el = document.getElementById(id);

@@ -944,6 +944,95 @@ textarea:focus:not(:focus-visible) {
     font-size: 13px;
 }
 
+/* ===== 종합평가 섹션 (이번달 기록 모달 내) ===== */
+.eval-section {
+    margin-top: 18px;
+    padding: 18px;
+    background: #f8fafc;
+    border-radius: 14px;
+    border: 1.5px solid #e2e8f0;
+}
+.eval-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+.eval-section-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: #334155;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.eval-section-title i {
+    color: #f59e0b;
+    font-size: 13px;
+}
+.eval-month-label {
+    font-size: 11px;
+    color: #94a3b8;
+    font-weight: 500;
+}
+.eval-textarea-main {
+    width: 100%;
+    min-height: 100px;
+    padding: 12px 14px;
+    background: #fff;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 10px;
+    font-size: 13px;
+    font-family: inherit;
+    color: #334155;
+    line-height: 1.7;
+    resize: vertical;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+.eval-textarea-main:focus {
+    border-color: #818cf8;
+    box-shadow: 0 0 0 3px rgba(129,140,248,0.12);
+}
+.eval-textarea-main::placeholder {
+    color: #94a3b8;
+}
+.eval-bottom-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 10px;
+}
+.eval-char-info {
+    font-size: 11px;
+    color: #94a3b8;
+}
+.eval-save-btn {
+    padding: 8px 18px;
+    background: linear-gradient(135deg, #6366f1, #7c3aed);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 700;
+    font-family: inherit;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    transition: all 0.2s;
+}
+.eval-save-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(99,102,241,0.3);
+}
+.eval-save-btn:active {
+    transform: scale(0.97);
+}
+.eval-save-btn.saved {
+    background: linear-gradient(135deg, #10b981, #059669);
+}
+
 .hist-day-card {
     background: #f8fafc;
     border: 1px solid #f1f5f9;
@@ -3160,6 +3249,84 @@ textarea:focus:not(:focus-visible) {
 .pay-edit-field input:focus { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-light); }
 
 /* ============================================
+   Attendance Check Modal (재석 확인)
+   ============================================ */
+.att-check-card { max-width: 500px; border-radius: 20px !important; overflow: hidden; }
+.att-check-header {
+    background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+    padding: 22px 24px;
+    color: white;
+}
+.att-check-header-content { display: flex; align-items: center; gap: 10px; }
+.att-check-icon { font-size: 26px; }
+.att-check-header h2 { margin: 0; font-size: 18px; font-weight: 700; color: white !important; }
+.att-check-header p { margin: 4px 0 0; font-size: 13px; opacity: 0.85; }
+.att-check-toolbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 24px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.att-check-select-all {
+    display: flex; align-items: center; gap: 8px; cursor: pointer;
+    font-size: 13px; font-weight: 600; color: var(--text);
+}
+.att-check-select-all input[type="checkbox"] {
+    width: 18px; height: 18px; accent-color: #4f46e5; cursor: pointer;
+}
+.att-check-count { font-size: 12px; font-weight: 600; color: var(--primary); }
+.att-check-body { padding: 12px 20px; max-height: 350px; }
+.att-check-list { display: flex; flex-direction: column; gap: 6px; }
+
+/* 학생 체크 아이템 */
+.att-check-item {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 14px; background: #f8fafc; border-radius: 12px;
+    border: 1.5px solid #e2e8f0; cursor: pointer; transition: all 0.15s;
+    user-select: none;
+}
+.att-check-item:hover { border-color: #c7d2fe; background: #f5f3ff; }
+.att-check-item.checked { border-color: #818cf8; background: #eef2ff; }
+.att-check-item.done { opacity: 0.6; pointer-events: none; }
+.att-check-item input[type="checkbox"] {
+    width: 20px; height: 20px; accent-color: #4f46e5;
+    flex-shrink: 0; cursor: pointer;
+}
+.att-check-item-info { flex: 1; min-width: 0; }
+.att-check-item-name { font-weight: 700; font-size: 14px; color: var(--text); }
+.att-check-item-time { font-size: 12px; color: var(--gray); margin-top: 2px; }
+.att-check-item-badge {
+    padding: 4px 10px; border-radius: 8px; font-size: 12px; font-weight: 700;
+    color: white; flex-shrink: 0;
+}
+
+/* 하단 액션 */
+.att-check-footer {
+    padding: 14px 20px 20px; flex-shrink: 0;
+    display: flex; flex-direction: column; gap: 10px;
+}
+.att-check-actions { display: flex; gap: 6px; }
+.att-check-btn {
+    flex: 1; padding: 11px 6px; border: none; border-radius: 10px;
+    font-size: 13px; font-weight: 700; cursor: pointer; color: white;
+    display: flex; align-items: center; justify-content: center; gap: 5px;
+    transition: all 0.15s; min-width: 0;
+}
+.att-check-btn.present { background: #10b981; }
+.att-check-btn.present:hover { background: #059669; }
+.att-check-btn.late { background: #f59e0b; }
+.att-check-btn.late:hover { background: #d97706; }
+.att-check-btn.absent { background: #ef4444; }
+.att-check-btn.absent:hover { background: #dc2626; }
+.att-check-btn.makeup { background: #8b5cf6; }
+.att-check-btn.makeup:hover { background: #7c3aed; }
+.att-check-btn i { font-size: 11px; }
+.att-check-btn-later {
+    width: 100%; padding: 10px; background: #f1f5f9; color: #64748b;
+    border: 1px solid #e2e8f0; border-radius: 10px; font-size: 13px;
+    font-weight: 600; cursor: pointer; transition: all 0.15s;
+}
+.att-check-btn-later:hover { background: #e2e8f0; color: #475569; }
+
+/* ============================================
    Footer
    ============================================ */
 .app-footer {
@@ -4059,4 +4226,527 @@ textarea:focus:not(:focus-visible) {
 [data-theme="night"] .tt-search-clear:hover,
 [data-theme="charcoal"] .tt-search-clear:hover {
     color: var(--text);
+}
+
+/* ── 다크 테마: 수납 관리 모달 ── */
+[data-theme="night"] .pay-stat-card,
+[data-theme="charcoal"] .pay-stat-card {
+    background: var(--theme-cell);
+    border-color: var(--border);
+}
+[data-theme="night"] .pay-stat-value,
+[data-theme="charcoal"] .pay-stat-value {
+    color: var(--text);
+}
+[data-theme="night"] .pay-stat-label,
+[data-theme="charcoal"] .pay-stat-label {
+    color: var(--text-secondary);
+}
+[data-theme="night"] .pay-toolbar,
+[data-theme="charcoal"] .pay-toolbar {
+    background: var(--theme-header);
+    border-bottom-color: var(--border);
+}
+[data-theme="night"] .pay-search-wrap,
+[data-theme="charcoal"] .pay-search-wrap {
+    background: var(--theme-cell);
+    border-color: var(--border);
+}
+[data-theme="night"] .pay-search-wrap input,
+[data-theme="charcoal"] .pay-search-wrap input {
+    color: var(--text);
+}
+[data-theme="night"] .pay-search-wrap input::placeholder,
+[data-theme="charcoal"] .pay-search-wrap input::placeholder {
+    color: var(--gray-light);
+}
+[data-theme="night"] .pay-pill,
+[data-theme="charcoal"] .pay-pill {
+    background: var(--theme-cell);
+    color: var(--text-secondary);
+    border-color: var(--border);
+}
+[data-theme="night"] .pay-pill:hover,
+[data-theme="charcoal"] .pay-pill:hover {
+    color: #a5b4fc;
+    border-color: rgba(99,102,241,0.4);
+    background: rgba(99,102,241,0.15);
+}
+[data-theme="night"] .pay-card,
+[data-theme="charcoal"] .pay-card {
+    background: var(--theme-cell);
+    border-color: var(--border);
+}
+[data-theme="night"] .pay-card:hover,
+[data-theme="charcoal"] .pay-card:hover {
+    box-shadow: 0 2px 12px rgba(0,0,0,0.2);
+}
+[data-theme="night"] .pay-card-name,
+[data-theme="charcoal"] .pay-card-name {
+    color: var(--text);
+}
+[data-theme="night"] .pay-card-grade,
+[data-theme="charcoal"] .pay-card-grade {
+    color: var(--text-secondary);
+    background: var(--theme-header);
+}
+[data-theme="night"] .pay-card-school,
+[data-theme="charcoal"] .pay-card-school {
+    color: #a5b4fc;
+}
+[data-theme="night"] .pay-card-due,
+[data-theme="charcoal"] .pay-card-due {
+    color: var(--text-secondary);
+}
+[data-theme="night"] .pay-card-sep,
+[data-theme="charcoal"] .pay-card-sep {
+    color: var(--gray-light);
+}
+[data-theme="night"] .pay-dashboard,
+[data-theme="charcoal"] .pay-dashboard {
+    background: var(--theme-header);
+    border-bottom-color: var(--border);
+}
+[data-theme="night"] .pay-progress-pct,
+[data-theme="charcoal"] .pay-progress-pct {
+    color: var(--text);
+}
+[data-theme="night"] .pay-progress-label,
+[data-theme="charcoal"] .pay-progress-label {
+    color: var(--text-secondary);
+}
+[data-theme="night"] .ring-bg,
+[data-theme="charcoal"] .ring-bg {
+    stroke: var(--border);
+}
+[data-theme="night"] .pay-card-detail:not(.hidden),
+[data-theme="charcoal"] .pay-card-detail:not(.hidden) {
+    border-top-color: var(--border);
+}
+[data-theme="night"] .pay-fee-row,
+[data-theme="charcoal"] .pay-fee-row {
+    background: var(--theme-header);
+}
+[data-theme="night"] .pay-fee-row.is-paid,
+[data-theme="charcoal"] .pay-fee-row.is-paid {
+    background: rgba(16,185,129,0.1);
+}
+[data-theme="night"] .pay-fee-label,
+[data-theme="charcoal"] .pay-fee-label {
+    color: var(--text);
+}
+[data-theme="night"] .pay-fee-amount,
+[data-theme="charcoal"] .pay-fee-amount {
+    color: var(--text-secondary);
+}
+[data-theme="night"] .pay-edit-amounts-btn,
+[data-theme="charcoal"] .pay-edit-amounts-btn {
+    background: var(--theme-header);
+    color: var(--text-secondary);
+    border-color: var(--border);
+}
+[data-theme="night"] .pay-amount-editor,
+[data-theme="charcoal"] .pay-amount-editor {
+    background: var(--theme-header);
+    border-color: var(--border);
+}
+[data-theme="night"] .pay-edit-field input,
+[data-theme="charcoal"] .pay-edit-field input {
+    background: var(--theme-cell);
+    color: var(--text);
+    border-color: var(--border);
+}
+[data-theme="night"] .pay-card-progress,
+[data-theme="charcoal"] .pay-card-progress {
+    background: var(--border);
+}
+[data-theme="night"] .pay-card-arrow,
+[data-theme="charcoal"] .pay-card-arrow {
+    color: var(--gray-light);
+}
+[data-theme="night"] .pay-fee-btn.cancel,
+[data-theme="charcoal"] .pay-fee-btn.cancel {
+    color: var(--text-secondary);
+    border-color: var(--border);
+}
+[data-theme="night"] .pay-fee-btn.cancel:hover,
+[data-theme="charcoal"] .pay-fee-btn.cancel:hover {
+    background: rgba(239,68,68,0.1);
+    color: #f87171;
+    border-color: rgba(239,68,68,0.3);
+}
+
+/* ── 다크 테마: 모달 공통 (헤더, 본문, 입력) ── */
+[data-theme="night"] .modal-card,
+[data-theme="charcoal"] .modal-card {
+    background: var(--theme-cell);
+}
+[data-theme="night"] .modal-header h2,
+[data-theme="charcoal"] .modal-header h2 {
+    color: var(--text);
+}
+/* 종합평가 다크 테마 */
+[data-theme="night"] .eval-section,
+[data-theme="charcoal"] .eval-section {
+    background: rgba(255,255,255,0.04);
+    border-color: rgba(255,255,255,0.1);
+}
+[data-theme="night"] .eval-section-title,
+[data-theme="charcoal"] .eval-section-title {
+    color: var(--text);
+}
+[data-theme="night"] .eval-textarea-main,
+[data-theme="charcoal"] .eval-textarea-main {
+    background: rgba(255,255,255,0.06);
+    border-color: rgba(255,255,255,0.1);
+    color: var(--text);
+}
+[data-theme="night"] .eval-textarea-main:focus,
+[data-theme="charcoal"] .eval-textarea-main:focus {
+    border-color: #818cf8;
+    box-shadow: 0 0 0 3px rgba(129,140,248,0.15);
+}
+[data-theme="night"] .eval-textarea-main::placeholder,
+[data-theme="charcoal"] .eval-textarea-main::placeholder {
+    color: rgba(255,255,255,0.3);
+}
+[data-theme="night"] .eval-char-info,
+[data-theme="charcoal"] .eval-char-info {
+    color: rgba(255,255,255,0.4);
+}
+[data-theme="night"] .eval-month-label,
+[data-theme="charcoal"] .eval-month-label {
+    color: rgba(255,255,255,0.4);
+}
+
+[data-theme="night"] .modal-body-scrollable,
+[data-theme="charcoal"] .modal-body-scrollable {
+    background: var(--theme-cell);
+}
+[data-theme="night"] .m-input,
+[data-theme="charcoal"] .m-input {
+    background: var(--theme-header);
+    color: var(--text);
+    border-color: var(--border);
+}
+[data-theme="night"] .m-input::placeholder,
+[data-theme="charcoal"] .m-input::placeholder {
+    color: var(--gray-light);
+}
+[data-theme="night"] .m-input:focus,
+[data-theme="charcoal"] .m-input:focus {
+    border-color: #818cf8;
+    box-shadow: 0 0 0 3px rgba(129,140,248,0.15);
+}
+/* date/time 입력 아이콘 */
+[data-theme="night"] .m-input::-webkit-calendar-picker-indicator,
+[data-theme="charcoal"] .m-input::-webkit-calendar-picker-indicator {
+    filter: invert(0.7);
+}
+
+/* ── 다크 테마: 일정 생성 모달 ── */
+[data-theme="night"] .sch-section-label,
+[data-theme="charcoal"] .sch-section-label {
+    color: var(--text);
+}
+[data-theme="night"] .sch-section-hint,
+[data-theme="charcoal"] .sch-section-hint {
+    color: var(--text-secondary);
+}
+[data-theme="night"] .sch-field-label,
+[data-theme="charcoal"] .sch-field-label {
+    color: var(--text-secondary);
+}
+[data-theme="night"] .sch-unit,
+[data-theme="charcoal"] .sch-unit {
+    color: var(--text-secondary);
+}
+[data-theme="night"] .sch-search-icon,
+[data-theme="charcoal"] .sch-search-icon {
+    color: var(--gray-light);
+}
+/* 요일 칩 */
+[data-theme="night"] .schedule-modal-card .day-chip-container label,
+[data-theme="charcoal"] .schedule-modal-card .day-chip-container label {
+    background: var(--theme-header);
+    border-color: var(--border);
+    color: var(--text-secondary);
+}
+[data-theme="night"] .schedule-modal-card .day-chip-container label:hover,
+[data-theme="charcoal"] .schedule-modal-card .day-chip-container label:hover {
+    background: rgba(99,102,241,0.15);
+    border-color: rgba(99,102,241,0.4);
+    color: #a5b4fc;
+}
+/* 학생 검색 드롭다운 */
+[data-theme="night"] .student-search-dropdown,
+[data-theme="charcoal"] .student-search-dropdown {
+    background: var(--theme-header);
+    border-color: var(--border);
+}
+[data-theme="night"] .search-option,
+[data-theme="charcoal"] .search-option {
+    color: var(--text);
+    border-bottom-color: var(--border);
+}
+[data-theme="night"] .search-option:hover,
+[data-theme="charcoal"] .search-option:hover {
+    background: rgba(99,102,241,0.1);
+}
+[data-theme="night"] .search-option-grade,
+[data-theme="charcoal"] .search-option-grade {
+    color: var(--text-secondary);
+}
+[data-theme="night"] .search-option-school,
+[data-theme="charcoal"] .search-option-school {
+    color: #a5b4fc;
+}
+/* 선택된 학생 칩 */
+[data-theme="night"] .schedule-selected-chip,
+[data-theme="charcoal"] .schedule-selected-chip {
+    background: rgba(99,102,241,0.15);
+    border-color: rgba(99,102,241,0.3);
+    color: var(--text);
+}
+/* 공휴일 제외 버튼 */
+[data-theme="night"] .sch-btn-secondary,
+[data-theme="charcoal"] .sch-btn-secondary {
+    background: var(--theme-header);
+    color: #f87171;
+    border-color: rgba(239,68,68,0.3);
+}
+[data-theme="night"] .sch-btn-secondary:hover,
+[data-theme="charcoal"] .sch-btn-secondary:hover {
+    background: rgba(239,68,68,0.1);
+}
+/* 수업 시간 힌트 */
+[data-theme="night"] .sch-duration-hint,
+[data-theme="charcoal"] .sch-duration-hint {
+    background: rgba(99,102,241,0.08);
+    color: var(--text-secondary);
+}
+/* 일정 생성 푸터 */
+[data-theme="night"] .schedule-modal-card .modal-footer,
+[data-theme="charcoal"] .schedule-modal-card .modal-footer {
+    background: var(--theme-cell);
+    border-top-color: var(--border);
+}
+
+/* ── 다크 테마: 재석 확인 모달 ── */
+[data-theme="night"] .att-check-toolbar,
+[data-theme="charcoal"] .att-check-toolbar {
+    border-bottom-color: var(--border);
+}
+[data-theme="night"] .att-check-select-all,
+[data-theme="charcoal"] .att-check-select-all {
+    color: var(--text);
+}
+[data-theme="night"] .att-check-item,
+[data-theme="charcoal"] .att-check-item {
+    background: var(--theme-header);
+    border-color: var(--border);
+}
+[data-theme="night"] .att-check-item:hover,
+[data-theme="charcoal"] .att-check-item:hover {
+    border-color: rgba(99,102,241,0.4);
+    background: rgba(99,102,241,0.1);
+}
+[data-theme="night"] .att-check-item.checked,
+[data-theme="charcoal"] .att-check-item.checked {
+    border-color: #818cf8;
+    background: rgba(99,102,241,0.15);
+}
+[data-theme="night"] .att-check-item-name,
+[data-theme="charcoal"] .att-check-item-name {
+    color: var(--text);
+}
+[data-theme="night"] .att-check-item-time,
+[data-theme="charcoal"] .att-check-item-time {
+    color: var(--text-secondary);
+}
+[data-theme="night"] .att-check-btn-later,
+[data-theme="charcoal"] .att-check-btn-later {
+    background: var(--theme-header);
+    color: var(--text-secondary);
+    border-color: var(--border);
+}
+[data-theme="night"] .att-check-btn-later:hover,
+[data-theme="charcoal"] .att-check-btn-later:hover {
+    background: var(--theme-cell);
+    color: var(--text);
+}
+
+/* ── 다크 테마: 시간표 블록 ── */
+[data-theme="night"] .event-block,
+[data-theme="charcoal"] .event-block {
+    border-color: var(--border);
+}
+[data-theme="night"] .evt-title,
+[data-theme="charcoal"] .evt-title {
+    color: var(--text);
+}
+[data-theme="night"] .evt-grade,
+[data-theme="charcoal"] .evt-grade {
+    color: var(--text-secondary);
+}
+[data-theme="night"] .event-time-text,
+[data-theme="charcoal"] .event-time-text {
+    color: var(--text-secondary);
+}
+[data-theme="night"] .evt-school,
+[data-theme="charcoal"] .evt-school {
+    color: #a5b4fc;
+}
+/* 학년별 블록 배경 (다크) */
+[data-theme="night"] .evt-grade-cho,
+[data-theme="charcoal"] .evt-grade-cho {
+    background-color: rgba(59,130,246,0.2);
+    border-left-color: #60a5fa;
+}
+[data-theme="night"] .evt-grade-jung,
+[data-theme="charcoal"] .evt-grade-jung {
+    background-color: rgba(245,158,11,0.2);
+    border-left-color: #fbbf24;
+}
+[data-theme="night"] .evt-grade-go,
+[data-theme="charcoal"] .evt-grade-go {
+    background-color: rgba(239,68,68,0.2);
+    border-left-color: #f87171;
+}
+[data-theme="night"] .evt-color-default,
+[data-theme="charcoal"] .evt-color-default {
+    background-color: rgba(107,114,128,0.2);
+    border-left-color: #9ca3af;
+}
+/* 머지 그룹 블록 (다크) */
+[data-theme="night"] .merged-grade-cho,
+[data-theme="charcoal"] .merged-grade-cho {
+    background-color: rgba(59,130,246,0.25);
+    border-left-color: #60a5fa;
+}
+[data-theme="night"] .merged-grade-jung,
+[data-theme="charcoal"] .merged-grade-jung {
+    background-color: rgba(245,158,11,0.25);
+    border-left-color: #fbbf24;
+}
+[data-theme="night"] .merged-grade-go,
+[data-theme="charcoal"] .merged-grade-go {
+    background-color: rgba(239,68,68,0.25);
+    border-left-color: #f87171;
+}
+[data-theme="night"] .merged-grade-mixed,
+[data-theme="charcoal"] .merged-grade-mixed {
+    background-color: rgba(107,114,128,0.25);
+    border-left-color: #9ca3af;
+}
+[data-theme="night"] .merged-header,
+[data-theme="charcoal"] .merged-header {
+    color: var(--text);
+}
+[data-theme="night"] .merged-list,
+[data-theme="charcoal"] .merged-list {
+    background-color: rgba(0,0,0,0.15);
+}
+/* 머지 내 학생 아이템 (다크) */
+[data-theme="night"] .sub-grade-cho,
+[data-theme="charcoal"] .sub-grade-cho {
+    background-color: rgba(59,130,246,0.15);
+    border-left-color: #60a5fa;
+}
+[data-theme="night"] .sub-grade-jung,
+[data-theme="charcoal"] .sub-grade-jung {
+    background-color: rgba(245,158,11,0.15);
+    border-left-color: #fbbf24;
+}
+[data-theme="night"] .sub-grade-go,
+[data-theme="charcoal"] .sub-grade-go {
+    background-color: rgba(239,68,68,0.15);
+    border-left-color: #f87171;
+}
+[data-theme="night"] .sub-color-default,
+[data-theme="charcoal"] .sub-color-default {
+    background-color: rgba(107,114,128,0.15);
+    border-left-color: #9ca3af;
+}
+[data-theme="night"] .sub-name,
+[data-theme="charcoal"] .sub-name {
+    color: var(--text);
+}
+[data-theme="night"] .sub-grade,
+[data-theme="charcoal"] .sub-grade {
+    color: var(--text-secondary);
+}
+/* 시간축 라벨 (다크) */
+[data-theme="night"] .time-label,
+[data-theme="charcoal"] .time-label {
+    color: var(--text-secondary);
+}
+/* 시간 그리드 라인 (다크) */
+[data-theme="night"] .time-grid,
+[data-theme="charcoal"] .time-grid {
+    border-left-color: var(--border);
+}
+[data-theme="night"] .timetable-container,
+[data-theme="charcoal"] .timetable-container {
+    background: var(--theme-cell);
+}
+
+/* ── 다크 테마: 수업 관리 모달 ── */
+[data-theme="night"] .am-collapse-toggle,
+[data-theme="charcoal"] .am-collapse-toggle {
+    background: var(--theme-header);
+    color: var(--text);
+}
+[data-theme="night"] .am-collapse-toggle:hover,
+[data-theme="charcoal"] .am-collapse-toggle:hover {
+    background: var(--border);
+}
+[data-theme="night"] .am-collapse-toggle i,
+[data-theme="charcoal"] .am-collapse-toggle i {
+    color: var(--text-secondary);
+}
+[data-theme="night"] .am-collapse-section,
+[data-theme="charcoal"] .am-collapse-section {
+    border-color: var(--border);
+}
+[data-theme="night"] .am-collapse-body,
+[data-theme="charcoal"] .am-collapse-body {
+    background: var(--theme-header);
+}
+[data-theme="night"] .am-att-btn,
+[data-theme="charcoal"] .am-att-btn {
+    background: var(--theme-header);
+}
+[data-theme="night"] .am-att-btn.present:hover,
+[data-theme="charcoal"] .am-att-btn.present:hover { background: rgba(16,185,129,0.15); }
+[data-theme="night"] .am-att-btn.late:hover,
+[data-theme="charcoal"] .am-att-btn.late:hover { background: rgba(245,158,11,0.15); }
+[data-theme="night"] .am-att-btn.absent:hover,
+[data-theme="charcoal"] .am-att-btn.absent:hover { background: rgba(239,68,68,0.15); }
+[data-theme="night"] .am-att-btn.etc:hover,
+[data-theme="charcoal"] .am-att-btn.etc:hover { background: rgba(139,92,246,0.15); }
+[data-theme="night"] .am-status-badge,
+[data-theme="charcoal"] .am-status-badge {
+    background: var(--theme-header);
+    color: var(--text-secondary);
+}
+[data-theme="night"] .am-memo-hint,
+[data-theme="charcoal"] .am-memo-hint {
+    color: var(--text-secondary);
+}
+[data-theme="night"] .attendance-modal-footer,
+[data-theme="charcoal"] .attendance-modal-footer {
+    border-top-color: var(--border);
+}
+[data-theme="night"] .btn-history,
+[data-theme="charcoal"] .btn-history {
+    background: var(--theme-header);
+    color: var(--text);
+    border-color: var(--border);
+}
+[data-theme="night"] .btn-delete-schedule,
+[data-theme="charcoal"] .btn-delete-schedule {
+    background: var(--theme-header);
+    color: #f87171;
+    border-color: rgba(239,68,68,0.3);
 }

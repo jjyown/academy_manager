@@ -27,14 +27,16 @@ function registerPendingAttendanceCheck(studentId, studentName, teacherId, sched
     existing.push({ studentId, studentName, teacherId, teacherName, scheduleStart, dateStr });
     console.log(`[재석확인] 등록: ${studentName} - ${scheduleStart} (${teacherName})`);
     
-    // 타이머 설정 (해당 시간이 되면 알림)
+    // 타이머 설정 (수업 시작 5분 전에 알림)
     if (!pendingTimers.has(timeKey)) {
         const now = new Date();
         const [h, m] = scheduleStart.split(':').map(Number);
         const targetTime = new Date();
         targetTime.setHours(h, m, 0, 0);
         
-        const delay = targetTime.getTime() - now.getTime();
+        // ★ 5분 전에 알림 (300000ms = 5분)
+        const EARLY_ALERT_MS = 5 * 60 * 1000;
+        const delay = targetTime.getTime() - EARLY_ALERT_MS - now.getTime();
         if (delay > 0) {
             const timerId = setTimeout(() => {
                 showAttendanceCheckNotification(timeKey);
@@ -42,9 +44,14 @@ function registerPendingAttendanceCheck(studentId, studentName, teacherId, sched
             }, delay);
             pendingTimers.set(timeKey, timerId);
             const delayMin = Math.round(delay / 60000);
-            console.log(`[재석확인] 타이머 설정: ${scheduleStart} (${delayMin}분 후 알림)`);
+            console.log(`[재석확인] 타이머 설정: ${scheduleStart} (${delayMin}분 후, 수업 5분 전 알림)`);
+        } else if (targetTime.getTime() - now.getTime() > 0) {
+            // 5분 전은 이미 지났지만 수업 시작 전이면 즉시 알림
+            setTimeout(() => {
+                showAttendanceCheckNotification(timeKey);
+            }, 1000);
         } else {
-            // 이미 시간이 지났으면 즉시 알림 (1초 후)
+            // 수업 시작도 이미 지났으면 즉시 알림
             setTimeout(() => {
                 showAttendanceCheckNotification(timeKey);
             }, 1000);
@@ -53,7 +60,7 @@ function registerPendingAttendanceCheck(studentId, studentName, teacherId, sched
 }
 
 // 재석 확인 알림 표시 (배치: 같은 시간의 학생들을 하나의 모달에)
-// ★ 현재 로그인된 선생님의 일정만 표시
+// ★ 체크박스 선택 + 상태 버튼 방식
 function showAttendanceCheckNotification(timeKey) {
     const items = pendingAttendanceChecks.get(timeKey);
     if (!items || items.length === 0) {
@@ -74,62 +81,64 @@ function showAttendanceCheckNotification(timeKey) {
     
     // ★ 현재 선생님의 항목만 필터링
     const myItems = items.filter(item => String(item.teacherId) === String(currentTeacherId));
-    if (myItems.length === 0) return; // 내 일정이 아니면 알림 안 띄움
+    if (myItems.length === 0) return;
     
     const modal = document.getElementById('attendance-check-modal');
     if (!modal) return;
     
     const subtitle = document.getElementById('attendance-check-subtitle');
     const listDiv = document.getElementById('attendance-check-list');
+    const selectAllCb = document.getElementById('att-check-select-all');
     
     const timeLabel = (typeof formatKoreanTimeLabel === 'function') ? formatKoreanTimeLabel(timeKey) : timeKey;
-    subtitle.textContent = `${timeLabel} 수업 시작 - ${myItems.length}명 확인 필요`;
+    subtitle.textContent = `${timeLabel} 수업 시작 5분 전 - ${myItems.length}명 확인 필요`;
     
     let html = '';
     myItems.forEach((item) => {
-        // 원래 items 배열에서의 인덱스 찾기
         const originalIdx = items.indexOf(item);
-        html += `
-            <div style="padding: 14px 16px; background: #f8fafc; border-radius: 12px; margin-bottom: 10px; border: 1px solid #e2e8f0;" data-check-idx="${originalIdx}" data-check-time="${timeKey}">
-                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
-                    <div>
-                        <div style="font-weight: 700; font-size: 15px; color: #1e293b;">${item.studentName}</div>
-                        <div style="font-size: 12px; color: #64748b; margin-top: 2px;">${timeLabel} 수업</div>
-                    </div>
+        html += `<label class="att-check-item" data-check-idx="${originalIdx}" data-check-time="${timeKey}">
+                <input type="checkbox" class="att-check-cb" data-idx="${originalIdx}" data-time="${timeKey}" onchange="updateAttCheckCount()">
+                <div class="att-check-item-info">
+                    <div class="att-check-item-name">${item.studentName}</div>
+                    <div class="att-check-item-time">${timeLabel} 수업</div>
                 </div>
-                <div style="display: flex; gap: 6px; flex-wrap: wrap;">
-                    <button onclick="handleSingleAttendanceCheck('${timeKey}', ${originalIdx}, 'present')" 
-                        style="flex:1; padding: 9px 10px; background: #10b981; color: white; border: none; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; min-width: 55px;">
-                        출석
-                    </button>
-                    <button onclick="handleSingleAttendanceCheck('${timeKey}', ${originalIdx}, 'late')" 
-                        style="flex:1; padding: 9px 10px; background: #f59e0b; color: white; border: none; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; min-width: 55px;">
-                        지각
-                    </button>
-                    <button onclick="handleSingleAttendanceCheck('${timeKey}', ${originalIdx}, 'absent')" 
-                        style="flex:1; padding: 9px 10px; background: #ef4444; color: white; border: none; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; min-width: 55px;">
-                        결석
-                    </button>
-                    <button onclick="handleSingleAttendanceCheck('${timeKey}', ${originalIdx}, 'makeup')" 
-                        style="flex:1; padding: 9px 10px; background: #8b5cf6; color: white; border: none; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; min-width: 55px;">
-                        보강
-                    </button>
-                </div>
-            </div>`;
+            </label>`;
     });
     
     listDiv.innerHTML = html;
+    if (selectAllCb) selectAllCb.checked = false;
+    updateAttCheckCount();
     modal.style.display = 'flex';
 }
 
-// 개별 학생 재석 확인 처리
-window.handleSingleAttendanceCheck = async function(timeKey, idx, status) {
+// 체크박스 전체 선택/해제
+window.toggleAllAttCheck = function(checked) {
+    document.querySelectorAll('.att-check-cb').forEach(cb => {
+        if (!cb.closest('.att-check-item.done')) cb.checked = checked;
+    });
+    updateAttCheckCount();
+};
+
+// 선택 카운트 업데이트
+window.updateAttCheckCount = function() {
+    const total = document.querySelectorAll('.att-check-cb').length;
+    const checked = document.querySelectorAll('.att-check-cb:checked').length;
+    const countEl = document.getElementById('att-check-count');
+    if (countEl) countEl.textContent = `${checked}/${total}명 선택`;
+    // 전체 선택 체크박스 동기화
+    const selectAll = document.getElementById('att-check-select-all');
+    if (selectAll) selectAll.checked = (checked === total && total > 0);
+};
+
+// 개별 학생 재석 확인 처리 (내부용)
+async function _processAttendanceCheck(timeKey, idx, status) {
     const items = pendingAttendanceChecks.get(timeKey);
     if (!items || !items[idx]) return;
     
     const item = items[idx];
+    if (item._done) return;
+    
     try {
-        // 기존 기록 조회
         const existing = (typeof getAttendanceRecordByStudentAndDate === 'function')
             ? await getAttendanceRecordByStudentAndDate(item.studentId, item.dateStr, item.teacherId, item.scheduleStart)
             : null;
@@ -161,7 +170,7 @@ window.handleSingleAttendanceCheck = async function(timeKey, idx, status) {
             student.attendance[item.dateStr][item.scheduleStart] = status;
         }
         
-        // UI 업데이트 - 처리 완료 표시 (4가지 상태)
+        // UI 업데이트 - 처리 완료 표시
         const row = document.querySelector(`[data-check-idx="${idx}"][data-check-time="${timeKey}"]`);
         if (row) {
             const statusMap = {
@@ -173,22 +182,72 @@ window.handleSingleAttendanceCheck = async function(timeKey, idx, status) {
             const s = statusMap[status] || statusMap.present;
             row.style.background = s.bg;
             row.style.borderColor = s.color;
-            // 버튼 영역을 처리 완료 배지로 교체
-            const btnArea = row.querySelector('div:last-child');
-            if (btnArea) btnArea.innerHTML = `<span style="padding:8px 14px;background:${s.color};color:white;border-radius:8px;font-size:13px;font-weight:700;">${s.label} 처리됨</span>`;
+            row.classList.add('done');
+            // 체크박스를 배지로 교체
+            const cb = row.querySelector('input[type="checkbox"]');
+            if (cb) cb.style.display = 'none';
+            const badge = document.createElement('span');
+            badge.className = 'att-check-item-badge';
+            badge.style.background = s.color;
+            badge.textContent = s.label;
+            row.insertBefore(badge, row.querySelector('.att-check-item-info'));
         }
         
+        item._done = true;
         console.log(`[재석확인] ${item.studentName} → ${status} 처리 완료`);
+        
+        // ★ 출석 기록 모달이 열려있으면 갱신
+        const histModal = document.getElementById('student-attendance-history-modal');
+        if (histModal && histModal.style.display === 'flex' && typeof window.loadStudentAttendanceHistory === 'function') {
+            try { await window.loadStudentAttendanceHistory(); } catch (_) {}
+        }
     } catch (e) {
         console.error('[재석확인] 저장 실패:', e);
         showToast(`${item.studentName} 출결 저장에 실패했습니다.`, 'error');
     }
+}
+
+// ★ 선택된 학생들을 일괄 처리
+window.handleAttendanceCheckSelected = async function(status) {
+    const checkedBoxes = document.querySelectorAll('.att-check-cb:checked');
+    if (checkedBoxes.length === 0) {
+        showToast('처리할 학생을 선택해주세요.', 'warning');
+        return;
+    }
     
-    // 처리 완료 항목 마킹
-    item._done = true;
+    const statusLabel = { present: '출석', late: '지각', absent: '결석', makeup: '보강' };
+    
+    for (const cb of checkedBoxes) {
+        const timeKey = cb.dataset.time;
+        const idx = parseInt(cb.dataset.idx);
+        await _processAttendanceCheck(timeKey, idx, status);
+    }
+    
+    updateAttCheckCount();
+    showToast(`${checkedBoxes.length}명 ${statusLabel[status]} 처리 완료`, 'success');
     
     // 모든 항목이 처리되었으면 자동으로 모달 닫기
-    if (items.every(i => i._done)) {
+    let allDone = true;
+    for (const [key, items] of pendingAttendanceChecks.entries()) {
+        if (!items.every(i => i._done)) { allDone = false; break; }
+    }
+    if (allDone) {
+        setTimeout(() => {
+            closeModal('attendance-check-modal');
+            for (const [key, items] of pendingAttendanceChecks.entries()) {
+                if (items.every(i => i._done)) pendingAttendanceChecks.delete(key);
+            }
+            saveData();
+            renderCalendar();
+        }, 800);
+    }
+};
+
+// 레거시 호환: handleSingleAttendanceCheck (다른 곳에서 호출할 수 있음)
+window.handleSingleAttendanceCheck = async function(timeKey, idx, status) {
+    await _processAttendanceCheck(timeKey, idx, status);
+    const items = pendingAttendanceChecks.get(timeKey);
+    if (items && items.every(i => i._done)) {
         setTimeout(() => {
             closeModal('attendance-check-modal');
             pendingAttendanceChecks.delete(timeKey);
@@ -198,33 +257,11 @@ window.handleSingleAttendanceCheck = async function(timeKey, idx, status) {
     }
 };
 
-// 전체 출석/결석 처리
+// 레거시 호환: handleAttendanceCheckAll
 window.handleAttendanceCheckAll = async function(status) {
-    const modal = document.getElementById('attendance-check-modal');
-    if (!modal) return;
-    
-    const rows = modal.querySelectorAll('[data-check-time]');
-    for (const row of rows) {
-        const timeKey = row.getAttribute('data-check-time');
-        const idx = parseInt(row.getAttribute('data-check-idx'));
-        const items = pendingAttendanceChecks.get(timeKey);
-        if (items && items[idx] && !items[idx]._done) {
-            await handleSingleAttendanceCheck(timeKey, idx, status);
-        }
-    }
-    
-    // 약간의 딜레이 후 모달 닫기
-    setTimeout(() => {
-        closeModal('attendance-check-modal');
-        // 처리된 큐 정리
-        for (const [key, items] of pendingAttendanceChecks.entries()) {
-            if (items.every(i => i._done)) {
-                pendingAttendanceChecks.delete(key);
-            }
-        }
-        saveData();
-        renderCalendar();
-    }, 500);
+    // 전체 선택 후 처리
+    document.querySelectorAll('.att-check-cb').forEach(cb => { if (!cb.closest('.done')) cb.checked = true; });
+    await handleAttendanceCheckSelected(status);
 };
 
 // ========== 미스캔 학생 자동 알림 시스템 ==========
@@ -271,7 +308,9 @@ window.initMissedScanChecks = function() {
                 const scheduleTime = new Date(now);
                 scheduleTime.setHours(h, m, 0, 0);
                 
-                const delay = scheduleTime.getTime() - now.getTime();
+                // ★ 5분 전에 확인 (수업 시작 5분 전에 체크)
+                const EARLY_CHECK_MS = 5 * 60 * 1000;
+                const delay = scheduleTime.getTime() - EARLY_CHECK_MS - now.getTime();
                 const timerKey = `${studentId}_${classInfo.start}_${teacherId}`;
                 
                 if (delay <= 0) {
@@ -1311,6 +1350,7 @@ async function processAttendanceFromQR(qrData) {
         
         let primaryStatus = null; // 토스트에 표시할 대표 상태
         let primaryResult = null;
+        let processedCount = 0; // ★ 바깥에서도 접근 가능하도록 스코프 이동
         
         try {
             if (allSchedules && allSchedules.length > 0) {
@@ -1326,7 +1366,6 @@ async function processAttendanceFromQR(qrData) {
                 const sIdx = students.findIndex(s => String(s.id) === String(studentId));
                 
                 let foundActiveClass = false; // 출석/지각으로 처리된 수업이 있는지
-                let processedCount = 0;
                 let pendingCount = 0;
                 
                 for (let i = 0; i < sortedSchedules.length; i++) {
@@ -1360,8 +1399,9 @@ async function processAttendanceFromQR(qrData) {
                         );
                     } catch (e) { /* 무시 */ }
                     
-                    if (existingRecord) {
-                        console.log(`[processAttendanceFromQR] 이미 처리됨: ${startTimeStr} → ${existingRecord.status}`);
+                    // ★ 이미 QR 스캔 완료된 기록이면 건너뛰기 (중복 스캔 방지)
+                    if (existingRecord && existingRecord.qr_scanned) {
+                        console.log(`[processAttendanceFromQR] 이미 QR 스캔 처리됨: ${startTimeStr} → ${existingRecord.status}`);
                         if (!primaryStatus) {
                             primaryStatus = existingRecord.status;
                         }
@@ -1392,7 +1432,7 @@ async function processAttendanceFromQR(qrData) {
                         console.log(`[processAttendanceFromQR] ⏰ 지각: ${studentName} → ${startTimeStr} (${diffMin}분 지각)`);
                     }
                     
-                    // 출석 기록 저장
+                    // 출석 기록 저장 (기존 레코드가 있으면 QR 스캔 정보로 업데이트, 없으면 신규 생성)
                     await saveAttendanceRecord({
                         studentId: studentId,
                         teacherId: String(scheduleItem.teacherId),
@@ -1402,7 +1442,9 @@ async function processAttendanceFromQR(qrData) {
                         status: status,
                         qrScanned: true,
                         qrScanTime: today.toISOString(),
-                        qrJudgment: judgmentText
+                        qrJudgment: judgmentText,
+                        memo: existingRecord?.memo || null,
+                        shared_memo: existingRecord?.shared_memo || null
                     });
                     processedCount++;
                     
@@ -1443,11 +1485,14 @@ async function processAttendanceFromQR(qrData) {
             console.error('[processAttendanceFromQR] 에러 상세:', dbError.message, dbError.details, dbError.hint);
         }
         
+        // ★ 중복 스캔 감지: processedCount가 0이면 모든 일정이 이미 QR 스캔 완료된 상태
+        const isDuplicateScan = processedCount === 0 && primaryStatus;
+        
         // 대표 상태 기본값
         if (!primaryStatus) primaryStatus = 'present';
         if (!primaryResult) primaryResult = determineAttendanceStatus(today, earliestSchedule.start);
-        const attendanceStatus = primaryStatus;
-        const attendanceResult = primaryResult;
+        const attendanceStatus = isDuplicateScan ? 'already_processed' : primaryStatus;
+        const attendanceResult = isDuplicateScan ? primaryStatus : primaryResult;
         
         // 10. 로컬 데이터 저장
         saveData();
@@ -1462,7 +1507,19 @@ async function processAttendanceFromQR(qrData) {
         renderCalendar();
 
         // 수업 관리 모달이 열려 있으면 상태 표시를 즉시 동기화
-        syncAttendanceModalStatusIfOpen(studentId, dateStr, attendanceStatus);
+        if (!isDuplicateScan) {
+            syncAttendanceModalStatusIfOpen(studentId, dateStr, primaryStatus);
+        }
+        
+        // ★ 출석 기록 모달이 열려있으면 즉시 갱신
+        const historyModal = document.getElementById('student-attendance-history-modal');
+        if (historyModal && historyModal.style.display === 'flex' && typeof window.loadStudentAttendanceHistory === 'function') {
+            try {
+                await window.loadStudentAttendanceHistory();
+            } catch (e) {
+                console.error('[processAttendanceFromQR] 출석 기록 갱신 실패:', e);
+            }
+        }
         
         // 12. 결과 표시 (토스트 알림)
         showQRScanToast(student, attendanceStatus, attendanceResult);
@@ -2109,11 +2166,10 @@ window.loadStudentAttendanceHistory = async function() {
             const otherRecords = otherRecordByDate.get(dateKey) || [];
             const otherSchedules = otherScheduleByDate.get(dateKey) || [];
             
-            // 담당 선생님 데이터가 있으면 담당 기준, 없으면 다른 선생님 데이터를 메인으로 사용
-            const hasPrimaryData = myRecords.length > 0 || mySchedules.length > 0;
-            const effectiveRecord = myRecords[0] || (hasPrimaryData ? null : otherRecords[0]) || null;
-            const effectiveSchedule = mySchedules[0] || (hasPrimaryData ? null : otherSchedules[0]) || null;
-            const isFallback = !hasPrimaryData; // 다른 선생님 데이터를 사용하는 경우
+            // 담당 선생님 기록 우선, 없으면 다른 선생님 기록도 표시 (QR 스캔 등으로 다른 teacher_id로 저장된 경우 대응)
+            const effectiveRecord = myRecords[0] || otherRecords[0] || null;
+            const effectiveSchedule = mySchedules[0] || otherSchedules[0] || null;
+            const isFallback = !myRecords.length && !mySchedules.length && (otherRecords.length > 0 || otherSchedules.length > 0);
             const fallbackTeacherName = isFallback ? getTeacherNameById(String(effectiveRecord?.teacher_id || effectiveSchedule?.teacher_id || '')) : '';
 
             // 통계 집계
@@ -2132,6 +2188,7 @@ window.loadStudentAttendanceHistory = async function() {
             }
 
             // ★ 해당 날짜의 모든 일정 (담당 + 다른 선생님) → 호버 툴팁
+            const hasPrimaryData = myRecords.length > 0 || mySchedules.length > 0;
             const hasOtherTeachers = (hasPrimaryData && (otherRecords.length > 0 || otherSchedules.length > 0));
 
             let tooltipHtml = '';
@@ -2766,7 +2823,7 @@ async function getAttendanceRecordByStudentAndDate(studentId, dateStr, teacherId
         }
         let query = supabase
             .from('attendance_records')
-            .select('id, student_id, teacher_id, attendance_date, status, scheduled_time, check_in_time, qr_scanned, qr_judgment, memo, shared_memo')
+            .select('id, student_id, teacher_id, attendance_date, status, scheduled_time, check_in_time, qr_scanned, qr_scan_time, qr_judgment, memo, shared_memo')
             .eq('student_id', numericId)
             .eq('attendance_date', dateStr);
         if (teacherId) {
@@ -2793,7 +2850,7 @@ async function getAttendanceRecordsByDate(dateStr) {
         
         const { data, error } = await supabase
             .from('attendance_records')
-            .select('id, student_id, teacher_id, attendance_date, status, scheduled_time, check_in_time, qr_scanned, memo, shared_memo')
+            .select('id, student_id, teacher_id, attendance_date, status, scheduled_time, check_in_time, qr_scanned, qr_scan_time, qr_judgment, memo, shared_memo')
             .eq('owner_user_id', ownerId)
             .eq('teacher_id', currentTeacherId)
             .eq('attendance_date', dateStr)

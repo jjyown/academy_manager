@@ -890,6 +890,20 @@
             <div class="hist-stats" id="hist-stats"></div>
             <div class="modal-body custom-scroll">
                 <div id="history-timeline" class="hist-list"></div>
+                <!-- 종합평가 섹션 -->
+                <div class="eval-section" id="eval-section">
+                    <div class="eval-section-header">
+                        <div class="eval-section-title"><i class="fas fa-star"></i> 종합 평가</div>
+                        <span class="eval-month-label" id="eval-current-month"></span>
+                    </div>
+                    <textarea id="eval-textarea-main" class="eval-textarea-main" placeholder="이번 달 학생에 대한 종합 평가를 작성하세요..." maxlength="500"></textarea>
+                    <div class="eval-bottom-row">
+                        <span class="eval-char-info"><span id="eval-char-main">0</span>/500</span>
+                        <button class="eval-save-btn" id="eval-save-btn" onclick="window.saveEvalFromHistory()">
+                            <i class="fas fa-save"></i> 저장
+                        </button>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -1307,33 +1321,34 @@
 
     <!-- 학생 재석 확인 알림 모달 -->
     <div id="attendance-check-modal" class="modal" style="display: none; z-index: 10000;">
-        <div class="modal-card" style="max-width: 500px; border-radius: 20px; overflow: hidden;">
-            <div style="background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); padding: 24px 28px; color: white;">
-                <div style="display: flex; align-items: center; gap: 10px;">
-                    <span style="font-size: 28px;">🔔</span>
+        <div class="modal-card att-check-card">
+            <div class="att-check-header">
+                <div class="att-check-header-content">
+                    <span class="att-check-icon">🔔</span>
                     <div>
-                        <h2 style="margin: 0; font-size: 20px; font-weight: 700;" id="attendance-check-title">수업 시간 확인</h2>
-                        <p style="margin: 4px 0 0; font-size: 13px; opacity: 0.85;" id="attendance-check-subtitle"></p>
+                        <h2 id="attendance-check-title">수업 시간 확인</h2>
+                        <p id="attendance-check-subtitle"></p>
                     </div>
                 </div>
             </div>
-            <div class="modal-body-scrollable custom-scroll" style="padding: 20px 24px; max-height: 400px;">
-                <p style="color: #475569; font-size: 14px; margin-bottom: 16px;">다음 학생이 아직 자리에 있는지 확인해주세요:</p>
-                <div id="attendance-check-list"></div>
+            <div class="att-check-toolbar">
+                <label class="att-check-select-all">
+                    <input type="checkbox" id="att-check-select-all" onchange="toggleAllAttCheck(this.checked)">
+                    <span>전체 선택</span>
+                </label>
+                <span class="att-check-count" id="att-check-count">0명 선택</span>
             </div>
-            <div style="padding: 16px 24px 24px; display: flex; gap: 8px; flex-wrap: wrap;">
-                <button onclick="handleAttendanceCheckAll('present')" style="flex:1; padding: 12px 8px; background: #10b981; color: white; border: none; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; min-width: 70px;">
-                    전체 출석
-                </button>
-                <button onclick="handleAttendanceCheckAll('late')" style="flex:1; padding: 12px 8px; background: #f59e0b; color: white; border: none; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; min-width: 70px;">
-                    전체 지각
-                </button>
-                <button onclick="handleAttendanceCheckAll('absent')" style="flex:1; padding: 12px 8px; background: #ef4444; color: white; border: none; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; min-width: 70px;">
-                    전체 결석
-                </button>
-                <button onclick="closeModal('attendance-check-modal')" style="padding: 12px 14px; background: #e2e8f0; color: #475569; border: none; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer;">
-                    나중에
-                </button>
+            <div class="modal-body-scrollable custom-scroll att-check-body">
+                <div id="attendance-check-list" class="att-check-list"></div>
+            </div>
+            <div class="att-check-footer">
+                <div class="att-check-actions">
+                    <button class="att-check-btn present" onclick="handleAttendanceCheckSelected('present')"><i class="fas fa-check"></i> 출석</button>
+                    <button class="att-check-btn late" onclick="handleAttendanceCheckSelected('late')"><i class="fas fa-clock"></i> 지각</button>
+                    <button class="att-check-btn absent" onclick="handleAttendanceCheckSelected('absent')"><i class="fas fa-times"></i> 결석</button>
+                    <button class="att-check-btn makeup" onclick="handleAttendanceCheckSelected('makeup')"><i class="fas fa-redo"></i> 보강</button>
+                </div>
+                <button class="att-check-btn-later" onclick="closeModal('attendance-check-modal')">나중에</button>
             </div>
         </div>
     </div>

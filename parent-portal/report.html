@@ -370,12 +370,81 @@
 			border-radius: 12px;
 			transition: background var(--transition);
 			border-left: 3px solid transparent;
+			position: relative;
 		}
 		.att-day:hover { background: rgba(255,255,255,0.06); }
+		.att-day.has-tooltip { cursor: pointer; }
 		.att-day.st-present { border-left-color: var(--green); }
 		.att-day.st-late { border-left-color: var(--yellow); }
 		.att-day.st-absent { border-left-color: var(--red); }
 		.att-day.st-makeup { border-left-color: var(--teal); }
+
+		/* ★ 전체 일정 호버 툴팁 */
+		.pp-att-tooltip {
+			display: none;
+			position: absolute;
+			bottom: calc(100% + 10px);
+			left: 14px;
+			background: #1e293b;
+			color: #fff;
+			padding: 14px 16px;
+			border-radius: 12px;
+			font-size: 13px;
+			min-width: 230px;
+			max-width: 320px;
+			z-index: 9999;
+			box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+			line-height: 1.5;
+		}
+		.pp-tooltip-arrow {
+			position: absolute;
+			bottom: -6px;
+			left: 24px;
+			width: 12px;
+			height: 12px;
+			background: #1e293b;
+			rotate: 45deg;
+			border-radius: 2px;
+		}
+		.pp-tooltip-header {
+			font-weight: 700;
+			margin-bottom: 8px;
+			font-size: 12px;
+			color: #94a3b8;
+			letter-spacing: 0.5px;
+		}
+		.pp-tooltip-item {
+			display: flex;
+			align-items: center;
+			gap: 8px;
+			padding: 5px 0;
+		}
+		.pp-tooltip-item.pp-tooltip-primary {
+			border-bottom: 1px solid rgba(255,255,255,0.1);
+			padding-bottom: 7px;
+			margin-bottom: 2px;
+		}
+		.pp-tooltip-name {
+			font-weight: 600;
+			color: #e2e8f0;
+			font-size: 13px;
+		}
+		.pp-tooltip-name.primary {
+			color: #93c5fd;
+			font-weight: 700;
+		}
+		.pp-tooltip-time {
+			color: #94a3b8;
+			font-size: 12px;
+		}
+		.pp-tooltip-badge {
+			color: #fff;
+			padding: 2px 8px;
+			border-radius: 4px;
+			font-size: 11px;
+			font-weight: 600;
+			white-space: nowrap;
+		}
 
 		.att-date-col {
 			min-width: 52px;
@@ -387,6 +456,16 @@
 
 		.att-mid { flex: 1; }
 		.att-time { font-size: 13px; font-weight: 600; }
+		.att-qr-tag {
+			display: inline-flex; align-items: center; gap: 4px;
+			font-size: 10px; font-weight: 600;
+			color: var(--teal);
+			background: var(--teal-bg);
+			padding: 2px 8px;
+			border-radius: 6px;
+			margin-top: 3px;
+		}
+		.att-qr-tag i { font-size: 9px; }
 		.att-memo-preview {
 			font-size: 11px; color: var(--text-sec); margin-top: 2px;
 			overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -877,9 +956,6 @@
 			<button class="dash-tab active" onclick="switchTab('attendance')">
 				<i class="fas fa-calendar-check"></i> 출결
 			</button>
-			<button class="dash-tab" onclick="switchTab('memo')">
-				<i class="fas fa-sticky-note"></i> 수업메모
-			</button>
 			<button class="dash-tab" onclick="switchTab('eval')">
 				<i class="fas fa-star"></i> 종합평가
 			</button>
@@ -912,19 +988,6 @@
 					</div>
 				</div>
 				<div id="att-list" class="att-list"></div>
-			</div>
-		</div>
-
-		<!-- TAB: Memos -->
-		<div id="tab-memo" class="tab-panel">
-			<div class="section-card">
-				<div class="section-title"><i class="fas fa-sticky-note"></i> 선생님 수업 메모</div>
-				<div class="month-nav">
-					<button class="month-arrow" onclick="handlePrevMonthMemo()"><i class="fas fa-chevron-left"></i></button>
-					<input type="month" id="memo-month-selector" class="month-input" onchange="handleMemoMonthChange()">
-					<button class="month-arrow" onclick="handleNextMonthMemo()"><i class="fas fa-chevron-right"></i></button>
-				</div>
-				<div id="memo-list" class="memo-list"></div>
 			</div>
 		</div>
 
