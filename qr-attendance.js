@@ -89,6 +89,7 @@ function showAttendanceCheckNotification(timeKey) {
     const subtitle = document.getElementById('attendance-check-subtitle');
     const listDiv = document.getElementById('attendance-check-list');
     const selectAllCb = document.getElementById('att-check-select-all');
+    if (!subtitle || !listDiv) return;
     
     const timeLabel = (typeof formatKoreanTimeLabel === 'function') ? formatKoreanTimeLabel(timeKey) : timeKey;
     subtitle.textContent = `${timeLabel} 수업 시작 5분 전 - ${myItems.length}명 확인 필요`;
@@ -235,7 +236,14 @@ window.handleAttendanceCheckSelected = async function(status) {
         setTimeout(() => {
             closeModal('attendance-check-modal');
             for (const [key, items] of pendingAttendanceChecks.entries()) {
-                if (items.every(i => i._done)) pendingAttendanceChecks.delete(key);
+                if (items.every(i => i._done)) {
+                    pendingAttendanceChecks.delete(key);
+                    // 스누즈 타이머도 정리
+                    if (snoozeTimers.has(key)) {
+                        clearTimeout(snoozeTimers.get(key));
+                        snoozeTimers.delete(key);
+                    }
+                }
             }
             saveData();
             renderCalendar();
@@ -251,6 +259,11 @@ window.handleSingleAttendanceCheck = async function(timeKey, idx, status) {
         setTimeout(() => {
             closeModal('attendance-check-modal');
             pendingAttendanceChecks.delete(timeKey);
+            // 스누즈 타이머도 정리
+            if (snoozeTimers.has(timeKey)) {
+                clearTimeout(snoozeTimers.get(timeKey));
+                snoozeTimers.delete(timeKey);
+            }
             saveData();
             renderCalendar();
         }, 800);
@@ -262,6 +275,46 @@ window.handleAttendanceCheckAll = async function(status) {
     // 전체 선택 후 처리
     document.querySelectorAll('.att-check-cb').forEach(cb => { if (!cb.closest('.done')) cb.checked = true; });
     await handleAttendanceCheckSelected(status);
+};
+
+// ★ 재석 확인 스누즈 (5분 후 재알림)
+const SNOOZE_INTERVAL_MS = 5 * 60 * 1000; // 5분
+const snoozeTimers = new Map();
+
+window.snoozeAttendanceCheck = function() {
+    // 아직 처리되지 않은 항목이 있는 timeKey들을 수집
+    const pendingKeys = [];
+    for (const [key, items] of pendingAttendanceChecks.entries()) {
+        const remaining = items.filter(i => !i._done);
+        if (remaining.length > 0) pendingKeys.push(key);
+    }
+
+    // 모달 닫기
+    closeModal('attendance-check-modal');
+
+    if (pendingKeys.length === 0) return;
+
+    // 5분 후 재알림 타이머 설정
+    pendingKeys.forEach(timeKey => {
+        // 기존 스누즈 타이머가 있으면 제거
+        if (snoozeTimers.has(timeKey)) {
+            clearTimeout(snoozeTimers.get(timeKey));
+        }
+
+        const timerId = setTimeout(() => {
+            snoozeTimers.delete(timeKey);
+            const items = pendingAttendanceChecks.get(timeKey);
+            if (items && items.some(i => !i._done)) {
+                console.log(`[재석확인] 스누즈 재알림: ${timeKey}`);
+                showAttendanceCheckNotification(timeKey);
+            }
+        }, SNOOZE_INTERVAL_MS);
+
+        snoozeTimers.set(timeKey, timerId);
+        console.log(`[재석확인] 스누즈 설정: ${timeKey} → 5분 후 재알림`);
+    });
+
+    showToast('5분 후에 다시 알려드릴게요', 'info');
 };
 
 // ========== 미스캔 학생 자동 알림 시스템 ==========
@@ -918,7 +971,8 @@ window.closeQRScanPage = function() {
     currentFacingMode = "environment";
     
     // 페이지 숨기기
-    document.getElementById('qr-scan-page').style.display = 'none';
+    const scanPageEl = document.getElementById('qr-scan-page');
+    if (scanPageEl) scanPageEl.style.display = 'none';
 
     // QR 스캔 중 보류된 재석 확인 알림 일괄 표시
     if (window._qrDeferredNotifications && window._qrDeferredNotifications.length > 0) {
@@ -1193,8 +1247,6 @@ async function processAttendanceFromQR(qrData) {
                     localStorage.setItem('student_qr_tokens', JSON.stringify(qrTokens));
                     console.log('[processAttendanceFromQR] 로컬 토큰을 DB 토큰으로 동기화 완료');
                 }
-                localStorage.setItem('student_qr_tokens', JSON.stringify(qrTokens));
-                console.log('[processAttendanceFromQR] 로컬 토큰 DB로 동기화');
             } catch (e) {
                 console.error('[processAttendanceFromQR] 로컬 토큰 동기화 중 에러:', e);
             }
@@ -2247,31 +2299,47 @@ window.loadStudentAttendanceHistory = async function() {
                     </div>`;
             }
 
+            const existingMemo = (effectiveRecord && effectiveRecord.memo) ? effectiveRecord.memo : '';
+            const escapedMemo = (existingMemo || '').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const scheduledTimeVal = effectiveRecord && effectiveRecord.scheduled_time ? effectiveRecord.scheduled_time : (effectiveSchedule && effectiveSchedule.start_time ? effectiveSchedule.start_time : '');
+
             detailsHtml += `
-                <div class="att-day-row" style="position:relative;display:flex;justify-content:space-between;align-items:center;padding:16px 18px;background:${bgColor};border-radius:12px;border-left:4px solid ${statusColor};border-top:1px solid ${borderColor};border-right:1px solid ${borderColor};border-bottom:1px solid ${borderColor};cursor:${hasOtherTeachers ? 'pointer' : 'default'};" ${hasOtherTeachers ? 'data-has-tooltip="true"' : ''}>
+                <div class="att-day-row" style="position:relative;display:flex;flex-direction:column;padding:16px 18px;background:${bgColor};border-radius:12px;border-left:4px solid ${statusColor};border-top:1px solid ${borderColor};border-right:1px solid ${borderColor};border-bottom:1px solid ${borderColor};cursor:${hasOtherTeachers ? 'pointer' : 'default'};" ${hasOtherTeachers ? 'data-has-tooltip="true"' : ''}>
                     ${tooltipHtml}
-                    <div style="flex:1;min-width:0;">
-                        <div style="display:flex;align-items:center;gap:6px;font-weight:700;font-size:15px;color:#1e293b;margin-bottom:6px;">
-                            <span>${dateStr} (${getDayOfWeek(date)})</span>
-                            ${isFallback && fallbackTeacherName ? `<span style="font-size:11px;color:#8b5cf6;background:#ede9fe;padding:2px 7px;border-radius:5px;font-weight:600;">${fallbackTeacherName}</span>` : ''}
+                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                        <div style="flex:1;min-width:0;">
+                            <div style="display:flex;align-items:center;gap:6px;font-weight:700;font-size:15px;color:#1e293b;margin-bottom:6px;">
+                                <span>${dateStr} (${getDayOfWeek(date)})</span>
+                                ${isFallback && fallbackTeacherName ? `<span style="font-size:11px;color:#8b5cf6;background:#ede9fe;padding:2px 7px;border-radius:5px;font-weight:600;">${fallbackTeacherName}</span>` : ''}
+                            </div>
+                            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                                <span style="font-size:13px;color:#64748b;display:flex;align-items:center;gap:4px;">
+                                    <span style="opacity:0.7;">⏰</span> ${timeLabel}
+                                </span>
+                                ${effectiveRecord && effectiveRecord.qr_scanned ? `<span style="font-size:12px;color:#10b981;background:#dcfce7;padding:3px 8px;border-radius:6px;font-weight:600;">📱 QR 스캔 ${effectiveRecord.qr_scan_time ? new Date(effectiveRecord.qr_scan_time).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''}</span>` : (effectiveRecord && effectiveRecord.check_in_time && !effectiveRecord.qr_scanned ? `<span style="font-size:12px;color:#6366f1;background:#eef2ff;padding:3px 8px;border-radius:6px;font-weight:600;">✅ 선생님 확인 ${new Date(effectiveRecord.check_in_time).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</span>` : '')}
+                            </div>
                         </div>
-                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                            <span style="font-size:13px;color:#64748b;display:flex;align-items:center;gap:4px;">
-                                <span style="opacity:0.7;">⏰</span> ${timeLabel}
-                            </span>
-                            ${effectiveRecord && effectiveRecord.qr_scanned ? `<span style="font-size:12px;color:#10b981;background:#dcfce7;padding:3px 8px;border-radius:6px;font-weight:600;">📱 QR 스캔 ${effectiveRecord.qr_scan_time ? new Date(effectiveRecord.qr_scan_time).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''}</span>` : (effectiveRecord && effectiveRecord.check_in_time && !effectiveRecord.qr_scanned ? `<span style="font-size:12px;color:#6366f1;background:#eef2ff;padding:3px 8px;border-radius:6px;font-weight:600;">✅ 선생님 확인 ${new Date(effectiveRecord.check_in_time).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</span>` : '')}
-                        </div>
+                        <select
+                            style="background:${statusColor};color:white;padding:8px 12px;border-radius:8px;font-weight:700;font-size:14px;border:none;cursor:pointer;flex-shrink:0;"
+                            onclick="event.stopPropagation();"
+                            onchange="updateAttendanceStatusFromHistory('${currentStudentForAttendance}', '${dateKey}', this.value, '${scheduledTimeVal}')">
+                            <option value="" ${statusValue ? '' : 'selected'}>미처리</option>
+                            <option value="present" ${statusValue === 'present' ? 'selected' : ''}>출석</option>
+                            <option value="late" ${statusValue === 'late' ? 'selected' : ''}>지각</option>
+                            <option value="absent" ${statusValue === 'absent' ? 'selected' : ''}>결석</option>
+                            <option value="makeup" ${(statusValue === 'makeup' || statusValue === 'etc') ? 'selected' : ''}>보강</option>
+                        </select>
                     </div>
-                    <select
-                        style="background:${statusColor};color:white;padding:8px 12px;border-radius:8px;font-weight:700;font-size:14px;border:none;cursor:pointer;flex-shrink:0;"
-                        onclick="event.stopPropagation();"
-                        onchange="updateAttendanceStatusFromHistory('${currentStudentForAttendance}', '${dateKey}', this.value, '${effectiveRecord && effectiveRecord.scheduled_time ? effectiveRecord.scheduled_time : (effectiveSchedule && effectiveSchedule.start_time ? effectiveSchedule.start_time : '')}')">
-                        <option value="" ${statusValue ? '' : 'selected'}>미처리</option>
-                        <option value="present" ${statusValue === 'present' ? 'selected' : ''}>출석</option>
-                        <option value="late" ${statusValue === 'late' ? 'selected' : ''}>지각</option>
-                        <option value="absent" ${statusValue === 'absent' ? 'selected' : ''}>결석</option>
-                        <option value="makeup" ${(statusValue === 'makeup' || statusValue === 'etc') ? 'selected' : ''}>보강</option>
-                    </select>
+                    <div class="att-memo-row" style="margin-top:8px;display:flex;align-items:center;gap:6px;" onclick="event.stopPropagation();">
+                        <i class="fas fa-pen-to-square" style="font-size:12px;color:#94a3b8;flex-shrink:0;"></i>
+                        <input type="text" class="att-day-memo-input" data-date="${dateKey}" data-scheduled="${scheduledTimeVal}"
+                            placeholder="메모 (지각/결석 사유 등)"
+                            value="${escapedMemo}"
+                            style="flex:1;padding:6px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:12px;background:#f8fafc;color:#334155;outline:none;transition:border-color 0.2s;"
+                            onfocus="this.style.borderColor='#818cf8'"
+                            onblur="this.style.borderColor='#e2e8f0'; saveAttMemoFromHistory(this)">
+                    </div>
+                    ${existingMemo ? `<div class="att-memo-preview" style="margin-top:4px;padding:2px 0 0 22px;font-size:11px;color:#64748b;display:none;">💬 ${escapedMemo}</div>` : ''}
                 </div>
             `;
         }
@@ -2468,6 +2536,47 @@ async function updateAttendanceStatusFromHistory(studentId, dateStr, nextStatus,
         await loadStudentAttendanceHistory();
     }
 }
+
+// ★ 출석 기록 모달에서 메모 저장
+window.saveAttMemoFromHistory = async function(inputEl) {
+    const dateStr = inputEl.dataset.date;
+    const scheduledTime = inputEl.dataset.scheduled || null;
+    const memo = inputEl.value.trim();
+    const studentId = currentStudentForAttendance;
+    if (!studentId || !dateStr) return;
+
+    try {
+        const record = await getAttendanceRecordByStudentAndDate(studentId, dateStr, null, scheduledTime);
+        if (!record) {
+            // 기록이 없으면 메모만으로는 저장 불가 (출석 상태가 있어야 함)
+            if (memo) showToast('출석 상태를 먼저 지정해주세요.', 'warning');
+            return;
+        }
+
+        // 기존 메모와 동일하면 저장 생략
+        if ((record.memo || '') === memo) return;
+
+        const resolvedScheduledTime = record.scheduled_time || scheduledTime || null;
+
+        await saveAttendanceRecord({
+            studentId: studentId,
+            teacherId: String(record.teacher_id || ''),
+            attendanceDate: dateStr,
+            checkInTime: record.check_in_time || new Date().toISOString(),
+            scheduledTime: resolvedScheduledTime,
+            status: record.status,
+            qrScanned: record.qr_scanned || false,
+            qrScanTime: record.qr_scan_time || null,
+            qrJudgment: record.qr_judgment || null,
+            memo: memo || null
+        });
+
+        showToast('메모가 저장되었습니다.', 'success');
+    } catch (e) {
+        console.error('[saveAttMemoFromHistory] 에러:', e);
+        showToast('메모 저장에 실패했습니다.', 'error');
+    }
+};
 
 async function getTeacherIdsForStudentDate(studentId, dateStr) {
     const teacherIds = new Set();
@@ -2809,14 +2918,14 @@ function syncAttendanceModalStatusIfOpen(studentId, dateStr, status) {
     const currentDate = document.getElementById('att-date')?.value;
     if (String(currentId) !== String(studentId) || currentDate !== dateStr) return;
 
-    document.querySelectorAll('.att-btn').forEach(btn => btn.classList.remove('active'));
+    document.querySelectorAll('.am-att-btn').forEach(btn => btn.classList.remove('active'));
 
     let btnClass = status;
     if (status === 'makeup') {
         btnClass = 'etc';
     }
 
-    const activeBtn = document.querySelector(`.att-btn.${btnClass}`);
+    const activeBtn = document.querySelector(`.am-att-btn.${btnClass}`);
     if (activeBtn) activeBtn.classList.add('active');
 
     const statusDisplay = document.getElementById('current-status-display');

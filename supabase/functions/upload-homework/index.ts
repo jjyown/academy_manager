@@ -306,6 +306,22 @@ serve(async (req: Request) => {
 
     if (insertError) {
       console.error("DB insert error:", insertError);
+      // 드라이브 업로드는 성공했으나 DB 저장 실패
+      return new Response(
+        JSON.stringify({
+          success: true,
+          fileName,
+          driveFileId: fileId,
+          driveFileUrl: fileUrl,
+          fileSize: fileBuffer.length,
+          dbSaved: false,
+          dbError: insertError.message || 'DB 저장 실패',
+        }),
+        {
+          status: 207, // Multi-Status: 드라이브 성공, DB 실패
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
     }
 
     return new Response(
@@ -315,7 +331,7 @@ serve(async (req: Request) => {
         driveFileId: fileId,
         driveFileUrl: fileUrl,
         fileSize: fileBuffer.length,
-        dbSaved: !insertError,
+        dbSaved: true,
       }),
       {
         status: 200,

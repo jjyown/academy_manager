@@ -1,3 +1,10 @@
+// HTML 이스케이프 유틸리티 (XSS 방지)
+function escapeHtml(str) {
+    if (typeof str !== 'string') return str;
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+window.escapeHtml = escapeHtml;
+
 let currentDate = new Date();
 // 마지막 QR 출석 학생 ID (캘린더 표시용)
 let lastQrScannedStudentId = null;
@@ -49,7 +56,7 @@ window.showToast = function(message, type = 'info', duration = 3500) {
         return;
     }
     const container = document.getElementById('toast-container');
-    if (!container) { showToast(message, type); return; }
+    if (!container) { console.warn('[showToast] toast-container 없음:', message); return; }
 
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
@@ -58,7 +65,7 @@ window.showToast = function(message, type = 'info', duration = 3500) {
         <div class="toast-icon"><i class="fas ${TOAST_ICONS[type] || TOAST_ICONS.info}"></i></div>
         <div class="toast-body">
             <div class="toast-title">${TOAST_TITLES[type] || TOAST_TITLES.info}</div>
-            <div class="toast-msg">${message.replace(/\n/g, '<br>')}</div>
+            <div class="toast-msg">${escapeHtml(message).replace(/\n/g, '<br>')}</div>
         </div>
         <button class="toast-close" onclick="this.parentElement.classList.add('removing');setTimeout(()=>this.parentElement.remove(),300)">
             <i class="fas fa-times"></i>
@@ -140,7 +147,7 @@ window.showConfirm = function(message, options = {}) {
         icon.className = `confirm-icon ${type}`;
         icon.innerHTML = `<i class="fas ${iconMap[type] || iconMap.question}"></i>`;
         title.textContent = options.title || '확인';
-        msg.innerHTML = message.replace(/\n/g, '<br>');
+        msg.innerHTML = escapeHtml(message).replace(/\n/g, '<br>');
         okBtn.textContent = options.okText || '확인';
         cancelBtn.textContent = options.cancelText || '취소';
         okBtn.className = `confirm-btn ok${type === 'danger' ? ' danger' : ''}`;
@@ -176,7 +183,7 @@ window.showPrompt = function(message, options = {}) {
         icon.className = 'confirm-icon info';
         icon.innerHTML = '<i class="fas fa-keyboard"></i>';
         title.textContent = options.title || '입력';
-        msg.innerHTML = message.replace(/\n/g, '<br>') + '<br><input type="' + (options.inputType || 'password') + '" id="confirm-prompt-input" style="width:100%;padding:10px 14px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:14px;margin-top:10px;font-family:inherit;outline:none;transition:border-color 0.2s;" placeholder="' + (options.placeholder || '') + '">';
+        msg.innerHTML = escapeHtml(message).replace(/\n/g, '<br>') + '<br><input type="' + (options.inputType || 'password') + '" id="confirm-prompt-input" style="width:100%;padding:10px 14px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:14px;margin-top:10px;font-family:inherit;outline:none;transition:border-color 0.2s;" placeholder="' + escapeHtml(options.placeholder || '') + '">';
         okBtn.textContent = options.okText || '확인';
         cancelBtn.textContent = options.cancelText || '취소';
         okBtn.className = 'confirm-btn ok';
@@ -2942,9 +2949,10 @@ window.renderDayEvents = function(dateStr) {
         // Merged 그룹도 학년별 색상 적용
         if (isMerged) {
             const grades = ev.members.map(m => {
-                if (m.grade.includes('초')) return 'cho';
-                if (m.grade.includes('중')) return 'jung';
-                if (m.grade.includes('고')) return 'go';
+                const g = m.grade || '';
+                if (g.includes('초')) return 'cho';
+                if (g.includes('중')) return 'jung';
+                if (g.includes('고')) return 'go';
                 return 'default';
             });
             const uniqueGrades = [...new Set(grades)];

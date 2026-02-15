@@ -112,7 +112,7 @@ window.addStudent = async function(studentData) {
             .from('students')
             .insert([{
                 owner_user_id: user.id,
-                teacher_id: user.id,
+                teacher_id: null,
                 name: studentData.name,
                 school: studentData.school || '',
                 grade: studentData.grade,
@@ -372,6 +372,7 @@ window.saveSchedulesToDatabaseBatch = async function(scheduleList) {
 window.getSchedulesByTeacher = async function(teacherId) {
     try {
         const ownerId = _getOwnerId();
+        if (!ownerId) { console.warn('[getSchedulesByTeacher] ownerId 없음'); return []; }
 
         const { data, error } = await supabase
             .from('schedules')
@@ -445,13 +446,16 @@ window.deleteSchedulesByRange = async function(studentId, startDate, endDate, te
         }
 
         const ownerId = _getOwnerId();
+        if (!ownerId) {
+            console.warn('[deleteSchedulesByRange] ownerId가 없어 삭제를 중단합니다.');
+            return false;
+        }
         let query = supabase
             .from('schedules')
             .delete()
             .eq('student_id', numericId)
-            .eq('teacher_id', effectiveTeacherId);
-
-        if (ownerId) query = query.eq('owner_user_id', ownerId);
+            .eq('teacher_id', effectiveTeacherId)
+            .eq('owner_user_id', ownerId);
         if (startDate) query = query.gte('schedule_date', startDate);
         if (endDate) query = query.lte('schedule_date', endDate);
 

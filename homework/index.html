@@ -915,7 +915,7 @@
 				</div>
 				<div class="cal-stat">
 					<div class="cal-stat-num yellow" id="stat-late">0</div>
-					<div class="cal-stat-label">지각</div>
+					<div class="cal-stat-label">늦게 제출</div>
 				</div>
 				<div class="cal-stat">
 					<div class="cal-stat-num red" id="stat-missed">0</div>
@@ -1176,7 +1176,7 @@ function showToast(msg, type) {
 	const icons = {success:'fa-check-circle',error:'fa-xmark-circle',warning:'fa-exclamation-circle',info:'fa-info-circle'};
 	const t = document.createElement('div');
 	t.style.cssText = 'display:flex;align-items:center;gap:10px;padding:13px 16px;border-radius:14px;background:var(--card);box-shadow:0 8px 32px rgba(0,0,0,0.3);pointer-events:auto;cursor:pointer;animation:toastSlide 0.3s ease;border:1px solid var(--border);';
-	t.innerHTML = '<i class="fas '+(icons[type]||icons.info)+'" style="font-size:16px;color:'+(colors[type]||colors.info)+';flex-shrink:0;"></i><span style="flex:1;font-size:13px;color:var(--text);line-height:1.4;">'+msg+'</span>';
+	t.innerHTML = '<i class="fas '+(icons[type]||icons.info)+'" style="font-size:16px;color:'+(colors[type]||colors.info)+';flex-shrink:0;"></i><span style="flex:1;font-size:13px;color:var(--text);line-height:1.4;">'+escapeHtml(msg)+'</span>';
 	t.onclick = function(){ t.style.opacity='0'; t.style.transform='translateY(-20px)'; setTimeout(function(){t.remove()},300); };
 	c.appendChild(t);
 	while(c.children.length > 3) c.firstChild.remove();
@@ -1228,7 +1228,7 @@ function getZipFilename(studentName) {
 function showAlert(msg, type) {
 	const el = document.getElementById('landing-alert');
 	el.className = 'landing-alert show ' + type;
-	el.innerHTML = '<i class="fas fa-' + (type === 'error' ? 'exclamation-circle' : type === 'success' ? 'check-circle' : 'info-circle') + '"></i>' + msg;
+	el.innerHTML = '<i class="fas fa-' + (type === 'error' ? 'exclamation-circle' : type === 'success' ? 'check-circle' : 'info-circle') + '"></i>' + escapeHtml(msg);
 }
 
 function hideAlert() {
@@ -1327,15 +1327,40 @@ function closeStudentModal() {
 
 async function selectStudent(student) {
 	currentStudent = student;
+	currentTeacher = null; // 이전 선생님 정보 초기화
 
 	// 선생님 정보 조회
 	if (student.teacher_id) {
-		const { data: teacher } = await db
-			.from('teachers')
-			.select('id, name, google_drive_connected, owner_user_id')
-			.eq('id', student.teacher_id)
-			.single();
-		currentTeacher = teacher;
+		try {
+			// 1차: teachers.id로 조회 (정상 배정된 경우)
+			let { data: teacher, error } = await db
+				.from('teachers')
+				.select('id, name, google_drive_connected, owner_user_id')
+				.eq('id', student.teacher_id)
+				.maybeSingle();
+
+			// 2차: teachers.id로 못 찾으면 owner_user_id로 재조회 (레거시 호환)
+			if (!error && !teacher) {
+				const { data: t2, error: e2 } = await db
+					.from('teachers')
+					.select('id, name, google_drive_connected, owner_user_id')
+					.eq('owner_user_id', student.teacher_id)
+					.limit(1);
+				if (!e2 && t2 && t2.length > 0) {
+					teacher = t2[0];
+					// DB도 올바른 teacher_id로 수정
+					try {
+						await db.from('students').update({ teacher_id: teacher.id }).eq('id', student.id);
+						currentStudent.teacher_id = teacher.id;
+						console.log('[selectStudent] teacher_id 자동 수정:', student.teacher_id, '→', teacher.id);
+					} catch (_) {}
+				}
+			}
+
+			if (!error && teacher) currentTeacher = teacher;
+		} catch (e) {
+			console.warn('[selectStudent] 선생님 조회 실패:', e.message);
+		}
 	}
 
 	// 제출 현황 페이지 표시 (업로드 대신)
@@ -1485,6 +1510,7 @@ function moveCalMonth(delta) {
 
 // 데이터 로드 + 달력 렌더링
 async function loadCalendarData() {
+	if (!currentStudent?.id) return;
 	const year = calYear;
 	const month = calMonth;
 	const lastDay = new Date(year, month + 1, 0);
@@ -1777,9 +1803,9 @@ function showDateDetail(dateStr) {
 					const subMin = createdAt.getHours() * 60 + createdAt.getMinutes();
 					const ctDateStr = `${createdAt.getFullYear()}-${String(createdAt.getMonth()+1).padStart(2,'0')}-${String(createdAt.getDate()).padStart(2,'0')}`;
 					if (ctDateStr < dateStr || subMin <= deadlineMin) {
-						badgeHtml = '<span class="status-badge on-time"><i class="fas fa-check"></i> 정시</span>';
+						badgeHtml = '<span class="status-badge on-time"><i class="fas fa-check"></i> 정각 제출</span>';
 					} else {
-						badgeHtml = '<span class="status-badge late"><i class="fas fa-clock"></i> 지각</span>';
+						badgeHtml = '<span class="status-badge late"><i class="fas fa-clock"></i> 늦게 제출</span>';
 					}
 				}
 
@@ -1905,7 +1931,7 @@ async function loadAndShowAdminStudents() {
 	try {
 		const { data: students, error } = await db
 			.from('students')
-			.select('id, name, school, grade, phone, teacher_id, student_code')
+			.select('id, name, school, grade, phone, teacher_id, student_code, owner_user_id')
 			.eq('owner_user_id', adminUser.id)
 			.eq('status', 'active')
 			.order('name');
@@ -2356,8 +2382,13 @@ async function handleSubmit() {
 			throw new Error('서버 응답을 처리할 수 없습니다.');
 		}
 
-		if (!response.ok) {
+		if (!response.ok && response.status !== 207) {
 			throw new Error(result?.error || '업로드에 실패했습니다.');
+		}
+
+		// DB 저장 실패 경고 (드라이브 업로드는 성공)
+		if (result?.dbSaved === false) {
+			console.warn('[handleSubmit] 드라이브 업로드 성공, DB 저장 실패:', result.dbError);
 		}
 
 		// 3단계: 완료
@@ -2367,7 +2398,7 @@ async function handleSubmit() {
 
 		// 성공 페이지 표시
 		setTimeout(() => {
-			showSuccessPage(result.fileName, result.fileSize);
+			showSuccessPage(result?.fileName ?? '알 수 없음', result?.fileSize ?? 0);
 		}, 500);
 
 	} catch (err) {

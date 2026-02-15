@@ -402,7 +402,7 @@
 		}
 		.pp-admin-modal.active { display: flex; }
 		.pp-admin-modal-box {
-			background: var(--bg-card);
+			background: var(--card);
 			border-radius: 20px;
 			padding: 28px 24px;
 			max-width: 400px; width: 100%;
@@ -750,7 +750,7 @@
 		.hw-cal-cell.att-absent { background: rgba(248,113,113,0.06); }
 
 		.att-detail-item {
-			display: flex; align-items: center; gap: 12px;
+			display: flex; align-items: flex-start; gap: 12px;
 			padding: 14px;
 			background: var(--bg-elevated);
 			border-radius: var(--radius);
@@ -902,7 +902,7 @@
 		</div>
 		<div id="admin-login-alert" class="landing-alert" style="margin-bottom:10px;"></div>
 		<div class="btn-row">
-			<button class="btn-secondary" onclick="closeAdminLoginModal()">취소</button>
+			<button class="btn-cancel" onclick="closeAdminLoginModal()">취소</button>
 			<button class="btn-primary" id="admin-login-btn" onclick="handleAdminLogin()">
 				<i class="fas fa-unlock"></i> 로그인
 			</button>
@@ -1050,7 +1050,7 @@
 					</div>
 					<div class="hw-stat">
 						<div class="hw-stat-num" id="hw-st-late" style="color:var(--yellow);">0</div>
-						<div class="hw-stat-label">지각</div>
+						<div class="hw-stat-label">늦게 제출</div>
 					</div>
 					<div class="hw-stat">
 						<div class="hw-stat-num" id="hw-st-missed" style="color:var(--red);">0</div>
@@ -1163,7 +1163,8 @@ window.ppShowToast = function(msg, type) {
 	var icons = {success:'fa-check-circle',error:'fa-xmark-circle',warning:'fa-exclamation-circle',info:'fa-info-circle'};
 	var t = document.createElement('div');
 	t.style.cssText = 'display:flex;align-items:center;gap:10px;padding:13px 16px;border-radius:14px;background:var(--card);box-shadow:0 8px 32px rgba(0,0,0,0.3);pointer-events:auto;cursor:pointer;animation:toastSlide 0.3s ease;border:1px solid var(--border);';
-	t.innerHTML = '<i class="fas '+(icons[type]||icons.info)+'" style="font-size:16px;color:'+(colors[type]||colors.info)+';flex-shrink:0;"></i><span style="flex:1;font-size:13px;color:var(--text);line-height:1.4;">'+msg+'</span>';
+	var safeMsg = String(msg).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+	t.innerHTML = '<i class="fas '+(icons[type]||icons.info)+'" style="font-size:16px;color:'+(colors[type]||colors.info)+';flex-shrink:0;"></i><span style="flex:1;font-size:13px;color:var(--text);line-height:1.4;">'+safeMsg+'</span>';
 	t.onclick = function(){ t.style.opacity='0'; t.style.transform='translateY(-20px)'; setTimeout(function(){t.remove()},300); };
 	c.appendChild(t);
 	while(c.children.length > 3) c.firstChild.remove();

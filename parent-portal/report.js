@@ -43,7 +43,7 @@ function showAlert(msg, type) {
 	const el = document.getElementById('landing-alert');
 	if (!el) return;
 	el.className = `landing-alert show ${type || 'info'}`;
-	el.innerHTML = `<i class="fas fa-${type === 'error' ? 'exclamation-circle' : type === 'success' ? 'check-circle' : 'info-circle'}"></i>${msg}`;
+	el.innerHTML = `<i class="fas fa-${type === 'error' ? 'exclamation-circle' : type === 'success' ? 'check-circle' : 'info-circle'}"></i>${escapeHtml(msg)}`;
 	clearTimeout(el._timer);
 	el._timer = setTimeout(() => { el.classList.remove('show'); }, 4000);
 }
@@ -61,13 +61,6 @@ function formatKoreanTime(timeStr) {
 	return base.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
 }
 
-function getTimeLabel(record) {
-	if (record.scheduled_time) return formatKoreanTime(record.scheduled_time);
-	if (record.time) return formatKoreanTime(record.time);
-	if (record.check_in_time) return new Date(record.check_in_time).toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit' });
-	return '-';
-}
-
 function getStatusInfo(status) {
 	switch(status) {
 		case 'present': return { text: '출석', cls: 'present', icon: '✅' };
@@ -75,11 +68,6 @@ function getStatusInfo(status) {
 		case 'makeup': case 'etc': return { text: '보강', cls: 'makeup', icon: '🔁' };
 		default: return { text: '결석', cls: 'absent', icon: '❌' };
 	}
-}
-
-function getDayOfWeek(dateStr) {
-	const days = ['일','월','화','수','목','금','토'];
-	return days[new Date(dateStr).getDay()];
 }
 
 // ========== Page Navigation ==========
@@ -205,9 +193,8 @@ async function handleAdminLogin() {
 			.eq('owner_user_id', adminUser.id)
 			.limit(1);
 
-		const teacher = (teachers && teachers.length > 0) ? teachers[0] : null;
-
 		if (tErr) throw tErr;
+		const teacher = (teachers && teachers.length > 0) ? teachers[0] : null;
 		if (!teacher) throw new Error('등록된 선생님 계정이 아닙니다.');
 
 		adminTeacher = teacher;
@@ -409,7 +396,7 @@ async function loadQuickStats() {
 			else stats.absent++;
 		});
 
-		const rate = stats.total > 0 ? Math.round((stats.present / stats.total) * 100) : 0;
+		const rate = stats.total > 0 ? Math.round(((stats.present + stats.late) / stats.total) * 100) : 0;
 		document.getElementById('qs-rate').textContent = `${rate}%`;
 		document.getElementById('qs-present').textContent = stats.present;
 		document.getElementById('qs-late').textContent = stats.late;
@@ -575,7 +562,7 @@ function updateAttStats() {
 		else absentCount++;
 	});
 
-	const rate = totalCount > 0 ? Math.round((presentCount / totalCount) * 100) : 0;
+	const rate = totalCount > 0 ? Math.round(((presentCount + lateCount) / totalCount) * 100) : 0;
 	const el = id => document.getElementById(id);
 	if (el('ms-rate')) el('ms-rate').textContent = `${rate}%`;
 	if (el('ms-present')) el('ms-present').textContent = presentCount;
@@ -638,7 +625,11 @@ function showAttDateDetail(dateStr) {
 		}
 		// 선생님 이름
 		const tName = getAttTeacherName(rec.teacher_id);
-		const teacherLabel = `<span class="att-teacher-label"><i class="fas fa-chalkboard-user"></i>${tName}</span>`;
+		const teacherLabel = `<span class="att-teacher-label"><i class="fas fa-chalkboard-user"></i>${escapeHtml(tName)}</span>`;
+
+		// 메모 표시
+		const memoText = rec.memo ? escapeHtml(rec.memo) : '';
+		const memoHtml = memoText ? `<div class="att-detail-memo" style="margin-top:6px;padding:6px 10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.08);border-radius:8px;font-size:12px;color:var(--text-sec);line-height:1.5;display:flex;align-items:flex-start;gap:5px;"><i class="fas fa-comment-dots" style="margin-top:2px;font-size:11px;opacity:0.6;flex-shrink:0;"></i><span>${memoText}</span></div>` : '';
 
 		item.innerHTML = `
 			<div class="att-detail-icon" style="background:${iconBg};color:${iconColor};">
@@ -650,6 +641,7 @@ function showAttDateDetail(dateStr) {
 					${teacherLabel}
 				</div>
 				<div class="att-detail-meta">${metaParts.join('')}</div>
+				${memoHtml}
 			</div>
 		`;
 		bodyEl.appendChild(item);
@@ -1250,7 +1242,7 @@ function showHwDateDetail(dateStr) {
 				item.innerHTML = `
 					<div class="hw-detail-icon" style="background:var(--teal-bg);color:var(--teal);"><i class="fas fa-user-check"></i></div>
 					<div class="hw-detail-info">
-						<div class="hw-detail-name">${sub.file_name || '관리자 확인'}</div>
+						<div class="hw-detail-name">${escapeHtml(sub.file_name || '관리자 확인')}</div>
 						<div class="hw-detail-meta">
 							<span class="hw-status-badge manual"><i class="fas fa-check"></i> 관리자 확인</span>
 						</div>
@@ -1268,16 +1260,16 @@ function showHwDateDetail(dateStr) {
 					const subMin = createdAt.getHours() * 60 + createdAt.getMinutes();
 					const ctDateStr = `${createdAt.getFullYear()}-${String(createdAt.getMonth()+1).padStart(2,'0')}-${String(createdAt.getDate()).padStart(2,'0')}`;
 					if (ctDateStr < dateStr || subMin <= deadlineMin) {
-						badgeHtml = '<span class="hw-status-badge on-time"><i class="fas fa-check"></i> 정시</span>';
+						badgeHtml = '<span class="hw-status-badge on-time"><i class="fas fa-check"></i> 정각 제출</span>';
 					} else {
-						badgeHtml = '<span class="hw-status-badge late"><i class="fas fa-clock"></i> 지각</span>';
+						badgeHtml = '<span class="hw-status-badge late"><i class="fas fa-clock"></i> 늦게 제출</span>';
 					}
 				}
 
 				item.innerHTML = `
 					<div class="hw-detail-icon" style="background:var(--primary-light);color:var(--primary);"><i class="fas fa-file-zipper"></i></div>
 					<div class="hw-detail-info">
-						<div class="hw-detail-name">${sub.file_name}</div>
+						<div class="hw-detail-name">${escapeHtml(sub.file_name)}</div>
 						<div class="hw-detail-meta">
 							<span><i class="fas fa-clock" style="margin-right:3px;"></i>${timeStr}</span>
 							<span><i class="fas fa-weight-hanging" style="margin-right:3px;"></i>${sizeStr}</span>
@@ -1373,11 +1365,18 @@ document.addEventListener('DOMContentLoaded', () => {
 		});
 	});
 
+	// Admin login modal outside click
+	const adminLoginModal = document.getElementById('admin-login-modal');
+	if (adminLoginModal) adminLoginModal.addEventListener('click', e => {
+		if (e.target === adminLoginModal) closeAdminLoginModal();
+	});
+
 	// ESC key
 	document.addEventListener('keydown', e => {
 		if (e.key === 'Escape') {
 			closeParentAuthModal();
 			closeTeacherAuthModal();
+			closeAdminLoginModal();
 		}
 	});
 
