@@ -616,38 +616,115 @@
 			background: var(--primary-light);
 			color: var(--primary); font-weight: 700;
 		}
-		.cal-cell.has-submission::after {
-			content: '';
-			width: 6px; height: 6px;
-			background: var(--green);
-			border-radius: 50%;
+		/* Status marks */
+		.cal-cell.hw-ontime::after,
+		.cal-cell.hw-late::after,
+		.cal-cell.hw-missed::after,
+		.cal-cell.hw-manual::after,
+		.cal-cell.hw-submitted::after {
 			position: absolute;
-			bottom: 4px;
+			bottom: 2px;
+			font-size: 9px;
+			font-weight: 800;
+			line-height: 1;
 		}
+		.cal-cell.hw-ontime::after { content: '\2713'; color: var(--green); }
+		.cal-cell.hw-late::after { content: '\25b3'; color: var(--yellow); }
+		.cal-cell.hw-missed::after { content: '\2717'; color: var(--red); }
+		.cal-cell.hw-manual::after { content: '\2713'; color: var(--teal); }
+		.cal-cell.hw-submitted::after { content: '\2713'; color: var(--green); }
+		.cal-cell.hw-missed { background: rgba(248,113,113,0.06); }
+		.cal-cell.hw-scheduled {
+			border-bottom: 2px solid rgba(129,140,248,0.25);
+		}
+
 		.cal-cell.future { opacity: 0.3; cursor: default; }
 		.cal-cell.future:hover { background: transparent; }
 		.cal-cell.sun-day { color: var(--red); }
 		.cal-cell.sat-day { color: var(--blue); }
 		.cal-cell.selected.sun-day, .cal-cell.selected.sat-day { color: var(--primary); }
+		.cal-cell.admin-editable { cursor: pointer; }
+		.cal-cell.admin-editable:hover { background: rgba(129,140,248,0.12); }
 
 		/* Monthly stats */
 		.cal-stats {
-			display: flex; gap: 12px; margin-top: 14px;
-			padding: 12px 14px;
+			display: flex; gap: 6px; margin-top: 14px;
+			padding: 10px;
 			background: var(--bg-elevated);
 			border-radius: 10px;
 		}
 		.cal-stat {
 			flex: 1; text-align: center;
+			padding: 6px 2px;
+			border-radius: 8px;
 		}
 		.cal-stat-num {
-			font-size: 20px; font-weight: 800;
+			font-size: 18px; font-weight: 800;
 		}
 		.cal-stat-num.green { color: var(--green); }
+		.cal-stat-num.yellow { color: var(--yellow); }
+		.cal-stat-num.red { color: var(--red); }
 		.cal-stat-num.gray { color: var(--gray); }
 		.cal-stat-label {
-			font-size: 11px; color: var(--text-sec); margin-top: 2px;
+			font-size: 10px; color: var(--text-sec); margin-top: 2px;
 		}
+
+		/* Admin mode */
+		.admin-badge {
+			display: inline-flex; align-items: center; gap: 5px;
+			padding: 4px 10px;
+			background: rgba(251,191,36,0.15);
+			color: var(--yellow);
+			border-radius: 20px;
+			font-size: 11px; font-weight: 700;
+			animation: fadeIn 0.3s;
+		}
+		.admin-toggle-btn {
+			background: rgba(255,255,255,0.15); border: none;
+			color: white; width: 38px; height: 38px;
+			border-radius: 12px; cursor: pointer;
+			display: flex; align-items: center; justify-content: center;
+			font-size: 14px;
+			transition: all var(--transition);
+			backdrop-filter: blur(4px);
+		}
+		.admin-toggle-btn:hover { background: rgba(255,255,255,0.25); }
+		.admin-toggle-btn.active {
+			background: rgba(251,191,36,0.3);
+			color: var(--yellow);
+		}
+		.status-badge {
+			display: inline-flex; align-items: center; gap: 4px;
+			padding: 3px 8px;
+			border-radius: 6px;
+			font-size: 11px; font-weight: 600;
+		}
+		.status-badge.on-time { background: var(--green-bg); color: var(--green); }
+		.status-badge.late { background: var(--yellow-bg); color: var(--yellow); }
+		.status-badge.manual { background: var(--teal-bg); color: var(--teal); }
+		.detail-schedule-info {
+			display: flex; align-items: center; gap: 8px;
+			padding: 10px 12px;
+			background: var(--primary-light);
+			border-radius: 8px;
+			margin-bottom: 10px;
+			font-size: 12px; color: var(--primary); font-weight: 600;
+		}
+		.admin-action-btn {
+			width: 100%; padding: 12px;
+			background: var(--bg-elevated);
+			border: 1.5px dashed var(--border);
+			border-radius: var(--radius);
+			color: var(--text-sec);
+			font-size: 13px; font-weight: 600; font-family: inherit;
+			cursor: pointer;
+			transition: all var(--transition);
+			display: flex; align-items: center; justify-content: center; gap: 8px;
+			margin-top: 8px;
+		}
+		.admin-action-btn:hover { border-color: var(--primary); color: var(--primary); }
+		.admin-action-btn.danger { border-color: rgba(248,113,113,0.3); }
+		.admin-action-btn.danger:hover { border-color: var(--red); color: var(--red); }
 
 		/* Detail list */
 		.detail-empty {
@@ -780,8 +857,10 @@
 			<button class="upload-back-btn" onclick="goBackFromStatus()">
 				<i class="fas fa-arrow-left"></i>
 			</button>
-			<span class="upload-top-label">제출 현황</span>
-			<div style="width:38px;"></div>
+			<span class="upload-top-label" id="status-top-label">제출 현황</span>
+			<button class="admin-toggle-btn" id="admin-toggle-btn" onclick="toggleAdminMode()" title="관리자 모드">
+				<i class="fas fa-user-shield"></i>
+			</button>
 		</div>
 		<div class="upload-student-info">
 			<div class="upload-avatar" id="status-avatar">-</div>
@@ -817,12 +896,20 @@
 			</div>
 			<div class="cal-stats" id="cal-stats">
 				<div class="cal-stat">
-					<div class="cal-stat-num green" id="stat-submitted">0</div>
-					<div class="cal-stat-label">제출 완료</div>
+					<div class="cal-stat-num green" id="stat-ontime">0</div>
+					<div class="cal-stat-label">제출</div>
+				</div>
+				<div class="cal-stat">
+					<div class="cal-stat-num yellow" id="stat-late">0</div>
+					<div class="cal-stat-label">지각</div>
+				</div>
+				<div class="cal-stat">
+					<div class="cal-stat-num red" id="stat-missed">0</div>
+					<div class="cal-stat-label">미제출</div>
 				</div>
 				<div class="cal-stat">
 					<div class="cal-stat-num gray" id="stat-total">0</div>
-					<div class="cal-stat-label">이번 달 전체</div>
+					<div class="cal-stat-label">수업일</div>
 				</div>
 			</div>
 		</div>
@@ -979,6 +1066,53 @@
 		</div>
 		<p style="font-size:13px;color:var(--text-sec);line-height:1.6;">같은 이름의 학생이 여러 명입니다.<br>본인을 선택하세요.</p>
 		<div id="student-select-list" class="student-select-list"></div>
+	</div>
+</div>
+
+<!-- ===== Admin Login Modal ===== -->
+<div id="admin-login-modal" class="hw-modal">
+	<div class="hw-modal-box">
+		<div class="hw-modal-header">
+			<h2><i class="fas fa-user-shield" style="margin-right:8px;color:var(--yellow);"></i>관리자 로그인</h2>
+			<button class="hw-modal-close" onclick="closeAdminLoginModal()"><i class="fas fa-times"></i></button>
+		</div>
+		<p style="font-size:13px;color:var(--text-sec);line-height:1.6;margin-bottom:16px;">선생님 정보를 입력하여 관리자 모드로 전환합니다.</p>
+		<div class="form-group">
+			<label class="form-label">선생님 이름</label>
+			<div class="form-input-wrap">
+				<i class="fas fa-user form-icon"></i>
+				<input type="text" id="admin-name" class="form-input" placeholder="선생님 이름" autocomplete="off">
+			</div>
+		</div>
+		<div class="form-group">
+			<label class="form-label">선생님 전화번호</label>
+			<div class="form-input-wrap">
+				<i class="fas fa-phone form-icon"></i>
+				<input type="tel" id="admin-phone" class="form-input" placeholder="010-0000-0000" autocomplete="off" inputmode="numeric">
+			</div>
+		</div>
+		<div id="admin-login-alert" class="landing-alert" style="margin-bottom:10px;"></div>
+		<div class="btn-row">
+			<button class="btn-secondary" onclick="closeAdminLoginModal()">취소</button>
+			<button class="btn-primary" id="admin-login-btn" onclick="handleAdminLogin()">
+				<i class="fas fa-unlock"></i> 로그인
+			</button>
+		</div>
+	</div>
+</div>
+
+<!-- ===== Admin Confirm Modal ===== -->
+<div id="admin-confirm-modal" class="hw-modal">
+	<div class="hw-modal-box">
+		<div class="hw-modal-header">
+			<h2 id="admin-confirm-title">확인</h2>
+			<button class="hw-modal-close" onclick="closeAdminConfirmModal()"><i class="fas fa-times"></i></button>
+		</div>
+		<p id="admin-confirm-msg" style="font-size:13px;color:var(--text-sec);line-height:1.6;margin-bottom:16px;"></p>
+		<div class="btn-row">
+			<button class="btn-secondary" onclick="closeAdminConfirmModal()">취소</button>
+			<button class="btn-primary" id="admin-confirm-btn" onclick="executeAdminAction()">확인</button>
+		</div>
 	</div>
 </div>
 
@@ -1270,6 +1404,13 @@ let calYear = new Date().getFullYear();
 let calMonth = new Date().getMonth(); // 0-indexed
 let calSelectedDate = null;
 let calSubmissions = []; // 이번 달 제출 데이터
+let calSchedules = [];   // 이번 달 스케줄 데이터
+let calDateStatus = {};  // { dateStr: { status, scheduleTime } }
+
+// 관리자 모드
+let isAdminMode = false;
+let adminTeacher = null;
+let pendingAdminAction = null; // { type: 'add'|'remove', dateStr }
 
 function showStatusPage(isRestore) {
 	document.getElementById('page-landing').style.display = 'none';
@@ -1282,6 +1423,9 @@ function showStatusPage(isRestore) {
 	document.getElementById('status-name').textContent = currentStudent.name;
 	document.getElementById('status-grade').textContent = currentStudent.grade || '-';
 	document.getElementById('status-teacher').textContent = currentTeacher ? currentTeacher.name + ' 선생님' : '미배정';
+
+	// 관리자 모드 UI 업데이트
+	updateAdminUI();
 
 	// 현재 월로 달력 초기화
 	if (!isRestore) {
@@ -1304,7 +1448,11 @@ function goBackFromStatus() {
 	currentStudent = null;
 	currentTeacher = null;
 	calSubmissions = [];
+	calSchedules = [];
+	calDateStatus = {};
 	calSelectedDate = null;
+	isAdminMode = false;
+	adminTeacher = null;
 	clearPageState();
 }
 
@@ -1326,7 +1474,6 @@ function moveCalMonth(delta) {
 async function loadCalendarData() {
 	const year = calYear;
 	const month = calMonth;
-	const firstDay = new Date(year, month, 1);
 	const lastDay = new Date(year, month + 1, 0);
 
 	const startDate = `${year}-${String(month + 1).padStart(2, '0')}-01`;
@@ -1336,30 +1483,42 @@ async function loadCalendarData() {
 	document.getElementById('cal-month-label').textContent = `${year}년 ${month + 1}월`;
 
 	try {
-		const { data, error } = await db
+		// 제출 기록 조회 (uploaded + manual 모두)
+		const subPromise = db
 			.from('homework_submissions')
 			.select('id, submission_date, file_name, file_size, status, created_at')
 			.eq('student_id', currentStudent.id)
 			.gte('submission_date', startDate)
 			.lte('submission_date', endDate)
-			.eq('status', 'uploaded')
+			.in('status', ['uploaded', 'manual'])
 			.order('created_at', { ascending: false });
 
-		if (error) {
-			console.error('Calendar data error:', error);
-			calSubmissions = [];
-		} else {
-			calSubmissions = data || [];
-		}
+		// 스케줄 조회
+		const schedPromise = db
+			.from('schedules')
+			.select('schedule_date, start_time')
+			.eq('student_id', currentStudent.id)
+			.gte('schedule_date', startDate)
+			.lte('schedule_date', endDate);
+
+		const [subResult, schedResult] = await Promise.all([subPromise, schedPromise]);
+
+		calSubmissions = (subResult.error ? [] : subResult.data) || [];
+		calSchedules = (schedResult.error ? [] : schedResult.data) || [];
+
+		if (subResult.error) console.error('Submissions error:', subResult.error);
+		if (schedResult.error) console.error('Schedules error:', schedResult.error);
 	} catch (e) {
 		console.error('Calendar fetch error:', e);
 		calSubmissions = [];
+		calSchedules = [];
 	}
 
+	computeDateStatuses();
 	renderCalendar();
 	updateCalStats();
 
-	// 상세 리스트 초기화
+	// 상세 리스트
 	if (!calSelectedDate) {
 		document.getElementById('detail-date-label').textContent = '날짜를 선택하세요';
 		document.getElementById('detail-list').innerHTML =
@@ -1369,9 +1528,86 @@ async function loadCalendarData() {
 	}
 }
 
+// 날짜별 상태 계산
+function computeDateStatuses() {
+	calDateStatus = {};
+	const today = new Date();
+
+	// 스케줄 맵: { dateStr: 'HH:MM' (가장 이른 시간) }
+	const scheduleMap = {};
+	calSchedules.forEach(s => {
+		const t = (s.start_time || '').substring(0, 5);
+		if (!scheduleMap[s.schedule_date] || t < scheduleMap[s.schedule_date]) {
+			scheduleMap[s.schedule_date] = t;
+		}
+	});
+
+	// 제출 맵: { dateStr: [submissions] }
+	const subMap = {};
+	calSubmissions.forEach(s => {
+		if (!subMap[s.submission_date]) subMap[s.submission_date] = [];
+		subMap[s.submission_date].push(s);
+	});
+
+	const lastDay = new Date(calYear, calMonth + 1, 0);
+	for (let d = 1; d <= lastDay.getDate(); d++) {
+		const dateStr = `${calYear}-${String(calMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+		const hasSchedule = !!scheduleMap[dateStr];
+		const scheduleTime = scheduleMap[dateStr] || null;
+		const subs = subMap[dateStr] || [];
+
+		if (!hasSchedule) {
+			// 수업 없는 날 - 제출 있으면 submitted, 없으면 none
+			if (subs.length > 0) {
+				calDateStatus[dateStr] = { status: 'submitted', scheduleTime: null };
+			} else {
+				calDateStatus[dateStr] = { status: 'none', scheduleTime: null };
+			}
+			continue;
+		}
+
+		// 수업 있는 날
+		const hasManual = subs.some(s => s.status === 'manual');
+		if (hasManual) {
+			calDateStatus[dateStr] = { status: 'manual', scheduleTime };
+			continue;
+		}
+
+		const uploadedSubs = subs.filter(s => s.status === 'uploaded');
+		if (uploadedSubs.length === 0) {
+			// 미제출 - 마감 지났는지 확인
+			const [dh, dm] = (scheduleTime || '23:59').split(':').map(Number);
+			const deadline = new Date(calYear, calMonth, d, dh, dm);
+			if (deadline <= today) {
+				calDateStatus[dateStr] = { status: 'missed', scheduleTime };
+			} else {
+				calDateStatus[dateStr] = { status: 'pending', scheduleTime };
+			}
+			continue;
+		}
+
+		// 제출 있음 - 시간 전/후 확인
+		const [sh, sm] = (scheduleTime || '23:59').split(':').map(Number);
+		const deadlineMinutes = sh * 60 + sm;
+
+		const hasOnTime = uploadedSubs.some(s => {
+			const ct = new Date(s.created_at);
+			const ctMinutes = ct.getHours() * 60 + ct.getMinutes();
+			const ctDateStr = `${ct.getFullYear()}-${String(ct.getMonth()+1).padStart(2,'0')}-${String(ct.getDate()).padStart(2,'0')}`;
+			if (ctDateStr < dateStr) return true; // 전날 제출
+			if (ctDateStr === dateStr && ctMinutes <= deadlineMinutes) return true;
+			return false;
+		});
+
+		calDateStatus[dateStr] = {
+			status: hasOnTime ? 'on_time' : 'late',
+			scheduleTime
+		};
+	}
+}
+
 function renderCalendar() {
 	const grid = document.getElementById('cal-grid');
-	// 요일 헤더는 유지, 날짜 셀만 교체
 	const dowCells = grid.querySelectorAll('.cal-dow');
 	grid.innerHTML = '';
 	dowCells.forEach(c => grid.appendChild(c));
@@ -1383,21 +1619,13 @@ function renderCalendar() {
 	const today = new Date();
 	const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
 
-	// 제출 날짜 Set
-	const submittedDates = new Set();
-	calSubmissions.forEach(s => submittedDates.add(s.submission_date));
-
-	// 첫째 날 요일 (0=일, 1=월, ...)
 	const startDow = firstDay.getDay();
-
-	// 빈 셀 (이전 달)
 	for (let i = 0; i < startDow; i++) {
 		const cell = document.createElement('div');
 		cell.className = 'cal-cell empty';
 		grid.appendChild(cell);
 	}
 
-	// 날짜 셀
 	for (let d = 1; d <= lastDay.getDate(); d++) {
 		const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 		const dow = new Date(year, month, d).getDay();
@@ -1406,22 +1634,35 @@ function renderCalendar() {
 
 		if (dateStr === todayStr) cls += ' today';
 		if (calSelectedDate === dateStr) cls += ' selected';
-		if (submittedDates.has(dateStr)) cls += ' has-submission';
 
-		// 미래 날짜
+		// 미래 날짜 (오늘까지는 클릭 가능)
 		const cellDate = new Date(year, month, d);
-		cellDate.setHours(23, 59, 59);
-		if (cellDate > today) cls += ' future';
+		const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+		const isFuture = cellDate > todayMidnight;
+		if (isFuture) cls += ' future';
 
 		// 주말 색상
 		if (dow === 0) cls += ' sun-day';
 		if (dow === 6) cls += ' sat-day';
 
+		// 상태 클래스
+		const ds = calDateStatus[dateStr];
+		if (ds) {
+			if (ds.status === 'on_time') cls += ' hw-ontime';
+			else if (ds.status === 'late') cls += ' hw-late';
+			else if (ds.status === 'missed') cls += ' hw-missed';
+			else if (ds.status === 'manual') cls += ' hw-manual';
+			else if (ds.status === 'submitted') cls += ' hw-submitted';
+			else if (ds.status === 'pending' && ds.scheduleTime) cls += ' hw-scheduled';
+
+			// 관리자 모드에서 수업 있는 날 편집 가능 표시
+			if (isAdminMode && ds.scheduleTime && !isFuture) cls += ' admin-editable';
+		}
+
 		cell.className = cls;
 		cell.textContent = d;
 
-		// 미래가 아닌 날짜만 클릭 가능
-		if (cellDate <= today) {
+		if (!isFuture) {
 			cell.onclick = () => selectCalDate(dateStr);
 		}
 
@@ -1430,27 +1671,33 @@ function renderCalendar() {
 }
 
 function updateCalStats() {
+	let onTimeCount = 0, lateCount = 0, missedCount = 0, totalScheduled = 0;
 	const today = new Date();
-	const year = calYear;
-	const month = calMonth;
-	const lastDay = new Date(year, month + 1, 0);
 
-	// 이번 달에서 오늘까지(또는 말일까지) 날짜 수
-	let totalDays;
-	if (year === today.getFullYear() && month === today.getMonth()) {
-		totalDays = today.getDate();
-	} else if (new Date(year, month, 1) > today) {
-		totalDays = 0; // 미래 달
-	} else {
-		totalDays = lastDay.getDate();
-	}
+	Object.entries(calDateStatus).forEach(([dateStr, ds]) => {
+		// 수업 없는 날에도 제출했으면 제출 카운트
+		if (ds.status === 'submitted') {
+			onTimeCount++;
+			return;
+		}
 
-	// 제출 고유 날짜 수
-	const submittedDates = new Set();
-	calSubmissions.forEach(s => submittedDates.add(s.submission_date));
+		if (!ds.scheduleTime) return; // 수업 없는 날 (제출도 없음) 제외
 
-	document.getElementById('stat-submitted').textContent = submittedDates.size;
-	document.getElementById('stat-total').textContent = totalDays;
+		const [dh, dm] = (ds.scheduleTime || '23:59').split(':').map(Number);
+		const parts = dateStr.split('-').map(Number);
+		const deadline = new Date(parts[0], parts[1] - 1, parts[2], dh, dm);
+		if (deadline > today) return; // 아직 마감 전
+
+		totalScheduled++;
+		if (ds.status === 'on_time' || ds.status === 'manual') onTimeCount++;
+		else if (ds.status === 'late') lateCount++;
+		else if (ds.status === 'missed') missedCount++;
+	});
+
+	document.getElementById('stat-ontime').textContent = onTimeCount;
+	document.getElementById('stat-late').textContent = lateCount;
+	document.getElementById('stat-missed').textContent = missedCount;
+	document.getElementById('stat-total').textContent = totalScheduled;
 }
 
 function selectCalDate(dateStr) {
@@ -1464,35 +1711,276 @@ function showDateDetail(dateStr) {
 	const labelText = `${parseInt(parts[0])}년 ${parseInt(parts[1])}월 ${parseInt(parts[2])}일 기록`;
 	document.getElementById('detail-date-label').textContent = labelText;
 
+	const ds = calDateStatus[dateStr] || { status: 'none', scheduleTime: null };
 	const daySubmissions = calSubmissions.filter(s => s.submission_date === dateStr);
 	const listEl = document.getElementById('detail-list');
+	listEl.innerHTML = '';
 
+	// 수업 시간 표시
+	if (ds.scheduleTime) {
+		const schedDiv = document.createElement('div');
+		schedDiv.className = 'detail-schedule-info';
+		schedDiv.innerHTML = `<i class="fas fa-clock"></i> 수업 시작: ${ds.scheduleTime} &nbsp;|&nbsp; 제출 마감: ${ds.scheduleTime}`;
+		listEl.appendChild(schedDiv);
+	}
+
+	// 제출 기록
 	if (daySubmissions.length === 0) {
-		listEl.innerHTML =
-			'<div class="detail-empty"><i class="fas fa-inbox"></i>이 날짜에 제출한 숙제가 없습니다</div>';
+		const emptyDiv = document.createElement('div');
+		emptyDiv.className = 'detail-empty';
+		if (ds.scheduleTime && ds.status === 'missed') {
+			emptyDiv.innerHTML = '<i class="fas fa-circle-xmark"></i>이 날짜에 제출한 숙제가 없습니다';
+		} else if (ds.scheduleTime && ds.status === 'pending') {
+			emptyDiv.innerHTML = '<i class="fas fa-hourglass-half"></i>아직 마감 전입니다';
+		} else {
+			emptyDiv.innerHTML = '<i class="fas fa-inbox"></i>이 날짜에 제출한 숙제가 없습니다';
+		}
+		listEl.appendChild(emptyDiv);
+	} else {
+		daySubmissions.forEach(sub => {
+			const item = document.createElement('div');
+			item.className = 'detail-item';
+
+			if (sub.status === 'manual') {
+				item.innerHTML = `
+					<div class="detail-item-icon" style="background:var(--teal-bg);color:var(--teal);"><i class="fas fa-user-check"></i></div>
+					<div class="detail-item-info">
+						<div class="detail-item-name">${sub.file_name}</div>
+						<div class="detail-item-meta">
+							<span class="status-badge manual"><i class="fas fa-check"></i> 관리자 확인</span>
+						</div>
+					</div>
+				`;
+			} else {
+				const createdAt = new Date(sub.created_at);
+				const timeStr = `${String(createdAt.getHours()).padStart(2, '0')}:${String(createdAt.getMinutes()).padStart(2, '0')}`;
+				const sizeStr = formatFileSize(sub.file_size || 0);
+
+				// 정시/지각 뱃지
+				let badgeHtml = '';
+				if (ds.scheduleTime) {
+					const [sh, sm] = ds.scheduleTime.split(':').map(Number);
+					const deadlineMin = sh * 60 + sm;
+					const subMin = createdAt.getHours() * 60 + createdAt.getMinutes();
+					const ctDateStr = `${createdAt.getFullYear()}-${String(createdAt.getMonth()+1).padStart(2,'0')}-${String(createdAt.getDate()).padStart(2,'0')}`;
+					if (ctDateStr < dateStr || subMin <= deadlineMin) {
+						badgeHtml = '<span class="status-badge on-time"><i class="fas fa-check"></i> 정시</span>';
+					} else {
+						badgeHtml = '<span class="status-badge late"><i class="fas fa-clock"></i> 지각</span>';
+					}
+				}
+
+				item.innerHTML = `
+					<div class="detail-item-icon"><i class="fas fa-file-zipper"></i></div>
+					<div class="detail-item-info">
+						<div class="detail-item-name">${sub.file_name}</div>
+						<div class="detail-item-meta">
+							<span><i class="fas fa-clock" style="margin-right:3px;"></i>${timeStr}</span>
+							<span><i class="fas fa-weight-hanging" style="margin-right:3px;"></i>${sizeStr}</span>
+							${badgeHtml}
+						</div>
+					</div>
+				`;
+			}
+			listEl.appendChild(item);
+		});
+	}
+
+	// 관리자 모드: 수업 있는 날에 액션 버튼
+	if (isAdminMode && ds.scheduleTime) {
+		if (ds.status === 'missed') {
+			const btn = document.createElement('button');
+			btn.className = 'admin-action-btn';
+			btn.innerHTML = '<i class="fas fa-check-circle"></i> 숙제 완료 처리';
+			btn.onclick = () => showAdminConfirm('add', dateStr);
+			listEl.appendChild(btn);
+		} else if (ds.status === 'manual') {
+			const btn = document.createElement('button');
+			btn.className = 'admin-action-btn danger';
+			btn.innerHTML = '<i class="fas fa-undo"></i> 완료 처리 취소';
+			btn.onclick = () => showAdminConfirm('remove', dateStr);
+			listEl.appendChild(btn);
+		}
+	}
+}
+
+// ============================================================
+// 관리자 모드
+// ============================================================
+function toggleAdminMode() {
+	if (isAdminMode) {
+		logoutAdmin();
+	} else {
+		showAdminLoginModal();
+	}
+}
+
+function showAdminLoginModal() {
+	document.getElementById('admin-name').value = '';
+	document.getElementById('admin-phone').value = '';
+	document.getElementById('admin-login-alert').className = 'landing-alert';
+	document.getElementById('admin-login-modal').classList.add('active');
+}
+
+function closeAdminLoginModal() {
+	document.getElementById('admin-login-modal').classList.remove('active');
+}
+
+// 관리자 전화번호 포맷팅
+document.addEventListener('DOMContentLoaded', function() {
+	const ap = document.getElementById('admin-phone');
+	if (ap) {
+		ap.addEventListener('input', function(e) {
+			let val = e.target.value.replace(/[^0-9]/g, '');
+			if (val.length > 11) val = val.slice(0, 11);
+			if (val.length >= 8) {
+				e.target.value = val.slice(0,3) + '-' + val.slice(3,7) + '-' + val.slice(7);
+			} else if (val.length >= 4) {
+				e.target.value = val.slice(0,3) + '-' + val.slice(3);
+			} else {
+				e.target.value = val;
+			}
+		});
+		ap.addEventListener('keydown', function(e) {
+			if (e.key === 'Enter') handleAdminLogin();
+		});
+	}
+});
+
+async function handleAdminLogin() {
+	const name = document.getElementById('admin-name').value.trim();
+	const phone = document.getElementById('admin-phone').value.trim();
+	const alertEl = document.getElementById('admin-login-alert');
+	const btn = document.getElementById('admin-login-btn');
+
+	if (!name || !phone) {
+		alertEl.className = 'landing-alert show error';
+		alertEl.innerHTML = '<i class="fas fa-exclamation-circle"></i>이름과 전화번호를 모두 입력하세요.';
 		return;
 	}
 
-	listEl.innerHTML = '';
-	daySubmissions.forEach(sub => {
-		const createdAt = new Date(sub.created_at);
-		const timeStr = `${String(createdAt.getHours()).padStart(2, '0')}:${String(createdAt.getMinutes()).padStart(2, '0')}`;
-		const sizeStr = formatFileSize(sub.file_size || 0);
+	btn.disabled = true;
+	btn.innerHTML = '<span class="hw-spinner"></span>';
 
-		const item = document.createElement('div');
-		item.className = 'detail-item';
-		item.innerHTML = `
-			<div class="detail-item-icon"><i class="fas fa-file-zipper"></i></div>
-			<div class="detail-item-info">
-				<div class="detail-item-name">${sub.file_name}</div>
-				<div class="detail-item-meta">
-					<span><i class="fas fa-clock" style="margin-right:3px;"></i>${timeStr}</span>
-					<span><i class="fas fa-weight-hanging" style="margin-right:3px;"></i>${sizeStr}</span>
-				</div>
-			</div>
-		`;
-		listEl.appendChild(item);
-	});
+	try {
+		const phoneClean = phone.replace(/-/g, '');
+		const phoneFormatted = phoneClean.length >= 7 ? phoneClean.slice(0,3) + '-' + phoneClean.slice(3,7) + '-' + phoneClean.slice(7) : phone;
+
+		const { data: teachers, error } = await db
+			.from('teachers')
+			.select('id, name, phone')
+			.eq('name', name)
+			.or(`phone.eq.${phoneClean},phone.eq.${phoneFormatted},phone.eq.${phone}`);
+
+		if (error) throw error;
+
+		if (!teachers || teachers.length === 0) {
+			alertEl.className = 'landing-alert show error';
+			alertEl.innerHTML = '<i class="fas fa-exclamation-circle"></i>일치하는 선생님을 찾을 수 없습니다.';
+			return;
+		}
+
+		adminTeacher = teachers[0];
+		isAdminMode = true;
+		closeAdminLoginModal();
+		updateAdminUI();
+		renderCalendar();
+		if (calSelectedDate) showDateDetail(calSelectedDate);
+		showToast(`관리자 모드 활성화 (${adminTeacher.name})`, 'success');
+	} catch (err) {
+		alertEl.className = 'landing-alert show error';
+		alertEl.innerHTML = '<i class="fas fa-exclamation-circle"></i>오류: ' + err.message;
+	} finally {
+		btn.disabled = false;
+		btn.innerHTML = '<i class="fas fa-unlock"></i> 로그인';
+	}
+}
+
+function logoutAdmin() {
+	isAdminMode = false;
+	adminTeacher = null;
+	updateAdminUI();
+	renderCalendar();
+	if (calSelectedDate) showDateDetail(calSelectedDate);
+	showToast('관리자 모드가 해제되었습니다.', 'info');
+}
+
+function updateAdminUI() {
+	const btn = document.getElementById('admin-toggle-btn');
+	const label = document.getElementById('status-top-label');
+	if (isAdminMode) {
+		btn.classList.add('active');
+		label.innerHTML = '<span class="admin-badge"><i class="fas fa-shield"></i> 관리자</span>';
+	} else {
+		btn.classList.remove('active');
+		label.textContent = '제출 현황';
+	}
+}
+
+// 관리자 확인 모달
+function showAdminConfirm(type, dateStr) {
+	pendingAdminAction = { type, dateStr };
+	const parts = dateStr.split('-');
+	const dateLabel = `${parseInt(parts[1])}월 ${parseInt(parts[2])}일`;
+
+	const titleEl = document.getElementById('admin-confirm-title');
+	const msgEl = document.getElementById('admin-confirm-msg');
+	const btnEl = document.getElementById('admin-confirm-btn');
+
+	if (type === 'add') {
+		titleEl.innerHTML = '<i class="fas fa-check-circle" style="margin-right:8px;color:var(--green);"></i>숙제 완료 처리';
+		msgEl.textContent = `${currentStudent.name} 학생의 ${dateLabel} 숙제를 완료 처리하시겠습니까?`;
+		btnEl.innerHTML = '<i class="fas fa-check"></i> 완료 처리';
+	} else {
+		titleEl.innerHTML = '<i class="fas fa-undo" style="margin-right:8px;color:var(--red);"></i>완료 처리 취소';
+		msgEl.textContent = `${currentStudent.name} 학생의 ${dateLabel} 수동 완료 처리를 취소하시겠습니까?`;
+		btnEl.innerHTML = '<i class="fas fa-undo"></i> 취소하기';
+	}
+
+	document.getElementById('admin-confirm-modal').classList.add('active');
+}
+
+function closeAdminConfirmModal() {
+	document.getElementById('admin-confirm-modal').classList.remove('active');
+	pendingAdminAction = null;
+}
+
+async function executeAdminAction() {
+	if (!pendingAdminAction) return;
+	const { type, dateStr } = pendingAdminAction;
+	closeAdminConfirmModal();
+
+	try {
+		if (type === 'add') {
+			const { error } = await db.from('homework_submissions').insert({
+				owner_user_id: currentStudent.owner_user_id,
+				teacher_id: currentStudent.teacher_id,
+				student_id: currentStudent.id,
+				submission_date: dateStr,
+				file_name: '관리자 수동 확인',
+				file_size: 0,
+				status: 'manual'
+			});
+			if (error) throw error;
+			showToast('숙제 완료 처리되었습니다.', 'success');
+		} else {
+			// manual 레코드 삭제
+			const { error } = await db
+				.from('homework_submissions')
+				.delete()
+				.eq('student_id', currentStudent.id)
+				.eq('submission_date', dateStr)
+				.eq('status', 'manual');
+			if (error) throw error;
+			showToast('완료 처리가 취소되었습니다.', 'info');
+		}
+
+		// 데이터 새로고침
+		await loadCalendarData();
+	} catch (err) {
+		console.error('Admin action error:', err);
+		showToast('처리 실패: ' + err.message, 'error');
+	}
 }
 
 // ============================================================

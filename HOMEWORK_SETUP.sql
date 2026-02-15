@@ -105,5 +105,29 @@ CREATE POLICY "homework_public_read" ON homework_submissions
     FOR SELECT USING (true);
 
 -- ============================================================
+-- 4. schedules 테이블 - 숙제 페이지에서 읽기 허용
+-- ============================================================
+DROP POLICY IF EXISTS "homework_schedules_read" ON schedules;
+CREATE POLICY "homework_schedules_read" ON schedules
+    FOR SELECT USING (true);
+
+-- ============================================================
+-- 5. homework_submissions status 컬럼 - 'manual' 값 허용
+-- ============================================================
+-- 기존 CHECK 제약조건 제거 후 재생성 (manual 추가)
+DO $$ BEGIN
+    ALTER TABLE homework_submissions DROP CONSTRAINT IF EXISTS homework_submissions_status_check;
+    ALTER TABLE homework_submissions ADD CONSTRAINT homework_submissions_status_check
+        CHECK (status IN ('uploaded', 'failed', 'deleted', 'manual'));
+EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'Could not update status check constraint: %', SQLERRM;
+END $$;
+
+-- homework_submissions 삭제 정책 (관리자 수동 확인 취소용)
+DROP POLICY IF EXISTS "homework_public_delete" ON homework_submissions;
+CREATE POLICY "homework_public_delete" ON homework_submissions
+    FOR DELETE USING (true);
+
+-- ============================================================
 -- 완료! 숙제 관리 테이블이 설정되었습니다.
 -- ============================================================
