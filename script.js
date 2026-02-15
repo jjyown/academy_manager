@@ -4485,6 +4485,7 @@ async function loadAndCleanData() {
                 memo: s.memo || '',
                 registerDate: s.register_date || '',
                 parentCode: s.parent_code || '',
+                studentCode: s.student_code || '',
                 status: s.status || 'active',
                 statusChangedDate: s.status_changed_date || null,
                 events: [],
@@ -4944,10 +4945,32 @@ window.copyParentCode = function() {
     navigator.clipboard.writeText(codeEl.value).then(() => {
         showToast('인증코드가 복사되었습니다', 'success');
     }).catch(() => {
-        // Fallback
         codeEl.select();
         document.execCommand('copy');
         showToast('인증코드가 복사되었습니다', 'success');
+    });
+}
+
+// ========== 학생 인증코드 ==========
+function generateStudentCode() {
+    // 영문 대문자 + 숫자 조합 8자리 (개인정보 없이 고유 식별)
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // 혼동 가능한 0,O,1,I 제외
+    let code = '';
+    for (let i = 0; i < 8; i++) {
+        code += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return code;
+}
+
+window.copyStudentCode = function() {
+    const codeEl = document.getElementById('reg-student-code');
+    if (!codeEl || !codeEl.value) return;
+    navigator.clipboard.writeText(codeEl.value).then(() => {
+        showToast('학생 인증코드가 복사되었습니다', 'success');
+    }).catch(() => {
+        codeEl.select();
+        document.execCommand('copy');
+        showToast('학생 인증코드가 복사되었습니다', 'success');
     });
 }
 
@@ -4991,13 +5014,22 @@ window.downloadStudentQR = function(studentId) {
 
 // QR 코드 재생성 (수정 모달에서)
 window.regenerateStudentQR = async function(studentId) {
-    const ok = await showConfirm('QR코드를 재생성하시겠습니까?\n\n기존 QR코드는 무효화되며,\n새 QR코드를 학생에게 다시 전달해야 합니다.', { confirmText: '재생성', cancelText: '취소', type: 'warning' });
+    const ok = await showConfirm('QR코드를 재생성하시겠습니까?\n\n기존 QR코드와 학생 인증코드가 모두 무효화되며,\n새 코드를 학생에게 다시 전달해야 합니다.', { confirmText: '재생성', cancelText: '취소', type: 'warning' });
     if (!ok) return;
     try {
         const newQrData = await generateQRCodeData(studentId);
         const container = document.getElementById('reg-qr-container');
         if (container) { container.innerHTML = ''; generateQRCode('reg-qr-container', newQrData, 140); }
-        showToast('QR코드가 재생성되었습니다', 'success');
+
+        // 학생 인증코드도 함께 재생성 (1:1 대응)
+        const newStudentCode = generateStudentCode();
+        const s = students.find(x => String(x.id) === String(studentId));
+        if (s) { s.studentCode = newStudentCode; saveData(true); }
+        try { await updateStudent(studentId, { student_code: newStudentCode }); } catch(e) { console.error('student_code DB 업데이트 실패:', e); }
+        const scEl = document.getElementById('reg-student-code');
+        if (scEl) scEl.value = newStudentCode;
+
+        showToast('QR코드와 학생 인증코드가 재생성되었습니다', 'success');
     } catch(e) {
         showToast('QR코드 재생성에 실패했습니다', 'error');
     }
@@ -5984,9 +6016,13 @@ window.prepareEdit = function(id) {
     // 코드 관리 통합 섹션 표시 (인증코드 + QR)
     const codeSection = document.getElementById('reg-code-section');
     const codeInput = document.getElementById('reg-parent-code');
+    const studentCodeInput = document.getElementById('reg-student-code');
     if (codeSection) {
         if (!s.parentCode) { s.parentCode = generateParentCode(); saveData(true); try { updateStudent(id, { parent_code: s.parentCode }); } catch(e) {} }
         if (codeInput) codeInput.value = s.parentCode;
+        // 학생 인증코드: 없으면 자동 생성
+        if (!s.studentCode) { s.studentCode = generateStudentCode(); saveData(true); try { updateStudent(id, { student_code: s.studentCode }); } catch(e) {} }
+        if (studentCodeInput) studentCodeInput.value = s.studentCode;
         codeSection.style.display = '';
         codeSection.classList.remove('open'); // 접힌 상태로 시작
         // QR코드 렌더링 (비동기)
@@ -6044,11 +6080,14 @@ window.handleStudentSave = async function() {
     
     // 학부모 인증코드: 기존 학생은 유지, 신규/없으면 자동 생성
     let parentCode;
+    let studentCode;
     if (id) {
         const existing = students.find(x => String(x.id) === String(id));
         parentCode = (existing && existing.parentCode) ? existing.parentCode : generateParentCode();
+        studentCode = (existing && existing.studentCode) ? existing.studentCode : generateStudentCode();
     } else {
         parentCode = generateParentCode();
+        studentCode = generateStudentCode();
     }
 
     const localData = {
@@ -6062,7 +6101,8 @@ window.handleStudentSave = async function() {
         defaultTextbookFee: defaultTextbookFee ? parseInt(defaultTextbookFee.replace(/,/g, '')) : 0,
         memo,
         registerDate: regDate,
-        parentCode
+        parentCode,
+        studentCode
     };
     const dbData = {
         name,
@@ -6075,7 +6115,8 @@ window.handleStudentSave = async function() {
         default_textbook_fee: localData.defaultTextbookFee,
         memo,
         register_date: regDate,
-        parent_code: parentCode
+        parent_code: parentCode,
+        student_code: studentCode
     };
     // 기존 학생 정보에서 owner_user_id, teacher_id도 같이 넘김 (RLS 정책 대응)
     if (id) {

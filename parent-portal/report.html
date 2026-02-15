@@ -7,7 +7,6 @@
 	<link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.8/dist/web/static/pretendard.css" />
 	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 	<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-	<script src="https://unpkg.com/html5-qrcode"></script>
 	<style>
 		:root {
 			--primary: #818cf8;
@@ -162,18 +161,6 @@
 		.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(99,102,241,0.35); }
 		.btn-primary:active { transform: scale(0.98); }
 
-		.btn-qr {
-			padding: 14px 18px;
-			background: rgba(45,212,191,0.12);
-			color: var(--teal); border: 1.5px solid rgba(45,212,191,0.25);
-			border-radius: var(--radius);
-			font-size: 15px; font-weight: 700; font-family: inherit;
-			cursor: pointer;
-			transition: all var(--transition);
-			display: flex; align-items: center; justify-content: center; gap: 6px;
-			white-space: nowrap;
-		}
-		.btn-qr:hover { background: rgba(45,212,191,0.2); border-color: var(--teal); }
 
 		.landing-alert {
 			margin-top: 14px;
@@ -221,16 +208,6 @@
 		.dash-top-label { font-size: 13px; color: rgba(255,255,255,0.7); font-weight: 500; }
 
 		.dash-student-info { text-align: center; }
-		.dash-avatar {
-			width: 52px; height: 52px;
-			border-radius: 50%;
-			background: rgba(255,255,255,0.2);
-			display: flex; align-items: center; justify-content: center;
-			font-size: 22px; font-weight: 800; color: white;
-			margin: 0 auto 10px;
-			border: 2px solid rgba(255,255,255,0.3);
-			backdrop-filter: blur(4px);
-		}
 		.dash-student-name { font-size: 24px; font-weight: 800; color: white; letter-spacing: -0.5px; }
 		.dash-student-meta {
 			display: flex; align-items: center; justify-content: center; gap: 8px;
@@ -361,117 +338,6 @@
 		.ms-value { font-size: 18px; font-weight: 800; }
 		.ms-label { font-size: 10px; color: var(--text-sec); margin-top: 2px; }
 
-		/* Attendance list */
-		.att-list { display: flex; flex-direction: column; gap: 6px; }
-		.att-day {
-			display: flex; align-items: center; gap: 10px;
-			padding: 13px 14px;
-			background: var(--bg-elevated);
-			border-radius: 12px;
-			transition: background var(--transition);
-			border-left: 3px solid transparent;
-			position: relative;
-		}
-		.att-day:hover { background: rgba(255,255,255,0.06); }
-		.att-day.has-tooltip { cursor: pointer; }
-		.att-day.st-present { border-left-color: var(--green); }
-		.att-day.st-late { border-left-color: var(--yellow); }
-		.att-day.st-absent { border-left-color: var(--red); }
-		.att-day.st-makeup { border-left-color: var(--teal); }
-
-		/* ★ 전체 일정 호버 툴팁 */
-		.pp-att-tooltip {
-			display: none;
-			position: absolute;
-			bottom: calc(100% + 10px);
-			left: 14px;
-			background: #1e293b;
-			color: #fff;
-			padding: 14px 16px;
-			border-radius: 12px;
-			font-size: 13px;
-			min-width: 230px;
-			max-width: 320px;
-			z-index: 9999;
-			box-shadow: 0 10px 30px rgba(0,0,0,0.35);
-			line-height: 1.5;
-		}
-		.pp-tooltip-arrow {
-			position: absolute;
-			bottom: -6px;
-			left: 24px;
-			width: 12px;
-			height: 12px;
-			background: #1e293b;
-			rotate: 45deg;
-			border-radius: 2px;
-		}
-		.pp-tooltip-header {
-			font-weight: 700;
-			margin-bottom: 8px;
-			font-size: 12px;
-			color: #94a3b8;
-			letter-spacing: 0.5px;
-		}
-		.pp-tooltip-item {
-			display: flex;
-			align-items: center;
-			gap: 8px;
-			padding: 5px 0;
-		}
-		.pp-tooltip-item.pp-tooltip-primary {
-			border-bottom: 1px solid rgba(255,255,255,0.1);
-			padding-bottom: 7px;
-			margin-bottom: 2px;
-		}
-		.pp-tooltip-name {
-			font-weight: 600;
-			color: #e2e8f0;
-			font-size: 13px;
-		}
-		.pp-tooltip-name.primary {
-			color: #93c5fd;
-			font-weight: 700;
-		}
-		.pp-tooltip-time {
-			color: #94a3b8;
-			font-size: 12px;
-		}
-		.pp-tooltip-badge {
-			color: #fff;
-			padding: 2px 8px;
-			border-radius: 4px;
-			font-size: 11px;
-			font-weight: 600;
-			white-space: nowrap;
-		}
-
-		.att-date-col {
-			min-width: 52px;
-		}
-		.att-date-num { font-size: 18px; font-weight: 800; line-height: 1; }
-		.att-date-dow { font-size: 10px; color: var(--text-sec); margin-top: 2px; }
-		.att-date-dow.dow-sun { color: var(--red); }
-		.att-date-dow.dow-sat { color: #60a5fa; }
-
-		.att-mid { flex: 1; }
-		.att-time { font-size: 13px; font-weight: 600; }
-		.att-qr-tag {
-			display: inline-flex; align-items: center; gap: 4px;
-			font-size: 10px; font-weight: 600;
-			color: var(--teal);
-			background: var(--teal-bg);
-			padding: 2px 8px;
-			border-radius: 6px;
-			margin-top: 3px;
-		}
-		.att-qr-tag i { font-size: 9px; }
-		.att-memo-preview {
-			font-size: 11px; color: var(--text-sec); margin-top: 2px;
-			overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-			max-width: 200px;
-		}
-
 		.att-badge {
 			font-size: 11px; font-weight: 700;
 			padding: 5px 12px;
@@ -497,36 +363,69 @@
 			50% { opacity: 0.5; }
 		}
 
-		/* Memo tab panel */
-		.memo-list { display: flex; flex-direction: column; gap: 10px; }
-		.memo-card {
+		/* Admin student list */
+		.admin-student-item {
+			display: flex; align-items: center; gap: 14px;
 			padding: 16px;
 			background: var(--bg-elevated);
-			border-radius: 12px;
-			border-left: 3px solid var(--primary);
-			transition: background var(--transition);
+			border-radius: 14px;
+			cursor: pointer;
+			transition: all 0.2s;
+			border: 1px solid transparent;
 		}
-		.memo-card:hover { background: rgba(255,255,255,0.06); }
-		.memo-card-header {
+		.admin-student-item:hover, .admin-student-item:active {
+			background: rgba(129,140,248,0.06);
+			border-color: rgba(129,140,248,0.15);
+		}
+		.admin-student-avatar {
+			width: 44px; height: 44px;
+			border-radius: 50%;
+			background: linear-gradient(135deg, #6366f1, #7c3aed);
+			display: flex; align-items: center; justify-content: center;
+			font-size: 17px; font-weight: 800; color: white;
+			flex-shrink: 0;
+		}
+		.admin-student-info { flex: 1; min-width: 0; }
+		.admin-student-name { font-size: 15px; font-weight: 700; margin-bottom: 3px; }
+		.admin-student-meta { font-size: 12px; color: var(--text-sec); }
+		.admin-student-arrow { color: var(--gray); font-size: 13px; }
+
+		/* Admin login modal */
+		.pp-admin-modal {
+			display: none; position: fixed; inset: 0;
+			background: rgba(0,0,0,0.5);
+			backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+			z-index: 9999;
+			align-items: center; justify-content: center;
+			padding: 20px;
+			animation: ppModalFadeIn 0.2s ease;
+		}
+		.pp-admin-modal.active { display: flex; }
+		.pp-admin-modal-box {
+			background: var(--bg-card);
+			border-radius: 20px;
+			padding: 28px 24px;
+			max-width: 400px; width: 100%;
+			border: 1px solid var(--border);
+			box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+			animation: ppModalSlideUp 0.3s ease;
+		}
+		.pp-admin-modal-header {
 			display: flex; align-items: center; justify-content: space-between;
-			margin-bottom: 8px;
+			margin-bottom: 14px;
 		}
-		.memo-card-date {
-			font-size: 13px; font-weight: 700;
-			display: flex; align-items: center; gap: 6px;
+		.pp-admin-modal-header h2 { font-size: 17px; font-weight: 800; }
+		.pp-admin-modal-close {
+			width: 34px; height: 34px;
+			background: var(--bg-elevated); border: none;
+			border-radius: 10px; color: var(--gray);
+			cursor: pointer;
+			display: flex; align-items: center; justify-content: center;
+			font-size: 14px; transition: all 0.2s;
 		}
-		.memo-card-date i { font-size: 11px; color: var(--primary); opacity: 0.7; }
-		.memo-card-badge { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 6px; }
-		.memo-card-text { font-size: 13px; color: var(--text-sec); line-height: 1.7; white-space: pre-wrap; }
-		.memo-empty {
-			text-align: center; padding: 48px 20px;
-			color: var(--gray); font-size: 13px;
-			line-height: 1.6;
-		}
-		.memo-empty i {
-			font-size: 32px; display: block; margin-bottom: 12px; opacity: 0.3;
-			animation: emptyPulse 2s ease-in-out infinite;
-		}
+		.pp-admin-modal-close:hover { background: rgba(255,255,255,0.08); color: var(--text); }
+		@keyframes ppModalFadeIn { from { opacity: 0; } to { opacity: 1; } }
+		@keyframes ppModalSlideUp { from { opacity: 0; transform: translateY(20px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
 
 		/* Evaluation panel */
 		.eval-lock {
@@ -713,8 +612,6 @@
 			.qs-icon { font-size: 16px; }
 
 			.section-card { padding: 16px; border-radius: 16px; }
-			.att-day { padding: 11px 12px; gap: 8px; }
-			.att-date-num { font-size: 16px; }
 
 			.pp-modal-box { padding: 22px 18px; border-radius: 20px; }
 		}
@@ -727,101 +624,170 @@
 		}
 
 		@media (hover: none) and (pointer: coarse) {
-			.btn-primary:hover, .btn-qr:hover, .btn-save:hover,
-			.att-day:hover { transform: none; box-shadow: none; }
+			.btn-primary:hover, .btn-save:hover { transform: none; box-shadow: none; }
 		}
 
 		@supports (padding-bottom: env(safe-area-inset-bottom)) {
 			body { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
 		}
 
-		/* QR Mode Tabs */
-		.qr-mode-tabs {
-			display: flex; gap: 4px;
-			background: var(--bg-elevated);
-			border-radius: 12px;
-			padding: 3px;
-			margin-bottom: 14px;
-			border: 1px solid var(--border);
-		}
-		.qr-mode-tab {
-			flex: 1; padding: 10px 8px;
-			background: transparent; border: none;
-			border-radius: 9px;
-			font-size: 13px; font-weight: 600; font-family: inherit;
-			color: var(--text-sec); cursor: pointer;
-			transition: all var(--transition);
-			display: flex; align-items: center; justify-content: center; gap: 6px;
-		}
-		.qr-mode-tab.active {
-			background: rgba(45,212,191,0.15);
-			color: var(--teal);
-		}
-		.qr-mode-tab:not(.active):hover { background: rgba(255,255,255,0.04); }
 
-		/* QR Drop Zone */
-		.qr-drop-zone {
-			border: 2px dashed rgba(45,212,191,0.25);
-			border-radius: 16px;
-			padding: 32px 20px;
-			text-align: center;
-			cursor: pointer;
+		/* ===== Homework Calendar (parent portal) ===== */
+		.hw-cal-grid {
+			display: grid; grid-template-columns: repeat(7, 1fr);
+			gap: 4px;
+		}
+		.hw-cal-dow {
+			text-align: center; font-size: 11px; font-weight: 600;
+			color: var(--gray); padding: 6px 0;
+		}
+		.hw-cal-dow.sun { color: var(--red); }
+		.hw-cal-dow.sat { color: #60a5fa; }
+		.hw-cal-cell {
+			aspect-ratio: 1; display: flex; flex-direction: column;
+			align-items: center; justify-content: center;
+			border-radius: 10px; cursor: pointer;
 			transition: all var(--transition);
-			background: rgba(45,212,191,0.04);
-			min-height: 180px;
-			display: flex;
-			align-items: center;
-			justify-content: center;
-		}
-		.qr-drop-zone:hover {
-			border-color: var(--teal);
-			background: rgba(45,212,191,0.08);
-		}
-		.qr-drop-zone.dragover {
-			border-color: var(--teal);
-			background: rgba(45,212,191,0.12);
-			transform: scale(1.01);
-		}
-		.qr-drop-zone i {
-			font-size: 36px;
-			color: var(--teal);
-			opacity: 0.6;
-			display: block;
-			margin-bottom: 12px;
-		}
-		.qr-drop-zone p {
-			font-size: 14px;
-			font-weight: 600;
-			color: var(--text);
-			margin-bottom: 4px;
-		}
-		.qr-drop-zone span {
-			font-size: 12px;
+			position: relative; font-size: 13px; font-weight: 500;
 			color: var(--text-sec);
 		}
+		.hw-cal-cell:hover { background: rgba(255,255,255,0.06); }
+		.hw-cal-cell.empty { cursor: default; }
+		.hw-cal-cell.empty:hover { background: transparent; }
+		.hw-cal-cell.today {
+			border: 1.5px solid var(--primary);
+			color: var(--primary); font-weight: 700;
+		}
+		.hw-cal-cell.selected {
+			background: var(--primary-light);
+			color: var(--primary); font-weight: 700;
+		}
+		.hw-cal-cell.future { opacity: 0.3; cursor: default; }
+		.hw-cal-cell.future:hover { background: transparent; }
+		.hw-cal-cell.sun-day { color: var(--red); }
+		.hw-cal-cell.sat-day { color: #60a5fa; }
+		.hw-cal-cell.selected.sun-day, .hw-cal-cell.selected.sat-day { color: var(--primary); }
+		.hw-cal-cell.hw-ontime::after,
+		.hw-cal-cell.hw-late::after,
+		.hw-cal-cell.hw-missed::after,
+		.hw-cal-cell.hw-manual::after,
+		.hw-cal-cell.hw-submitted::after,
+		.hw-cal-cell.att-present::after,
+		.hw-cal-cell.att-late::after,
+		.hw-cal-cell.att-absent::after,
+		.hw-cal-cell.att-makeup::after {
+			position: absolute; bottom: 3px;
+			font-size: 12px; font-weight: 800; line-height: 1;
+		}
+		.hw-cal-cell.hw-ontime::after { content: '\2713'; color: var(--green); }
+		.hw-cal-cell.hw-late::after { content: '\25b3'; color: var(--yellow); }
+		.hw-cal-cell.hw-missed::after { content: '\2717'; color: var(--red); }
+		.hw-cal-cell.hw-manual::after { content: '\2713'; color: var(--teal); }
+		.hw-cal-cell.hw-submitted::after { content: '\2713'; color: var(--green); }
+		.hw-cal-cell.hw-missed { background: rgba(248,113,113,0.06); }
+		.hw-cal-cell.hw-scheduled { border-bottom: 2px solid rgba(129,140,248,0.25); }
 
-		.qr-file-status {
-			margin-top: 10px;
-			padding: 10px 14px;
+		.hw-stats {
+			display: flex; gap: 6px; margin-top: 14px;
+			padding: 10px;
+			background: var(--bg-elevated);
 			border-radius: 10px;
-			font-size: 13px;
-			font-weight: 500;
-			display: flex;
-			align-items: center;
-			gap: 8px;
+		}
+		.hw-stat { flex: 1; text-align: center; padding: 6px 2px; border-radius: 8px; }
+		.hw-stat-num { font-size: 18px; font-weight: 800; }
+		.hw-stat-label { font-size: 10px; color: var(--text-sec); margin-top: 2px; }
+
+		.hw-detail-empty {
+			text-align: center; padding: 28px 16px;
+			color: var(--gray); font-size: 13px;
+		}
+		.hw-detail-empty i { font-size: 28px; margin-bottom: 10px; display: block; opacity: 0.4; }
+		.hw-detail-item {
+			display: flex; align-items: center; gap: 12px;
+			padding: 14px;
+			background: var(--bg-elevated);
+			border-radius: var(--radius);
+			border: 1px solid var(--border);
+			margin-bottom: 8px;
 			animation: fadeIn 0.2s;
 		}
-		.qr-file-status.processing {
+		.hw-detail-icon {
+			width: 40px; height: 40px;
+			border-radius: 10px;
+			display: flex; align-items: center; justify-content: center;
+			font-size: 16px; flex-shrink: 0;
+		}
+		.hw-detail-info { flex: 1; min-width: 0; }
+		.hw-detail-name {
+			font-size: 13px; font-weight: 600;
+			overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+		}
+		.hw-detail-meta {
+			font-size: 11px; color: var(--text-sec); margin-top: 3px;
+			display: flex; flex-wrap: wrap; gap: 8px;
+		}
+		.hw-status-badge {
+			display: inline-flex; align-items: center; gap: 3px;
+			padding: 2px 7px; border-radius: 6px;
+			font-size: 10px; font-weight: 600;
+		}
+		.hw-status-badge.on-time { background: var(--green-bg); color: var(--green); }
+		.hw-status-badge.late { background: var(--yellow-bg); color: var(--yellow); }
+		.hw-status-badge.manual { background: var(--teal-bg); color: var(--teal); }
+		.hw-sched-info {
+			display: flex; align-items: center; gap: 8px;
+			padding: 10px 12px;
 			background: var(--primary-light);
-			color: var(--primary);
+			border-radius: 8px;
+			margin-bottom: 10px;
+			font-size: 12px; color: var(--primary); font-weight: 600;
 		}
-		.qr-file-status.success {
-			background: var(--green-bg);
-			color: var(--green);
+		/* Attendance calendar status marks (content only, base styles shared above) */
+		.hw-cal-cell.att-present::after { content: '\2713'; color: var(--green); }
+		.hw-cal-cell.att-late::after { content: '\25b3'; color: var(--yellow); }
+		.hw-cal-cell.att-absent::after { content: '\2717'; color: var(--red); }
+		.hw-cal-cell.att-makeup::after { content: '\2713'; color: var(--teal); }
+		.hw-cal-cell.att-absent { background: rgba(248,113,113,0.06); }
+
+		.att-detail-item {
+			display: flex; align-items: center; gap: 12px;
+			padding: 14px;
+			background: var(--bg-elevated);
+			border-radius: var(--radius);
+			border: 1px solid var(--border);
+			margin-bottom: 8px;
+			animation: fadeIn 0.2s;
+			border-left: 3px solid transparent;
 		}
-		.qr-file-status.error {
-			background: var(--red-bg);
-			color: var(--red);
+		.att-detail-item.st-present { border-left-color: var(--green); }
+		.att-detail-item.st-late { border-left-color: var(--yellow); }
+		.att-detail-item.st-absent { border-left-color: var(--red); }
+		.att-detail-item.st-makeup { border-left-color: var(--teal); }
+		.att-detail-icon {
+			width: 40px; height: 40px;
+			border-radius: 10px;
+			display: flex; align-items: center; justify-content: center;
+			font-size: 18px; flex-shrink: 0;
+		}
+		.att-detail-info { flex: 1; min-width: 0; }
+		.att-detail-status {
+			font-size: 14px; font-weight: 700;
+			display: flex; align-items: center; gap: 8px;
+		}
+		.att-detail-meta {
+			font-size: 12px; color: var(--text-sec); margin-top: 4px;
+			display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+		}
+		.att-detail-meta i { margin-right: 3px; font-size: 10px; opacity: 0.6; }
+		.att-teacher-label {
+			display: inline-flex; align-items: center; gap: 4px;
+			padding: 2px 8px; border-radius: 6px;
+			font-size: 10px; font-weight: 600;
+			background: var(--primary-light); color: var(--primary);
+		}
+
+		@media (max-width: 640px) {
+			.hw-cal-cell { font-size: 12px; }
 		}
 
 		/* Loading spinner */
@@ -870,34 +836,77 @@
 	<div class="landing-form">
 		<div class="landing-card">
 			<div class="form-group">
-				<label class="form-label">학생 이름</label>
+				<label class="form-label">학부모 인증코드</label>
 				<div class="form-input-wrap">
-					<i class="fas fa-user form-icon"></i>
-					<input type="text" id="search-name" class="form-input" placeholder="이름을 입력하세요" autocomplete="off">
+					<i class="fas fa-key form-icon"></i>
+					<input type="text" id="search-code" class="form-input" placeholder="인증코드를 입력하세요" autocomplete="off" maxlength="20" style="letter-spacing:2px;font-weight:600;">
 				</div>
-			</div>
-			<div class="form-group">
-				<label class="form-label">학부모 전화번호</label>
-				<div class="form-input-wrap">
-					<i class="fas fa-phone form-icon"></i>
-					<input type="tel" id="search-phone" class="form-input" placeholder="010-0000-0000" autocomplete="off" inputmode="numeric">
-				</div>
-				<div class="form-hint">등록된 학부모 또는 학생 전화번호를 입력하세요</div>
+				<div class="form-hint">선생님에게 발급받은 학부모 인증코드를 입력하세요</div>
 			</div>
 			<div class="btn-row">
 				<button class="btn-primary" onclick="handleSearch()">
-					<i class="fas fa-search"></i> 조회하기
-				</button>
-				<button class="btn-qr" onclick="openQRScanner()">
-					<i class="fas fa-qrcode"></i> QR
+					<i class="fas fa-right-to-bracket"></i> 조회하기
 				</button>
 			</div>
 			<div id="landing-alert" class="landing-alert"></div>
 		</div>
 	</div>
 
-	<div class="landing-footer">
-		<i class="fas fa-info-circle"></i> 학생 등록 시 발급된 QR코드를 스캔하면 바로 조회됩니다
+	<div class="landing-footer" style="margin-bottom:8px;">
+		<i class="fas fa-info-circle"></i> 인증코드는 선생님에게 문의하세요
+	</div>
+	<div style="text-align:center;padding-bottom:32px;">
+		<button onclick="showAdminLoginModal()" style="background:none;border:none;color:var(--text-sec);font-size:12px;cursor:pointer;display:inline-flex;align-items:center;gap:5px;padding:8px 16px;border-radius:8px;transition:all 0.2s;" onmouseover="this.style.color='var(--primary)';this.style.background='rgba(129,140,248,0.08)'" onmouseout="this.style.color='var(--text-sec)';this.style.background='none'">
+			<i class="fas fa-user-shield"></i> 관리자 로그인
+		</button>
+	</div>
+</div>
+
+<!-- ===== ADMIN STUDENT LIST PAGE ===== -->
+<div id="page-admin-students" style="display:none;">
+	<div class="dash-header" style="padding-bottom:24px;">
+		<div class="dash-top-bar">
+			<button class="dash-back-btn" onclick="logoutAdmin()">
+				<i class="fas fa-arrow-left"></i>
+			</button>
+			<span class="dash-top-label" id="admin-list-label">학생 목록</span>
+			<div style="width:38px;"></div>
+		</div>
+	</div>
+	<div style="max-width:640px;margin:0 auto;padding:16px 16px 40px;">
+		<div id="admin-student-list" style="display:flex;flex-direction:column;gap:8px;"></div>
+	</div>
+</div>
+
+<!-- ===== Admin Login Modal ===== -->
+<div id="admin-login-modal" class="pp-admin-modal">
+	<div class="pp-admin-modal-box">
+		<div class="pp-admin-modal-header">
+			<h2><i class="fas fa-user-shield" style="margin-right:8px;color:var(--yellow);"></i>관리자 로그인</h2>
+			<button class="pp-admin-modal-close" onclick="closeAdminLoginModal()"><i class="fas fa-times"></i></button>
+		</div>
+		<p style="font-size:13px;color:var(--text-sec);line-height:1.6;margin-bottom:16px;">관리자 계정으로 로그인합니다.</p>
+		<div class="form-group">
+			<label class="form-label">이메일</label>
+			<div class="form-input-wrap">
+				<i class="fas fa-envelope form-icon"></i>
+				<input type="email" id="admin-email" class="form-input" placeholder="이메일을 입력하세요" autocomplete="email">
+			</div>
+		</div>
+		<div class="form-group">
+			<label class="form-label">비밀번호</label>
+			<div class="form-input-wrap">
+				<i class="fas fa-lock form-icon"></i>
+				<input type="password" id="admin-password" class="form-input" placeholder="비밀번호를 입력하세요" autocomplete="current-password">
+			</div>
+		</div>
+		<div id="admin-login-alert" class="landing-alert" style="margin-bottom:10px;"></div>
+		<div class="btn-row">
+			<button class="btn-secondary" onclick="closeAdminLoginModal()">취소</button>
+			<button class="btn-primary" id="admin-login-btn" onclick="handleAdminLogin()">
+				<i class="fas fa-unlock"></i> 로그인
+			</button>
+		</div>
 	</div>
 </div>
 
@@ -912,7 +921,6 @@
 			<div style="width:38px;"></div>
 		</div>
 		<div class="dash-student-info">
-			<div class="dash-avatar" id="dash-avatar">-</div>
 			<div class="dash-student-name" id="dash-name">-</div>
 			<div class="dash-student-meta">
 				<span id="dash-grade">-</span>
@@ -956,6 +964,9 @@
 			<button class="dash-tab active" onclick="switchTab('attendance')">
 				<i class="fas fa-calendar-check"></i> 출결
 			</button>
+			<button class="dash-tab" onclick="switchTab('homework')">
+				<i class="fas fa-book"></i> 숙제
+			</button>
 			<button class="dash-tab" onclick="switchTab('eval')">
 				<i class="fas fa-star"></i> 종합평가
 			</button>
@@ -964,30 +975,99 @@
 		<!-- TAB: Attendance -->
 		<div id="tab-attendance" class="tab-panel active">
 			<div class="section-card">
+				<div class="section-title">
+					<i class="fas fa-calendar-check"></i>
+					<span>출결 현황</span>
+				</div>
 				<div class="month-nav">
 					<button class="month-arrow" onclick="handlePrevMonth()"><i class="fas fa-chevron-left"></i></button>
-					<input type="month" id="month-selector" class="month-input" onchange="handleMonthChange()">
+					<input type="month" id="month-selector" class="month-input" onchange="handleMonthChange()" style="display:none;">
+					<span id="att-month-label" style="flex:1;text-align:center;font-size:15px;font-weight:700;">2026년 2월</span>
 					<button class="month-arrow" onclick="handleNextMonth()"><i class="fas fa-chevron-right"></i></button>
 				</div>
-				<div class="month-stats" id="month-stats">
-					<div class="ms-item">
-						<div class="ms-value" id="ms-rate" style="color:var(--primary);">-</div>
-						<div class="ms-label">출석률</div>
+				<div class="hw-cal-grid" id="att-cal-grid">
+					<div class="hw-cal-dow sun">일</div>
+					<div class="hw-cal-dow">월</div>
+					<div class="hw-cal-dow">화</div>
+					<div class="hw-cal-dow">수</div>
+					<div class="hw-cal-dow">목</div>
+					<div class="hw-cal-dow">금</div>
+					<div class="hw-cal-dow sat">토</div>
+				</div>
+				<div class="hw-stats" id="att-stats">
+					<div class="hw-stat">
+						<div class="hw-stat-num" id="ms-rate" style="color:var(--primary);">-</div>
+						<div class="hw-stat-label">출석률</div>
 					</div>
-					<div class="ms-item">
-						<div class="ms-value" id="ms-present" style="color:var(--green);">-</div>
-						<div class="ms-label">출석</div>
+					<div class="hw-stat">
+						<div class="hw-stat-num" id="ms-present" style="color:var(--green);">-</div>
+						<div class="hw-stat-label">출석</div>
 					</div>
-					<div class="ms-item">
-						<div class="ms-value" id="ms-late" style="color:var(--yellow);">-</div>
-						<div class="ms-label">지각</div>
+					<div class="hw-stat">
+						<div class="hw-stat-num" id="ms-late" style="color:var(--yellow);">-</div>
+						<div class="hw-stat-label">지각</div>
 					</div>
-					<div class="ms-item">
-						<div class="ms-value" id="ms-absent" style="color:var(--red);">-</div>
-						<div class="ms-label">결석</div>
+					<div class="hw-stat">
+						<div class="hw-stat-num" id="ms-absent" style="color:var(--red);">-</div>
+						<div class="hw-stat-label">결석</div>
 					</div>
 				</div>
-				<div id="att-list" class="att-list"></div>
+			</div>
+			<div class="section-card" id="att-detail-card" style="display:none;">
+				<div class="section-title" id="att-detail-title">
+					<i class="fas fa-clipboard-list"></i>
+					<span>-</span>
+				</div>
+				<div id="att-detail-body"></div>
+			</div>
+		</div>
+
+		<!-- TAB: Homework -->
+		<div id="tab-homework" class="tab-panel">
+			<div class="section-card">
+				<div class="section-title">
+					<i class="fas fa-book"></i>
+					<span>숙제 제출 현황</span>
+				</div>
+				<div class="month-nav">
+					<button class="month-arrow" onclick="handlePrevMonthHw()"><i class="fas fa-chevron-left"></i></button>
+					<span id="hw-month-label" style="flex:1;text-align:center;font-size:15px;font-weight:700;">2026년 2월</span>
+					<button class="month-arrow" onclick="handleNextMonthHw()"><i class="fas fa-chevron-right"></i></button>
+				</div>
+				<div class="hw-cal-grid" id="hw-cal-grid">
+					<div class="hw-cal-dow sun">일</div>
+					<div class="hw-cal-dow">월</div>
+					<div class="hw-cal-dow">화</div>
+					<div class="hw-cal-dow">수</div>
+					<div class="hw-cal-dow">목</div>
+					<div class="hw-cal-dow">금</div>
+					<div class="hw-cal-dow sat">토</div>
+				</div>
+				<div class="hw-stats" id="hw-stats">
+					<div class="hw-stat">
+						<div class="hw-stat-num" id="hw-st-submit" style="color:var(--green);">0</div>
+						<div class="hw-stat-label">제출</div>
+					</div>
+					<div class="hw-stat">
+						<div class="hw-stat-num" id="hw-st-late" style="color:var(--yellow);">0</div>
+						<div class="hw-stat-label">지각</div>
+					</div>
+					<div class="hw-stat">
+						<div class="hw-stat-num" id="hw-st-missed" style="color:var(--red);">0</div>
+						<div class="hw-stat-label">미제출</div>
+					</div>
+					<div class="hw-stat">
+						<div class="hw-stat-num" id="hw-st-total" style="color:var(--primary);">0</div>
+						<div class="hw-stat-label">수업일</div>
+					</div>
+				</div>
+			</div>
+			<div class="section-card" id="hw-detail-card" style="display:none;">
+				<div class="section-title" id="hw-detail-title">
+					<i class="fas fa-file-lines"></i>
+					<span>-</span>
+				</div>
+				<div id="hw-detail-body"></div>
 			</div>
 		</div>
 
@@ -1032,60 +1112,6 @@
 	</div>
 </div>
 
-<!-- ===== QR MODAL ===== -->
-<div id="qr-modal" class="pp-modal">
-	<div class="pp-modal-box" style="max-width:440px;">
-		<div class="pp-modal-header">
-			<h2><i class="fas fa-qrcode" style="margin-right:8px;color:var(--teal);"></i>QR 코드 인식</h2>
-			<button class="pp-modal-close" onclick="closeQRScanner()"><i class="fas fa-times"></i></button>
-		</div>
-
-		<!-- QR 모드 탭 -->
-		<div class="qr-mode-tabs">
-			<button class="qr-mode-tab active" id="qr-tab-camera" onclick="switchQRMode('camera')">
-				<i class="fas fa-camera"></i> 카메라 스캔
-			</button>
-			<button class="qr-mode-tab" id="qr-tab-image" onclick="switchQRMode('image')">
-				<i class="fas fa-image"></i> 이미지 인식
-			</button>
-		</div>
-
-		<!-- 카메라 스캔 영역 -->
-		<div id="qr-camera-panel" class="qr-panel">
-			<div id="qr-reader" style="width:100%;border-radius:12px;overflow:hidden;margin-bottom:12px;"></div>
-			<button class="btn-qr" style="width:100%" onclick="toggleCamera()">
-				<i class="fas fa-camera-rotate"></i> 카메라 전환
-			</button>
-		</div>
-
-		<!-- 이미지 업로드 영역 -->
-		<div id="qr-image-panel" class="qr-panel" style="display:none;">
-			<input type="file" id="qr-file-input" accept="image/*" style="display:none;" onchange="handleQRFileSelect(event)">
-			
-			<div id="qr-drop-zone" class="qr-drop-zone" onclick="document.getElementById('qr-file-input').click();">
-				<div id="qr-drop-content">
-					<i class="fas fa-cloud-arrow-up"></i>
-					<p>QR 코드 이미지를 선택하세요</p>
-					<span>저장된 QR 이미지를 터치하여 불러오기</span>
-				</div>
-				<div id="qr-preview-area" style="display:none;">
-					<img id="qr-preview-img" style="max-width:100%;max-height:240px;border-radius:10px;">
-				</div>
-			</div>
-			
-			<div id="qr-file-status" class="qr-file-status" style="display:none;"></div>
-			
-			<div style="display:flex;gap:8px;margin-top:12px;">
-				<button class="btn-qr" style="flex:1;" onclick="document.getElementById('qr-file-input').click();">
-					<i class="fas fa-folder-open"></i> 다른 이미지
-				</button>
-				<button class="btn-primary" id="qr-scan-file-btn" style="flex:1;display:none;" onclick="scanQRFromFile()">
-					<i class="fas fa-search"></i> QR 인식
-				</button>
-			</div>
-		</div>
-	</div>
-</div>
 
 <!-- ===== Parent Auth Modal ===== -->
 <div id="parent-auth-modal" class="pp-modal">
@@ -1124,9 +1150,6 @@
 		</button>
 	</div>
 </div>
-
-<!-- Hidden container for QR file scan -->
-<div id="qr-file-scan-temp" style="display:none;"></div>
 
 <!-- Toast -->
 <div id="toast-container" style="position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:99999;display:flex;flex-direction:column;gap:8px;pointer-events:none;max-width:360px;width:calc(100% - 32px);"></div>

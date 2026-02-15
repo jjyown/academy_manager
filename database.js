@@ -123,7 +123,9 @@ window.addStudent = async function(studentData) {
                 default_textbook_fee: studentData.default_textbook_fee || 0,
                 memo: studentData.memo || '',
                 register_date: regDate,
-                status: studentData.status || 'active'
+                status: studentData.status || 'active',
+                parent_code: studentData.parent_code || null,
+                student_code: studentData.student_code || null
             }])
             .select()
             .single();

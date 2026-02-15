@@ -2134,9 +2134,6 @@ textarea:focus:not(:focus-visible) {
     font-size: 13px;
     font-weight: 700;
     margin-bottom: 6px;
-    position: sticky;
-    top: 0;
-    z-index: 2;
 }
 .drawer-group-header i {
     font-size: 12px;

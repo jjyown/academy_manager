@@ -223,16 +223,6 @@
 		.upload-top-label { font-size: 13px; color: rgba(255,255,255,0.7); font-weight: 500; }
 
 		.upload-student-info { text-align: center; }
-		.upload-avatar {
-			width: 52px; height: 52px;
-			border-radius: 50%;
-			background: rgba(255,255,255,0.2);
-			display: flex; align-items: center; justify-content: center;
-			font-size: 22px; font-weight: 800; color: white;
-			margin: 0 auto 10px;
-			border: 2px solid rgba(255,255,255,0.3);
-			backdrop-filter: blur(4px);
-		}
 		.upload-student-name { font-size: 24px; font-weight: 800; color: white; letter-spacing: -0.5px; }
 		.upload-student-meta {
 			display: flex; align-items: center; justify-content: center; gap: 8px;
@@ -623,8 +613,8 @@
 		.cal-cell.hw-manual::after,
 		.cal-cell.hw-submitted::after {
 			position: absolute;
-			bottom: 2px;
-			font-size: 9px;
+			bottom: 3px;
+			font-size: 12px;
 			font-weight: 800;
 			line-height: 1;
 		}
@@ -678,20 +668,6 @@
 			border-radius: 20px;
 			font-size: 11px; font-weight: 700;
 			animation: fadeIn 0.3s;
-		}
-		.admin-toggle-btn {
-			background: rgba(255,255,255,0.15); border: none;
-			color: white; width: 38px; height: 38px;
-			border-radius: 12px; cursor: pointer;
-			display: flex; align-items: center; justify-content: center;
-			font-size: 14px;
-			transition: all var(--transition);
-			backdrop-filter: blur(4px);
-		}
-		.admin-toggle-btn:hover { background: rgba(255,255,255,0.25); }
-		.admin-toggle-btn.active {
-			background: rgba(251,191,36,0.3);
-			color: var(--yellow);
 		}
 		.status-badge {
 			display: inline-flex; align-items: center; gap: 4px;
@@ -759,6 +735,33 @@
 			display: flex; gap: 10px;
 		}
 
+		/* Admin student list */
+		.admin-student-item {
+			display: flex; align-items: center; gap: 14px;
+			padding: 16px;
+			background: var(--bg-elevated);
+			border-radius: 14px;
+			cursor: pointer;
+			transition: all 0.2s;
+			border: 1px solid transparent;
+		}
+		.admin-student-item:hover, .admin-student-item:active {
+			background: rgba(129,140,248,0.06);
+			border-color: rgba(129,140,248,0.15);
+		}
+		.admin-student-avatar {
+			width: 44px; height: 44px;
+			border-radius: 50%;
+			background: linear-gradient(135deg, #6366f1, #7c3aed);
+			display: flex; align-items: center; justify-content: center;
+			font-size: 17px; font-weight: 800; color: white;
+			flex-shrink: 0;
+		}
+		.admin-student-info { flex: 1; min-width: 0; }
+		.admin-student-name { font-size: 15px; font-weight: 700; margin-bottom: 3px; }
+		.admin-student-meta { font-size: 12px; color: var(--text-sec); }
+		.admin-student-arrow { color: var(--gray); font-size: 13px; }
+
 		/* Floating button */
 		.floating-submit-wrap {
 			position: fixed; bottom: 0; left: 0; right: 0;
@@ -822,31 +825,45 @@
 	<div class="landing-form">
 		<div class="landing-card">
 			<div class="form-group">
-				<label class="form-label">학생 이름</label>
+				<label class="form-label">학생 인증코드</label>
 				<div class="form-input-wrap">
-					<i class="fas fa-user form-icon"></i>
-					<input type="text" id="search-name" class="form-input" placeholder="이름을 입력하세요" autocomplete="off">
+					<i class="fas fa-id-badge form-icon"></i>
+					<input type="text" id="search-code" class="form-input" placeholder="인증코드를 입력하세요" autocomplete="off" maxlength="20" style="letter-spacing:2px;font-weight:600;text-transform:uppercase;">
 				</div>
-			</div>
-			<div class="form-group">
-				<label class="form-label">학생 전화번호</label>
-				<div class="form-input-wrap">
-					<i class="fas fa-phone form-icon"></i>
-					<input type="tel" id="search-phone" class="form-input" placeholder="010-0000-0000" autocomplete="off" inputmode="numeric">
-				</div>
-				<div class="form-hint">학원에 등록된 학생 전화번호를 입력하세요</div>
+				<div class="form-hint">선생님에게 발급받은 학생 인증코드를 입력하세요</div>
 			</div>
 			<div class="btn-row">
 				<button class="btn-primary" id="search-btn" onclick="handleSearch()">
-					<i class="fas fa-search"></i> 조회하기
+					<i class="fas fa-right-to-bracket"></i> 조회하기
 				</button>
 			</div>
 			<div id="landing-alert" class="landing-alert"></div>
 		</div>
 	</div>
 
-	<div class="landing-footer">
+	<div class="landing-footer" style="margin-bottom:8px;">
 		<i class="fas fa-shield-halved"></i> 파일은 선생님의 구글 드라이브에 안전하게 저장됩니다
+	</div>
+	<div style="text-align:center;padding-bottom:32px;">
+		<button onclick="showAdminLoginModal()" style="background:none;border:none;color:var(--text-sec);font-size:12px;cursor:pointer;display:inline-flex;align-items:center;gap:5px;padding:8px 16px;border-radius:8px;transition:all 0.2s;" onmouseover="this.style.color='var(--primary)';this.style.background='rgba(129,140,248,0.08)'" onmouseout="this.style.color='var(--text-sec)';this.style.background='none'">
+			<i class="fas fa-user-shield"></i> 관리자 로그인
+		</button>
+	</div>
+</div>
+
+<!-- ===== ADMIN STUDENT LIST PAGE ===== -->
+<div id="page-admin-students" style="display:none;">
+	<div class="status-header" style="padding-bottom:24px;">
+		<div class="upload-top-bar">
+			<button class="upload-back-btn" onclick="logoutAdmin()">
+				<i class="fas fa-arrow-left"></i>
+			</button>
+			<span class="upload-top-label" id="admin-list-label">학생 목록</span>
+			<div style="width:38px;"></div>
+		</div>
+	</div>
+	<div style="max-width:640px;margin:0 auto;padding:16px 16px 40px;">
+		<div id="admin-student-list" style="display:flex;flex-direction:column;gap:8px;"></div>
 	</div>
 </div>
 
@@ -858,12 +875,9 @@
 				<i class="fas fa-arrow-left"></i>
 			</button>
 			<span class="upload-top-label" id="status-top-label">제출 현황</span>
-			<button class="admin-toggle-btn" id="admin-toggle-btn" onclick="toggleAdminMode()" title="관리자 모드">
-				<i class="fas fa-user-shield"></i>
-			</button>
+			<div style="width:38px;"></div>
 		</div>
 		<div class="upload-student-info">
-			<div class="upload-avatar" id="status-avatar">-</div>
 			<div class="upload-student-name" id="status-name">-</div>
 			<div class="upload-student-meta">
 				<span id="status-grade">-</span>
@@ -948,7 +962,6 @@
 			<div style="width:38px;"></div>
 		</div>
 		<div class="upload-student-info">
-			<div class="upload-avatar" id="upload-avatar">-</div>
 			<div class="upload-student-name" id="upload-name">-</div>
 			<div class="upload-student-meta">
 				<span id="upload-grade">-</span>
@@ -1076,19 +1089,19 @@
 			<h2><i class="fas fa-user-shield" style="margin-right:8px;color:var(--yellow);"></i>관리자 로그인</h2>
 			<button class="hw-modal-close" onclick="closeAdminLoginModal()"><i class="fas fa-times"></i></button>
 		</div>
-		<p style="font-size:13px;color:var(--text-sec);line-height:1.6;margin-bottom:16px;">선생님 정보를 입력하여 관리자 모드로 전환합니다.</p>
+		<p style="font-size:13px;color:var(--text-sec);line-height:1.6;margin-bottom:16px;">관리자 계정으로 로그인합니다.</p>
 		<div class="form-group">
-			<label class="form-label">선생님 이름</label>
+			<label class="form-label">이메일</label>
 			<div class="form-input-wrap">
-				<i class="fas fa-user form-icon"></i>
-				<input type="text" id="admin-name" class="form-input" placeholder="선생님 이름" autocomplete="off">
+				<i class="fas fa-envelope form-icon"></i>
+				<input type="email" id="admin-email" class="form-input" placeholder="이메일을 입력하세요" autocomplete="email">
 			</div>
 		</div>
 		<div class="form-group">
-			<label class="form-label">선생님 전화번호</label>
+			<label class="form-label">비밀번호</label>
 			<div class="form-input-wrap">
-				<i class="fas fa-phone form-icon"></i>
-				<input type="tel" id="admin-phone" class="form-input" placeholder="010-0000-0000" autocomplete="off" inputmode="numeric">
+				<i class="fas fa-lock form-icon"></i>
+				<input type="password" id="admin-password" class="form-input" placeholder="비밀번호를 입력하세요" autocomplete="current-password">
 			</div>
 		</div>
 		<div id="admin-login-alert" class="landing-alert" style="margin-bottom:10px;"></div>
@@ -1137,6 +1150,14 @@ const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 		detectSessionInUrl: false
 	}
 });
+
+// ============================================================
+// 유틸: XSS 방지
+// ============================================================
+function escapeHtml(str) {
+	if (!str) return '';
+	return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
 
 // ============================================================
 // 상태
@@ -1214,42 +1235,19 @@ function hideAlert() {
 	document.getElementById('landing-alert').className = 'landing-alert';
 }
 
-// ============================================================
-// 전화번호 포맷팅
-// ============================================================
-document.getElementById('search-phone').addEventListener('input', function(e) {
-	let val = e.target.value.replace(/[^0-9]/g, '');
-	if (val.length > 11) val = val.slice(0, 11);
-	if (val.length >= 8) {
-		e.target.value = val.slice(0,3) + '-' + val.slice(3,7) + '-' + val.slice(7);
-	} else if (val.length >= 4) {
-		e.target.value = val.slice(0,3) + '-' + val.slice(3);
-	} else {
-		e.target.value = val;
-	}
-});
-
 // Enter 키로 검색
-document.getElementById('search-name').addEventListener('keydown', function(e) {
-	if (e.key === 'Enter') handleSearch();
-});
-document.getElementById('search-phone').addEventListener('keydown', function(e) {
+document.getElementById('search-code').addEventListener('keydown', function(e) {
 	if (e.key === 'Enter') handleSearch();
 });
 
 // ============================================================
-// 학생 검색
+// 학생 검색 (인증코드 방식)
 // ============================================================
 async function handleSearch() {
-	const name = document.getElementById('search-name').value.trim();
-	const phone = document.getElementById('search-phone').value.trim().replace(/-/g, '');
+	const code = document.getElementById('search-code').value.trim().toUpperCase();
 
-	if (!name) {
-		showAlert('학생 이름을 입력하세요.', 'error');
-		return;
-	}
-	if (!phone || phone.length < 10) {
-		showAlert('올바른 전화번호를 입력하세요.', 'error');
+	if (!code) {
+		showAlert('학생 인증코드를 입력하세요.', 'error');
 		return;
 	}
 
@@ -1259,35 +1257,27 @@ async function handleSearch() {
 	btn.innerHTML = '<span class="hw-spinner"></span> 조회 중...';
 
 	try {
-		// 이름 + 전화번호로 학생 검색 (활성 학생만)
-		const phoneFormatted = phone.slice(0,3) + '-' + phone.slice(3,7) + '-' + phone.slice(7);
-		
-		const { data: students, error } = await db
+		const { data: student, error } = await db
 			.from('students')
 			.select('id, name, school, grade, phone, parent_phone, teacher_id, owner_user_id')
-			.eq('name', name)
+			.eq('student_code', code)
 			.eq('status', 'active')
-			.or(`phone.eq.${phone},phone.eq.${phoneFormatted},parent_phone.eq.${phone},parent_phone.eq.${phoneFormatted}`);
+			.maybeSingle();
 
 		if (error) throw error;
 
-		if (!students || students.length === 0) {
-			showAlert('일치하는 학생을 찾을 수 없습니다. 이름과 전화번호를 확인해주세요.', 'error');
+		if (!student) {
+			showAlert('유효하지 않은 인증코드입니다. 코드를 다시 확인해주세요.', 'error');
 			return;
 		}
 
-		if (students.length === 1) {
-			await selectStudent(students[0]);
-		} else {
-			// 여러 명일 경우 선택 모달
-			await showStudentSelectModal(students);
-		}
+		await selectStudent(student);
 	} catch (err) {
 		console.error('Search error:', err);
 		showAlert('조회 중 오류가 발생했습니다: ' + err.message, 'error');
 	} finally {
 		btn.disabled = false;
-		btn.innerHTML = '<i class="fas fa-search"></i> 조회하기';
+		btn.innerHTML = '<i class="fas fa-right-to-bracket"></i> 조회하기';
 	}
 }
 
@@ -1317,11 +1307,11 @@ async function showStudentSelectModal(students) {
 		};
 		const teacherName = teacherMap[student.teacher_id] || '미배정';
 		item.innerHTML = `
-			<div class="s-avatar">${student.name.charAt(0)}</div>
+			<div class="s-avatar">${escapeHtml(student.name.charAt(0))}</div>
 			<div class="s-info">
-				<div class="s-name">${student.name}</div>
-				<div class="s-meta">${student.grade || ''} ${student.school ? '· ' + student.school : ''}</div>
-				<div class="s-teacher"><i class="fas fa-chalkboard-user" style="margin-right:4px;"></i>${teacherName} 선생님</div>
+				<div class="s-name">${escapeHtml(student.name)}</div>
+				<div class="s-meta">${escapeHtml(student.grade || '')} ${student.school ? '· ' + escapeHtml(student.school) : ''}</div>
+				<div class="s-teacher"><i class="fas fa-chalkboard-user" style="margin-right:4px;"></i>${escapeHtml(teacherName)} 선생님</div>
 			</div>
 			<i class="fas fa-chevron-right" style="color:var(--gray);"></i>
 		`;
@@ -1410,16 +1400,19 @@ let calDateStatus = {};  // { dateStr: { status, scheduleTime } }
 // 관리자 모드
 let isAdminMode = false;
 let adminTeacher = null;
-let pendingAdminAction = null; // { type: 'add'|'remove', dateStr }
+let adminUser = null;           // Supabase auth user
+let adminStudents = [];         // 관리자가 소유한 학생 목록
+let adminEntryMode = null;      // 'studentList' (관리자 학생목록에서 진입) or null
+let pendingAdminAction = null;  // { type: 'add'|'remove', dateStr }
 
 function showStatusPage(isRestore) {
 	document.getElementById('page-landing').style.display = 'none';
+	document.getElementById('page-admin-students').style.display = 'none';
 	document.getElementById('page-upload').style.display = 'none';
 	document.getElementById('page-success').style.display = 'none';
 	document.getElementById('page-status').style.display = 'block';
 
 	// 학생 정보 표시
-	document.getElementById('status-avatar').textContent = currentStudent.name.charAt(0);
 	document.getElementById('status-name').textContent = currentStudent.name;
 	document.getElementById('status-grade').textContent = currentStudent.grade || '-';
 	document.getElementById('status-teacher').textContent = currentTeacher ? currentTeacher.name + ' 선생님' : '미배정';
@@ -1444,15 +1437,35 @@ function showStatusPage(isRestore) {
 
 function goBackFromStatus() {
 	document.getElementById('page-status').style.display = 'none';
+
+	// 관리자 학생목록에서 진입한 경우 → 학생 목록으로 돌아가기
+	if (adminEntryMode === 'studentList') {
+		document.getElementById('page-admin-students').style.display = 'block';
+		currentStudent = null;
+		currentTeacher = null;
+		calSubmissions = [];
+		calSchedules = [];
+		calDateStatus = {};
+		calSelectedDate = null;
+		// 관리자 모드는 유지 (학생 목록에서 다른 학생 선택 가능)
+		clearPageState();
+		window.scrollTo(0, 0);
+		return;
+	}
+
+	// 일반 모드 (학생 코드로 진입)
 	document.getElementById('page-landing').style.display = 'flex';
 	currentStudent = null;
 	currentTeacher = null;
 	calSubmissions = [];
+	document.getElementById('search-code').value = '';
 	calSchedules = [];
 	calDateStatus = {};
 	calSelectedDate = null;
 	isAdminMode = false;
 	adminTeacher = null;
+	adminUser = null;
+	adminEntryMode = null;
 	clearPageState();
 }
 
@@ -1745,7 +1758,7 @@ function showDateDetail(dateStr) {
 				item.innerHTML = `
 					<div class="detail-item-icon" style="background:var(--teal-bg);color:var(--teal);"><i class="fas fa-user-check"></i></div>
 					<div class="detail-item-info">
-						<div class="detail-item-name">${sub.file_name}</div>
+						<div class="detail-item-name">${escapeHtml(sub.file_name)}</div>
 						<div class="detail-item-meta">
 							<span class="status-badge manual"><i class="fas fa-check"></i> 관리자 확인</span>
 						</div>
@@ -1773,7 +1786,7 @@ function showDateDetail(dateStr) {
 				item.innerHTML = `
 					<div class="detail-item-icon"><i class="fas fa-file-zipper"></i></div>
 					<div class="detail-item-info">
-						<div class="detail-item-name">${sub.file_name}</div>
+						<div class="detail-item-name">${escapeHtml(sub.file_name)}</div>
 						<div class="detail-item-meta">
 							<span><i class="fas fa-clock" style="margin-right:3px;"></i>${timeStr}</span>
 							<span><i class="fas fa-weight-hanging" style="margin-right:3px;"></i>${sizeStr}</span>
@@ -1807,55 +1820,43 @@ function showDateDetail(dateStr) {
 // ============================================================
 // 관리자 모드
 // ============================================================
-function toggleAdminMode() {
-	if (isAdminMode) {
-		logoutAdmin();
-	} else {
-		showAdminLoginModal();
-	}
-}
-
 function showAdminLoginModal() {
-	document.getElementById('admin-name').value = '';
-	document.getElementById('admin-phone').value = '';
+	document.getElementById('admin-email').value = '';
+	document.getElementById('admin-password').value = '';
 	document.getElementById('admin-login-alert').className = 'landing-alert';
 	document.getElementById('admin-login-modal').classList.add('active');
+	setTimeout(() => document.getElementById('admin-email').focus(), 100);
 }
 
 function closeAdminLoginModal() {
 	document.getElementById('admin-login-modal').classList.remove('active');
 }
 
-// 관리자 전화번호 포맷팅
+// Enter 키 처리
 document.addEventListener('DOMContentLoaded', function() {
-	const ap = document.getElementById('admin-phone');
-	if (ap) {
-		ap.addEventListener('input', function(e) {
-			let val = e.target.value.replace(/[^0-9]/g, '');
-			if (val.length > 11) val = val.slice(0, 11);
-			if (val.length >= 8) {
-				e.target.value = val.slice(0,3) + '-' + val.slice(3,7) + '-' + val.slice(7);
-			} else if (val.length >= 4) {
-				e.target.value = val.slice(0,3) + '-' + val.slice(3);
-			} else {
-				e.target.value = val;
-			}
-		});
-		ap.addEventListener('keydown', function(e) {
+	const pw = document.getElementById('admin-password');
+	if (pw) {
+		pw.addEventListener('keydown', function(e) {
 			if (e.key === 'Enter') handleAdminLogin();
+		});
+	}
+	const em = document.getElementById('admin-email');
+	if (em) {
+		em.addEventListener('keydown', function(e) {
+			if (e.key === 'Enter') document.getElementById('admin-password').focus();
 		});
 	}
 });
 
 async function handleAdminLogin() {
-	const name = document.getElementById('admin-name').value.trim();
-	const phone = document.getElementById('admin-phone').value.trim();
+	const email = document.getElementById('admin-email').value.trim();
+	const password = document.getElementById('admin-password').value;
 	const alertEl = document.getElementById('admin-login-alert');
 	const btn = document.getElementById('admin-login-btn');
 
-	if (!name || !phone) {
+	if (!email || !password) {
 		alertEl.className = 'landing-alert show error';
-		alertEl.innerHTML = '<i class="fas fa-exclamation-circle"></i>이름과 전화번호를 모두 입력하세요.';
+		alertEl.innerHTML = '<i class="fas fa-exclamation-circle"></i>이메일과 비밀번호를 모두 입력하세요.';
 		return;
 	}
 
@@ -1863,56 +1864,150 @@ async function handleAdminLogin() {
 	btn.innerHTML = '<span class="hw-spinner"></span>';
 
 	try {
-		const phoneClean = phone.replace(/-/g, '');
-		const phoneFormatted = phoneClean.length >= 7 ? phoneClean.slice(0,3) + '-' + phoneClean.slice(3,7) + '-' + phoneClean.slice(7) : phone;
+		// Supabase 이메일 로그인
+		const { data: authData, error: authError } = await db.auth.signInWithPassword({
+			email: email,
+			password: password
+		});
 
-		const { data: teachers, error } = await db
+		if (authError) throw new Error('로그인 실패: ' + authError.message);
+		if (!authData.user) throw new Error('로그인에 실패했습니다.');
+
+		adminUser = authData.user;
+
+		// 선생님 정보 조회
+		// 선생님 정보 조회 (owner_user_id = auth user id)
+		const { data: teacherList, error: tErr } = await db
 			.from('teachers')
 			.select('id, name, phone')
-			.eq('name', name)
-			.or(`phone.eq.${phoneClean},phone.eq.${phoneFormatted},phone.eq.${phone}`);
+			.eq('owner_user_id', adminUser.id)
+			.limit(1);
 
-		if (error) throw error;
+		if (tErr) throw tErr;
+		const teacher = (teacherList && teacherList.length > 0) ? teacherList[0] : null;
+		if (!teacher) throw new Error('등록된 선생님 계정이 아닙니다.');
 
-		if (!teachers || teachers.length === 0) {
-			alertEl.className = 'landing-alert show error';
-			alertEl.innerHTML = '<i class="fas fa-exclamation-circle"></i>일치하는 선생님을 찾을 수 없습니다.';
-			return;
-		}
-
-		adminTeacher = teachers[0];
+		adminTeacher = teacher;
 		isAdminMode = true;
+
 		closeAdminLoginModal();
-		updateAdminUI();
-		renderCalendar();
-		if (calSelectedDate) showDateDetail(calSelectedDate);
-		showToast(`관리자 모드 활성화 (${adminTeacher.name})`, 'success');
+		await loadAndShowAdminStudents();
 	} catch (err) {
 		alertEl.className = 'landing-alert show error';
-		alertEl.innerHTML = '<i class="fas fa-exclamation-circle"></i>오류: ' + err.message;
+		alertEl.innerHTML = '<i class="fas fa-exclamation-circle"></i>' + escapeHtml(err.message || '로그인에 실패했습니다.');
 	} finally {
 		btn.disabled = false;
 		btn.innerHTML = '<i class="fas fa-unlock"></i> 로그인';
 	}
 }
 
-function logoutAdmin() {
-	isAdminMode = false;
-	adminTeacher = null;
-	updateAdminUI();
-	renderCalendar();
-	if (calSelectedDate) showDateDetail(calSelectedDate);
-	showToast('관리자 모드가 해제되었습니다.', 'info');
+async function loadAndShowAdminStudents() {
+	try {
+		const { data: students, error } = await db
+			.from('students')
+			.select('id, name, school, grade, phone, teacher_id, student_code')
+			.eq('owner_user_id', adminUser.id)
+			.eq('status', 'active')
+			.order('name');
+
+		if (error) throw error;
+		adminStudents = students || [];
+
+		renderAdminStudentList();
+
+		// 페이지 전환
+		document.getElementById('page-landing').style.display = 'none';
+		document.getElementById('page-admin-students').style.display = 'block';
+		document.getElementById('admin-list-label').innerHTML = `<span class="admin-badge"><i class="fas fa-shield"></i> ${escapeHtml(adminTeacher.name)}</span>`;
+		window.scrollTo(0, 0);
+		showToast(`${escapeHtml(adminTeacher.name)} 선생님으로 로그인`, 'success');
+	} catch (err) {
+		showToast('학생 목록을 불러올 수 없습니다: ' + err.message, 'error');
+	}
 }
 
+function renderAdminStudentList() {
+	const listEl = document.getElementById('admin-student-list');
+
+	if (adminStudents.length === 0) {
+		listEl.innerHTML = `
+			<div style="text-align:center;padding:48px 20px;color:var(--gray);">
+				<i class="fas fa-users" style="font-size:32px;display:block;margin-bottom:12px;opacity:0.3;"></i>
+				등록된 학생이 없습니다
+			</div>`;
+		return;
+	}
+
+	listEl.innerHTML = adminStudents.map((s, i) => `
+		<div class="admin-student-item" onclick="selectAdminStudent(${i})">
+			<div class="admin-student-avatar">${escapeHtml(s.name.charAt(0))}</div>
+			<div class="admin-student-info">
+				<div class="admin-student-name">${escapeHtml(s.name)}</div>
+				<div class="admin-student-meta">${escapeHtml(s.grade || '')}${s.school ? ' · ' + escapeHtml(s.school) : ''}</div>
+			</div>
+			<i class="fas fa-chevron-right admin-student-arrow"></i>
+		</div>
+	`).join('');
+}
+
+async function selectAdminStudent(index) {
+	const student = adminStudents[index];
+	if (!student) return;
+
+	currentStudent = student;
+	adminEntryMode = 'studentList';
+
+	// 선생님 정보 = 관리자 자신
+	currentTeacher = {
+		id: adminTeacher.id,
+		name: adminTeacher.name,
+		google_drive_connected: true // 관리자는 Drive 연결 가정
+	};
+
+	// 실제 Drive 연결 상태 확인
+	try {
+		const { data: tData } = await db
+			.from('teachers')
+			.select('google_drive_connected')
+			.eq('id', adminTeacher.id)
+			.maybeSingle();
+		if (tData) currentTeacher.google_drive_connected = tData.google_drive_connected;
+	} catch(e) {}
+
+	// 학생 목록 숨기고 상태 페이지 표시
+	document.getElementById('page-admin-students').style.display = 'none';
+	showStatusPage(false);
+}
+
+function logoutAdmin() {
+	// 완전 로그아웃 (학생 목록 → 랜딩)
+	db.auth.signOut().catch(() => {});
+	isAdminMode = false;
+	adminTeacher = null;
+	adminUser = null;
+	adminStudents = [];
+	adminEntryMode = null;
+	currentStudent = null;
+	currentTeacher = null;
+	calSubmissions = [];
+	calSchedules = [];
+	calDateStatus = {};
+	calSelectedDate = null;
+
+	document.getElementById('page-admin-students').style.display = 'none';
+	document.getElementById('page-status').style.display = 'none';
+	document.getElementById('page-landing').style.display = 'flex';
+	clearPageState();
+	showToast('로그아웃되었습니다.', 'info');
+	window.scrollTo(0, 0);
+}
+
+
 function updateAdminUI() {
-	const btn = document.getElementById('admin-toggle-btn');
 	const label = document.getElementById('status-top-label');
 	if (isAdminMode) {
-		btn.classList.add('active');
 		label.innerHTML = '<span class="admin-badge"><i class="fas fa-shield"></i> 관리자</span>';
 	} else {
-		btn.classList.remove('active');
 		label.textContent = '제출 현황';
 	}
 }
@@ -1988,11 +2083,11 @@ async function executeAdminAction() {
 // ============================================================
 function showUploadPage(isRestore) {
 	document.getElementById('page-landing').style.display = 'none';
+	document.getElementById('page-admin-students').style.display = 'none';
 	document.getElementById('page-status').style.display = 'none';
 	document.getElementById('page-upload').style.display = 'block';
 
 	// 학생 정보 표시
-	document.getElementById('upload-avatar').textContent = currentStudent.name.charAt(0);
 	document.getElementById('upload-name').textContent = currentStudent.name;
 	document.getElementById('upload-grade').textContent = currentStudent.grade || '-';
 	document.getElementById('upload-teacher').textContent = currentTeacher ? currentTeacher.name + ' 선생님' : '미배정';
@@ -2107,7 +2202,7 @@ function updateFileUI() {
 		item.innerHTML = `
 			<div class="file-item-icon ${cls}"><i class="fas ${icon}"></i></div>
 			<div class="file-item-info">
-				<div class="file-item-name">${file.name}</div>
+				<div class="file-item-name">${escapeHtml(file.name)}</div>
 				<div class="file-item-size">${formatFileSize(file.size)}</div>
 			</div>
 			${thumbHtml}
@@ -2141,7 +2236,6 @@ function updateSubmitButton() {
 }
 
 // 드래그 앤 드롭
-const dropTargets = ['file-drop-zone', 'file-list-container'];
 document.addEventListener('DOMContentLoaded', function() {
 	const dropZone = document.getElementById('file-drop-zone');
 	
@@ -2255,10 +2349,15 @@ async function handleSubmit() {
 		progressBar.style.width = '90%';
 		progressPercent.textContent = '90%';
 
-		const result = await response.json();
+		let result;
+		try {
+			result = await response.json();
+		} catch {
+			throw new Error('서버 응답을 처리할 수 없습니다.');
+		}
 
 		if (!response.ok) {
-			throw new Error(result.error || '업로드에 실패했습니다.');
+			throw new Error(result?.error || '업로드에 실패했습니다.');
 		}
 
 		// 3단계: 완료
@@ -2300,14 +2399,20 @@ function showSuccessPage(fileName, fileSize) {
 function resetToLanding() {
 	document.getElementById('page-success').style.display = 'none';
 	document.getElementById('page-status').style.display = 'none';
+	document.getElementById('page-admin-students').style.display = 'none';
 	document.getElementById('page-landing').style.display = 'flex';
 
 	// 모든 상태 초기화
 	selectedFiles = [];
 	currentStudent = null;
 	currentTeacher = null;
-	document.getElementById('search-name').value = '';
-	document.getElementById('search-phone').value = '';
+	isAdminMode = false;
+	adminTeacher = null;
+	adminUser = null;
+	adminStudents = [];
+	adminEntryMode = null;
+	db.auth.signOut().catch(() => {});
+	document.getElementById('search-code').value = '';
 	hideAlert();
 	clearPageState();
 

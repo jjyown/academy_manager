@@ -10,22 +10,34 @@ const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_
 
 // ========== State ==========
 let currentStudent = null;
-let html5QrcodeScanner = null;
-let currentFacingMode = 'environment';
 let teacherAuthList = [];
 let authorizedTeacher = null;
 let pendingEvaluationSave = false;
 let currentTab = 'attendance';
 
+// ========== Admin State ==========
+let isAdminMode = false;
+let adminUser = null;
+let adminTeacher = null;
+let adminStudents = [];
+
+// ========== Attendance Calendar State ==========
+let attYear = new Date().getFullYear();
+let attMonth = new Date().getMonth(); // 0-indexed
+let attDateStatus = {}; // { dateStr: { status, records } }
+let attAllRecords = []; // raw records for the month
+let attSelectedDate = null;
+
+// ========== Homework State ==========
+let hwYear = new Date().getFullYear();
+let hwMonth = new Date().getMonth(); // 0-indexed
+let hwSubmissions = [];
+let hwSchedules = [];
+let hwDateStatus = {};
+let hwSelectedDate = null;
+let hwLoaded = false;
+
 // ========== Utilities ==========
-function normalizePhone(v) { return String(v || '').replace(/\D/g, ''); }
-function normalizeName(v) { return String(v || '').trim().toLowerCase(); }
-function formatPhone(v) {
-	const d = normalizePhone(v).slice(0, 11);
-	if (d.length <= 3) return d;
-	if (d.length <= 7) return `${d.slice(0,3)}-${d.slice(3)}`;
-	return `${d.slice(0,3)}-${d.slice(3,7)}-${d.slice(7)}`;
-}
 
 function showAlert(msg, type) {
 	const el = document.getElementById('landing-alert');
@@ -73,12 +85,17 @@ function getDayOfWeek(dateStr) {
 // ========== Page Navigation ==========
 function showDashboard() {
 	const landing = document.getElementById('page-landing');
+	const adminStudentsPage = document.getElementById('page-admin-students');
 	const dashboard = document.getElementById('page-dashboard');
-	landing.style.opacity = '0';
-	landing.style.transition = 'opacity 0.2s ease';
+	// 이전 페이지 숨기기
+	const prevPage = adminStudentsPage.style.display !== 'none' ? adminStudentsPage : landing;
+	prevPage.style.opacity = '0';
+	prevPage.style.transition = 'opacity 0.2s ease';
 	setTimeout(() => {
+		prevPage.style.display = 'none';
+		prevPage.style.opacity = '1';
 		landing.style.display = 'none';
-		landing.style.opacity = '1';
+		adminStudentsPage.style.display = 'none';
 		dashboard.style.display = 'block';
 		dashboard.style.opacity = '0';
 		dashboard.style.transition = 'opacity 0.3s ease';
@@ -88,19 +105,25 @@ function showDashboard() {
 }
 
 function goBackToLanding() {
-	const landing = document.getElementById('page-landing');
 	const dashboard = document.getElementById('page-dashboard');
 	dashboard.style.opacity = '0';
 	dashboard.style.transition = 'opacity 0.2s ease';
 	setTimeout(() => {
 		dashboard.style.display = 'none';
 		dashboard.style.opacity = '1';
-		landing.style.display = 'flex';
-		landing.style.opacity = '0';
-		landing.style.transition = 'opacity 0.3s ease';
-		requestAnimationFrame(() => { landing.style.opacity = '1'; });
+
+		// 관리자 모드에서 진입한 경우 → 학생 목록으로 돌아가기
+		if (isAdminMode) {
+			document.getElementById('page-admin-students').style.display = 'block';
+		} else {
+			const landing = document.getElementById('page-landing');
+			landing.style.display = 'flex';
+			landing.style.opacity = '0';
+			landing.style.transition = 'opacity 0.3s ease';
+			requestAnimationFrame(() => { landing.style.opacity = '1'; });
+		}
+
 		currentStudent = null;
-		// ★ sessionStorage에서 학생 정보 제거
 		sessionStorage.removeItem('pp_current_student');
 		window.scrollTo(0, 0);
 	}, 200);
@@ -117,21 +140,175 @@ function switchTab(tab) {
 	const tabPanel = document.getElementById(`tab-${tab}`);
 	if (tabBtn) tabBtn.classList.add('active');
 	if (tabPanel) tabPanel.classList.add('active');
+
+	// 숙제 탭 진입 시 데이터 로드
+	if (tab === 'homework' && !hwLoaded && currentStudent) {
+		hwYear = new Date().getFullYear();
+		hwMonth = new Date().getMonth();
+		hwSelectedDate = null;
+		loadHomeworkData();
+		hwLoaded = true;
+	}
 }
 window.switchTab = switchTab;
 
-// ========== Search ==========
-async function handleSearch() {
-	const name = document.getElementById('search-name').value.trim();
-	const phoneRaw = document.getElementById('search-phone').value.trim();
-	const phoneDigits = normalizePhone(phoneRaw);
+// ========== Admin Login ==========
+function escapeHtml(str) {
+	if (!str) return '';
+	return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
 
-	if (!name || !phoneRaw) {
-		showAlert('학생 이름과 전화번호를 모두 입력해주세요', 'info');
+function showAdminLoginModal() {
+	document.getElementById('admin-email').value = '';
+	document.getElementById('admin-password').value = '';
+	document.getElementById('admin-login-alert').className = 'landing-alert';
+	document.getElementById('admin-login-modal').classList.add('active');
+	setTimeout(() => document.getElementById('admin-email').focus(), 100);
+}
+window.showAdminLoginModal = showAdminLoginModal;
+
+function closeAdminLoginModal() {
+	document.getElementById('admin-login-modal').classList.remove('active');
+}
+window.closeAdminLoginModal = closeAdminLoginModal;
+
+async function handleAdminLogin() {
+	const email = document.getElementById('admin-email').value.trim();
+	const password = document.getElementById('admin-password').value;
+	const alertEl = document.getElementById('admin-login-alert');
+	const btn = document.getElementById('admin-login-btn');
+
+	if (!email || !password) {
+		alertEl.className = 'landing-alert show error';
+		alertEl.innerHTML = '<i class="fas fa-exclamation-circle"></i>이메일과 비밀번호를 모두 입력하세요.';
 		return;
 	}
-	if (phoneDigits.length < 8) {
-		showAlert('전화번호를 정확히 입력해주세요', 'info');
+
+	btn.disabled = true;
+	btn.innerHTML = '<div class="pp-spinner" style="width:20px;height:20px;border-width:2px;"></div>';
+
+	try {
+		const { data: authData, error: authError } = await supabaseClient.auth.signInWithPassword({
+			email: email,
+			password: password
+		});
+
+		if (authError) throw new Error('로그인 실패: ' + authError.message);
+		if (!authData.user) throw new Error('로그인에 실패했습니다.');
+
+		adminUser = authData.user;
+
+		// 선생님 정보 조회 (owner_user_id = auth user id)
+		const { data: teachers, error: tErr } = await supabaseClient
+			.from('teachers')
+			.select('id, name, phone')
+			.eq('owner_user_id', adminUser.id)
+			.limit(1);
+
+		const teacher = (teachers && teachers.length > 0) ? teachers[0] : null;
+
+		if (tErr) throw tErr;
+		if (!teacher) throw new Error('등록된 선생님 계정이 아닙니다.');
+
+		adminTeacher = teacher;
+		isAdminMode = true;
+		closeAdminLoginModal();
+		await loadAndShowAdminStudents();
+	} catch (err) {
+		alertEl.className = 'landing-alert show error';
+		alertEl.innerHTML = '<i class="fas fa-exclamation-circle"></i>' + escapeHtml(err.message || '로그인에 실패했습니다.');
+	} finally {
+		btn.disabled = false;
+		btn.innerHTML = '<i class="fas fa-unlock"></i> 로그인';
+	}
+}
+window.handleAdminLogin = handleAdminLogin;
+
+async function loadAndShowAdminStudents() {
+	try {
+		const { data: students, error } = await supabaseClient
+			.from('students')
+			.select('id, name, school, grade, phone, parent_phone, parent_code, owner_user_id, teacher_id')
+			.eq('owner_user_id', adminUser.id)
+			.eq('status', 'active')
+			.order('name');
+
+		if (error) throw error;
+		adminStudents = students || [];
+
+		renderAdminStudentList();
+
+		document.getElementById('page-landing').style.display = 'none';
+		document.getElementById('page-admin-students').style.display = 'block';
+		document.getElementById('admin-list-label').innerHTML =
+			'<span style="font-size:12px;font-weight:700;color:rgba(255,255,255,0.85);">' +
+			'<i class="fas fa-shield" style="margin-right:4px;"></i>' + escapeHtml(adminTeacher.name) + ' 선생님</span>';
+		window.scrollTo(0, 0);
+	} catch (err) {
+		console.error('학생 목록 오류:', err);
+		alert('학생 목록을 불러올 수 없습니다: ' + err.message);
+	}
+}
+
+function renderAdminStudentList() {
+	const listEl = document.getElementById('admin-student-list');
+
+	if (adminStudents.length === 0) {
+		listEl.innerHTML = '<div style="text-align:center;padding:48px 20px;color:var(--gray);"><i class="fas fa-users" style="font-size:32px;display:block;margin-bottom:12px;opacity:0.3;"></i>등록된 학생이 없습니다</div>';
+		return;
+	}
+
+	listEl.innerHTML = adminStudents.map((s, i) => `
+		<div class="admin-student-item" onclick="selectAdminStudent(${i})">
+			<div class="admin-student-avatar">${escapeHtml(s.name.charAt(0))}</div>
+			<div class="admin-student-info">
+				<div class="admin-student-name">${escapeHtml(s.name)}</div>
+				<div class="admin-student-meta">${escapeHtml(s.grade || '')}${s.school ? ' · ' + escapeHtml(s.school) : ''}</div>
+			</div>
+			<i class="fas fa-chevron-right admin-student-arrow"></i>
+		</div>
+	`).join('');
+}
+
+async function selectAdminStudent(index) {
+	const student = adminStudents[index];
+	if (!student) return;
+
+	currentStudent = student;
+	await initDashboard();
+}
+window.selectAdminStudent = selectAdminStudent;
+
+function logoutAdmin() {
+	supabaseClient.auth.signOut().catch(() => {});
+	isAdminMode = false;
+	adminUser = null;
+	adminTeacher = null;
+	adminStudents = [];
+	currentStudent = null;
+	sessionStorage.removeItem('pp_current_student');
+
+	document.getElementById('page-admin-students').style.display = 'none';
+	document.getElementById('page-dashboard').style.display = 'none';
+	document.getElementById('page-landing').style.display = 'flex';
+	window.scrollTo(0, 0);
+}
+window.logoutAdmin = logoutAdmin;
+
+// Enter 키 처리
+document.addEventListener('DOMContentLoaded', function() {
+	const pw = document.getElementById('admin-password');
+	if (pw) pw.addEventListener('keydown', function(e) { if (e.key === 'Enter') handleAdminLogin(); });
+	const em = document.getElementById('admin-email');
+	if (em) em.addEventListener('keydown', function(e) { if (e.key === 'Enter') document.getElementById('admin-password').focus(); });
+});
+
+// ========== Search (인증코드 방식) ==========
+async function handleSearch() {
+	const code = document.getElementById('search-code').value.trim();
+
+	if (!code) {
+		showAlert('인증코드를 입력해주세요', 'info');
 		return;
 	}
 
@@ -140,243 +317,54 @@ async function handleSearch() {
 	if (btn) { btn.disabled = true; btn.innerHTML = '<div class="pp-spinner" style="width:20px;height:20px;border-width:2px;"></div>'; }
 
 	try {
-		const nameKey = normalizeName(name);
-		let candidates = [];
-
-		// 1) 이름으로 조회
-		const { data: nameData, error: nameError } = await supabaseClient
+		const { data, error } = await supabaseClient
 			.from('students')
-			.select('id, name, school, grade, phone, parent_phone, parent_code, owner_user_id, teacher_id, qr_code_data')
-			.ilike('name', `%${name}%`);
-		if (nameError) throw nameError;
-		if (nameData?.length > 0) candidates = nameData;
+			.select('id, name, school, grade, phone, parent_phone, parent_code, owner_user_id, teacher_id')
+			.eq('parent_code', code)
+			.maybeSingle();
 
-		// 2) 이름 결과 없으면 전화번호로 보조 조회
-		if (candidates.length === 0) {
-			const formatted = formatPhone(phoneDigits);
-			const orQuery = [
-				`phone.ilike.%${phoneDigits}%`,
-				`parent_phone.ilike.%${phoneDigits}%`,
-				formatted ? `phone.ilike.%${formatted}%` : null,
-				formatted ? `parent_phone.ilike.%${formatted}%` : null
-			].filter(Boolean).join(',');
+		if (error) throw error;
 
-			const { data: phoneData, error: phoneError } = await supabaseClient
-				.from('students')
-			.select('id, name, school, grade, phone, parent_phone, parent_code, owner_user_id, teacher_id, qr_code_data')
-			.or(orQuery);
-			if (phoneError) throw phoneError;
-			if (phoneData?.length > 0) candidates = phoneData;
-		}
-
-		// 매칭
-		const matched = (candidates || []).find(s => {
-			const sName = normalizeName(s.name);
-			if (!sName.includes(nameKey)) return false;
-			const phones = [normalizePhone(s.phone), normalizePhone(s.parent_phone)].filter(Boolean);
-			return phones.some(p => p === phoneDigits || p.endsWith(phoneDigits) || phoneDigits.endsWith(p));
-		});
-
-		if (!matched) {
-			showAlert('학생 정보를 찾을 수 없습니다. 이름과 전화번호를 확인해주세요.', 'error');
+		if (!data) {
+			showAlert('유효하지 않은 인증코드입니다. 코드를 다시 확인해주세요.', 'error');
 			return;
 		}
 
-		currentStudent = matched;
+		currentStudent = data;
 		await initDashboard();
 	} catch (err) {
 		console.error('검색 오류:', err);
-		showAlert('검색 중 오류가 발생했습니다', 'error');
+		showAlert('조회 중 오류가 발생했습니다', 'error');
 	} finally {
-		if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-search"></i> 조회하기'; }
+		if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-right-to-bracket"></i> 조회하기'; }
 	}
 }
 window.handleSearch = handleSearch;
-
-// ========== QR Scanner ==========
-let currentQRMode = 'camera';
-let selectedQRFile = null;
-
-function openQRScanner() {
-	document.getElementById('qr-modal').classList.add('active');
-	switchQRMode('camera');
-}
-window.openQRScanner = openQRScanner;
-
-function closeQRScanner() {
-	document.getElementById('qr-modal').classList.remove('active');
-	stopQRScanner();
-	resetQRFilePanel();
-}
-window.closeQRScanner = closeQRScanner;
-
-function switchQRMode(mode) {
-	currentQRMode = mode;
-	// 탭 활성화
-	document.getElementById('qr-tab-camera').classList.toggle('active', mode === 'camera');
-	document.getElementById('qr-tab-image').classList.toggle('active', mode === 'image');
-	// 패널 전환
-	document.getElementById('qr-camera-panel').style.display = mode === 'camera' ? '' : 'none';
-	document.getElementById('qr-image-panel').style.display = mode === 'image' ? '' : 'none';
-
-	if (mode === 'camera') {
-		startQRScanner();
-	} else {
-		stopQRScanner();
-	}
-}
-window.switchQRMode = switchQRMode;
-
-async function startQRScanner() {
-	if (html5QrcodeScanner) { try { await html5QrcodeScanner.stop(); } catch(e){} html5QrcodeScanner = null; }
-	try {
-		html5QrcodeScanner = new Html5Qrcode('qr-reader');
-		await html5QrcodeScanner.start(
-			{ facingMode: currentFacingMode },
-			{ fps: 10, qrbox: { width: 250, height: 250 } },
-			onQRSuccess, () => {}
-		);
-	} catch(e) {
-		console.error('QR 스캔 오류:', e);
-		ppShowToast('카메라를 사용할 수 없습니다', 'error');
-	}
-}
-
-function stopQRScanner() {
-	if (html5QrcodeScanner) {
-		html5QrcodeScanner.stop().catch(()=>{});
-		html5QrcodeScanner = null;
-	}
-}
-
-function toggleCamera() {
-	currentFacingMode = currentFacingMode === 'environment' ? 'user' : 'environment';
-	startQRScanner();
-}
-window.toggleCamera = toggleCamera;
-
-// ========== QR 이미지 파일 스캔 ==========
-function resetQRFilePanel() {
-	selectedQRFile = null;
-	const fileInput = document.getElementById('qr-file-input');
-	if (fileInput) fileInput.value = '';
-	const preview = document.getElementById('qr-preview-area');
-	const dropContent = document.getElementById('qr-drop-content');
-	const scanBtn = document.getElementById('qr-scan-file-btn');
-	const status = document.getElementById('qr-file-status');
-	if (preview) preview.style.display = 'none';
-	if (dropContent) dropContent.style.display = '';
-	if (scanBtn) scanBtn.style.display = 'none';
-	if (status) status.style.display = 'none';
-}
-
-function handleQRFileSelect(event) {
-	const file = event.target.files?.[0];
-	if (!file) return;
-	if (!file.type.startsWith('image/')) {
-		ppShowToast('이미지 파일만 선택 가능합니다', 'error');
-		return;
-	}
-
-	selectedQRFile = file;
-	showQRFilePreview(file);
-
-	// 이미지 선택 즉시 자동 스캔 시작
-	scanQRFromFile();
-}
-window.handleQRFileSelect = handleQRFileSelect;
-
-function showQRFilePreview(file) {
-	const reader = new FileReader();
-	reader.onload = function(e) {
-		const img = document.getElementById('qr-preview-img');
-		const previewArea = document.getElementById('qr-preview-area');
-		const dropContent = document.getElementById('qr-drop-content');
-		const scanBtn = document.getElementById('qr-scan-file-btn');
-
-		if (img) img.src = e.target.result;
-		if (previewArea) previewArea.style.display = 'block';
-		if (dropContent) dropContent.style.display = 'none';
-		if (scanBtn) scanBtn.style.display = '';
-	};
-	reader.readAsDataURL(file);
-}
-
-async function scanQRFromFile() {
-	if (!selectedQRFile) {
-		ppShowToast('이미지를 먼저 선택해주세요', 'info');
-		return;
-	}
-
-	const statusEl = document.getElementById('qr-file-status');
-	statusEl.style.display = 'flex';
-	statusEl.className = 'qr-file-status processing';
-	statusEl.innerHTML = '<div class="pp-spinner" style="width:18px;height:18px;border-width:2px;flex-shrink:0;"></div> QR 코드 인식 중...';
-
-	try {
-		// html5-qrcode의 scanFile 메서드 사용
-		const scanner = new Html5Qrcode('qr-file-scan-temp');
-		const decoded = await scanner.scanFile(selectedQRFile, /* showImage */ false);
-		try { scanner.clear(); } catch(_) {}
-
-		statusEl.className = 'qr-file-status success';
-		statusEl.innerHTML = '<i class="fas fa-check-circle"></i> QR 코드 인식 성공! 학생 정보를 조회합니다...';
-
-		// 인식 성공 → 기존 QR 처리 로직 호출
-		await onQRSuccess(decoded);
-	} catch(e) {
-		console.error('QR 이미지 인식 오류:', e);
-		statusEl.className = 'qr-file-status error';
-		statusEl.innerHTML = '<i class="fas fa-exclamation-triangle"></i> QR 코드를 인식할 수 없습니다. 다른 이미지를 시도해주세요.';
-	}
-}
-window.scanQRFromFile = scanQRFromFile;
-
-async function onQRSuccess(decoded) {
-	const match = decoded.match(/STUDENT_(\d+)_/);
-	if (!match) { ppShowToast('유효한 QR 코드가 아닙니다', 'error'); return; }
-
-	const studentId = match[1];
-	const token = decoded.split('_').slice(2).join('_');
-
-	try {
-		const { data: student, error } = await supabaseClient
-			.from('students')
-			.select('id, name, school, grade, phone, parent_phone, parent_code, owner_user_id, teacher_id, qr_code_data')
-			.eq('id', studentId)
-			.maybeSingle();
-		if (error) throw error;
-		if (!student) { ppShowToast('등록되지 않은 학생입니다', 'error'); return; }
-		if (student.qr_code_data && token && student.qr_code_data !== token) {
-			ppShowToast('유효하지 않은 QR 코드입니다', 'error'); return;
-		}
-
-		currentStudent = student;
-		closeQRScanner();
-		await initDashboard();
-		ppShowToast(`${student.name} 학생 조회 완료`, 'success');
-	} catch(e) {
-		console.error('QR 처리 오류:', e);
-		ppShowToast('QR 처리 중 오류가 발생했습니다', 'error');
-	}
-}
 
 // ========== Dashboard Init ==========
 async function initDashboard() {
 	if (!currentStudent) return;
 
-	// ★ sessionStorage에 학생 정보 저장 (새로고침 시 복원용)
-	try {
-		sessionStorage.setItem('pp_current_student', JSON.stringify(currentStudent));
-	} catch (e) { /* 무시 */ }
+	// ★ sessionStorage에 학생 정보 저장 (새로고침 시 복원용) — 관리자 모드에서는 저장하지 않음
+	if (!isAdminMode) {
+		try {
+			sessionStorage.setItem('pp_current_student', JSON.stringify(currentStudent));
+		} catch (e) { /* 무시 */ }
+	}
+
+	// 출결/숙제 탭 초기화 (학생 변경 시 다시 로드)
+	attYear = new Date().getFullYear();
+	attMonth = new Date().getMonth();
+	attSelectedDate = null;
+	hwLoaded = false;
+	hwSelectedDate = null;
 
 	// Update header
-	document.getElementById('dash-avatar').textContent = (currentStudent.name || '?').charAt(0);
 	document.getElementById('dash-name').textContent = currentStudent.name;
 	document.getElementById('dash-grade').textContent = currentStudent.grade || '-';
 	document.getElementById('dash-school').textContent = currentStudent.school || '-';
 
-	// Set month selectors
+	// Set month selectors (eval용)
 	const monthStr = getCurrentMonthStr();
 	document.getElementById('month-selector').value = monthStr;
 	document.getElementById('eval-month-selector').value = monthStr;
@@ -387,7 +375,7 @@ async function initDashboard() {
 	switchTab('attendance');
 	await Promise.all([
 		loadQuickStats(),
-		loadMonthlyAttendance(monthStr),
+		loadMonthlyAttendance(),
 		loadEvaluationState(monthStr)
 	]);
 }
@@ -429,286 +417,267 @@ async function loadQuickStats() {
 	} catch(e) { console.error('통계 오류:', e); }
 }
 
-// ========== Monthly Attendance ==========
-async function loadMonthlyAttendance(monthStr) {
+// ========== Monthly Attendance (Calendar) ==========
+async function loadMonthlyAttendance() {
 	if (!currentStudent) return;
-	// 선생님 목록이 아직 로드 안됐으면 대기 (호버 툴팁에 이름 필요)
 	if (teacherAuthList.length === 0) {
 		try { await loadTeacherAuthList(); } catch(e) { /* 무시 */ }
 	}
-	const listEl = document.getElementById('att-list');
-	// 스켈레톤 로딩
-	let skeletonHtml = '';
-	for (let i = 0; i < 4; i++) {
-		skeletonHtml += `<div class="skeleton-row">
-			<div style="min-width:52px;"><div class="skeleton-block" style="width:32px;height:22px;margin-bottom:4px;"></div><div class="skeleton-block" style="width:40px;height:12px;"></div></div>
-			<div style="flex:1;"><div class="skeleton-block" style="width:80px;height:14px;margin-bottom:4px;"></div><div class="skeleton-block" style="width:120px;height:10px;"></div></div>
-			<div class="skeleton-block" style="width:52px;height:24px;border-radius:20px;"></div>
-		</div>`;
-	}
-	listEl.innerHTML = skeletonHtml;
+
+	const year = attYear;
+	const month = attMonth; // 0-indexed
+	const monthNum = month + 1;
+	const lastDay = new Date(year, monthNum, 0).getDate();
+	const startDate = `${year}-${String(monthNum).padStart(2,'0')}-01`;
+	const endDate = `${year}-${String(monthNum).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`;
+
+	// 월 라벨 업데이트
+	const label = document.getElementById('att-month-label');
+	if (label) label.textContent = `${year}년 ${monthNum}월`;
+
+	// hidden month-selector 동기화 (eval 등에서 사용)
+	const sel = document.getElementById('month-selector');
+	if (sel) sel.value = `${year}-${String(monthNum).padStart(2,'0')}`;
 
 	try {
-		const [year, month] = monthStr.split('-');
-		const startDate = `${year}-${month}-01`;
-		const lastDay = new Date(year, month, 0).getDate();
-		const endDate = `${year}-${month}-${lastDay}`;
-
 		const { data: records, error } = await supabaseClient
 			.from('attendance_records')
-			.select('id, student_id, teacher_id, attendance_date, status, scheduled_time, check_in_time, qr_scanned, qr_scan_time, memo, shared_memo')
+			.select('id, student_id, teacher_id, attendance_date, status, scheduled_time, check_in_time, qr_scanned, qr_scan_time, memo')
 			.eq('student_id', String(currentStudent.id))
 			.gte('attendance_date', startDate)
 			.lte('attendance_date', endDate)
 			.order('attendance_date', { ascending: false });
 		if (error) throw error;
 
-		// 날짜별 그룹
-		const byDate = new Map();
-		(records || []).forEach(r => {
-			const key = r.attendance_date;
-			if (!byDate.has(key)) byDate.set(key, []);
-			byDate.get(key).push(r);
-		});
-
-		// 월 통계 계산
-		const stats = { present: 0, late: 0, absent: 0, total: 0 };
-		const dateKeys = Array.from(byDate.keys()).sort((a, b) => b.localeCompare(a));
-
-		dateKeys.forEach(dateKey => {
-			const recs = byDate.get(dateKey);
-			// 담당 선생님 기록 우선
-			const primaryTid = currentStudent.teacher_id ? String(currentStudent.teacher_id) : '';
-			const primary = recs.find(r => primaryTid && String(r.teacher_id) === primaryTid);
-			const display = primary || recs[0];
-			if (!display) return;
-
-			stats.total++;
-			if (display.status === 'present' || display.status === 'makeup' || display.status === 'etc') stats.present++;
-			else if (display.status === 'late') stats.late++;
-			else stats.absent++;
-		});
-
-		const rate = stats.total > 0 ? Math.round((stats.present / stats.total) * 100) : 0;
-		document.getElementById('ms-rate').textContent = `${rate}%`;
-		document.getElementById('ms-present').textContent = stats.present;
-		document.getElementById('ms-late').textContent = stats.late;
-		document.getElementById('ms-absent').textContent = stats.absent;
-
-		// Render list
-		if (dateKeys.length === 0) {
-			listEl.innerHTML = `<div class="att-empty"><i class="fas fa-calendar-xmark"></i>${year}년 ${parseInt(month)}월 출결 기록이 없습니다</div>`;
-			return;
-		}
-
-		// 선생님 이름 매핑 함수
-		function getTeacherName(tid) {
-			if (!tid) return '알 수 없음';
-			const t = teacherAuthList.find(x => String(x.id) === String(tid));
-			return t ? t.name : '선생님';
-		}
-
-		let html = '';
-		dateKeys.forEach(dateKey => {
-			const recs = byDate.get(dateKey);
-			const primaryTid = currentStudent.teacher_id ? String(currentStudent.teacher_id) : '';
-			const primary = recs.find(r => primaryTid && String(r.teacher_id) === primaryTid);
-			const display = primary || recs[0];
-			if (!display) return;
-
-			const d = new Date(dateKey);
-			const dayNum = d.getDate();
-			const dow = getDayOfWeek(dateKey);
-			const dayOfWeek = d.getDay(); // 0=일, 6=토
-			const dowClass = dayOfWeek === 0 ? ' dow-sun' : dayOfWeek === 6 ? ' dow-sat' : '';
-			const time = getTimeLabel(display);
-			const si = getStatusInfo(display.status);
-			const stClass = si.cls === 'present' ? 'st-present' : si.cls === 'late' ? 'st-late' : si.cls === 'absent' ? 'st-absent' : 'st-makeup';
-			const memo = display.shared_memo ? display.shared_memo.substring(0, 30) : '';
-
-			// ★ QR 스캔 시간 표시
-			let qrLabel = '';
-			if (display.qr_scanned && display.qr_scan_time) {
-				const scanTime = new Date(display.qr_scan_time).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
-				qrLabel = `<div class="att-qr-tag"><i class="fas fa-qrcode"></i> ${scanTime} 스캔</div>`;
-			}
-
-			// ★ 같은 날짜에 다른 선생님 기록이 있으면 호버 툴팁 생성
-			const otherRecs = recs.filter(r => r !== display);
-			const hasMultiple = otherRecs.length > 0;
-			let tooltipHtml = '';
-			if (hasMultiple) {
-				const displayTName = getTeacherName(display.teacher_id);
-				const displayTime = getTimeLabel(display);
-				const displaySi = getStatusInfo(display.status);
-				let items = `<div class="pp-tooltip-item pp-tooltip-primary"><span class="pp-tooltip-name primary">${displayTName}</span><span class="pp-tooltip-time">${displayTime}</span><span class="pp-tooltip-badge" style="background:${displaySi.cls === 'present' ? '#10b981' : displaySi.cls === 'late' ? '#f59e0b' : displaySi.cls === 'absent' ? '#ef4444' : '#8b5cf6'}">${displaySi.text}</span></div>`;
-
-				otherRecs.forEach(r => {
-					const tName = getTeacherName(r.teacher_id);
-					const tTime = getTimeLabel(r);
-					const tSi = getStatusInfo(r.status);
-					items += `<div class="pp-tooltip-item"><span class="pp-tooltip-name">${tName}</span><span class="pp-tooltip-time">${tTime}</span><span class="pp-tooltip-badge" style="background:${tSi.cls === 'present' ? '#10b981' : tSi.cls === 'late' ? '#f59e0b' : tSi.cls === 'absent' ? '#ef4444' : '#8b5cf6'}">${tSi.text}</span></div>`;
-				});
-
-				const shortDate = `${d.getMonth()+1}/${dayNum}`;
-				tooltipHtml = `<div class="pp-att-tooltip">\n<div class="pp-tooltip-header">${shortDate} 전체 일정</div>\n${items}\n<div class="pp-tooltip-arrow"></div>\n</div>`;
-			}
-
-			html += `<div class="att-day ${stClass}${hasMultiple ? ' has-tooltip' : ''}">
-				${tooltipHtml}
-				<div class="att-date-col">
-					<div class="att-date-num">${dayNum}</div>
-					<div class="att-date-dow${dowClass}">${dow}요일</div>
-				</div>
-				<div class="att-mid">
-					<div class="att-time">${time}</div>
-					${qrLabel}
-					${memo ? `<div class="att-memo-preview"><i class="fas fa-comment" style="font-size:9px;margin-right:3px;opacity:0.5;"></i>${memo}${display.shared_memo.length > 30 ? '...' : ''}</div>` : ''}
-				</div>
-				<div class="att-badge ${si.cls}">${si.icon} ${si.text}</div>
-			</div>`;
-		});
-
-		listEl.innerHTML = html;
-
-		// ★ 호버/터치 이벤트로 툴팁 표시
-		listEl.querySelectorAll('.att-day.has-tooltip').forEach(row => {
-			const tooltip = row.querySelector('.pp-att-tooltip');
-			if (!tooltip) return;
-			row.addEventListener('mouseenter', () => { tooltip.style.display = 'block'; });
-			row.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
-			row.addEventListener('click', (e) => {
-				if (e.target.closest('select')) return;
-				e.stopPropagation();
-				const isVisible = tooltip.style.display === 'block';
-				// 다른 툴팁 모두 닫기
-				listEl.querySelectorAll('.pp-att-tooltip').forEach(t => { t.style.display = 'none'; });
-				tooltip.style.display = isVisible ? 'none' : 'block';
-			});
-		});
-		// 외부 클릭 시 툴팁 닫기 (한 번만 등록)
-		if (!listEl._tooltipCloseRegistered) {
-			document.addEventListener('click', () => {
-				document.querySelectorAll('.pp-att-tooltip').forEach(t => { t.style.display = 'none'; });
-			});
-			listEl._tooltipCloseRegistered = true;
-		}
+		attAllRecords = records || [];
 	} catch(e) {
 		console.error('출결 조회 오류:', e);
-		listEl.innerHTML = '<div class="att-empty"><i class="fas fa-exclamation-triangle"></i>출결 기록을 불러올 수 없습니다</div>';
+		attAllRecords = [];
 	}
+
+	computeAttDateStatuses();
+	renderAttCalendar();
+	updateAttStats();
+
+	if (attSelectedDate) {
+		showAttDateDetail(attSelectedDate);
+	} else {
+		const detailCard = document.getElementById('att-detail-card');
+		if (detailCard) detailCard.style.display = 'none';
+	}
+}
+
+function getAttTeacherName(tid) {
+	if (!tid) return '알 수 없음';
+	const t = teacherAuthList.find(x => String(x.id) === String(tid));
+	return t ? t.name : '선생님';
+}
+
+function computeAttDateStatuses() {
+	attDateStatus = {};
+	const primaryTid = currentStudent.teacher_id ? String(currentStudent.teacher_id) : '';
+
+	// 날짜별 그룹
+	const byDate = {};
+	attAllRecords.forEach(r => {
+		const key = r.attendance_date;
+		if (!byDate[key]) byDate[key] = [];
+		byDate[key].push(r);
+	});
+
+	const lastDay = new Date(attYear, attMonth + 1, 0);
+	for (let d = 1; d <= lastDay.getDate(); d++) {
+		const dateStr = `${attYear}-${String(attMonth + 1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+		const recs = byDate[dateStr] || [];
+
+		if (recs.length === 0) {
+			attDateStatus[dateStr] = { status: 'none', records: [] };
+			continue;
+		}
+
+		// 담당 선생님 기록 우선
+		const primary = recs.find(r => primaryTid && String(r.teacher_id) === primaryTid);
+		const display = primary || recs[0];
+		attDateStatus[dateStr] = { status: display.status, records: recs, display };
+	}
+}
+
+function renderAttCalendar() {
+	const grid = document.getElementById('att-cal-grid');
+	if (!grid) return;
+
+	const dowCells = grid.querySelectorAll('.hw-cal-dow');
+	grid.innerHTML = '';
+	dowCells.forEach(c => grid.appendChild(c));
+
+	const year = attYear;
+	const month = attMonth;
+	const firstDay = new Date(year, month, 1);
+	const lastDay = new Date(year, month + 1, 0);
+	const today = new Date();
+	const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+
+	const startDow = firstDay.getDay();
+	for (let i = 0; i < startDow; i++) {
+		const cell = document.createElement('div');
+		cell.className = 'hw-cal-cell empty';
+		grid.appendChild(cell);
+	}
+
+	for (let d = 1; d <= lastDay.getDate(); d++) {
+		const dateStr = `${year}-${String(month + 1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+		const dow = new Date(year, month, d).getDay();
+		const cell = document.createElement('div');
+		let cls = 'hw-cal-cell';
+
+		if (dateStr === todayStr) cls += ' today';
+		if (attSelectedDate === dateStr) cls += ' selected';
+
+		const cellDate = new Date(year, month, d);
+		const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+		const isFuture = cellDate > todayMidnight;
+		if (isFuture) cls += ' future';
+
+		if (dow === 0) cls += ' sun-day';
+		if (dow === 6) cls += ' sat-day';
+
+		// 출결 상태 클래스
+		const ds = attDateStatus[dateStr];
+		if (ds && ds.status !== 'none') {
+			if (ds.status === 'present') cls += ' att-present';
+			else if (ds.status === 'late') cls += ' att-late';
+			else if (ds.status === 'absent') cls += ' att-absent';
+			else if (ds.status === 'makeup' || ds.status === 'etc') cls += ' att-makeup';
+		}
+
+		cell.className = cls;
+		cell.textContent = d;
+
+		if (!isFuture && ds && ds.status !== 'none') {
+			cell.style.cursor = 'pointer';
+			cell.onclick = () => selectAttDate(dateStr);
+		} else if (!isFuture) {
+			cell.onclick = () => selectAttDate(dateStr);
+		}
+
+		grid.appendChild(cell);
+	}
+}
+
+function updateAttStats() {
+	let presentCount = 0, lateCount = 0, absentCount = 0, totalCount = 0;
+
+	Object.values(attDateStatus).forEach(ds => {
+		if (ds.status === 'none') return;
+		totalCount++;
+		if (ds.status === 'present' || ds.status === 'makeup' || ds.status === 'etc') presentCount++;
+		else if (ds.status === 'late') lateCount++;
+		else absentCount++;
+	});
+
+	const rate = totalCount > 0 ? Math.round((presentCount / totalCount) * 100) : 0;
+	const el = id => document.getElementById(id);
+	if (el('ms-rate')) el('ms-rate').textContent = `${rate}%`;
+	if (el('ms-present')) el('ms-present').textContent = presentCount;
+	if (el('ms-late')) el('ms-late').textContent = lateCount;
+	if (el('ms-absent')) el('ms-absent').textContent = absentCount;
+}
+
+function selectAttDate(dateStr) {
+	attSelectedDate = dateStr;
+	renderAttCalendar();
+	showAttDateDetail(dateStr);
+}
+
+function showAttDateDetail(dateStr) {
+	const detailCard = document.getElementById('att-detail-card');
+	const titleEl = document.getElementById('att-detail-title');
+	const bodyEl = document.getElementById('att-detail-body');
+	if (!detailCard || !bodyEl) return;
+
+	const parts = dateStr.split('-');
+	const dayNames = ['일','월','화','수','목','금','토'];
+	const dayOfWeek = new Date(parseInt(parts[0]), parseInt(parts[1])-1, parseInt(parts[2])).getDay();
+	if (titleEl) titleEl.innerHTML = `<i class="fas fa-clipboard-list"></i><span>${parseInt(parts[0])}년 ${parseInt(parts[1])}월 ${parseInt(parts[2])}일 (${dayNames[dayOfWeek]})</span>`;
+
+	const ds = attDateStatus[dateStr] || { status: 'none', records: [] };
+	bodyEl.innerHTML = '';
+
+	if (!ds.records || ds.records.length === 0) {
+		detailCard.style.display = 'block';
+		bodyEl.innerHTML = '<div class="hw-detail-empty"><i class="fas fa-calendar-xmark"></i>이 날짜에 출결 기록이 없습니다</div>';
+		return;
+	}
+
+	detailCard.style.display = 'block';
+
+	// 기록이 여러개일 수 있으므로 모두 표시
+	ds.records.forEach(rec => {
+		const si = getStatusInfo(rec.status);
+		const stClass = si.cls === 'present' ? 'st-present' : si.cls === 'late' ? 'st-late' : si.cls === 'absent' ? 'st-absent' : 'st-makeup';
+
+		const item = document.createElement('div');
+		item.className = `att-detail-item ${stClass}`;
+
+		const iconBg = si.cls === 'present' ? 'var(--green-bg)' : si.cls === 'late' ? 'var(--yellow-bg)' : si.cls === 'absent' ? 'var(--red-bg)' : 'var(--teal-bg)';
+		const iconColor = si.cls === 'present' ? 'var(--green)' : si.cls === 'late' ? 'var(--yellow)' : si.cls === 'absent' ? 'var(--red)' : 'var(--teal)';
+
+		let metaParts = [];
+		// 예정 시간
+		if (rec.scheduled_time) {
+			metaParts.push(`<span><i class="fas fa-clock"></i>수업 ${formatKoreanTime(rec.scheduled_time)}</span>`);
+		}
+		// QR 스캔 또는 선생님 확인
+		if (rec.qr_scanned && rec.qr_scan_time) {
+			const scanTime = new Date(rec.qr_scan_time).toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit' });
+			metaParts.push(`<span style="color:var(--teal);"><i class="fas fa-qrcode"></i>QR 스캔 ${scanTime}</span>`);
+		} else if (rec.check_in_time && !rec.qr_scanned) {
+			const ct = new Date(rec.check_in_time);
+			const checkStr = ct.toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit' });
+			metaParts.push(`<span style="color:var(--primary);"><i class="fas fa-user-check"></i>선생님 확인 ${checkStr}</span>`);
+		}
+		// 선생님 이름
+		const tName = getAttTeacherName(rec.teacher_id);
+		const teacherLabel = `<span class="att-teacher-label"><i class="fas fa-chalkboard-user"></i>${tName}</span>`;
+
+		item.innerHTML = `
+			<div class="att-detail-icon" style="background:${iconBg};color:${iconColor};">
+				<span>${si.icon}</span>
+			</div>
+			<div class="att-detail-info">
+				<div class="att-detail-status">
+					<span style="color:${iconColor};">${si.text}</span>
+					${teacherLabel}
+				</div>
+				<div class="att-detail-meta">${metaParts.join('')}</div>
+			</div>
+		`;
+		bodyEl.appendChild(item);
+	});
 }
 
 // ========== Month Navigation (Attendance) ==========
 function handleMonthChange() {
-	const v = document.getElementById('month-selector').value;
-	if (v && currentStudent) loadMonthlyAttendance(v);
+	// 이제 attYear/attMonth 기반으로 동작
+	if (currentStudent) loadMonthlyAttendance();
 }
 window.handleMonthChange = handleMonthChange;
 
 function handlePrevMonth() {
-	const el = document.getElementById('month-selector');
-	const [y, m] = el.value.split('-').map(Number);
-	let pm = m - 1, py = y;
-	if (pm < 1) { pm = 12; py--; }
-	el.value = `${py}-${String(pm).padStart(2,'0')}`;
-	handleMonthChange();
+	attMonth--;
+	if (attMonth < 0) { attMonth = 11; attYear--; }
+	attSelectedDate = null;
+	loadMonthlyAttendance();
 }
 window.handlePrevMonth = handlePrevMonth;
 
 function handleNextMonth() {
-	const el = document.getElementById('month-selector');
-	const [y, m] = el.value.split('-').map(Number);
-	let nm = m + 1, ny = y;
-	if (nm > 12) { nm = 1; ny++; }
-	el.value = `${ny}-${String(nm).padStart(2,'0')}`;
-	handleMonthChange();
+	attMonth++;
+	if (attMonth > 11) { attMonth = 0; attYear++; }
+	attSelectedDate = null;
+	loadMonthlyAttendance();
 }
 window.handleNextMonth = handleNextMonth;
-
-// ========== Memos ==========
-async function loadMemos(monthStr) {
-	if (!currentStudent) return;
-	const listEl = document.getElementById('memo-list');
-	let memoSkel = '';
-	for (let i = 0; i < 3; i++) {
-		memoSkel += `<div style="padding:16px;background:var(--bg-elevated);border-radius:12px;border-left:3px solid var(--border);">
-			<div style="display:flex;justify-content:space-between;margin-bottom:10px;"><div class="skeleton-block" style="width:100px;height:14px;"></div><div class="skeleton-block" style="width:40px;height:18px;border-radius:6px;"></div></div>
-			<div class="skeleton-block" style="width:100%;height:12px;margin-bottom:6px;"></div>
-			<div class="skeleton-block" style="width:70%;height:12px;"></div>
-		</div>`;
-	}
-	listEl.innerHTML = memoSkel;
-
-	try {
-		const [year, month] = monthStr.split('-');
-		const startDate = `${year}-${month}-01`;
-		const lastDay = new Date(year, month, 0).getDate();
-		const endDate = `${year}-${month}-${lastDay}`;
-
-		const { data, error } = await supabaseClient
-			.from('attendance_records')
-			.select('attendance_date, status, scheduled_time, shared_memo, teacher_id')
-			.eq('student_id', String(currentStudent.id))
-			.gte('attendance_date', startDate)
-			.lte('attendance_date', endDate)
-			.order('attendance_date', { ascending: false });
-		if (error) throw error;
-
-		// shared_memo가 있는 기록만 필터
-		const withMemo = (data || []).filter(r => r.shared_memo && r.shared_memo.trim());
-
-		if (withMemo.length === 0) {
-			listEl.innerHTML = `<div class="memo-empty"><i class="fas fa-sticky-note"></i>${year}년 ${parseInt(month)}월 수업 메모가 없습니다</div>`;
-			return;
-		}
-
-		let html = '';
-		withMemo.forEach(r => {
-			const d = new Date(r.attendance_date);
-			const dateLabel = `${d.getMonth()+1}/${d.getDate()} (${getDayOfWeek(r.attendance_date)})`;
-			const si = getStatusInfo(r.status);
-			const time = r.scheduled_time ? formatKoreanTime(r.scheduled_time) : '';
-
-			html += `<div class="memo-card">
-				<div class="memo-card-header">
-					<span class="memo-card-date"><i class="fas fa-calendar-day"></i>${dateLabel}${time ? ' ' + time : ''}</span>
-					<span class="memo-card-badge att-badge ${si.cls}" style="font-size:10px;padding:2px 8px;">${si.text}</span>
-				</div>
-				<div class="memo-card-text">${r.shared_memo}</div>
-			</div>`;
-		});
-
-		listEl.innerHTML = html;
-	} catch(e) {
-		console.error('메모 조회 오류:', e);
-		listEl.innerHTML = '<div class="memo-empty"><i class="fas fa-exclamation-triangle"></i>메모를 불러올 수 없습니다</div>';
-	}
-}
-
-function handleMemoMonthChange() {
-	const v = document.getElementById('memo-month-selector').value;
-	if (v && currentStudent) loadMemos(v);
-}
-window.handleMemoMonthChange = handleMemoMonthChange;
-
-function handlePrevMonthMemo() {
-	const el = document.getElementById('memo-month-selector');
-	const [y, m] = el.value.split('-').map(Number);
-	let pm = m-1, py = y; if(pm<1){pm=12;py--;}
-	el.value = `${py}-${String(pm).padStart(2,'0')}`;
-	handleMemoMonthChange();
-}
-window.handlePrevMonthMemo = handlePrevMonthMemo;
-
-function handleNextMonthMemo() {
-	const el = document.getElementById('memo-month-selector');
-	const [y, m] = el.value.split('-').map(Number);
-	let nm = m+1, ny = y; if(nm>12){nm=1;ny++;}
-	el.value = `${ny}-${String(nm).padStart(2,'0')}`;
-	handleMemoMonthChange();
-}
-window.handleNextMonthMemo = handleNextMonthMemo;
 
 // ========== Evaluation ==========
 function isParentVerified() {
@@ -1008,6 +977,336 @@ async function resetEvaluation() {
 }
 window.resetEvaluation = resetEvaluation;
 
+// ========== Homework Functions ==========
+
+function formatFileSize(bytes) {
+	if (!bytes || bytes === 0) return '0 B';
+	const units = ['B', 'KB', 'MB', 'GB'];
+	let i = 0;
+	let size = bytes;
+	while (size >= 1024 && i < units.length - 1) { size /= 1024; i++; }
+	return size.toFixed(i === 0 ? 0 : 1) + ' ' + units[i];
+}
+
+async function loadHomeworkData() {
+	if (!currentStudent) return;
+
+	const year = hwYear;
+	const month = hwMonth;
+	const lastDay = new Date(year, month + 1, 0);
+
+	const startDate = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+	const endDate = `${year}-${String(month + 1).padStart(2, '0')}-${String(lastDay.getDate()).padStart(2, '0')}`;
+
+	// 월 라벨 업데이트
+	const label = document.getElementById('hw-month-label');
+	if (label) label.textContent = `${year}년 ${month + 1}월`;
+
+	try {
+		const subPromise = supabaseClient
+			.from('homework_submissions')
+			.select('id, submission_date, file_name, file_size, status, created_at')
+			.eq('student_id', currentStudent.id)
+			.gte('submission_date', startDate)
+			.lte('submission_date', endDate)
+			.in('status', ['uploaded', 'manual'])
+			.order('created_at', { ascending: false });
+
+		const schedPromise = supabaseClient
+			.from('schedules')
+			.select('schedule_date, start_time')
+			.eq('student_id', currentStudent.id)
+			.gte('schedule_date', startDate)
+			.lte('schedule_date', endDate);
+
+		const [subResult, schedResult] = await Promise.all([subPromise, schedPromise]);
+
+		hwSubmissions = (subResult.error ? [] : subResult.data) || [];
+		hwSchedules = (schedResult.error ? [] : schedResult.data) || [];
+	} catch (e) {
+		console.error('Homework fetch error:', e);
+		hwSubmissions = [];
+		hwSchedules = [];
+	}
+
+	computeHwDateStatuses();
+	renderHwCalendar();
+	updateHwStats();
+
+	if (hwSelectedDate) {
+		showHwDateDetail(hwSelectedDate);
+	} else {
+		const detailCard = document.getElementById('hw-detail-card');
+		if (detailCard) detailCard.style.display = 'none';
+	}
+}
+
+function computeHwDateStatuses() {
+	hwDateStatus = {};
+	const today = new Date();
+
+	const scheduleMap = {};
+	hwSchedules.forEach(s => {
+		const t = (s.start_time || '').substring(0, 5);
+		if (!scheduleMap[s.schedule_date] || t < scheduleMap[s.schedule_date]) {
+			scheduleMap[s.schedule_date] = t;
+		}
+	});
+
+	const subMap = {};
+	hwSubmissions.forEach(s => {
+		if (!subMap[s.submission_date]) subMap[s.submission_date] = [];
+		subMap[s.submission_date].push(s);
+	});
+
+	const lastDay = new Date(hwYear, hwMonth + 1, 0);
+	for (let d = 1; d <= lastDay.getDate(); d++) {
+		const dateStr = `${hwYear}-${String(hwMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+		const hasSchedule = !!scheduleMap[dateStr];
+		const scheduleTime = scheduleMap[dateStr] || null;
+		const subs = subMap[dateStr] || [];
+
+		if (!hasSchedule) {
+			if (subs.length > 0) {
+				hwDateStatus[dateStr] = { status: 'submitted', scheduleTime: null };
+			} else {
+				hwDateStatus[dateStr] = { status: 'none', scheduleTime: null };
+			}
+			continue;
+		}
+
+		const hasManual = subs.some(s => s.status === 'manual');
+		if (hasManual) {
+			hwDateStatus[dateStr] = { status: 'manual', scheduleTime };
+			continue;
+		}
+
+		const uploadedSubs = subs.filter(s => s.status === 'uploaded');
+		if (uploadedSubs.length === 0) {
+			const [dh, dm] = (scheduleTime || '23:59').split(':').map(Number);
+			const deadline = new Date(hwYear, hwMonth, d, dh, dm);
+			if (deadline <= today) {
+				hwDateStatus[dateStr] = { status: 'missed', scheduleTime };
+			} else {
+				hwDateStatus[dateStr] = { status: 'pending', scheduleTime };
+			}
+			continue;
+		}
+
+		const [sh, sm] = (scheduleTime || '23:59').split(':').map(Number);
+		const deadlineMinutes = sh * 60 + sm;
+
+		const hasOnTime = uploadedSubs.some(s => {
+			const ct = new Date(s.created_at);
+			const ctMinutes = ct.getHours() * 60 + ct.getMinutes();
+			const ctDateStr = `${ct.getFullYear()}-${String(ct.getMonth()+1).padStart(2,'0')}-${String(ct.getDate()).padStart(2,'0')}`;
+			if (ctDateStr < dateStr) return true;
+			if (ctDateStr === dateStr && ctMinutes <= deadlineMinutes) return true;
+			return false;
+		});
+
+		hwDateStatus[dateStr] = {
+			status: hasOnTime ? 'on_time' : 'late',
+			scheduleTime
+		};
+	}
+}
+
+function renderHwCalendar() {
+	const grid = document.getElementById('hw-cal-grid');
+	if (!grid) return;
+
+	const dowCells = grid.querySelectorAll('.hw-cal-dow');
+	grid.innerHTML = '';
+	dowCells.forEach(c => grid.appendChild(c));
+
+	const year = hwYear;
+	const month = hwMonth;
+	const firstDay = new Date(year, month, 1);
+	const lastDay = new Date(year, month + 1, 0);
+	const today = new Date();
+	const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
+	const startDow = firstDay.getDay();
+	for (let i = 0; i < startDow; i++) {
+		const cell = document.createElement('div');
+		cell.className = 'hw-cal-cell empty';
+		grid.appendChild(cell);
+	}
+
+	for (let d = 1; d <= lastDay.getDate(); d++) {
+		const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+		const dow = new Date(year, month, d).getDay();
+		const cell = document.createElement('div');
+		let cls = 'hw-cal-cell';
+
+		if (dateStr === todayStr) cls += ' today';
+		if (hwSelectedDate === dateStr) cls += ' selected';
+
+		const cellDate = new Date(year, month, d);
+		const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+		const isFuture = cellDate > todayMidnight;
+		if (isFuture) cls += ' future';
+
+		if (dow === 0) cls += ' sun-day';
+		if (dow === 6) cls += ' sat-day';
+
+		const ds = hwDateStatus[dateStr];
+		if (ds) {
+			if (ds.status === 'on_time') cls += ' hw-ontime';
+			else if (ds.status === 'late') cls += ' hw-late';
+			else if (ds.status === 'missed') cls += ' hw-missed';
+			else if (ds.status === 'manual') cls += ' hw-manual';
+			else if (ds.status === 'submitted') cls += ' hw-submitted';
+			else if (ds.status === 'pending' && ds.scheduleTime) cls += ' hw-scheduled';
+		}
+
+		cell.className = cls;
+		cell.textContent = d;
+
+		if (!isFuture) {
+			cell.onclick = () => selectHwDate(dateStr);
+		}
+
+		grid.appendChild(cell);
+	}
+}
+
+function updateHwStats() {
+	let onTimeCount = 0, lateCount = 0, missedCount = 0, totalScheduled = 0;
+	const today = new Date();
+
+	Object.entries(hwDateStatus).forEach(([dateStr, ds]) => {
+		if (ds.status === 'submitted') {
+			onTimeCount++;
+			return;
+		}
+		if (!ds.scheduleTime) return;
+
+		const [dh, dm] = (ds.scheduleTime || '23:59').split(':').map(Number);
+		const parts = dateStr.split('-').map(Number);
+		const deadline = new Date(parts[0], parts[1] - 1, parts[2], dh, dm);
+		if (deadline > today) return;
+
+		totalScheduled++;
+		if (ds.status === 'on_time' || ds.status === 'manual') onTimeCount++;
+		else if (ds.status === 'late') lateCount++;
+		else if (ds.status === 'missed') missedCount++;
+	});
+
+	const el = id => document.getElementById(id);
+	if (el('hw-st-submit')) el('hw-st-submit').textContent = onTimeCount;
+	if (el('hw-st-late')) el('hw-st-late').textContent = lateCount;
+	if (el('hw-st-missed')) el('hw-st-missed').textContent = missedCount;
+	if (el('hw-st-total')) el('hw-st-total').textContent = totalScheduled;
+}
+
+function selectHwDate(dateStr) {
+	hwSelectedDate = dateStr;
+	renderHwCalendar();
+	showHwDateDetail(dateStr);
+}
+
+function showHwDateDetail(dateStr) {
+	const detailCard = document.getElementById('hw-detail-card');
+	const titleEl = document.getElementById('hw-detail-title');
+	const bodyEl = document.getElementById('hw-detail-body');
+	if (!detailCard || !bodyEl) return;
+
+	detailCard.style.display = 'block';
+
+	const parts = dateStr.split('-');
+	if (titleEl) titleEl.innerHTML = `<i class="fas fa-file-lines"></i><span>${parseInt(parts[0])}년 ${parseInt(parts[1])}월 ${parseInt(parts[2])}일 기록</span>`;
+
+	const ds = hwDateStatus[dateStr] || { status: 'none', scheduleTime: null };
+	const daySubmissions = hwSubmissions.filter(s => s.submission_date === dateStr);
+	bodyEl.innerHTML = '';
+
+	// 수업 시간 표시
+	if (ds.scheduleTime) {
+		const schedDiv = document.createElement('div');
+		schedDiv.className = 'hw-sched-info';
+		schedDiv.innerHTML = `<i class="fas fa-clock"></i> 수업 시작: ${ds.scheduleTime} &nbsp;|&nbsp; 제출 마감: ${ds.scheduleTime}`;
+		bodyEl.appendChild(schedDiv);
+	}
+
+	if (daySubmissions.length === 0) {
+		const emptyDiv = document.createElement('div');
+		emptyDiv.className = 'hw-detail-empty';
+		if (ds.scheduleTime && ds.status === 'missed') {
+			emptyDiv.innerHTML = '<i class="fas fa-circle-xmark"></i>이 날짜에 제출한 숙제가 없습니다';
+		} else if (ds.scheduleTime && ds.status === 'pending') {
+			emptyDiv.innerHTML = '<i class="fas fa-hourglass-half"></i>아직 마감 전입니다';
+		} else {
+			emptyDiv.innerHTML = '<i class="fas fa-inbox"></i>이 날짜에 제출한 숙제가 없습니다';
+		}
+		bodyEl.appendChild(emptyDiv);
+	} else {
+		daySubmissions.forEach(sub => {
+			const item = document.createElement('div');
+			item.className = 'hw-detail-item';
+
+			if (sub.status === 'manual') {
+				item.innerHTML = `
+					<div class="hw-detail-icon" style="background:var(--teal-bg);color:var(--teal);"><i class="fas fa-user-check"></i></div>
+					<div class="hw-detail-info">
+						<div class="hw-detail-name">${sub.file_name || '관리자 확인'}</div>
+						<div class="hw-detail-meta">
+							<span class="hw-status-badge manual"><i class="fas fa-check"></i> 관리자 확인</span>
+						</div>
+					</div>
+				`;
+			} else {
+				const createdAt = new Date(sub.created_at);
+				const timeStr = `${String(createdAt.getHours()).padStart(2, '0')}:${String(createdAt.getMinutes()).padStart(2, '0')}`;
+				const sizeStr = formatFileSize(sub.file_size || 0);
+
+				let badgeHtml = '';
+				if (ds.scheduleTime) {
+					const [sh, sm] = ds.scheduleTime.split(':').map(Number);
+					const deadlineMin = sh * 60 + sm;
+					const subMin = createdAt.getHours() * 60 + createdAt.getMinutes();
+					const ctDateStr = `${createdAt.getFullYear()}-${String(createdAt.getMonth()+1).padStart(2,'0')}-${String(createdAt.getDate()).padStart(2,'0')}`;
+					if (ctDateStr < dateStr || subMin <= deadlineMin) {
+						badgeHtml = '<span class="hw-status-badge on-time"><i class="fas fa-check"></i> 정시</span>';
+					} else {
+						badgeHtml = '<span class="hw-status-badge late"><i class="fas fa-clock"></i> 지각</span>';
+					}
+				}
+
+				item.innerHTML = `
+					<div class="hw-detail-icon" style="background:var(--primary-light);color:var(--primary);"><i class="fas fa-file-zipper"></i></div>
+					<div class="hw-detail-info">
+						<div class="hw-detail-name">${sub.file_name}</div>
+						<div class="hw-detail-meta">
+							<span><i class="fas fa-clock" style="margin-right:3px;"></i>${timeStr}</span>
+							<span><i class="fas fa-weight-hanging" style="margin-right:3px;"></i>${sizeStr}</span>
+							${badgeHtml}
+						</div>
+					</div>
+				`;
+			}
+			bodyEl.appendChild(item);
+		});
+	}
+}
+
+function handlePrevMonthHw() {
+	hwMonth--;
+	if (hwMonth < 0) { hwMonth = 11; hwYear--; }
+	hwSelectedDate = null;
+	loadHomeworkData();
+}
+window.handlePrevMonthHw = handlePrevMonthHw;
+
+function handleNextMonthHw() {
+	hwMonth++;
+	if (hwMonth > 11) { hwMonth = 0; hwYear++; }
+	hwSelectedDate = null;
+	loadHomeworkData();
+}
+window.handleNextMonthHw = handleNextMonthHw;
+
 // ========== Event Listeners ==========
 document.addEventListener('DOMContentLoaded', () => {
 	// ★ 새로고침 시 sessionStorage에서 학생 정보 복원
@@ -1017,12 +1316,17 @@ document.addEventListener('DOMContentLoaded', () => {
 			const parsed = JSON.parse(saved);
 			if (parsed && parsed.id) {
 				currentStudent = parsed;
+				// 출결/숙제 상태 초기화
+				attYear = new Date().getFullYear();
+				attMonth = new Date().getMonth();
+				attSelectedDate = null;
+				hwLoaded = false;
+				hwSelectedDate = null;
 				// 즉시 대시보드 표시 (페이드 애니메이션 없이)
 				document.getElementById('page-landing').style.display = 'none';
 				document.getElementById('page-dashboard').style.display = 'block';
 				document.getElementById('page-dashboard').style.opacity = '1';
 				// 헤더 정보 설정
-				document.getElementById('dash-avatar').textContent = (currentStudent.name || '?').charAt(0);
 				document.getElementById('dash-name').textContent = currentStudent.name;
 				document.getElementById('dash-grade').textContent = currentStudent.grade || '-';
 				document.getElementById('dash-school').textContent = currentStudent.school || '-';
@@ -1034,7 +1338,7 @@ document.addEventListener('DOMContentLoaded', () => {
 				switchTab('attendance');
 				Promise.all([
 					loadQuickStats(),
-					loadMonthlyAttendance(monthStr),
+					loadMonthlyAttendance(),
 					loadEvaluationState(monthStr)
 				]).catch(e => console.error('[복원] 데이터 로드 실패:', e));
 			}
@@ -1044,19 +1348,8 @@ document.addEventListener('DOMContentLoaded', () => {
 	}
 
 	// Enter key search
-	['search-name', 'search-phone'].forEach(id => {
-		const el = document.getElementById(id);
-		if (el) el.addEventListener('keypress', e => { if (e.key === 'Enter') handleSearch(); });
-	});
-
-	// Phone auto-format
-	const phoneInput = document.getElementById('search-phone');
-	if (phoneInput) {
-		phoneInput.addEventListener('input', e => {
-			const formatted = formatPhone(e.target.value);
-			if (e.target.value !== formatted) e.target.value = formatted;
-		});
-	}
+	const codeInput = document.getElementById('search-code');
+	if (codeInput) codeInput.addEventListener('keypress', e => { if (e.key === 'Enter') handleSearch(); });
 
 	// Eval char count
 	const evalTa = document.getElementById('eval-textarea');
@@ -1071,12 +1364,11 @@ document.addEventListener('DOMContentLoaded', () => {
 	if (teacherPw) teacherPw.addEventListener('keypress', e => { if (e.key === 'Enter') handleTeacherAuth(); });
 
 	// Modal outside click
-	['qr-modal', 'parent-auth-modal', 'admin-auth-modal'].forEach(id => {
+	['parent-auth-modal', 'admin-auth-modal'].forEach(id => {
 		const el = document.getElementById(id);
 		if (el) el.addEventListener('click', e => {
 			if (e.target === el) {
 				el.classList.remove('active');
-				if (id === 'qr-modal') stopQRScanner();
 			}
 		});
 	});
@@ -1084,43 +1376,11 @@ document.addEventListener('DOMContentLoaded', () => {
 	// ESC key
 	document.addEventListener('keydown', e => {
 		if (e.key === 'Escape') {
-			closeQRScanner();
 			closeParentAuthModal();
 			closeTeacherAuthModal();
 		}
 	});
 
-	// QR 이미지 드래그 앤 드롭
-	const dropZone = document.getElementById('qr-drop-zone');
-	if (dropZone) {
-		['dragenter', 'dragover'].forEach(evt => {
-			dropZone.addEventListener(evt, e => {
-				e.preventDefault();
-				e.stopPropagation();
-				dropZone.classList.add('dragover');
-			});
-		});
-		['dragleave', 'drop'].forEach(evt => {
-			dropZone.addEventListener(evt, e => {
-				e.preventDefault();
-				e.stopPropagation();
-				dropZone.classList.remove('dragover');
-			});
-		});
-		dropZone.addEventListener('drop', e => {
-			const file = e.dataTransfer?.files?.[0];
-			if (file && file.type.startsWith('image/')) {
-				selectedQRFile = file;
-				showQRFilePreview(file);
-				scanQRFromFile();
-			} else {
-				ppShowToast('이미지 파일만 지원됩니다', 'error');
-			}
-		});
-	}
-
 	// Pre-load teacher list
 	loadTeacherAuthList();
 });
-
-window.addEventListener('beforeunload', () => { stopQRScanner(); });

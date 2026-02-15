@@ -42,12 +42,21 @@ async function getAccessToken(refreshToken: string): Promise<string> {
 }
 
 /**
- * Google Drive에서 "숙제 제출" 폴더를 찾거나 생성합니다.
+ * Google Drive에서 특정 부모 폴더 안에 하위 폴더를 찾거나 생성합니다.
+ * parentId가 null이면 루트(내 드라이브)에서 검색합니다.
  */
-async function getOrCreateFolder(accessToken: string): Promise<string> {
-  // 먼저 기존 폴더 검색
+async function getOrCreateSubFolder(
+  accessToken: string,
+  folderName: string,
+  parentId: string | null
+): Promise<string> {
+  // 부모 폴더 내에서 검색 (폴더명의 작은따옴표 이스케이프)
+  const safeFolderName = folderName.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+  const parentQuery = parentId
+    ? `'${parentId}' in parents and `
+    : "";
   const searchUrl = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(
-    `name='${DRIVE_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`
+    `${parentQuery}name='${safeFolderName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`
   )}&fields=files(id,name)`;
 
   const searchResponse = await fetch(searchUrl, {
@@ -61,6 +70,14 @@ async function getOrCreateFolder(accessToken: string): Promise<string> {
   }
 
   // 폴더가 없으면 생성
+  const metadata: Record<string, unknown> = {
+    name: folderName,
+    mimeType: "application/vnd.google-apps.folder",
+  };
+  if (parentId) {
+    metadata.parents = [parentId];
+  }
+
   const createResponse = await fetch(
     "https://www.googleapis.com/drive/v3/files",
     {
@@ -69,10 +86,7 @@ async function getOrCreateFolder(accessToken: string): Promise<string> {
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        name: DRIVE_FOLDER_NAME,
-        mimeType: "application/vnd.google-apps.folder",
-      }),
+      body: JSON.stringify(metadata),
     }
   );
 
@@ -80,11 +94,36 @@ async function getOrCreateFolder(accessToken: string): Promise<string> {
 
   if (!createResponse.ok) {
     throw new Error(
-      `Failed to create Drive folder: ${JSON.stringify(createData)}`
+      `Failed to create Drive folder '${folderName}': ${JSON.stringify(createData)}`
     );
   }
 
   return createData.id;
+}
+
+/**
+ * 숙제 제출 > 연도 > 월 > 일 > 학생이름 폴더 구조를 생성하고
+ * 최종 폴더 ID를 반환합니다.
+ */
+async function getOrCreateFolderPath(
+  accessToken: string,
+  year: string,
+  month: string,
+  day: string,
+  studentName: string
+): Promise<string> {
+  // 1단계: "숙제 제출" 루트 폴더
+  const rootId = await getOrCreateSubFolder(accessToken, DRIVE_FOLDER_NAME, null);
+  // 2단계: 연도 폴더 (예: "2026년")
+  const yearId = await getOrCreateSubFolder(accessToken, `${year}년`, rootId);
+  // 3단계: 월 폴더 (예: "2월")
+  const monthId = await getOrCreateSubFolder(accessToken, `${month}월`, yearId);
+  // 4단계: 일 폴더 (예: "15일")
+  const dayId = await getOrCreateSubFolder(accessToken, `${day}일`, monthId);
+  // 5단계: 학생 이름 폴더 (예: "조민준")
+  const studentId = await getOrCreateSubFolder(accessToken, studentName, dayId);
+
+  return studentId;
 }
 
 /**
@@ -222,6 +261,15 @@ serve(async (req: Request) => {
       );
     }
 
+    // submissionDate 검증
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dateRegex.test(submissionDate)) {
+      return new Response(
+        JSON.stringify({ error: "올바른 날짜 형식이 아닙니다 (YYYY-MM-DD)" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     // 파일 이름 생성: 과제-{year}년-{month}월-{day}일-{studentName}.zip
     const dateParts = submissionDate.split("-");
     const year = dateParts[0];
@@ -229,9 +277,9 @@ serve(async (req: Request) => {
     const day = String(parseInt(dateParts[2]));
     const fileName = `과제-${year}년-${month}월-${day}일-${studentName}.zip`;
 
-    // Google Drive 업로드
+    // Google Drive 업로드 (폴더 구조 자동 생성)
     const accessToken = await getAccessToken(teacher.google_drive_refresh_token);
-    const folderId = await getOrCreateFolder(accessToken);
+    const folderId = await getOrCreateFolderPath(accessToken, year, month, day, studentName);
 
     const fileBuffer = new Uint8Array(await file.arrayBuffer());
     const { fileId, fileUrl } = await uploadFileToDrive(
@@ -258,7 +306,6 @@ serve(async (req: Request) => {
 
     if (insertError) {
       console.error("DB insert error:", insertError);
-      // Drive 업로드는 성공했으므로 경고만 기록
     }
 
     return new Response(
@@ -268,19 +315,21 @@ serve(async (req: Request) => {
         driveFileId: fileId,
         driveFileUrl: fileUrl,
         fileSize: fileBuffer.length,
+        dbSaved: !insertError,
       }),
       {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       }
     );
-  } catch (error) {
-    console.error("Upload homework error:", error);
+  } catch (error: unknown) {
+    const errMsg = error instanceof Error ? error.message : String(error);
+    console.error("Upload homework error:", errMsg);
 
     // refresh_token이 만료/취소된 경우
     if (
-      error.message?.includes("Token refresh failed") ||
-      error.message?.includes("invalid_grant")
+      errMsg.includes("Token refresh failed") ||
+      errMsg.includes("invalid_grant")
     ) {
       return new Response(
         JSON.stringify({
@@ -295,7 +344,7 @@ serve(async (req: Request) => {
     }
 
     return new Response(
-      JSON.stringify({ error: error.message || "서버 오류가 발생했습니다." }),
+      JSON.stringify({ error: errMsg || "서버 오류가 발생했습니다." }),
       {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },

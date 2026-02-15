@@ -148,7 +148,7 @@ async function _processAttendanceCheck(timeKey, idx, status) {
             studentId: item.studentId,
             teacherId: String(item.teacherId),
             attendanceDate: item.dateStr,
-            checkInTime: existing?.check_in_time || null,
+            checkInTime: existing?.check_in_time || new Date().toISOString(),
             scheduledTime: item.scheduleStart,
             status: status,
             qrScanned: existing?.qr_scanned || false,
@@ -666,6 +666,7 @@ window.openQRScanPage = async function() {
                     students = supabaseStudents.map(s => ({
                         id: s.id,
                         name: s.name,
+                        school: s.school || '',
                         grade: s.grade,
                         studentPhone: s.phone || '',
                         parentPhone: s.parent_phone || '',
@@ -675,6 +676,8 @@ window.openQRScanPage = async function() {
                         memo: s.memo || '',
                         registerDate: s.register_date || '',
                         status: s.status || 'active',
+                        parentCode: s.parent_code || '',
+                        studentCode: s.student_code || '',
                         events: [],
                         attendance: {},
                         records: {},
@@ -1773,6 +1776,7 @@ window.showStudentQRList = async function() {
                     students = supabaseStudents.map(s => ({
                         id: s.id,
                         name: s.name,
+                        school: s.school || '',
                         grade: s.grade,
                         studentPhone: s.phone || '',
                         parentPhone: s.parent_phone || '',
@@ -1782,6 +1786,8 @@ window.showStudentQRList = async function() {
                         memo: s.memo || '',
                         registerDate: s.register_date || '',
                         status: s.status || 'active',
+                        parentCode: s.parent_code || '',
+                        studentCode: s.student_code || '',
                         events: [],
                         attendance: {},
                         records: {},
@@ -1954,6 +1960,16 @@ window.regenerateQRCode = async function(studentId, qrId, accordionId, cleanName
         }).catch(err => {
             console.error('[regenerateQRCode] 일정 동기화 실패:', err);
         });
+    }
+
+    // 학생 인증코드도 함께 재생성 (QR과 1:1 대응)
+    if (typeof generateStudentCode === 'function') {
+        const newStudentCode = generateStudentCode();
+        const s = (typeof students !== 'undefined') ? students.find(x => String(x.id) === String(studentId)) : null;
+        if (s) { s.studentCode = newStudentCode; if (typeof saveData === 'function') saveData(true); }
+        try {
+            if (typeof updateStudent === 'function') await updateStudent(studentId, { student_code: newStudentCode });
+        } catch(e) { console.error('[regenerateQRCode] student_code 업데이트 실패:', e); }
     }
 
     showQRScanToast(null, 'regenerate_success', cleanName);
@@ -2243,7 +2259,7 @@ window.loadStudentAttendanceHistory = async function() {
                             <span style="font-size:13px;color:#64748b;display:flex;align-items:center;gap:4px;">
                                 <span style="opacity:0.7;">⏰</span> ${timeLabel}
                             </span>
-                            ${effectiveRecord && effectiveRecord.qr_scanned ? `<span style="font-size:12px;color:#10b981;background:#dcfce7;padding:3px 8px;border-radius:6px;font-weight:600;">📱 QR 스캔 ${effectiveRecord.qr_scan_time ? new Date(effectiveRecord.qr_scan_time).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''}</span>` : ''}
+                            ${effectiveRecord && effectiveRecord.qr_scanned ? `<span style="font-size:12px;color:#10b981;background:#dcfce7;padding:3px 8px;border-radius:6px;font-weight:600;">📱 QR 스캔 ${effectiveRecord.qr_scan_time ? new Date(effectiveRecord.qr_scan_time).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''}</span>` : (effectiveRecord && effectiveRecord.check_in_time && !effectiveRecord.qr_scanned ? `<span style="font-size:12px;color:#6366f1;background:#eef2ff;padding:3px 8px;border-radius:6px;font-weight:600;">✅ 선생님 확인 ${new Date(effectiveRecord.check_in_time).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</span>` : '')}
                         </div>
                     </div>
                     <select
@@ -2359,12 +2375,15 @@ async function updateAttendanceStatusFromHistory(studentId, dateStr, nextStatus,
         if (scope === 'current') {
             const record = await getAttendanceRecordByStudentAndDate(studentId, dateStr, defaultTeacherId, effectiveScheduledTime);
 
+            // ★ 기존 레코드의 scheduled_time 우선 사용 (onConflict 매칭을 위해)
+            const resolvedScheduledTime = record?.scheduled_time || effectiveScheduledTime || null;
+
             const payload = {
                 studentId: studentId,
                 teacherId: String(record?.teacher_id || defaultTeacherId || ''),
                 attendanceDate: dateStr,
-                checkInTime: record?.check_in_time || null,
-                scheduledTime: effectiveScheduledTime || record?.scheduled_time || null,
+                checkInTime: record?.check_in_time || new Date().toISOString(),
+                scheduledTime: resolvedScheduledTime,
                 status: nextStatus,
                 qrScanned: record?.qr_scanned || false,
                 qrScanTime: record?.qr_scan_time || null,
@@ -2376,14 +2395,15 @@ async function updateAttendanceStatusFromHistory(studentId, dateStr, nextStatus,
         } else {
             for (const teacherId of teacherIds) {
                 const record = await getAttendanceRecordByStudentAndDate(studentId, dateStr, teacherId, effectiveScheduledTime);
-                // ★ 선생님별 스케줄에서 start_time 폴백
-                let teacherScheduledTime = effectiveScheduledTime;
-                if (!teacherScheduledTime) {
+
+                // ★ 기존 레코드의 scheduled_time 우선 사용 (onConflict 매칭을 위해)
+                let resolvedScheduledTime = record?.scheduled_time || effectiveScheduledTime || null;
+                if (!resolvedScheduledTime) {
                     const tSchedule = (typeof teacherScheduleData !== 'undefined' ? teacherScheduleData : {})[teacherId] || {};
                     const sSchedule = tSchedule[String(studentId)] || {};
                     const scheduleEntry = sSchedule[dateStr] || null;
                     if (scheduleEntry && scheduleEntry.start) {
-                        teacherScheduledTime = scheduleEntry.start;
+                        resolvedScheduledTime = scheduleEntry.start;
                     }
                 }
 
@@ -2391,8 +2411,8 @@ async function updateAttendanceStatusFromHistory(studentId, dateStr, nextStatus,
                     studentId: studentId,
                     teacherId: String(record?.teacher_id || teacherId || ''),
                     attendanceDate: dateStr,
-                    checkInTime: record?.check_in_time || null,
-                    scheduledTime: teacherScheduledTime || record?.scheduled_time || null,
+                    checkInTime: record?.check_in_time || new Date().toISOString(),
+                    scheduledTime: resolvedScheduledTime,
                     status: nextStatus,
                     qrScanned: record?.qr_scanned || false,
                     qrScanTime: record?.qr_scan_time || null,
@@ -2834,8 +2854,27 @@ async function getAttendanceRecordByStudentAndDate(studentId, dateStr, teacherId
         }
         const { data, error } = await query.maybeSingle();
         if (error) {
-            console.error('[getAttendanceRecordByStudentAndDate] 에러:', error);
-            return null;
+            // maybeSingle 에러 (복수 레코드 등) → 첫 번째 레코드 반환
+            console.warn('[getAttendanceRecordByStudentAndDate] maybeSingle 에러, limit(1) 재시도:', error.message);
+            let retryQuery = supabase
+                .from('attendance_records')
+                .select('id, student_id, teacher_id, attendance_date, status, scheduled_time, check_in_time, qr_scanned, qr_scan_time, qr_judgment, memo, shared_memo')
+                .eq('student_id', numericId)
+                .eq('attendance_date', dateStr);
+            if (teacherId) retryQuery = retryQuery.eq('teacher_id', String(teacherId));
+            const { data: retryData } = await retryQuery.order('created_at', { ascending: false }).limit(1);
+            return retryData && retryData.length > 0 ? retryData[0] : null;
+        }
+        // scheduledTime 필터로 못 찾으면 필터 없이 재시도
+        if (!data && scheduledTime) {
+            let fallbackQuery = supabase
+                .from('attendance_records')
+                .select('id, student_id, teacher_id, attendance_date, status, scheduled_time, check_in_time, qr_scanned, qr_scan_time, qr_judgment, memo, shared_memo')
+                .eq('student_id', numericId)
+                .eq('attendance_date', dateStr);
+            if (teacherId) fallbackQuery = fallbackQuery.eq('teacher_id', String(teacherId));
+            const { data: fbData } = await fallbackQuery.order('created_at', { ascending: false }).limit(1);
+            return fbData && fbData.length > 0 ? fbData[0] : null;
         }
         return data;
     } catch (error) {

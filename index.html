@@ -561,6 +561,16 @@
                             <div class="reg-code-hint">학부모에게 전달하세요. 학부모 포털에서 종합평가 조회 시 필요합니다.</div>
                         </div>
 
+                        <!-- 학생 인증코드 -->
+                        <div class="reg-code-block">
+                            <div class="reg-code-block-label"><i class="fas fa-id-badge"></i> 학생 인증코드</div>
+                            <div class="reg-code-row">
+                                <input type="text" id="reg-student-code" class="reg-code-value" readonly>
+                                <button type="button" class="reg-code-btn" onclick="copyStudentCode()" title="복사"><i class="fas fa-copy"></i></button>
+                            </div>
+                            <div class="reg-code-hint">학생에게 전달하세요. 숙제 제출 시 이 코드로 인증합니다.</div>
+                        </div>
+
                         <!-- QR 출석 코드 -->
                         <div class="reg-code-block">
                             <div class="reg-code-block-label"><i class="fas fa-qrcode"></i> QR 출석 코드</div>
@@ -569,7 +579,7 @@
                                 <button type="button" class="reg-code-btn wide" onclick="downloadStudentQR(document.getElementById('edit-id').value)"><i class="fas fa-download"></i> 다운로드</button>
                                 <button type="button" class="reg-code-btn wide danger" onclick="regenerateStudentQR(document.getElementById('edit-id').value)"><i class="fas fa-rotate"></i> 재생성</button>
                             </div>
-                            <div class="reg-code-hint">학생에게 QR코드를 전달하세요. 출석 체크 시 스캔합니다.</div>
+                            <div class="reg-code-hint">학생에게 QR코드를 전달하세요. 출석 체크 시 스캔합니다. <strong>재생성 시 학생 인증코드도 함께 변경됩니다.</strong></div>
                         </div>
                     </div>
                 </div>
@@ -1410,5 +1420,4 @@
 <script src="qr-token-test.js"></script>
 <script src="script.js"></script>
 </body>
-</html>
 </html>
