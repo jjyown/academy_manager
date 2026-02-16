@@ -112,10 +112,19 @@ CREATE TABLE IF NOT EXISTS grading_stats (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 6) 종합평가 자동화 (기존 eval과 연동)
-ALTER TABLE evaluations ADD COLUMN IF NOT EXISTS auto_generated BOOLEAN DEFAULT FALSE;
-ALTER TABLE evaluations ADD COLUMN IF NOT EXISTS approved BOOLEAN DEFAULT TRUE;
-ALTER TABLE evaluations ADD COLUMN IF NOT EXISTS ai_draft TEXT DEFAULT '';
+-- 6) 종합평가 자동화
+CREATE TABLE IF NOT EXISTS evaluations (
+    id BIGSERIAL PRIMARY KEY,
+    student_id BIGINT NOT NULL,
+    teacher_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    month TEXT NOT NULL,                              -- "2026-02"
+    content TEXT DEFAULT '',                          -- 종합평가 내용
+    auto_generated BOOLEAN DEFAULT FALSE,             -- AI 자동 생성 여부
+    approved BOOLEAN DEFAULT TRUE,                    -- 선생님 승인 여부
+    ai_draft TEXT DEFAULT '',                         -- AI 초안
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
 
 -- ============================================================
 -- 인덱스

@@ -1,6 +1,6 @@
 """채점 로직: OCR 결과와 정답 대조, 서술형 AI 채점"""
 import logging
-from ocr.engines import double_check_ocr
+from ocr.engines import ocr_gemini_double_check
 from integrations.gemini import grade_essay, grade_essay_double_check
 
 logger = logging.getLogger(__name__)
@@ -27,8 +27,8 @@ async def grade_submission(image_bytes: bytes, answers_json: dict, types_json: d
             "ocr_data": {...}
         }
     """
-    # 1. OCR 더블체크
-    ocr_result = double_check_ocr(image_bytes)
+    # 1. Gemini Vision 더블체크 OCR
+    ocr_result = await ocr_gemini_double_check(image_bytes)
     student_answers = ocr_result["answers"]
 
     items = []
