@@ -6,6 +6,8 @@
 -- 0) 중앙 관리 드라이브 설정 (원장님 jjyown@gmail.com)
 -- teachers 테이블에 "중앙 관리자" 역할 플래그 추가
 ALTER TABLE teachers ADD COLUMN IF NOT EXISTS is_central_admin BOOLEAN DEFAULT FALSE;
+-- 채점 관리 로그인용 이메일 컬럼
+ALTER TABLE teachers ADD COLUMN IF NOT EXISTS email TEXT;
 -- 중앙 드라이브의 refresh_token은 기존 google_drive_refresh_token 컬럼 사용
 -- is_central_admin=true 인 선생님의 토큰이 중앙 드라이브 토큰
 
@@ -149,22 +151,34 @@ ALTER TABLE grading_results ENABLE ROW LEVEL SECURITY;
 ALTER TABLE grading_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE grading_stats ENABLE ROW LEVEL SECURITY;
 
--- answer_keys: 모든 인증된 사용자 조회 + 본인만 수정
-CREATE POLICY answer_keys_read ON answer_keys FOR SELECT USING (true);
+-- teachers: 인증된 사용자만 조회 가능 (채점 관리 로그인 확인용)
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'teachers_read_all' AND tablename = 'teachers') THEN
+    EXECUTE 'CREATE POLICY teachers_read_all ON teachers FOR SELECT USING (auth.role() = ''authenticated'')';
+  END IF;
+END $$;
+
+-- answer_keys: 인증된 사용자만 조회 + 본인만 수정
+CREATE POLICY answer_keys_read ON answer_keys FOR SELECT USING (auth.role() = 'authenticated');
 CREATE POLICY answer_keys_write ON answer_keys FOR ALL USING (auth.uid() = teacher_id);
 
 -- grading_assignments: 본인 데이터만
 CREATE POLICY grading_assignments_teacher_all ON grading_assignments FOR ALL USING (auth.uid() = teacher_id);
 
--- grading_results: 선생님은 본인 것, 학생/학부모는 조회만
+-- grading_results: 선생님은 본인 것, 인증된 사용자는 조회만
 CREATE POLICY grading_results_teacher_all ON grading_results FOR ALL USING (auth.uid() = teacher_id);
-CREATE POLICY grading_results_public_read ON grading_results FOR SELECT USING (true);
+CREATE POLICY grading_results_authenticated_read ON grading_results FOR SELECT USING (auth.role() = 'authenticated');
 
--- grading_items: 조회 공개 + 선생님만 수정
-CREATE POLICY grading_items_public_read ON grading_items FOR SELECT USING (true);
+-- grading_items: 인증된 사용자만 조회 + 선생님만 수정
+CREATE POLICY grading_items_authenticated_read ON grading_items FOR SELECT USING (auth.role() = 'authenticated');
 CREATE POLICY grading_items_teacher_all ON grading_items FOR ALL USING (
     EXISTS (SELECT 1 FROM grading_results gr WHERE gr.id = grading_items.result_id AND gr.teacher_id = auth.uid())
 );
 
 -- grading_stats: 선생님만
 CREATE POLICY grading_stats_teacher_all ON grading_stats FOR ALL USING (auth.uid() = teacher_id);
+
+-- evaluations: RLS 활성화 + 정책
+ALTER TABLE evaluations ENABLE ROW LEVEL SECURITY;
+CREATE POLICY evaluations_teacher_all ON evaluations FOR ALL USING (auth.uid() = teacher_id);
+CREATE POLICY evaluations_authenticated_read ON evaluations FOR SELECT USING (auth.role() = 'authenticated');

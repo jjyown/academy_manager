@@ -75,12 +75,8 @@ async def grade_submission(image_bytes: bytes, answers_json: dict, types_json: d
                     item["is_correct"] = False
                     wrong_count += 1
 
-            # OCR 결과에서 위치 정보 추출
-            for ocr_item in ocr_result["ocr1"]:
-                if q_num in ocr_item["text"]:
-                    item["position_x"] = ocr_item["center_x"]
-                    item["position_y"] = ocr_item["center_y"]
-                    break
+            # Gemini Vision OCR는 위치 정보를 반환하지 않으므로
+            # position_x/y는 None으로 유지 (이미지 마커에서 자동 배치)
 
         elif q_type == "essay":
             # 서술형: Gemini AI 채점 + 더블체크

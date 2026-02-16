@@ -129,11 +129,22 @@
 	<div style="max-width:380px; width:100%; text-align:center;">
 		<div style="font-size:48px; margin-bottom:16px;">📝</div>
 		<h1 style="font-size:22px; font-weight:800; margin-bottom:4px;">채점 관리</h1>
-		<p style="color:var(--text-sec); font-size:13px; margin-bottom:28px;">선생님 Google 계정으로 로그인하세요</p>
-		<button class="btn" style="width:100%;padding:14px;background:#fff;color:#333;border:1px solid #ddd;font-size:15px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:10px;border-radius:12px;cursor:pointer;" onclick="handleGoogleLogin()">
-			<svg width="20" height="20" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
-			Google로 로그인
-		</button>
+		<p style="color:var(--text-sec); font-size:13px; margin-bottom:28px;">선생님을 선택하고 비밀번호를 입력하세요</p>
+		<div style="text-align:left;">
+			<div class="form-group">
+				<label class="form-label">선생님 선택</label>
+				<select class="input" id="login-teacher-select" onchange="onLoginTeacherSelected()">
+					<option value="">선생님을 선택해주세요</option>
+				</select>
+			</div>
+			<div class="form-group" id="login-password-section" style="display:none;">
+				<label class="form-label">비밀번호</label>
+				<input class="input" id="login-password" type="password" placeholder="비밀번호 입력" onkeydown="if(event.key==='Enter') handleLogin()">
+			</div>
+			<button class="btn btn-primary" style="width:100%;padding:14px;font-size:15px;margin-top:4px;" onclick="handleLogin()">
+				<i class="fas fa-sign-in-alt" style="margin-right:6px;"></i> 입장
+			</button>
+		</div>
 		<p id="login-error" style="color:var(--red);font-size:12px;margin-top:12px;display:none;"></p>
 	</div>
 </div>
@@ -149,10 +160,10 @@
 	</div>
 
 	<div class="tabs" id="main-tabs">
-		<button class="tab-btn active" onclick="switchMainTab('results')">📊 채점 결과</button>
-		<button class="tab-btn" onclick="switchMainTab('assign')">📋 과제 배정</button>
-		<button class="tab-btn" onclick="switchMainTab('keys')">📚 교재 관리</button>
-		<button class="tab-btn" onclick="switchMainTab('stats')">📈 통계</button>
+		<button class="tab-btn active" onclick="switchMainTab('results', event)">📊 채점 결과</button>
+		<button class="tab-btn" onclick="switchMainTab('assign', event)">📋 과제 배정</button>
+		<button class="tab-btn" onclick="switchMainTab('keys', event)">📚 교재 관리</button>
+		<button class="tab-btn" onclick="switchMainTab('stats', event)">📈 통계</button>
 	</div>
 
 	<!-- 채점 결과 탭 -->
@@ -355,12 +366,12 @@
 // ============================================================
 const SUPABASE_URL = 'https://jzcrpdeomjmytfekcgqu.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_6X3mtsIpdMkLWgo9aUbZTg_ihtAA3cu';
-const GRADING_SERVER_URL = localStorage.getItem('grading_server_url') || 'http://localhost:8000';
+const GRADING_SERVER_URL = localStorage.getItem('grading_server_url') || 'https://academymanager-production.up.railway.app';
 
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-let currentUser = null;
 let currentTeacher = null;
+let teacherList = [];
 let currentResults = [];
 let currentItems = [];
 let currentResultId = null;
@@ -375,61 +386,64 @@ let canvasRedoStack = [];
 let isDrawing = false;
 
 // ============================================================
-// 인증
+// 인증 (선생님 선택 + 비밀번호)
 // ============================================================
-async function handleGoogleLogin() {
-	const { data, error } = await db.auth.signInWithOAuth({
-		provider: 'google',
-		options: {
-			redirectTo: window.location.origin + window.location.pathname,
-		}
-	});
-	if (error) {
-		showToast('Google 로그인 실패: ' + error.message, 'error');
-	}
+async function hashPin(pin) {
+	const enc = new TextEncoder().encode(pin);
+	const hash = await crypto.subtle.digest('SHA-256', enc);
+	return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-async function checkSession() {
-	const { data: { session } } = await db.auth.getSession();
-	if (session?.user) {
-		currentUser = session.user;
-		const isTeacher = await loadTeacherInfo();
-		if (isTeacher) {
-			showPage('main');
-			loadAllData();
-		} else {
-			const errEl = document.getElementById('login-error');
-			errEl.textContent = '등록된 선생님 계정이 아닙니다. 원장님에게 문의하세요.';
-			errEl.style.display = 'block';
-			await db.auth.signOut();
-			currentUser = null;
-			showPage('login');
-		}
+async function loadTeacherList() {
+	const { data, error } = await db.from('teachers').select('*').order('created_at', { ascending: true });
+	if (error) {
+		console.error('[채점관리] 선생님 목록 로드 실패:', error.message);
+		teacherList = [];
+	} else {
+		teacherList = data || [];
 	}
+	const sel = document.getElementById('login-teacher-select');
+	sel.innerHTML = '<option value="">선생님을 선택해주세요</option>' +
+		teacherList.map(t => `<option value="${t.id}">${escapeHtml(t.name)}${t.phone ? ' (' + t.phone.slice(-4) + ')' : ''}</option>`).join('');
+}
+
+function onLoginTeacherSelected() {
+	const tid = document.getElementById('login-teacher-select').value;
+	document.getElementById('login-password-section').style.display = tid ? 'block' : 'none';
+	document.getElementById('login-error').style.display = 'none';
+	if (tid) document.getElementById('login-password').value = '';
+}
+
+async function handleLogin() {
+	const tid = document.getElementById('login-teacher-select').value;
+	if (!tid) { showToast('선생님을 선택해주세요', 'error'); return; }
+
+	const teacher = teacherList.find(t => String(t.id) === String(tid));
+	if (!teacher) { showToast('선생님 정보를 찾을 수 없습니다', 'error'); return; }
+
+	const password = document.getElementById('login-password').value.trim();
+	if (!password) { showToast('비밀번호를 입력해주세요', 'error'); return; }
+
+	const inputHash = await hashPin(password);
+	if (inputHash !== teacher.pin_hash) {
+		const errEl = document.getElementById('login-error');
+		errEl.textContent = '비밀번호가 일치하지 않습니다.';
+		errEl.style.display = 'block';
+		return;
+	}
+
+	currentTeacher = teacher;
+	document.getElementById('login-error').style.display = 'none';
+	showPage('main');
+	loadAllData();
 }
 
 function handleLogout() {
-	db.auth.signOut();
-	currentUser = null;
 	currentTeacher = null;
+	currentResults = [];
+	currentItems = [];
+	currentResultId = null;
 	showPage('login');
-}
-
-async function loadTeacherInfo() {
-	if (!currentUser) return false;
-	// 1) owner_user_id로 조회
-	let { data } = await db.from('teachers').select('*').eq('owner_user_id', currentUser.id).maybeSingle();
-	// 2) 없으면 이메일로 조회 (Google OAuth는 다른 UID일 수 있음)
-	if (!data && currentUser.email) {
-		const res = await db.from('teachers').select('*').eq('email', currentUser.email).maybeSingle();
-		data = res.data;
-		if (data) {
-			// Google OAuth UID로 owner_user_id 업데이트
-			await db.from('teachers').update({ owner_user_id: currentUser.id }).eq('id', data.id);
-		}
-	}
-	currentTeacher = data;
-	return !!data;
 }
 
 // ============================================================
@@ -441,11 +455,12 @@ function showPage(page) {
 	document.getElementById('page-detail').style.display = page === 'detail' ? 'block' : 'none';
 }
 
-function switchMainTab(tab) {
+function switchMainTab(tab, e) {
 	document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
 	document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
 	document.getElementById('tab-' + tab).style.display = 'block';
-	event.target.classList.add('active');
+	const btn = e ? (e.target.closest('.tab-btn') || e.target) : null;
+	if (btn) btn.classList.add('active');
 }
 
 function closeModal(id) {
@@ -468,8 +483,8 @@ async function loadAllData() {
 }
 
 async function loadResults() {
-	if (!currentUser) return;
-	let query = db.from('grading_results').select('*, students(name, grade, school)').eq('teacher_id', currentUser.id);
+	if (!currentTeacher) return;
+	let query = db.from('grading_results').select('*, students(name, grade, school)').eq('teacher_id', currentTeacher.owner_user_id);
 	if (currentFilter !== 'all') query = query.eq('status', currentFilter);
 	const { data } = await query.order('created_at', { ascending: false });
 	currentResults = data || [];
@@ -603,8 +618,8 @@ async function confirmResult() {
 // 과제 배정
 // ============================================================
 async function loadAssignments() {
-	if (!currentUser) return;
-	const { data } = await db.from('grading_assignments').select('*, answer_keys(title, subject)').eq('teacher_id', currentUser.id).order('created_at', { ascending: false });
+	if (!currentTeacher) return;
+	const { data } = await db.from('grading_assignments').select('*, answer_keys(title, subject)').eq('teacher_id', currentTeacher.owner_user_id).order('created_at', { ascending: false });
 	const el = document.getElementById('assignments-list');
 	if (!data?.length) {
 		el.innerHTML = '<div class="empty-state"><i class="fas fa-clipboard-list"></i><p>배정된 과제가 없습니다</p></div>';
@@ -625,7 +640,7 @@ async function loadAssignments() {
 
 async function showAssignModal() {
 	// 교재 목록 로드
-	const { data: keys } = await db.from('answer_keys').select('id, title, subject').eq('teacher_id', currentUser.id);
+	const { data: keys } = await db.from('answer_keys').select('id, title, subject').eq('teacher_id', currentTeacher.owner_user_id);
 	const sel = document.getElementById('assign-key');
 	sel.innerHTML = '<option value="">자동 검색 모드</option>' + (keys || []).map(k => `<option value="${k.id}">${k.title} (${k.subject || ''})</option>`).join('');
 	document.getElementById('assign-modal').classList.add('show');
@@ -637,7 +652,7 @@ async function createAssignment() {
 
 	const keyId = document.getElementById('assign-key').value;
 	const { error } = await db.from('grading_assignments').insert({
-		teacher_id: currentUser.id,
+		teacher_id: currentTeacher.owner_user_id,
 		title,
 		answer_key_id: keyId || null,
 		page_range: document.getElementById('assign-pages').value,
@@ -655,8 +670,8 @@ async function createAssignment() {
 // 교재 관리
 // ============================================================
 async function loadAnswerKeys() {
-	if (!currentUser) return;
-	const { data } = await db.from('answer_keys').select('*').eq('teacher_id', currentUser.id).order('created_at', { ascending: false });
+	if (!currentTeacher) return;
+	const { data } = await db.from('answer_keys').select('*').eq('teacher_id', currentTeacher.owner_user_id).order('created_at', { ascending: false });
 	const el = document.getElementById('keys-list');
 	if (!data?.length) {
 		el.innerHTML = '<div class="empty-state"><i class="fas fa-book-open"></i><p>등록된 교재가 없습니다</p></div>';
@@ -691,7 +706,7 @@ async function registerAnswerKey() {
 	if (pdfInput.files.length > 0) {
 		// PDF 파일을 서버에 전송하여 파싱
 		const formData = new FormData();
-		formData.append('teacher_id', currentUser.id);
+		formData.append('teacher_id', currentTeacher.owner_user_id);
 		formData.append('title', title);
 		formData.append('subject', subject);
 		formData.append('pdf_file', pdfInput.files[0]);
@@ -718,7 +733,7 @@ async function registerAnswerKey() {
 	} else {
 		// PDF 없이 수동 등록
 		const { error } = await db.from('answer_keys').insert({
-			teacher_id: currentUser.id,
+			teacher_id: currentTeacher.owner_user_id,
 			title, subject,
 			parsed: false,
 		});
@@ -745,9 +760,9 @@ async function scanDrivePDFs() {
 // 통계
 // ============================================================
 async function loadStats() {
-	if (!currentUser) return;
+	if (!currentTeacher) return;
 	const el = document.getElementById('stats-content');
-	const { data: results } = await db.from('grading_results').select('total_score, max_score, correct_count, wrong_count, total_questions, students(name)').eq('teacher_id', currentUser.id).eq('status', 'confirmed');
+	const { data: results } = await db.from('grading_results').select('total_score, max_score, correct_count, wrong_count, total_questions, students(name)').eq('teacher_id', currentTeacher.owner_user_id).eq('status', 'confirmed');
 
 	if (!results?.length) {
 		el.innerHTML = '<div class="empty-state"><i class="fas fa-chart-bar"></i><p>확정된 채점 결과가 없습니다</p></div>';
@@ -981,15 +996,7 @@ function escapeHtml(str) {
 // 초기화
 // ============================================================
 document.addEventListener('DOMContentLoaded', async () => {
-	// Google OAuth 리다이렉트 후 세션 확인
-	await checkSession();
-
-	// 세션 변경 감지 (OAuth 콜백 등)
-	db.auth.onAuthStateChange(async (event, session) => {
-		if (event === 'SIGNED_IN' && session?.user && !currentUser) {
-			await checkSession();
-		}
-	});
+	await loadTeacherList();
 });
 </script>
 </body>

@@ -36,20 +36,28 @@ def create_graded_image(image_bytes: bytes, items: list[dict], total_score: floa
     font_small = _get_font(18)
 
     # 각 문항에 마크 표시
-    for item in items:
+    w, h = image.size
+    margin_x = max(40, int(w * 0.85))
+    start_y = 30
+    spacing_y = max(28, int((h - 120) / max(len(items), 1)))
+
+    for idx, item in enumerate(items):
         px = item.get("position_x")
         py = item.get("position_y")
-        if px is None or py is None:
-            continue
-
-        x, y = int(px), int(py)
         is_correct = item.get("is_correct")
+
+        if px is not None and py is not None:
+            x, y = int(px), int(py)
+        else:
+            x = margin_x
+            y = start_y + idx * spacing_y
+
+        q_num = item.get("question_number", idx + 1)
 
         if is_correct is True:
             _draw_circle_mark(draw, x, y, COLOR_CORRECT, font_large)
         elif is_correct is False:
             _draw_check_mark(draw, x, y, COLOR_WRONG, font_large)
-            # 틀린 문제 옆에 정답 표시
             correct = item.get("correct_answer", "")
             if correct:
                 draw.text((x + 40, y - 10), f"정답: {correct}", fill=COLOR_WRONG, font=font_small)

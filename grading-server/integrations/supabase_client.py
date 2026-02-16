@@ -94,7 +94,8 @@ async def create_grading_result(data: dict) -> dict:
 
 async def update_grading_result(result_id: int, data: dict) -> dict:
     sb = get_supabase()
-    data["updated_at"] = "now()"
+    from datetime import datetime, timezone
+    data["updated_at"] = datetime.now(timezone.utc).isoformat()
     res = sb.table("grading_results").update(data).eq("id", result_id).execute()
     return res.data[0] if res.data else {}
 

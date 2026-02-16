@@ -326,6 +326,52 @@ serve(async (req: Request) => {
       );
     }
 
+    // ─── 6) 자동 채점 트리거 (비동기, 실패해도 제출은 성공) ───
+    const GRADING_SERVER_URL = Deno.env.get("GRADING_SERVER_URL") || "";
+    if (GRADING_SERVER_URL) {
+      try {
+        // DB에서 방금 저장된 submission ID 조회
+        const { data: submissionRow } = await supabase
+          .from("homework_submissions")
+          .select("id")
+          .eq("central_drive_file_id", centralFileId)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .single();
+
+        const submissionId = submissionRow?.id;
+
+        // 선생님의 owner_user_id 조회 (채점 서버는 UUID 기반)
+        const { data: teacherRow } = await supabase
+          .from("teachers")
+          .select("owner_user_id")
+          .eq("id", teacherId)
+          .single();
+
+        const teacherUid = teacherRow?.owner_user_id || ownerUserId;
+
+        const gradeForm = new FormData();
+        gradeForm.append("student_id", studentId);
+        gradeForm.append("teacher_id", teacherUid);
+        gradeForm.append("mode", "auto_search");
+        gradeForm.append("zip_drive_id", centralFileId);
+        if (submissionId) {
+          gradeForm.append("homework_submission_id", String(submissionId));
+        }
+
+        fetch(`${GRADING_SERVER_URL}/api/grade`, {
+          method: "POST",
+          body: gradeForm,
+        }).then(res => {
+          console.log(`자동 채점 요청 완료: status=${res.status}`);
+        }).catch(err => {
+          console.warn(`자동 채점 요청 실패 (제출은 정상): ${err}`);
+        });
+      } catch (gradeErr) {
+        console.warn(`자동 채점 트리거 실패 (제출은 정상): ${gradeErr}`);
+      }
+    }
+
     return new Response(
       JSON.stringify({
         success: true,

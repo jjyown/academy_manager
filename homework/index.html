@@ -1521,7 +1521,7 @@ function goToInstantGrade() {
 		showAlert('채점 중입니다...', 'info');
 
 		try {
-			const GRADING_SERVER_URL = localStorage.getItem('grading_server_url') || 'http://localhost:8000';
+			const GRADING_SERVER_URL = localStorage.getItem('grading_server_url') || 'https://academymanager-production.up.railway.app';
 			const formData = new FormData();
 			formData.append('student_id', String(currentStudent.id));
 			formData.append('teacher_id', currentStudent.owner_user_id);
