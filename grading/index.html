@@ -129,14 +129,12 @@
 	<div style="max-width:380px; width:100%; text-align:center;">
 		<div style="font-size:48px; margin-bottom:16px;">📝</div>
 		<h1 style="font-size:22px; font-weight:800; margin-bottom:4px;">채점 관리</h1>
-		<p style="color:var(--text-sec); font-size:13px; margin-bottom:28px;">선생님 이메일로 로그인하세요</p>
-		<div class="form-group">
-			<input class="input" id="login-email" type="email" placeholder="이메일">
-		</div>
-		<div class="form-group">
-			<input class="input" id="login-password" type="password" placeholder="비밀번호" onkeydown="if(event.key==='Enter')handleLogin()">
-		</div>
-		<button class="btn btn-primary" style="width:100%;padding:14px;" onclick="handleLogin()">로그인</button>
+		<p style="color:var(--text-sec); font-size:13px; margin-bottom:28px;">선생님 Google 계정으로 로그인하세요</p>
+		<button class="btn" style="width:100%;padding:14px;background:#fff;color:#333;border:1px solid #ddd;font-size:15px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:10px;border-radius:12px;cursor:pointer;" onclick="handleGoogleLogin()">
+			<svg width="20" height="20" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+			Google로 로그인
+		</button>
+		<p id="login-error" style="color:var(--red);font-size:12px;margin-top:12px;display:none;"></p>
 	</div>
 </div>
 
@@ -379,18 +377,35 @@ let isDrawing = false;
 // ============================================================
 // 인증
 // ============================================================
-async function handleLogin() {
-	const email = document.getElementById('login-email').value.trim();
-	const password = document.getElementById('login-password').value;
-	if (!email || !password) return showToast('이메일과 비밀번호를 입력하세요', 'error');
+async function handleGoogleLogin() {
+	const { data, error } = await db.auth.signInWithOAuth({
+		provider: 'google',
+		options: {
+			redirectTo: window.location.origin + window.location.pathname,
+		}
+	});
+	if (error) {
+		showToast('Google 로그인 실패: ' + error.message, 'error');
+	}
+}
 
-	const { data, error } = await db.auth.signInWithPassword({ email, password });
-	if (error) return showToast('로그인 실패: ' + error.message, 'error');
-
-	currentUser = data.user;
-	await loadTeacherInfo();
-	showPage('main');
-	loadAllData();
+async function checkSession() {
+	const { data: { session } } = await db.auth.getSession();
+	if (session?.user) {
+		currentUser = session.user;
+		const isTeacher = await loadTeacherInfo();
+		if (isTeacher) {
+			showPage('main');
+			loadAllData();
+		} else {
+			const errEl = document.getElementById('login-error');
+			errEl.textContent = '등록된 선생님 계정이 아닙니다. 원장님에게 문의하세요.';
+			errEl.style.display = 'block';
+			await db.auth.signOut();
+			currentUser = null;
+			showPage('login');
+		}
+	}
 }
 
 function handleLogout() {
@@ -401,9 +416,18 @@ function handleLogout() {
 }
 
 async function loadTeacherInfo() {
-	if (!currentUser) return;
-	const { data } = await db.from('teachers').select('*').eq('owner_user_id', currentUser.id).maybeSingle();
+	if (!currentUser) return false;
+	// owner_user_id 또는 이메일로 선생님 조회
+	let { data } = await db.from('teachers').select('*').eq('owner_user_id', currentUser.id).maybeSingle();
+	if (!data && currentUser.email) {
+		const res = await db.from('teachers').select('*').eq('email', currentUser.email).maybeSingle();
+		data = res.data;
+		if (data && !data.owner_user_id) {
+			await db.from('teachers').update({ owner_user_id: currentUser.id }).eq('id', data.id);
+		}
+	}
 	currentTeacher = data;
+	return !!data;
 }
 
 // ============================================================
@@ -955,13 +979,15 @@ function escapeHtml(str) {
 // 초기화
 // ============================================================
 document.addEventListener('DOMContentLoaded', async () => {
-	const { data: { session } } = await db.auth.getSession();
-	if (session?.user) {
-		currentUser = session.user;
-		await loadTeacherInfo();
-		showPage('main');
-		loadAllData();
-	}
+	// Google OAuth 리다이렉트 후 세션 확인
+	await checkSession();
+
+	// 세션 변경 감지 (OAuth 콜백 등)
+	db.auth.onAuthStateChange(async (event, session) => {
+		if (event === 'SIGNED_IN' && session?.user && !currentUser) {
+			await checkSession();
+		}
+	});
 });
 </script>
 </body>
