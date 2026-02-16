@@ -5,6 +5,8 @@
   "trailingSlash": false,
   "rewrites": [
     { "source": "/homework", "destination": "/homework/index.html" },
-    { "source": "/homework/", "destination": "/homework/index.html" }
+    { "source": "/homework/", "destination": "/homework/index.html" },
+    { "source": "/grading", "destination": "/grading/index.html" },
+    { "source": "/grading/", "destination": "/grading/index.html" }
   ]
 }

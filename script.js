@@ -6227,6 +6227,12 @@ window.openHomeworkPage = function() {
     window.open(targetUrl, '_blank');
 }
 
+window.openGradingPage = function() {
+    const hasOrigin = window.location.origin && window.location.origin !== 'null';
+    const targetUrl = hasOrigin ? `${window.location.origin}/grading/` : './grading/';
+    window.open(targetUrl, '_blank');
+}
+
 // 학부모 포털 열기 (로컬/배포 환경 모두 지원)
 window.openParentPortal = function() {
     const storedUrl = (window.PARENT_PORTAL_URL || localStorage.getItem('parent_portal_url') || '').trim();

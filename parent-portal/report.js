@@ -137,6 +137,11 @@ function switchTab(tab) {
 		loadHomeworkData();
 		hwLoaded = true;
 	}
+
+	// 채점 탭 진입 시 데이터 로드
+	if (tab === 'grading' && currentStudent) {
+		loadGradingResults();
+	}
 }
 window.switchTab = switchTab;
 
@@ -681,6 +686,122 @@ function setParentVerified() {
 	if (!currentStudent) return;
 	sessionStorage.setItem(`parent_verified__${currentStudent.id}`, 'true');
 }
+
+// ========== 채점 결과 (학부모 조회) ==========
+async function loadGradingResults() {
+	if (!currentStudent) return;
+	const el = document.getElementById('grading-results-list');
+	if (!el) return;
+
+	el.innerHTML = '<div style="text-align:center;padding:20px;"><div class="spinner" style="width:20px;height:20px;border:2px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto;"></div></div>';
+
+	try {
+		const { data, error } = await db.from('grading_results')
+			.select('*, answer_keys(title, subject)')
+			.eq('student_id', currentStudent.id)
+			.eq('status', 'confirmed')
+			.order('created_at', { ascending: false });
+
+		if (error || !data?.length) {
+			el.innerHTML = `<div style="text-align:center;padding:30px 0;color:var(--gray);font-size:13px;">
+				<i class="fas fa-inbox" style="font-size:28px;margin-bottom:8px;opacity:0.4;display:block;"></i>
+				채점 결과가 없습니다
+			</div>`;
+			return;
+		}
+
+		el.innerHTML = data.map(r => {
+			const key = r.answer_keys;
+			const date = new Date(r.created_at).toLocaleDateString('ko-KR');
+			const scorePercent = r.max_score > 0 ? Math.round(r.total_score / r.max_score * 100) : 0;
+			const scoreColor = scorePercent >= 80 ? 'var(--green)' : scorePercent >= 60 ? 'var(--yellow)' : 'var(--red)';
+			const imgUrl = (r.teacher_graded_image_urls || r.central_graded_image_urls || [])[0] || '';
+
+			return `<div style="background:var(--bg-elevated);border-radius:12px;padding:14px;margin-bottom:8px;cursor:pointer;" onclick="showGradingDetail(${r.id})">
+				<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+					<span style="font-size:14px;font-weight:700;">${escapeHtml(key?.title || '채점')}</span>
+					<span style="font-size:18px;font-weight:800;color:${scoreColor};">${r.total_score}점</span>
+				</div>
+				<div style="font-size:12px;color:var(--gray);">
+					${key?.subject ? key.subject + ' · ' : ''}${date} · 
+					<span style="color:var(--green);">⭕${r.correct_count}</span> 
+					<span style="color:var(--red);">✘${r.wrong_count}</span> 
+					<span style="color:var(--yellow);">❓${r.uncertain_count}</span>
+					${r.teacher_memo ? ' · <span style="color:var(--text-sec);"><i class="fas fa-comment"></i></span>' : ''}
+				</div>
+			</div>`;
+		}).join('');
+	} catch (err) {
+		el.innerHTML = '<div style="text-align:center;padding:20px;color:var(--red);font-size:13px;">로드 실패</div>';
+	}
+}
+window.loadGradingResults = loadGradingResults;
+
+async function showGradingDetail(resultId) {
+	try {
+		const { data: result } = await db.from('grading_results').select('*, answer_keys(title, subject)').eq('id', resultId).maybeSingle();
+		if (!result) return;
+
+		const { data: items } = await db.from('grading_items').select('*').eq('result_id', resultId).order('question_number');
+
+		const imgUrl = (result.teacher_graded_image_urls || result.central_graded_image_urls || [])[0] || '';
+		const key = result.answer_keys;
+
+		let html = `<div style="position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:300;display:flex;align-items:center;justify-content:center;padding:16px;" onclick="if(event.target===this)this.remove()">
+			<div style="background:var(--bg-card);border-radius:16px;max-width:500px;width:100%;max-height:85vh;overflow-y:auto;padding:20px;" onclick="event.stopPropagation()">
+				<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+					<div style="font-size:16px;font-weight:700;">${escapeHtml(key?.title || '채점 상세')}</div>
+					<button onclick="this.closest('[style*=fixed]').remove()" style="border:none;background:none;font-size:22px;color:var(--gray);cursor:pointer;">&times;</button>
+				</div>
+
+				<div style="display:flex;gap:8px;margin-bottom:16px;">
+					<div style="flex:1;text-align:center;padding:14px;background:var(--bg-elevated);border-radius:12px;">
+						<div style="font-size:28px;font-weight:800;color:var(--primary);">${result.total_score}/${result.max_score}</div>
+						<div style="font-size:11px;color:var(--gray);margin-top:4px;">총점</div>
+					</div>
+					<div style="flex:1;display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+						<div style="text-align:center;padding:10px;background:var(--bg-elevated);border-radius:10px;"><div style="font-size:16px;font-weight:700;color:var(--green);">${result.correct_count}</div><div style="font-size:10px;color:var(--gray);">정답</div></div>
+						<div style="text-align:center;padding:10px;background:var(--bg-elevated);border-radius:10px;"><div style="font-size:16px;font-weight:700;color:var(--red);">${result.wrong_count}</div><div style="font-size:10px;color:var(--gray);">오답</div></div>
+					</div>
+				</div>`;
+
+		// 문항별 그리드
+		if (items?.length) {
+			html += `<div style="margin-bottom:12px;"><div style="font-size:13px;font-weight:700;margin-bottom:8px;color:var(--text-sec);">문항별 결과</div>
+				<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(36px,1fr));gap:4px;">
+				${items.map(item => {
+					const bg = item.is_correct === true ? 'rgba(34,197,94,0.2)' : item.is_correct === false ? 'rgba(239,68,68,0.2)' : 'rgba(234,179,8,0.2)';
+					const color = item.is_correct === true ? 'var(--green)' : item.is_correct === false ? 'var(--red)' : 'var(--yellow)';
+					const border = item.is_correct === true ? 'var(--green)' : item.is_correct === false ? 'var(--red)' : 'var(--yellow)';
+					return `<div style="aspect-ratio:1;background:${bg};border:2px solid ${border};border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:${color};">${item.question_number}</div>`;
+				}).join('')}</div></div>`;
+		}
+
+		// 채점 이미지
+		if (imgUrl) {
+			html += `<div style="margin-bottom:12px;"><div style="font-size:13px;font-weight:700;margin-bottom:8px;color:var(--text-sec);">채점 이미지</div>
+				<img src="${imgUrl}" style="width:100%;border-radius:12px;border:1px solid var(--border);" alt="채점 결과">
+			</div>`;
+		}
+
+		// 선생님 메모
+		if (result.teacher_memo) {
+			html += `<div style="padding:12px;background:var(--bg-elevated);border-radius:12px;margin-bottom:8px;">
+				<div style="font-size:12px;color:var(--gray);margin-bottom:4px;"><i class="fas fa-comment"></i> 선생님 메모</div>
+				<div style="font-size:14px;">${escapeHtml(result.teacher_memo)}</div>
+			</div>`;
+		}
+
+		html += `</div></div>`;
+
+		const overlay = document.createElement('div');
+		overlay.innerHTML = html;
+		document.body.appendChild(overlay.firstElementChild);
+	} catch (err) {
+		console.error('[채점상세]', err);
+	}
+}
+window.showGradingDetail = showGradingDetail;
 
 async function loadEvaluationState(monthStr) {
 	updateEvalLockUI();

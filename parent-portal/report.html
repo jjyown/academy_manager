@@ -967,6 +967,9 @@
 			<button class="dash-tab" onclick="switchTab('homework')">
 				<i class="fas fa-book"></i> 숙제
 			</button>
+			<button class="dash-tab" onclick="switchTab('grading')">
+				<i class="fas fa-pen-to-square"></i> 채점
+			</button>
 			<button class="dash-tab" onclick="switchTab('eval')">
 				<i class="fas fa-star"></i> 종합평가
 			</button>
@@ -1068,6 +1071,22 @@
 					<span>-</span>
 				</div>
 				<div id="hw-detail-body"></div>
+			</div>
+		</div>
+
+		<!-- TAB: Grading Results -->
+		<div id="tab-grading" class="tab-panel">
+			<div class="section-card">
+				<div class="section-title">
+					<i class="fas fa-pen-to-square"></i>
+					<span>채점 결과</span>
+				</div>
+				<div id="grading-results-list" style="padding:4px 0;">
+					<div style="text-align:center;padding:30px 0;color:var(--gray);font-size:13px;">
+						<i class="fas fa-inbox" style="font-size:28px;margin-bottom:8px;opacity:0.4;display:block;"></i>
+						채점 결과가 없습니다
+					</div>
+				</div>
 			</div>
 		</div>
 

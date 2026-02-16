@@ -1,0 +1,968 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+	<title>채점 관리</title>
+	<link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.8/dist/web/static/pretendard.css" />
+	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+	<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+	<style>
+		:root {
+			--bg: #0f172a; --bg-card: #1e293b; --bg-elevated: #334155;
+			--text: #f1f5f9; --text-sec: #94a3b8; --gray: #64748b;
+			--primary: #818cf8; --green: #22c55e; --red: #ef4444;
+			--yellow: #eab308; --teal: #14b8a6; --border: #334155;
+			--radius: 14px;
+		}
+		* { margin:0; padding:0; box-sizing:border-box; }
+		body { font-family:'Pretendard',sans-serif; background:var(--bg); color:var(--text); min-height:100vh; }
+		
+		/* 헤더 */
+		.top-bar { display:flex; align-items:center; justify-content:space-between; padding:14px 16px; background:var(--bg-card); border-bottom:1px solid var(--border); position:sticky; top:0; z-index:100; }
+		.top-bar h1 { font-size:17px; font-weight:700; }
+		.top-bar-btn { background:none; border:none; color:var(--text-sec); font-size:18px; cursor:pointer; padding:6px; }
+
+		/* 탭 */
+		.tabs { display:flex; padding:8px 12px; gap:6px; background:var(--bg-card); border-bottom:1px solid var(--border); overflow-x:auto; }
+		.tab-btn { padding:8px 16px; border:none; border-radius:20px; background:transparent; color:var(--text-sec); font-size:13px; font-weight:600; cursor:pointer; white-space:nowrap; transition:all 0.2s; }
+		.tab-btn.active { background:var(--primary); color:#fff; }
+
+		/* 카드 */
+		.card { background:var(--bg-card); border-radius:var(--radius); padding:16px; margin:8px 12px; border:1px solid var(--border); }
+		.card-title { font-size:14px; font-weight:700; margin-bottom:12px; display:flex; align-items:center; gap:8px; }
+		.card-title i { color:var(--primary); }
+
+		/* 버튼 */
+		.btn { padding:10px 20px; border:none; border-radius:10px; font-size:14px; font-weight:600; cursor:pointer; transition:all 0.2s; }
+		.btn-primary { background:var(--primary); color:#fff; }
+		.btn-primary:hover { opacity:0.9; }
+		.btn-danger { background:var(--red); color:#fff; }
+		.btn-sm { padding:6px 12px; font-size:12px; }
+		.btn-outline { background:transparent; border:1px solid var(--border); color:var(--text-sec); }
+
+		/* 입력 */
+		.input { width:100%; padding:10px 14px; border:1px solid var(--border); border-radius:10px; background:var(--bg-elevated); color:var(--text); font-size:14px; outline:none; }
+		.input:focus { border-color:var(--primary); }
+		.form-label { font-size:12px; font-weight:600; color:var(--text-sec); margin-bottom:6px; display:block; }
+		.form-group { margin-bottom:14px; }
+
+		/* 리스트 */
+		.list-item { display:flex; align-items:center; gap:12px; padding:14px; background:var(--bg-elevated); border-radius:var(--radius); margin-bottom:8px; cursor:pointer; transition:all 0.2s; border:1px solid transparent; }
+		.list-item:hover { border-color:var(--primary); }
+		.list-item-icon { width:42px; height:42px; border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:18px; flex-shrink:0; }
+		.list-item-info { flex:1; min-width:0; }
+		.list-item-title { font-size:14px; font-weight:600; }
+		.list-item-sub { font-size:12px; color:var(--text-sec); margin-top:2px; }
+		.list-item-badge { padding:4px 10px; border-radius:20px; font-size:11px; font-weight:700; }
+
+		/* 상태 뱃지 */
+		.badge-confirmed { background:rgba(34,197,94,0.15); color:var(--green); }
+		.badge-review { background:rgba(234,179,8,0.15); color:var(--yellow); }
+		.badge-grading { background:rgba(129,140,248,0.15); color:var(--primary); }
+
+		/* 점수 카드 */
+		.score-card { text-align:center; padding:20px; background:var(--bg-elevated); border-radius:var(--radius); }
+		.score-big { font-size:36px; font-weight:800; color:var(--primary); }
+		.score-sub { font-size:13px; color:var(--text-sec); margin-top:4px; }
+
+		/* 문항 그리드 */
+		.question-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(50px,1fr)); gap:6px; }
+		.q-cell { width:100%; aspect-ratio:1; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:700; cursor:pointer; transition:all 0.2s; }
+		.q-correct { background:rgba(34,197,94,0.2); color:var(--green); border:2px solid var(--green); }
+		.q-wrong { background:rgba(239,68,68,0.2); color:var(--red); border:2px solid var(--red); }
+		.q-uncertain { background:rgba(234,179,8,0.2); color:var(--yellow); border:2px solid var(--yellow); }
+
+		/* 캔버스 도구 바 */
+		.canvas-toolbar { display:flex; flex-wrap:wrap; gap:6px; padding:10px 12px; background:var(--bg-card); border-top:1px solid var(--border); position:sticky; bottom:0; z-index:50; }
+		.tool-btn { width:38px; height:38px; border-radius:10px; border:1px solid var(--border); background:var(--bg-elevated); color:var(--text-sec); display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:14px; }
+		.tool-btn.active { border-color:var(--primary); color:var(--primary); background:rgba(129,140,248,0.15); }
+		.color-dot { width:20px; height:20px; border-radius:50%; cursor:pointer; border:2px solid transparent; }
+		.color-dot.active { border-color:#fff; box-shadow:0 0 0 2px var(--primary); }
+		.size-slider { width:80px; accent-color:var(--primary); }
+
+		/* 모달 */
+		.modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:200; display:none; align-items:center; justify-content:center; }
+		.modal-overlay.show { display:flex; }
+		.modal-box { background:var(--bg-card); border-radius:var(--radius); padding:20px; max-width:500px; width:90%; max-height:80vh; overflow-y:auto; }
+		.modal-title { font-size:16px; font-weight:700; margin-bottom:16px; display:flex; align-items:center; gap:8px; }
+
+		/* 통계 */
+		.stat-row { display:flex; gap:8px; margin-bottom:8px; }
+		.stat-item { flex:1; text-align:center; padding:12px; background:var(--bg-elevated); border-radius:var(--radius); }
+		.stat-num { font-size:20px; font-weight:800; }
+		.stat-label { font-size:11px; color:var(--text-sec); margin-top:4px; }
+
+		/* 로딩 */
+		.spinner { width:24px; height:24px; border:3px solid var(--border); border-top-color:var(--primary); border-radius:50%; animation:spin 0.8s linear infinite; margin:20px auto; }
+		@keyframes spin { to { transform:rotate(360deg); } }
+
+		/* 빈 상태 */
+		.empty-state { text-align:center; padding:40px 20px; color:var(--text-sec); }
+		.empty-state i { font-size:40px; margin-bottom:12px; opacity:0.4; }
+		.empty-state p { font-size:14px; }
+
+		/* 반응형 */
+		@media (max-width: 480px) {
+			.tabs { padding:6px 8px; }
+			.tab-btn { padding:6px 12px; font-size:12px; }
+			.card { margin:6px 8px; padding:12px; }
+		}
+
+		/* 토스트 */
+		.g-toast { position:fixed; top:20px; left:50%; transform:translateX(-50%); padding:12px 24px; border-radius:12px; font-size:14px; font-weight:600; z-index:9999; animation:fadeSlide 0.3s ease; }
+		.g-toast.success { background:var(--green); color:#fff; }
+		.g-toast.error { background:var(--red); color:#fff; }
+		.g-toast.info { background:var(--primary); color:#fff; }
+		@keyframes fadeSlide { from { opacity:0; transform:translateX(-50%) translateY(-10px); } to { opacity:1; transform:translateX(-50%) translateY(0); } }
+
+		/* 이미지 뷰어 */
+		.image-viewer { position:relative; width:100%; overflow:auto; background:#000; border-radius:var(--radius); min-height:300px; }
+		.image-viewer img { width:100%; display:block; }
+		.image-viewer canvas { position:absolute; top:0; left:0; width:100%; height:100%; cursor:crosshair; }
+	</style>
+</head>
+<body>
+
+<!-- 로그인 페이지 -->
+<div id="page-login" style="display:flex; min-height:100vh; align-items:center; justify-content:center; padding:20px;">
+	<div style="max-width:380px; width:100%; text-align:center;">
+		<div style="font-size:48px; margin-bottom:16px;">📝</div>
+		<h1 style="font-size:22px; font-weight:800; margin-bottom:4px;">채점 관리</h1>
+		<p style="color:var(--text-sec); font-size:13px; margin-bottom:28px;">선생님 이메일로 로그인하세요</p>
+		<div class="form-group">
+			<input class="input" id="login-email" type="email" placeholder="이메일">
+		</div>
+		<div class="form-group">
+			<input class="input" id="login-password" type="password" placeholder="비밀번호" onkeydown="if(event.key==='Enter')handleLogin()">
+		</div>
+		<button class="btn btn-primary" style="width:100%;padding:14px;" onclick="handleLogin()">로그인</button>
+	</div>
+</div>
+
+<!-- 메인 페이지 -->
+<div id="page-main" style="display:none;">
+	<div class="top-bar">
+		<h1><i class="fas fa-pen-to-square" style="color:var(--primary);margin-right:6px;"></i>채점 관리</h1>
+		<div style="display:flex;gap:8px;">
+			<button class="top-bar-btn" onclick="showPage('main')" title="홈"><i class="fas fa-home"></i></button>
+			<button class="top-bar-btn" onclick="handleLogout()" title="로그아웃"><i class="fas fa-sign-out-alt"></i></button>
+		</div>
+	</div>
+
+	<div class="tabs" id="main-tabs">
+		<button class="tab-btn active" onclick="switchMainTab('results')">📊 채점 결과</button>
+		<button class="tab-btn" onclick="switchMainTab('assign')">📋 과제 배정</button>
+		<button class="tab-btn" onclick="switchMainTab('keys')">📚 교재 관리</button>
+		<button class="tab-btn" onclick="switchMainTab('stats')">📈 통계</button>
+	</div>
+
+	<!-- 채점 결과 탭 -->
+	<div id="tab-results" class="tab-content">
+		<div style="padding:8px 12px;display:flex;gap:6px;">
+			<button class="btn btn-sm btn-outline" onclick="filterResults('all')" id="filter-all">전체</button>
+			<button class="btn btn-sm btn-outline" onclick="filterResults('review_needed')" id="filter-review">⚠️ 검토 필요</button>
+			<button class="btn btn-sm btn-outline" onclick="filterResults('confirmed')" id="filter-confirmed">✅ 확정</button>
+		</div>
+		<div id="results-list"></div>
+	</div>
+
+	<!-- 과제 배정 탭 -->
+	<div id="tab-assign" class="tab-content" style="display:none;">
+		<div style="padding:8px 12px;">
+			<button class="btn btn-primary btn-sm" onclick="showAssignModal()"><i class="fas fa-plus"></i> 과제 배정</button>
+		</div>
+		<div id="assignments-list"></div>
+	</div>
+
+	<!-- 교재 관리 탭 -->
+	<div id="tab-keys" class="tab-content" style="display:none;">
+		<div style="padding:8px 12px;display:flex;gap:6px;">
+			<button class="btn btn-primary btn-sm" onclick="showAddKeyModal()"><i class="fas fa-plus"></i> 교재 등록</button>
+			<button class="btn btn-sm btn-outline" onclick="scanDrivePDFs()"><i class="fas fa-cloud"></i> 드라이브 스캔</button>
+		</div>
+		<div id="keys-list"></div>
+	</div>
+
+	<!-- 통계 탭 -->
+	<div id="tab-stats" class="tab-content" style="display:none;">
+		<div id="stats-content"></div>
+	</div>
+</div>
+
+<!-- 채점 상세 페이지 -->
+<div id="page-detail" style="display:none;">
+	<div class="top-bar">
+		<button class="top-bar-btn" onclick="showPage('main')"><i class="fas fa-arrow-left"></i></button>
+		<h1 id="detail-title">채점 상세</h1>
+		<div style="display:flex;gap:8px;">
+			<button class="btn btn-sm btn-primary" id="detail-confirm-btn" onclick="confirmResult()">✅ 확정</button>
+		</div>
+	</div>
+
+	<div style="padding:0 0 120px;">
+		<!-- 점수 요약 -->
+		<div class="card">
+			<div style="display:flex;gap:12px;">
+				<div class="score-card" style="flex:1;">
+					<div class="score-big" id="detail-score">-</div>
+					<div class="score-sub">총점</div>
+				</div>
+				<div style="flex:1;">
+					<div class="stat-row">
+						<div class="stat-item"><div class="stat-num" style="color:var(--green);" id="detail-correct">0</div><div class="stat-label">정답</div></div>
+						<div class="stat-item"><div class="stat-num" style="color:var(--red);" id="detail-wrong">0</div><div class="stat-label">오답</div></div>
+					</div>
+					<div class="stat-row">
+						<div class="stat-item"><div class="stat-num" style="color:var(--yellow);" id="detail-uncertain">0</div><div class="stat-label">확인필요</div></div>
+						<div class="stat-item"><div class="stat-num" style="color:var(--text-sec);" id="detail-total">0</div><div class="stat-label">총문항</div></div>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- 문항 그리드 -->
+		<div class="card">
+			<div class="card-title"><i class="fas fa-th"></i> 문항별 결과</div>
+			<div class="question-grid" id="detail-grid"></div>
+		</div>
+
+		<!-- 채점 이미지 + 필기 -->
+		<div class="card">
+			<div class="card-title"><i class="fas fa-image"></i> 채점 이미지</div>
+			<div class="image-viewer" id="image-viewer">
+				<img id="graded-image" src="" alt="채점 이미지" onload="initCanvas()">
+				<canvas id="annotation-canvas"></canvas>
+			</div>
+		</div>
+
+		<!-- 선생님 메모 -->
+		<div class="card">
+			<div class="card-title"><i class="fas fa-comment"></i> 메모</div>
+			<textarea class="input" id="detail-memo" rows="3" placeholder="학생에게 전달할 메모..."></textarea>
+		</div>
+	</div>
+
+	<!-- 필기 도구 바 -->
+	<div class="canvas-toolbar" id="canvas-toolbar">
+		<button class="tool-btn active" data-tool="pen" onclick="setTool('pen')"><i class="fas fa-pen"></i></button>
+		<button class="tool-btn" data-tool="highlighter" onclick="setTool('highlighter')"><i class="fas fa-highlighter"></i></button>
+		<button class="tool-btn" data-tool="text" onclick="setTool('text')"><i class="fas fa-font"></i></button>
+		<button class="tool-btn" data-tool="circle" onclick="setTool('circle')"><i class="fas fa-circle" style="font-size:11px;"></i></button>
+		<button class="tool-btn" data-tool="check" onclick="setTool('check')"><i class="fas fa-check"></i></button>
+		<button class="tool-btn" data-tool="xmark" onclick="setTool('xmark')"><i class="fas fa-xmark"></i></button>
+		<button class="tool-btn" data-tool="eraser" onclick="setTool('eraser')"><i class="fas fa-eraser"></i></button>
+		<div style="display:flex;gap:4px;align-items:center;margin-left:4px;">
+			<div class="color-dot active" style="background:#ef4444;" onclick="setColor('#ef4444')"></div>
+			<div class="color-dot" style="background:#3b82f6;" onclick="setColor('#3b82f6')"></div>
+			<div class="color-dot" style="background:#22c55e;" onclick="setColor('#22c55e')"></div>
+			<div class="color-dot" style="background:#1e293b;" onclick="setColor('#1e293b')"></div>
+		</div>
+		<input type="range" class="size-slider" min="1" max="20" value="3" oninput="setPenSize(this.value)">
+		<button class="tool-btn" onclick="undoCanvas()"><i class="fas fa-undo"></i></button>
+		<button class="tool-btn" onclick="redoCanvas()"><i class="fas fa-redo"></i></button>
+		<button class="tool-btn" onclick="saveAnnotations()" style="color:var(--green);"><i class="fas fa-save"></i></button>
+	</div>
+</div>
+
+<!-- 문항 수정 모달 -->
+<div class="modal-overlay" id="item-modal">
+	<div class="modal-box">
+		<div class="modal-title"><i class="fas fa-edit" style="color:var(--primary);"></i> <span id="item-modal-title">문항 수정</span></div>
+		<div class="form-group">
+			<label class="form-label">학생 답</label>
+			<div class="input" id="item-student-answer" style="background:var(--bg);"></div>
+		</div>
+		<div class="form-group">
+			<label class="form-label">정답</label>
+			<div class="input" id="item-correct-answer" style="background:var(--bg);"></div>
+		</div>
+		<div class="form-group" id="item-ai-section" style="display:none;">
+			<label class="form-label">AI 피드백</label>
+			<div class="input" id="item-ai-feedback" style="background:var(--bg);font-size:13px;"></div>
+		</div>
+		<div class="form-group">
+			<label class="form-label">점수 수정</label>
+			<input class="input" id="item-teacher-score" type="number" step="0.5" placeholder="수정할 점수">
+		</div>
+		<div class="form-group">
+			<label class="form-label">피드백</label>
+			<input class="input" id="item-teacher-feedback" type="text" placeholder="피드백 입력">
+		</div>
+		<div style="display:flex;gap:8px;margin-top:16px;">
+			<button class="btn btn-primary" style="flex:1;" onclick="saveItemEdit()">저장</button>
+			<button class="btn btn-outline" style="flex:1;" onclick="closeModal('item-modal')">취소</button>
+		</div>
+	</div>
+</div>
+
+<!-- 과제 배정 모달 -->
+<div class="modal-overlay" id="assign-modal">
+	<div class="modal-box">
+		<div class="modal-title"><i class="fas fa-clipboard-list" style="color:var(--primary);"></i> 과제 배정</div>
+		<div class="form-group">
+			<label class="form-label">과제 제목</label>
+			<input class="input" id="assign-title" placeholder="예: 수학 42~45쪽">
+		</div>
+		<div class="form-group">
+			<label class="form-label">교재 선택</label>
+			<select class="input" id="assign-key">
+				<option value="">자동 검색 모드</option>
+			</select>
+		</div>
+		<div class="form-group">
+			<label class="form-label">페이지 범위</label>
+			<input class="input" id="assign-pages" placeholder="예: 42-45">
+		</div>
+		<div class="form-group">
+			<label class="form-label">마감일</label>
+			<input class="input" id="assign-due" type="date">
+		</div>
+		<div style="display:flex;gap:8px;margin-top:16px;">
+			<button class="btn btn-primary" style="flex:1;" onclick="createAssignment()">배정</button>
+			<button class="btn btn-outline" style="flex:1;" onclick="closeModal('assign-modal')">취소</button>
+		</div>
+	</div>
+</div>
+
+<!-- 교재 등록 모달 -->
+<div class="modal-overlay" id="key-modal">
+	<div class="modal-box">
+		<div class="modal-title"><i class="fas fa-book" style="color:var(--primary);"></i> 교재 등록</div>
+		<div class="form-group">
+			<label class="form-label">교재명</label>
+			<input class="input" id="key-title" placeholder="예: 수학 문제집 A">
+		</div>
+		<div class="form-group">
+			<label class="form-label">과목</label>
+			<input class="input" id="key-subject" placeholder="예: 수학">
+		</div>
+		<div class="form-group">
+			<label class="form-label">정답 PDF</label>
+			<input class="input" id="key-pdf" type="file" accept=".pdf">
+		</div>
+		<p style="font-size:12px;color:var(--text-sec);margin-bottom:12px;">
+			<i class="fas fa-info-circle"></i> PDF를 업로드하면 AI가 자동으로 정답을 추출합니다
+		</p>
+		<div style="display:flex;gap:8px;margin-top:16px;">
+			<button class="btn btn-primary" style="flex:1;" onclick="registerAnswerKey()">등록</button>
+			<button class="btn btn-outline" style="flex:1;" onclick="closeModal('key-modal')">취소</button>
+		</div>
+	</div>
+</div>
+
+<script>
+// ============================================================
+// 설정
+// ============================================================
+const SUPABASE_URL = 'https://jzcrpdeomjmytfekcgqu.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp6Y3JwZGVvbWpteXRmZWtjZ3F1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Mzk3NTU5NzMsImV4cCI6MjA1NTMzMTk3M30.p6XnghpBdmFMpiGFnm3yFNqPMpYMNeMpPnwiucSB4RE';
+const GRADING_SERVER_URL = localStorage.getItem('grading_server_url') || 'http://localhost:8000';
+
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+let currentUser = null;
+let currentTeacher = null;
+let currentResults = [];
+let currentItems = [];
+let currentResultId = null;
+let currentFilter = 'all';
+
+// 캔버스 관련
+let canvasTool = 'pen';
+let canvasColor = '#ef4444';
+let canvasPenSize = 3;
+let canvasHistory = [];
+let canvasRedoStack = [];
+let isDrawing = false;
+
+// ============================================================
+// 인증
+// ============================================================
+async function handleLogin() {
+	const email = document.getElementById('login-email').value.trim();
+	const password = document.getElementById('login-password').value;
+	if (!email || !password) return showToast('이메일과 비밀번호를 입력하세요', 'error');
+
+	const { data, error } = await db.auth.signInWithPassword({ email, password });
+	if (error) return showToast('로그인 실패: ' + error.message, 'error');
+
+	currentUser = data.user;
+	await loadTeacherInfo();
+	showPage('main');
+	loadAllData();
+}
+
+function handleLogout() {
+	db.auth.signOut();
+	currentUser = null;
+	currentTeacher = null;
+	showPage('login');
+}
+
+async function loadTeacherInfo() {
+	if (!currentUser) return;
+	const { data } = await db.from('teachers').select('*').eq('owner_user_id', currentUser.id).maybeSingle();
+	currentTeacher = data;
+}
+
+// ============================================================
+// 페이지/탭 전환
+// ============================================================
+function showPage(page) {
+	document.getElementById('page-login').style.display = page === 'login' ? 'flex' : 'none';
+	document.getElementById('page-main').style.display = page === 'main' ? 'block' : 'none';
+	document.getElementById('page-detail').style.display = page === 'detail' ? 'block' : 'none';
+}
+
+function switchMainTab(tab) {
+	document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
+	document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+	document.getElementById('tab-' + tab).style.display = 'block';
+	event.target.classList.add('active');
+}
+
+function closeModal(id) {
+	document.getElementById(id).classList.remove('show');
+}
+
+function showToast(msg, type = 'info') {
+	const el = document.createElement('div');
+	el.className = 'g-toast ' + type;
+	el.textContent = msg;
+	document.body.appendChild(el);
+	setTimeout(() => el.remove(), 3000);
+}
+
+// ============================================================
+// 데이터 로드
+// ============================================================
+async function loadAllData() {
+	await Promise.all([loadResults(), loadAssignments(), loadAnswerKeys(), loadStats()]);
+}
+
+async function loadResults() {
+	if (!currentUser) return;
+	let query = db.from('grading_results').select('*, students(name, grade, school)').eq('teacher_id', currentUser.id);
+	if (currentFilter !== 'all') query = query.eq('status', currentFilter);
+	const { data } = await query.order('created_at', { ascending: false });
+	currentResults = data || [];
+	renderResults();
+}
+
+function filterResults(filter) {
+	currentFilter = filter;
+	document.querySelectorAll('[id^="filter-"]').forEach(el => el.classList.remove('btn-primary'));
+	document.getElementById('filter-' + (filter === 'all' ? 'all' : filter === 'review_needed' ? 'review' : 'confirmed')).classList.add('btn-primary');
+	loadResults();
+}
+
+function renderResults() {
+	const el = document.getElementById('results-list');
+	if (!currentResults.length) {
+		el.innerHTML = '<div class="empty-state"><i class="fas fa-inbox"></i><p>채점 결과가 없습니다</p></div>';
+		return;
+	}
+	el.innerHTML = currentResults.map(r => {
+		const student = r.students || {};
+		const statusCls = r.status === 'confirmed' ? 'badge-confirmed' : r.status === 'review_needed' ? 'badge-review' : 'badge-grading';
+		const statusText = r.status === 'confirmed' ? '확정' : r.status === 'review_needed' ? '검토 필요' : '채점 중';
+		const iconBg = r.status === 'confirmed' ? 'rgba(34,197,94,0.15)' : r.status === 'review_needed' ? 'rgba(234,179,8,0.15)' : 'rgba(129,140,248,0.15)';
+		const icon = r.status === 'confirmed' ? '✅' : r.status === 'review_needed' ? '⚠️' : '⏳';
+		const date = new Date(r.created_at).toLocaleDateString('ko-KR');
+		return `<div class="list-item" onclick="openDetail(${r.id})">
+			<div class="list-item-icon" style="background:${iconBg};">${icon}</div>
+			<div class="list-item-info">
+				<div class="list-item-title">${escapeHtml(student.name || '?')} - ${r.total_score}/${r.max_score}점</div>
+				<div class="list-item-sub">⭕${r.correct_count} ✘${r.wrong_count} ❓${r.uncertain_count} · ${date}</div>
+			</div>
+			<span class="list-item-badge ${statusCls}">${statusText}</span>
+		</div>`;
+	}).join('');
+}
+
+// ============================================================
+// 채점 상세
+// ============================================================
+async function openDetail(resultId) {
+	currentResultId = resultId;
+	const result = currentResults.find(r => r.id === resultId);
+	if (!result) return;
+
+	document.getElementById('detail-title').textContent = (result.students?.name || '?') + ' 채점 상세';
+	document.getElementById('detail-score').textContent = result.total_score + '/' + result.max_score;
+	document.getElementById('detail-correct').textContent = result.correct_count;
+	document.getElementById('detail-wrong').textContent = result.wrong_count;
+	document.getElementById('detail-uncertain').textContent = result.uncertain_count;
+	document.getElementById('detail-total').textContent = result.total_questions;
+	document.getElementById('detail-memo').value = result.teacher_memo || '';
+	document.getElementById('detail-confirm-btn').style.display = result.status === 'confirmed' ? 'none' : 'inline-flex';
+
+	// 채점 이미지
+	const imgUrls = result.teacher_graded_image_urls || result.central_graded_image_urls || [];
+	if (imgUrls.length > 0) {
+		document.getElementById('graded-image').src = imgUrls[0];
+	}
+
+	// 문항별 로드
+	const { data: items } = await db.from('grading_items').select('*').eq('result_id', resultId).order('question_number');
+	currentItems = items || [];
+	renderQuestionGrid();
+
+	showPage('detail');
+}
+
+function renderQuestionGrid() {
+	const grid = document.getElementById('detail-grid');
+	grid.innerHTML = currentItems.map(item => {
+		const cls = item.is_correct === true ? 'q-correct' : item.is_correct === false ? 'q-wrong' : 'q-uncertain';
+		const mark = item.is_correct === true ? '⭕' : item.is_correct === false ? '✘' : '❓';
+		return `<div class="q-cell ${cls}" onclick="openItemEdit(${item.id})" title="문제 ${item.question_number}">${item.question_number}</div>`;
+	}).join('');
+}
+
+function openItemEdit(itemId) {
+	const item = currentItems.find(i => i.id === itemId);
+	if (!item) return;
+
+	document.getElementById('item-modal-title').textContent = `${item.question_number}번 문항`;
+	document.getElementById('item-student-answer').textContent = item.student_answer || '(인식 실패)';
+	document.getElementById('item-correct-answer').textContent = item.correct_answer || '-';
+	document.getElementById('item-teacher-score').value = item.teacher_score ?? item.ai_score ?? '';
+	document.getElementById('item-teacher-feedback').value = item.teacher_feedback || '';
+
+	const aiSection = document.getElementById('item-ai-section');
+	if (item.question_type === 'essay' && item.ai_feedback) {
+		aiSection.style.display = 'block';
+		document.getElementById('item-ai-feedback').textContent = item.ai_feedback;
+	} else {
+		aiSection.style.display = 'none';
+	}
+
+	document.getElementById('item-modal').dataset.itemId = itemId;
+	document.getElementById('item-modal').classList.add('show');
+}
+
+async function saveItemEdit() {
+	const itemId = parseInt(document.getElementById('item-modal').dataset.itemId);
+	const score = document.getElementById('item-teacher-score').value;
+	const feedback = document.getElementById('item-teacher-feedback').value;
+
+	const updates = {};
+	if (score !== '') updates.teacher_score = parseFloat(score);
+	if (feedback) updates.teacher_feedback = feedback;
+
+	const { error } = await db.from('grading_items').update(updates).eq('id', itemId);
+	if (error) return showToast('저장 실패', 'error');
+
+	showToast('저장 완료', 'success');
+	closeModal('item-modal');
+
+	// 새로고침
+	const { data: items } = await db.from('grading_items').select('*').eq('result_id', currentResultId).order('question_number');
+	currentItems = items || [];
+	renderQuestionGrid();
+}
+
+async function confirmResult() {
+	if (!currentResultId) return;
+	const { error } = await db.from('grading_results').update({ status: 'confirmed', updated_at: new Date().toISOString() }).eq('id', currentResultId);
+	if (error) return showToast('확정 실패', 'error');
+	showToast('채점 결과가 확정되었습니다', 'success');
+	document.getElementById('detail-confirm-btn').style.display = 'none';
+	loadResults();
+}
+
+// ============================================================
+// 과제 배정
+// ============================================================
+async function loadAssignments() {
+	if (!currentUser) return;
+	const { data } = await db.from('grading_assignments').select('*, answer_keys(title, subject)').eq('teacher_id', currentUser.id).order('created_at', { ascending: false });
+	const el = document.getElementById('assignments-list');
+	if (!data?.length) {
+		el.innerHTML = '<div class="empty-state"><i class="fas fa-clipboard-list"></i><p>배정된 과제가 없습니다</p></div>';
+		return;
+	}
+	el.innerHTML = data.map(a => {
+		const key = a.answer_keys;
+		return `<div class="list-item">
+			<div class="list-item-icon" style="background:rgba(129,140,248,0.15);">📋</div>
+			<div class="list-item-info">
+				<div class="list-item-title">${escapeHtml(a.title)}</div>
+				<div class="list-item-sub">${key ? key.title + ' · ' + (key.subject || '') : '자동 검색'} · ${a.page_range || ''}</div>
+			</div>
+			<span style="font-size:12px;color:var(--text-sec);">${a.due_date || ''}</span>
+		</div>`;
+	}).join('');
+}
+
+async function showAssignModal() {
+	// 교재 목록 로드
+	const { data: keys } = await db.from('answer_keys').select('id, title, subject').eq('teacher_id', currentUser.id);
+	const sel = document.getElementById('assign-key');
+	sel.innerHTML = '<option value="">자동 검색 모드</option>' + (keys || []).map(k => `<option value="${k.id}">${k.title} (${k.subject || ''})</option>`).join('');
+	document.getElementById('assign-modal').classList.add('show');
+}
+
+async function createAssignment() {
+	const title = document.getElementById('assign-title').value.trim();
+	if (!title) return showToast('과제 제목을 입력하세요', 'error');
+
+	const keyId = document.getElementById('assign-key').value;
+	const { error } = await db.from('grading_assignments').insert({
+		teacher_id: currentUser.id,
+		title,
+		answer_key_id: keyId || null,
+		page_range: document.getElementById('assign-pages').value,
+		due_date: document.getElementById('assign-due').value || null,
+		mode: keyId ? 'assigned' : 'auto_search',
+	});
+
+	if (error) return showToast('배정 실패: ' + error.message, 'error');
+	showToast('과제가 배정되었습니다', 'success');
+	closeModal('assign-modal');
+	loadAssignments();
+}
+
+// ============================================================
+// 교재 관리
+// ============================================================
+async function loadAnswerKeys() {
+	if (!currentUser) return;
+	const { data } = await db.from('answer_keys').select('*').eq('teacher_id', currentUser.id).order('created_at', { ascending: false });
+	const el = document.getElementById('keys-list');
+	if (!data?.length) {
+		el.innerHTML = '<div class="empty-state"><i class="fas fa-book-open"></i><p>등록된 교재가 없습니다</p></div>';
+		return;
+	}
+	el.innerHTML = data.map(k => `<div class="list-item">
+		<div class="list-item-icon" style="background:rgba(20,184,166,0.15);">📚</div>
+		<div class="list-item-info">
+			<div class="list-item-title">${escapeHtml(k.title)}</div>
+			<div class="list-item-sub">${k.subject || '과목 미정'} · ${k.total_questions}문제 · ${k.parsed ? '✅ 파싱완료' : '⏳ 파싱중'}</div>
+		</div>
+	</div>`).join('');
+
+	// 과제 배정용 셀렉트 업데이트
+	const sel = document.getElementById('assign-key');
+	if (sel) {
+		sel.innerHTML = '<option value="">자동 검색 모드</option>' + data.map(k => `<option value="${k.id}">${k.title} (${k.subject || ''})</option>`).join('');
+	}
+}
+
+function showAddKeyModal() {
+	document.getElementById('key-modal').classList.add('show');
+}
+
+async function registerAnswerKey() {
+	const title = document.getElementById('key-title').value.trim();
+	const subject = document.getElementById('key-subject').value.trim();
+	const pdfInput = document.getElementById('key-pdf');
+
+	if (!title) return showToast('교재명을 입력하세요', 'error');
+
+	if (pdfInput.files.length > 0) {
+		// PDF 파일을 서버에 전송하여 파싱
+		const formData = new FormData();
+		formData.append('teacher_id', currentUser.id);
+		formData.append('title', title);
+		formData.append('subject', subject);
+		formData.append('pdf_file', pdfInput.files[0]);
+
+		showToast('정답 추출 중...', 'info');
+
+		try {
+			const res = await fetch(GRADING_SERVER_URL + '/api/answer-keys/parse', {
+				method: 'POST',
+				body: formData,
+			});
+			const result = await res.json();
+
+			if (result.data) {
+				showToast(`교재 등록 완료! ${result.parsed_result?.total || 0}문제 추출`, 'success');
+				closeModal('key-modal');
+				loadAnswerKeys();
+			} else {
+				showToast('등록 실패', 'error');
+			}
+		} catch (e) {
+			showToast('서버 연결 실패: ' + e.message, 'error');
+		}
+	} else {
+		// PDF 없이 수동 등록
+		const { error } = await db.from('answer_keys').insert({
+			teacher_id: currentUser.id,
+			title, subject,
+			parsed: false,
+		});
+		if (error) return showToast('등록 실패', 'error');
+		showToast('교재가 등록되었습니다 (정답은 나중에 추가)', 'success');
+		closeModal('key-modal');
+		loadAnswerKeys();
+	}
+}
+
+async function scanDrivePDFs() {
+	showToast('중앙 드라이브에서 스캔 중...', 'info');
+	try {
+		const res = await fetch(GRADING_SERVER_URL + '/api/answer-keys/drive-pdfs');
+		const result = await res.json();
+		const pdfs = result.data || [];
+		showToast(`숙제 채점 자료 폴더에서 ${pdfs.length}개 PDF 발견`, pdfs.length > 0 ? 'success' : 'info');
+	} catch (e) {
+		showToast('스캔 실패: ' + e.message, 'error');
+	}
+}
+
+// ============================================================
+// 통계
+// ============================================================
+async function loadStats() {
+	if (!currentUser) return;
+	const el = document.getElementById('stats-content');
+	const { data: results } = await db.from('grading_results').select('total_score, max_score, correct_count, wrong_count, total_questions, students(name)').eq('teacher_id', currentUser.id).eq('status', 'confirmed');
+
+	if (!results?.length) {
+		el.innerHTML = '<div class="empty-state"><i class="fas fa-chart-bar"></i><p>확정된 채점 결과가 없습니다</p></div>';
+		return;
+	}
+
+	const avgScore = results.reduce((sum, r) => sum + (r.total_score || 0), 0) / results.length;
+	const totalGraded = results.length;
+
+	// 학생별 평균
+	const studentMap = {};
+	results.forEach(r => {
+		const name = r.students?.name || '?';
+		if (!studentMap[name]) studentMap[name] = [];
+		studentMap[name].push(r.total_score || 0);
+	});
+
+	const studentStats = Object.entries(studentMap).map(([name, scores]) => ({
+		name, avg: Math.round(scores.reduce((a, b) => a + b, 0) / scores.length * 10) / 10, count: scores.length
+	})).sort((a, b) => b.avg - a.avg);
+
+	el.innerHTML = `
+		<div class="card">
+			<div class="card-title"><i class="fas fa-chart-pie"></i> 전체 통계</div>
+			<div class="stat-row">
+				<div class="stat-item"><div class="stat-num" style="color:var(--primary);">${avgScore.toFixed(1)}</div><div class="stat-label">평균 점수</div></div>
+				<div class="stat-item"><div class="stat-num" style="color:var(--green);">${totalGraded}</div><div class="stat-label">채점 완료</div></div>
+			</div>
+		</div>
+		<div class="card">
+			<div class="card-title"><i class="fas fa-ranking-star"></i> 학생별 평균</div>
+			${studentStats.map((s, i) => `<div class="list-item">
+				<div class="list-item-icon" style="background:rgba(129,140,248,0.15);font-size:14px;font-weight:700;">${i + 1}</div>
+				<div class="list-item-info">
+					<div class="list-item-title">${escapeHtml(s.name)}</div>
+					<div class="list-item-sub">${s.count}회 채점</div>
+				</div>
+				<span style="font-size:16px;font-weight:700;color:var(--primary);">${s.avg}점</span>
+			</div>`).join('')}
+		</div>
+	`;
+}
+
+// ============================================================
+// 캔버스 (필기 도구)
+// ============================================================
+function initCanvas() {
+	const img = document.getElementById('graded-image');
+	const canvas = document.getElementById('annotation-canvas');
+	canvas.width = img.naturalWidth;
+	canvas.height = img.naturalHeight;
+
+	const ctx = canvas.getContext('2d');
+	canvasHistory = [];
+	canvasRedoStack = [];
+
+	canvas.addEventListener('pointerdown', startDraw);
+	canvas.addEventListener('pointermove', draw);
+	canvas.addEventListener('pointerup', endDraw);
+	canvas.addEventListener('pointerleave', endDraw);
+}
+
+function startDraw(e) {
+	isDrawing = true;
+	const { x, y } = getCanvasPos(e);
+
+	if (canvasTool === 'text') {
+		const text = prompt('텍스트 입력:');
+		if (text) {
+			const ctx = e.target.getContext('2d');
+			ctx.font = `${canvasPenSize * 6}px Pretendard, sans-serif`;
+			ctx.fillStyle = canvasColor;
+			ctx.fillText(text, x, y);
+			saveCanvasState();
+		}
+		isDrawing = false;
+		return;
+	}
+
+	if (canvasTool === 'circle') {
+		const ctx = e.target.getContext('2d');
+		ctx.beginPath();
+		ctx.arc(x, y, canvasPenSize * 8, 0, Math.PI * 2);
+		ctx.strokeStyle = canvasColor;
+		ctx.lineWidth = canvasPenSize;
+		ctx.stroke();
+		saveCanvasState();
+		isDrawing = false;
+		return;
+	}
+
+	if (canvasTool === 'check') {
+		const ctx = e.target.getContext('2d');
+		const s = canvasPenSize * 6;
+		ctx.strokeStyle = '#22c55e';
+		ctx.lineWidth = canvasPenSize + 1;
+		ctx.beginPath();
+		ctx.moveTo(x - s, y); ctx.lineTo(x - s/3, y + s); ctx.lineTo(x + s, y - s);
+		ctx.stroke();
+		saveCanvasState();
+		isDrawing = false;
+		return;
+	}
+
+	if (canvasTool === 'xmark') {
+		const ctx = e.target.getContext('2d');
+		const s = canvasPenSize * 6;
+		ctx.strokeStyle = '#ef4444';
+		ctx.lineWidth = canvasPenSize + 1;
+		ctx.beginPath();
+		ctx.moveTo(x - s, y - s); ctx.lineTo(x + s, y + s);
+		ctx.moveTo(x + s, y - s); ctx.lineTo(x - s, y + s);
+		ctx.stroke();
+		saveCanvasState();
+		isDrawing = false;
+		return;
+	}
+
+	const ctx = e.target.getContext('2d');
+	ctx.beginPath();
+	ctx.moveTo(x, y);
+}
+
+function draw(e) {
+	if (!isDrawing) return;
+	const { x, y } = getCanvasPos(e);
+	const ctx = e.target.getContext('2d');
+
+	if (canvasTool === 'eraser') {
+		ctx.globalCompositeOperation = 'destination-out';
+		ctx.lineWidth = canvasPenSize * 5;
+	} else if (canvasTool === 'highlighter') {
+		ctx.globalCompositeOperation = 'source-over';
+		ctx.strokeStyle = canvasColor + '40';
+		ctx.lineWidth = canvasPenSize * 5;
+	} else {
+		ctx.globalCompositeOperation = 'source-over';
+		ctx.strokeStyle = canvasColor;
+		ctx.lineWidth = canvasPenSize;
+	}
+
+	ctx.lineCap = 'round';
+	ctx.lineJoin = 'round';
+	ctx.lineTo(x, y);
+	ctx.stroke();
+}
+
+function endDraw(e) {
+	if (isDrawing) {
+		isDrawing = false;
+		saveCanvasState();
+	}
+}
+
+function getCanvasPos(e) {
+	const canvas = e.target;
+	const rect = canvas.getBoundingClientRect();
+	return {
+		x: (e.clientX - rect.left) * (canvas.width / rect.width),
+		y: (e.clientY - rect.top) * (canvas.height / rect.height),
+	};
+}
+
+function saveCanvasState() {
+	const canvas = document.getElementById('annotation-canvas');
+	canvasHistory.push(canvas.toDataURL());
+	canvasRedoStack = [];
+}
+
+function undoCanvas() {
+	if (!canvasHistory.length) return;
+	const canvas = document.getElementById('annotation-canvas');
+	const ctx = canvas.getContext('2d');
+	canvasRedoStack.push(canvasHistory.pop());
+	ctx.clearRect(0, 0, canvas.width, canvas.height);
+	if (canvasHistory.length > 0) {
+		const img = new Image();
+		img.onload = () => ctx.drawImage(img, 0, 0);
+		img.src = canvasHistory[canvasHistory.length - 1];
+	}
+}
+
+function redoCanvas() {
+	if (!canvasRedoStack.length) return;
+	const canvas = document.getElementById('annotation-canvas');
+	const ctx = canvas.getContext('2d');
+	const state = canvasRedoStack.pop();
+	canvasHistory.push(state);
+	const img = new Image();
+	img.onload = () => { ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.drawImage(img, 0, 0); };
+	img.src = state;
+}
+
+function setTool(tool) {
+	canvasTool = tool;
+	document.querySelectorAll('.tool-btn[data-tool]').forEach(el => el.classList.toggle('active', el.dataset.tool === tool));
+}
+
+function setColor(color) {
+	canvasColor = color;
+	document.querySelectorAll('.color-dot').forEach(el => el.classList.toggle('active', el.style.background === color));
+}
+
+function setPenSize(size) { canvasPenSize = parseInt(size); }
+
+async function saveAnnotations() {
+	if (!currentResultId) return;
+	const canvas = document.getElementById('annotation-canvas');
+	const annotationData = canvas.toDataURL();
+	const memo = document.getElementById('detail-memo').value;
+
+	const { error } = await db.from('grading_results').update({
+		teacher_annotations: [{ type: 'canvas', data: annotationData }],
+		teacher_memo: memo,
+		updated_at: new Date().toISOString(),
+	}).eq('id', currentResultId);
+
+	if (error) return showToast('저장 실패', 'error');
+	showToast('필기 및 메모가 저장되었습니다', 'success');
+}
+
+// ============================================================
+// 유틸리티
+// ============================================================
+function escapeHtml(str) {
+	if (typeof str !== 'string') return str;
+	return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// ============================================================
+// 초기화
+// ============================================================
+document.addEventListener('DOMContentLoaded', async () => {
+	const { data: { session } } = await db.auth.getSession();
+	if (session?.user) {
+		currentUser = session.user;
+		await loadTeacherInfo();
+		showPage('main');
+		loadAllData();
+	}
+});
+</script>
+</body>
+</html>

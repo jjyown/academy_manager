@@ -12,12 +12,8 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-// Google Drive 폴더 이름
 const DRIVE_FOLDER_NAME = "숙제 제출";
 
-/**
- * refresh_token으로 새 access_token을 발급받습니다.
- */
 async function getAccessToken(refreshToken: string): Promise<string> {
   const response = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
@@ -41,16 +37,11 @@ async function getAccessToken(refreshToken: string): Promise<string> {
   return data.access_token;
 }
 
-/**
- * Google Drive에서 특정 부모 폴더 안에 하위 폴더를 찾거나 생성합니다.
- * parentId가 null이면 루트(내 드라이브)에서 검색합니다.
- */
 async function getOrCreateSubFolder(
   accessToken: string,
   folderName: string,
   parentId: string | null
 ): Promise<string> {
-  // 부모 폴더 내에서 검색 (폴더명의 작은따옴표 이스케이프)
   const safeFolderName = folderName.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
   const parentQuery = parentId
     ? `'${parentId}' in parents and `
@@ -69,7 +60,6 @@ async function getOrCreateSubFolder(
     return searchData.files[0].id;
   }
 
-  // 폴더가 없으면 생성
   const metadata: Record<string, unknown> = {
     name: folderName,
     mimeType: "application/vnd.google-apps.folder",
@@ -101,10 +91,6 @@ async function getOrCreateSubFolder(
   return createData.id;
 }
 
-/**
- * 숙제 제출 > 연도 > 월 > 일 > 학생이름 폴더 구조를 생성하고
- * 최종 폴더 ID를 반환합니다.
- */
 async function getOrCreateFolderPath(
   accessToken: string,
   year: string,
@@ -112,30 +98,20 @@ async function getOrCreateFolderPath(
   day: string,
   studentName: string
 ): Promise<string> {
-  // 1단계: "숙제 제출" 루트 폴더
   const rootId = await getOrCreateSubFolder(accessToken, DRIVE_FOLDER_NAME, null);
-  // 2단계: 연도 폴더 (예: "2026년")
   const yearId = await getOrCreateSubFolder(accessToken, `${year}년`, rootId);
-  // 3단계: 월 폴더 (예: "2월")
   const monthId = await getOrCreateSubFolder(accessToken, `${month}월`, yearId);
-  // 4단계: 일 폴더 (예: "15일")
   const dayId = await getOrCreateSubFolder(accessToken, `${day}일`, monthId);
-  // 5단계: 학생 이름 폴더 (예: "조민준")
   const studentId = await getOrCreateSubFolder(accessToken, studentName, dayId);
-
   return studentId;
 }
 
-/**
- * Google Drive에 ZIP 파일을 업로드합니다.
- */
 async function uploadFileToDrive(
   accessToken: string,
   folderId: string,
   fileName: string,
   fileData: Uint8Array
 ): Promise<{ fileId: string; fileUrl: string }> {
-  // multipart upload 사용
   const boundary = "homework_upload_boundary_" + Date.now();
 
   const metadata = JSON.stringify({
@@ -144,7 +120,6 @@ async function uploadFileToDrive(
     mimeType: "application/zip",
   });
 
-  // multipart/related 요청 본문 구성
   const encoder = new TextEncoder();
   const metadataPart = encoder.encode(
     `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n`
@@ -154,7 +129,6 @@ async function uploadFileToDrive(
   );
   const ending = encoder.encode(`\r\n--${boundary}--`);
 
-  // 전체 본문 합치기
   const body = new Uint8Array(
     metadataPart.length + filePart.length + fileData.length + ending.length
   );
@@ -193,7 +167,6 @@ async function uploadFileToDrive(
 }
 
 serve(async (req: Request) => {
-  // CORS preflight
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
@@ -207,7 +180,6 @@ serve(async (req: Request) => {
       throw new Error("Supabase credentials not configured");
     }
 
-    // FormData에서 데이터 추출
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
     const teacherId = formData.get("teacher_id") as string | null;
@@ -229,30 +201,21 @@ serve(async (req: Request) => {
       );
     }
 
-    // Supabase 클라이언트 (service role - RLS 우회)
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    // 선생님의 refresh token 조회
-    const { data: teacher, error: teacherError } = await supabase
+    // ─── 1) 중앙 관리 드라이브(is_central_admin=true) 토큰 조회 ───
+    const { data: centralAdmin, error: centralError } = await supabase
       .from("teachers")
       .select("google_drive_refresh_token, google_drive_connected, name")
-      .eq("id", teacherId)
+      .eq("is_central_admin", true)
+      .eq("google_drive_connected", true)
+      .limit(1)
       .single();
 
-    if (teacherError || !teacher) {
-      return new Response(
-        JSON.stringify({ error: "선생님 정보를 찾을 수 없습니다." }),
-        {
-          status: 404,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
-    }
-
-    if (!teacher.google_drive_connected || !teacher.google_drive_refresh_token) {
+    if (centralError || !centralAdmin || !centralAdmin.google_drive_refresh_token) {
       return new Response(
         JSON.stringify({
-          error: "선생님의 Google Drive가 연결되지 않았습니다. 선생님에게 Drive 연결을 요청해주세요.",
+          error: "중앙 관리 드라이브(원장님)가 연결되지 않았습니다. 원장님 계정에서 Drive 연결을 확인해주세요.",
         }),
         {
           status: 400,
@@ -260,6 +223,15 @@ serve(async (req: Request) => {
         }
       );
     }
+
+    // ─── 2) 담당 선생님 드라이브 토큰 조회 ───
+    const { data: teacher } = await supabase
+      .from("teachers")
+      .select("google_drive_refresh_token, google_drive_connected, name")
+      .eq("id", teacherId)
+      .single();
+
+    const teacherHasDrive = teacher?.google_drive_connected && teacher?.google_drive_refresh_token;
 
     // submissionDate 검증
     const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
@@ -270,26 +242,48 @@ serve(async (req: Request) => {
       );
     }
 
-    // 파일 이름 생성: 과제-{year}년-{month}월-{day}일-{studentName}.zip
     const dateParts = submissionDate.split("-");
     const year = dateParts[0];
     const month = String(parseInt(dateParts[1]));
     const day = String(parseInt(dateParts[2]));
     const fileName = `과제-${year}년-${month}월-${day}일-${studentName}.zip`;
 
-    // Google Drive 업로드 (폴더 구조 자동 생성)
-    const accessToken = await getAccessToken(teacher.google_drive_refresh_token);
-    const folderId = await getOrCreateFolderPath(accessToken, year, month, day, studentName);
-
     const fileBuffer = new Uint8Array(await file.arrayBuffer());
-    const { fileId, fileUrl } = await uploadFileToDrive(
-      accessToken,
-      folderId,
+
+    // ─── 3) 중앙 드라이브(jjyown@gmail.com)에 원본 업로드 ───
+    const centralAccessToken = await getAccessToken(centralAdmin.google_drive_refresh_token);
+    const centralFolderId = await getOrCreateFolderPath(centralAccessToken, year, month, day, studentName);
+    const { fileId: centralFileId, fileUrl: centralFileUrl } = await uploadFileToDrive(
+      centralAccessToken,
+      centralFolderId,
       fileName,
       fileBuffer
     );
 
-    // DB에 제출 기록 저장
+    // ─── 4) 담당 선생님 드라이브에도 원본 업로드 ───
+    let teacherFileId: string | null = null;
+    let teacherFileUrl: string | null = null;
+
+    if (teacherHasDrive) {
+      try {
+        const teacherAccessToken = await getAccessToken(teacher!.google_drive_refresh_token);
+        const teacherFolderId = await getOrCreateFolderPath(teacherAccessToken, year, month, day, studentName);
+        const teacherResult = await uploadFileToDrive(
+          teacherAccessToken,
+          teacherFolderId,
+          fileName,
+          fileBuffer
+        );
+        teacherFileId = teacherResult.fileId;
+        teacherFileUrl = teacherResult.fileUrl;
+        console.log(`선생님 드라이브 업로드 성공: ${teacherFileId}`);
+      } catch (teacherUploadErr: unknown) {
+        const msg = teacherUploadErr instanceof Error ? teacherUploadErr.message : String(teacherUploadErr);
+        console.warn(`선생님 드라이브 업로드 실패 (중앙 저장은 정상): ${msg}`);
+      }
+    }
+
+    // ─── 5) DB에 제출 기록 저장 ───
     const { error: insertError } = await supabase
       .from("homework_submissions")
       .insert({
@@ -298,27 +292,35 @@ serve(async (req: Request) => {
         student_id: parseInt(studentId),
         submission_date: submissionDate,
         file_name: fileName,
-        drive_file_id: fileId,
-        drive_file_url: fileUrl,
+        // 기존 호환: drive_file_id/url은 중앙 드라이브 기준
+        drive_file_id: centralFileId,
+        drive_file_url: centralFileUrl,
+        // 중앙 드라이브 정보
+        central_drive_file_id: centralFileId,
+        central_drive_file_url: centralFileUrl,
+        // 선생님 드라이브 정보
+        teacher_drive_file_id: teacherFileId,
+        teacher_drive_file_url: teacherFileUrl,
         file_size: fileBuffer.length,
         status: "uploaded",
+        grading_status: "pending",
       });
 
     if (insertError) {
       console.error("DB insert error:", insertError);
-      // 드라이브 업로드는 성공했으나 DB 저장 실패
       return new Response(
         JSON.stringify({
           success: true,
           fileName,
-          driveFileId: fileId,
-          driveFileUrl: fileUrl,
+          driveFileId: centralFileId,
+          driveFileUrl: centralFileUrl,
+          teacherDriveFileId: teacherFileId,
           fileSize: fileBuffer.length,
           dbSaved: false,
           dbError: insertError.message || 'DB 저장 실패',
         }),
         {
-          status: 207, // Multi-Status: 드라이브 성공, DB 실패
+          status: 207,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         }
       );
@@ -328,8 +330,10 @@ serve(async (req: Request) => {
       JSON.stringify({
         success: true,
         fileName,
-        driveFileId: fileId,
-        driveFileUrl: fileUrl,
+        driveFileId: centralFileId,
+        driveFileUrl: centralFileUrl,
+        teacherDriveFileId: teacherFileId,
+        teacherDriveFileUrl: teacherFileUrl,
         fileSize: fileBuffer.length,
         dbSaved: true,
       }),
@@ -342,14 +346,13 @@ serve(async (req: Request) => {
     const errMsg = error instanceof Error ? error.message : String(error);
     console.error("Upload homework error:", errMsg);
 
-    // refresh_token이 만료/취소된 경우
     if (
       errMsg.includes("Token refresh failed") ||
       errMsg.includes("invalid_grant")
     ) {
       return new Response(
         JSON.stringify({
-          error: "Google Drive 인증이 만료되었습니다. 선생님에게 Drive 재연결을 요청해주세요.",
+          error: "중앙 관리 드라이브 인증이 만료되었습니다. 원장님 계정에서 Drive 재연결을 해주세요.",
           code: "TOKEN_EXPIRED",
         }),
         {

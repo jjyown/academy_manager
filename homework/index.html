@@ -943,10 +943,13 @@
 		</div>
 	</div>
 
-	<!-- 플로팅 제출 버튼 -->
+	<!-- 플로팅 버튼들 -->
 	<div class="floating-submit-wrap">
 		<button class="floating-submit-btn" onclick="goToUploadFromStatus()">
 			<i class="fas fa-paper-plane"></i> 숙제 제출하기
+		</button>
+		<button class="floating-submit-btn" onclick="goToInstantGrade()" style="background:linear-gradient(135deg,#8b5cf6,#6366f1);margin-top:8px;">
+			<i class="fas fa-camera"></i> 즉시 채점
 		</button>
 	</div>
 </div>
@@ -1497,6 +1500,58 @@ function goBackFromStatus() {
 function goToUploadFromStatus() {
 	document.getElementById('page-status').style.display = 'none';
 	showUploadPage();
+}
+
+// 즉시 채점 모드
+function goToInstantGrade() {
+	if (!currentStudent || !currentTeacher) {
+		showAlert('학생 정보가 없습니다.', 'warning');
+		return;
+	}
+
+	// 파일 선택 다이얼로그
+	const input = document.createElement('input');
+	input.type = 'file';
+	input.accept = 'image/*';
+	input.capture = 'environment';
+	input.onchange = async (e) => {
+		const file = e.target.files[0];
+		if (!file) return;
+
+		showAlert('채점 중입니다...', 'info');
+
+		try {
+			const GRADING_SERVER_URL = localStorage.getItem('grading_server_url') || 'http://localhost:8000';
+			const formData = new FormData();
+			formData.append('student_id', String(currentStudent.id));
+			formData.append('teacher_id', currentStudent.owner_user_id);
+			formData.append('mode', 'auto_search');
+			formData.append('image', file);
+
+			const res = await fetch(GRADING_SERVER_URL + '/api/grade', {
+				method: 'POST',
+				body: formData,
+			});
+
+			const result = await res.json();
+
+			if (result.total_score !== undefined) {
+				let msg = `채점 완료!\n\n`;
+				msg += `점수: ${result.total_score}/${result.max_score}점\n`;
+				msg += `정답: ${result.correct_count}  오답: ${result.wrong_count}  확인필요: ${result.uncertain_count}\n\n`;
+				if (result.graded_images?.length > 0) {
+					msg += `채점 이미지가 구글 드라이브에 저장되었습니다.`;
+				}
+				showAlert(msg, 'success');
+			} else {
+				showAlert('채점에 실패했습니다. 다시 시도해주세요.', 'error');
+			}
+		} catch (err) {
+			console.error('[즉시채점] 실패:', err);
+			showAlert('채점 서버에 연결할 수 없습니다.', 'error');
+		}
+	};
+	input.click();
 }
 
 // 월 이동
@@ -2123,13 +2178,9 @@ function showUploadPage(isRestore) {
 	document.getElementById('zip-filename').textContent = getZipFilename(currentStudent.name);
 	document.getElementById('info-teacher').textContent = currentTeacher ? currentTeacher.name + ' 선생님' : '미배정';
 
-	// Drive 연결 상태
+	// Drive 연결 상태 (중앙 드라이브 사용이므로 항상 연결됨 표시)
 	const driveStatusEl = document.getElementById('info-drive-status');
-	if (currentTeacher && currentTeacher.google_drive_connected) {
-		driveStatusEl.innerHTML = '<span style="color:var(--green);"><i class="fas fa-check-circle" style="margin-right:4px;"></i>연결됨</span>';
-	} else {
-		driveStatusEl.innerHTML = '<span style="color:var(--red);"><i class="fas fa-exclamation-circle" style="margin-right:4px;"></i>미연결</span>';
-	}
+	driveStatusEl.innerHTML = '<span style="color:var(--green);"><i class="fas fa-check-circle" style="margin-right:4px;"></i>연결됨 (중앙 관리)</span>';
 
 	// 파일 초기화 (복원 모드가 아닐 때만)
 	if (!isRestore) {
@@ -2249,12 +2300,9 @@ function updateFileUI() {
 function updateSubmitButton() {
 	const btn = document.getElementById('submit-btn');
 	const hasFiles = selectedFiles.length > 0;
-	const hasDrive = currentTeacher && currentTeacher.google_drive_connected;
-	btn.disabled = !hasFiles || !hasDrive;
+	btn.disabled = !hasFiles;
 
-	if (!hasDrive) {
-		btn.title = '선생님의 Google Drive가 연결되지 않았습니다';
-	} else if (!hasFiles) {
+	if (!hasFiles) {
 		btn.title = '파일을 먼저 업로드하세요';
 	} else {
 		btn.title = '';
@@ -2302,8 +2350,8 @@ async function handleSubmit() {
 		return;
 	}
 
-	if (!currentTeacher || !currentTeacher.google_drive_connected) {
-		showToast('선생님의 Google Drive가 연결되지 않았습니다.', 'error');
+	if (!currentTeacher) {
+		showToast('선생님 정보를 불러올 수 없습니다.', 'error');
 		return;
 	}
 
