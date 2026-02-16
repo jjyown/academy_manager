@@ -20,7 +20,7 @@ from config import (
     PORT, CENTRAL_GRADING_MATERIAL_FOLDER, CENTRAL_GRADED_RESULT_FOLDER,
     TEACHER_RESULT_FOLDER
 )
-from ocr.engines import double_check_ocr
+from ocr.engines import ocr_gemini_double_check
 from grading.grader import grade_submission
 from grading.image_marker import create_graded_image
 from grading.pdf_parser import extract_answers_from_pdf
@@ -259,7 +259,7 @@ async def grade_homework(
     for idx, img_bytes in enumerate(image_bytes_list):
         # 자동 검색 모드: 정답 키 매칭
         if not answer_key and mode == "auto_search":
-            ocr_preview = double_check_ocr(img_bytes)
+            ocr_preview = await ocr_gemini_double_check(img_bytes)
             all_keys = await get_all_answer_keys()
             matched_id = await match_answer_key(ocr_preview["full_text_1"], all_keys)
             if matched_id:
