@@ -126,26 +126,6 @@ textarea:focus:not(:focus-visible) {
     height: 100vh !important;
 }
 
-/* QR 스캔 페이지 풀스크린 */
-#qr-scan-page {
-    display: flex !important;
-    flex-direction: column !important;
-    justify-content: flex-start !important;
-    align-items: stretch !important;
-}
-#qr-reader {
-    position: relative;
-    width: 100% !important;
-    height: 100% !important;
-}
-#qr-reader video {
-    width: 100% !important;
-    height: 100% !important;
-    object-fit: cover !important;
-}
-#qr-reader img {
-    display: none !important;
-}
 
 .auth-container {
     width: 100%;

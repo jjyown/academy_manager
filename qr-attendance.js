@@ -945,8 +945,45 @@ window.switchCamera = async function() {
 }
 
 // QR 스캔 페이지 닫기
+// 풀스크린 토글 (브라우저 Fullscreen API)
+window.toggleQRFullscreen = function() {
+    const el = document.documentElement;
+    if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+        // 풀스크린 진입
+        const requestFS = el.requestFullscreen || el.webkitRequestFullscreen;
+        if (requestFS) {
+            requestFS.call(el).catch(err => {
+                console.warn('[Fullscreen] 전체화면 전환 실패:', err);
+                showToast('이 기기에서는 전체화면을 지원하지 않습니다.', 'warning');
+            });
+        }
+    } else {
+        // 풀스크린 해제
+        const exitFS = document.exitFullscreen || document.webkitExitFullscreen;
+        if (exitFS) exitFS.call(document);
+    }
+};
+
+// 풀스크린 상태 변경 시 버튼 텍스트 업데이트
+document.addEventListener('fullscreenchange', updateFullscreenBtn);
+document.addEventListener('webkitfullscreenchange', updateFullscreenBtn);
+function updateFullscreenBtn() {
+    const btn = document.getElementById('qr-fullscreen-btn');
+    if (!btn) return;
+    const isFS = !!(document.fullscreenElement || document.webkitFullscreenElement);
+    btn.innerHTML = isFS
+        ? '<i class="fas fa-compress"></i> 전체화면 해제'
+        : '<i class="fas fa-expand"></i> 전체화면';
+}
+
 window.closeQRScanPage = function() {
     console.log('[closeQRScanPage] QR 스캔 페이지 닫기');
+
+    // 풀스크린 상태면 해제
+    if (document.fullscreenElement || document.webkitFullscreenElement) {
+        const exitFS = document.exitFullscreen || document.webkitExitFullscreen;
+        if (exitFS) exitFS.call(document);
+    }
     
     // 스캐너 중지
     if (html5QrcodeScanner) {

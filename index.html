@@ -1179,22 +1179,25 @@
 
     <!-- QR 스캔 페이지 (전체 화면) -->
     <div id="qr-scan-page" class="auth-page" style="display: none; background: #1e293b !important;">
-        <div style="width: 100%; height: 100%; display: flex; flex-direction: column; padding: 0;">
-            <!-- 상단 바 -->
-            <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; flex-shrink: 0;">
-                <h2 style="color: white; margin: 0; font-size: 18px;">QR 코드 스캔</h2>
-                <div style="display: flex; gap: 8px;">
-                    <button onclick="switchCamera()" style="background: #3b82f6; color: white; border: none; padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 14px;">
+        <div style="width: 100%; max-width: 600px; padding: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2 style="color: white; margin: 0;">QR 코드 스캔</h2>
+                <div style="display: flex; gap: 10px;">
+                    <button onclick="toggleQRFullscreen()" id="qr-fullscreen-btn" style="background: #8b5cf6; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 16px;">
+                        <i class="fas fa-expand"></i> 전체화면
+                    </button>
+                    <button onclick="switchCamera()" style="background: #3b82f6; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 16px;">
                         <i class="fas fa-camera-rotate"></i> 카메라 전환
                     </button>
-                    <button onclick="closeQRScanPage()" style="background: #ef4444; color: white; border: none; padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 14px;">
+                    <button onclick="closeQRScanPage()" style="background: #ef4444; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 16px;">
                         <i class="fas fa-times"></i> 닫기
                     </button>
                 </div>
             </div>
             
-            <!-- QR 리더: 남은 공간 전체 사용 -->
-            <div id="qr-reader" style="flex: 1; width: 100%; overflow: hidden;"></div>
+            <div id="qr-reader" style="width: 100%; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.3);"></div>
+            
+            <!-- 하단 결과 패널 제거: 상단 토스트만 사용 -->
         </div>
     </div>
 
