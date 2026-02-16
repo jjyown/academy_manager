@@ -4,7 +4,7 @@
 
 ## 기능
 
-- **OCR 더블체크**: EasyOCR + PaddleOCR로 객관식 답안 인식
+- **OCR 더블체크**: EasyOCR + Gemini Vision으로 객관식 답안 인식
 - **AI 서술형 채점**: Google Gemini로 서술형 답안 평가
 - **채점 이미지 생성**: 원본 위에 ⭕/✘/❓ 표시
 - **Google Drive 연동**: 정답 PDF 검색, 채점 결과 저장

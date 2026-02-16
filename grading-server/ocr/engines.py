@@ -1,11 +1,12 @@
-"""OCR 엔진: EasyOCR + PaddleOCR 더블체크"""
+"""OCR 엔진: EasyOCR + Gemini AI 더블체크"""
 import logging
+import json
+import base64
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
 _easyocr_reader = None
-_paddleocr_engine = None
 
 
 def _get_easyocr():
@@ -17,21 +18,8 @@ def _get_easyocr():
     return _easyocr_reader
 
 
-def _get_paddleocr():
-    global _paddleocr_engine
-    if _paddleocr_engine is None:
-        from paddleocr import PaddleOCR
-        _paddleocr_engine = PaddleOCR(lang="korean", use_gpu=False, show_log=False)
-        logger.info("PaddleOCR 초기화 완료")
-    return _paddleocr_engine
-
-
 def ocr_easyocr(image_bytes: bytes) -> list[dict]:
-    """EasyOCR로 이미지에서 텍스트 인식
-
-    Returns:
-        [{"text": "③", "confidence": 0.95, "bbox": [[x1,y1],[x2,y2],[x3,y3],[x4,y4]]}, ...]
-    """
+    """EasyOCR로 이미지에서 텍스트 인식"""
     import numpy as np
     from PIL import Image
     import io
@@ -53,82 +41,102 @@ def ocr_easyocr(image_bytes: bytes) -> list[dict]:
     return parsed
 
 
-def ocr_paddleocr(image_bytes: bytes) -> list[dict]:
-    """PaddleOCR로 이미지에서 텍스트 인식
+async def ocr_gemini(image_bytes: bytes) -> list[dict]:
+    """Gemini Vision으로 이미지에서 텍스트/답안 인식 (더블체크용)"""
+    import google.generativeai as genai
+    from config import GEMINI_API_KEY
 
-    Returns:
-        [{"text": "③", "confidence": 0.95, "bbox": [[x1,y1],[x2,y2],[x3,y3],[x4,y4]]}, ...]
-    """
-    import numpy as np
-    from PIL import Image
-    import io
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel("gemini-2.0-flash")
 
-    engine = _get_paddleocr()
-    image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    img_array = np.array(image)
+    b64 = base64.b64encode(image_bytes).decode("utf-8")
 
-    result = engine.ocr(img_array, cls=True)
-    parsed = []
-    if result and result[0]:
-        for line in result[0]:
-            bbox = line[0]
-            text = line[1][0].strip()
-            conf = line[1][1]
-            parsed.append({
-                "text": text,
-                "confidence": round(conf * 100, 2),
-                "bbox": bbox,
-                "center_x": (bbox[0][0] + bbox[2][0]) / 2,
-                "center_y": (bbox[0][1] + bbox[2][1]) / 2,
-            })
-    return parsed
+    prompt = """이 학생 답안지 이미지에서 문제 번호와 학생이 적은 답을 추출해주세요.
+
+규칙:
+- 객관식: 번호와 보기 번호(①②③④⑤ 또는 1,2,3,4,5)
+- 단답형: 번호와 답 텍스트
+- 서술형: 번호와 작성한 내용 요약
+
+반드시 아래 JSON 형식으로만 응답하세요:
+{"answers": {"1": "③", "2": "①", "3": "답텍스트", ...}}"""
+
+    try:
+        response = model.generate_content([
+            prompt,
+            {"mime_type": "image/jpeg", "data": b64}
+        ])
+        text = response.text.strip()
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+        result = json.loads(text)
+        return result.get("answers", {})
+    except Exception as e:
+        logger.error(f"Gemini OCR 실패: {e}")
+        return {}
 
 
 def double_check_ocr(image_bytes: bytes) -> dict:
-    """두 OCR 엔진으로 더블체크
-
-    Returns:
-        {
-            "ocr1": [...],  # EasyOCR 결과
-            "ocr2": [...],  # PaddleOCR 결과
-            "full_text_1": "전체 텍스트",
-            "full_text_2": "전체 텍스트",
-            "answers": {    # 문제번호별 답안 추출
-                "1": {"answer": "③", "ocr1": "③", "ocr2": "③", "match": True, "confidence": 95.0},
-                ...
-            }
-        }
-    """
+    """EasyOCR로 1차 인식 (동기). Gemini 더블체크는 채점 시 별도 호출"""
     ocr1_results = ocr_easyocr(image_bytes)
-    ocr2_results = ocr_paddleocr(image_bytes)
 
     full_text_1 = " ".join([r["text"] for r in ocr1_results])
-    full_text_2 = " ".join([r["text"] for r in ocr2_results])
-
-    # 문제번호별 답안 추출 시도
     answers1 = _extract_answers_from_ocr(ocr1_results)
-    answers2 = _extract_answers_from_ocr(ocr2_results)
+
+    return {
+        "ocr1": ocr1_results,
+        "full_text_1": full_text_1,
+        "full_text_2": "",
+        "answers": {
+            q: {
+                "answer": answers1.get(q, ""),
+                "ocr1": answers1.get(q, ""),
+                "ocr2": "",
+                "match": False,
+                "confidence": answers1.get(f"{q}_conf", 0),
+            }
+            for q in answers1 if not q.endswith("_conf")
+        },
+    }
+
+
+async def double_check_ocr_with_gemini(image_bytes: bytes) -> dict:
+    """EasyOCR + Gemini Vision 더블체크 (비동기)"""
+    ocr1_results = ocr_easyocr(image_bytes)
+    full_text_1 = " ".join([r["text"] for r in ocr1_results])
+    answers1 = _extract_answers_from_ocr(ocr1_results)
+
+    # Gemini Vision으로 2차 인식
+    gemini_answers = await ocr_gemini(image_bytes)
 
     # 더블체크 결합
-    all_questions = set(list(answers1.keys()) + list(answers2.keys()))
+    all_questions = set(
+        [q for q in answers1 if not q.endswith("_conf")] +
+        list(gemini_answers.keys())
+    )
+
     combined = {}
     for q in sorted(all_questions, key=lambda x: int(x) if x.isdigit() else 0):
         a1 = answers1.get(q, "")
-        a2 = answers2.get(q, "")
+        a2 = str(gemini_answers.get(q, ""))
         c1 = answers1.get(f"{q}_conf", 0)
-        c2 = answers2.get(f"{q}_conf", 0)
 
         match = a1 == a2 and a1 != ""
-        # 최종 답: 일치하면 그대로, 아니면 확신도 높은 쪽
         if match:
             final = a1
-            conf = (c1 + c2) / 2
-        elif c1 >= c2:
-            final = a1
-            conf = c1 * 0.7  # 불일치 시 확신도 감소
-        else:
+            conf = min(c1 + 10, 100)
+        elif a2 and not a1:
             final = a2
-            conf = c2 * 0.7
+            conf = 75
+        elif a1 and not a2:
+            final = a1
+            conf = c1 * 0.8
+        else:
+            # 둘 다 있지만 불일치
+            final = a2 if a2 else a1
+            conf = 50
 
         combined[q] = {
             "answer": final,
@@ -140,28 +148,21 @@ def double_check_ocr(image_bytes: bytes) -> dict:
 
     return {
         "ocr1": ocr1_results,
-        "ocr2": ocr2_results,
         "full_text_1": full_text_1,
-        "full_text_2": full_text_2,
+        "full_text_2": json.dumps(gemini_answers, ensure_ascii=False),
         "answers": combined,
     }
 
 
 def _extract_answers_from_ocr(ocr_results: list[dict]) -> dict:
-    """OCR 결과에서 문제번호+답 패턴 추출
-    예: "1. ③" → {"1": "③", "1_conf": 95.0}
-    """
+    """OCR 결과에서 문제번호+답 패턴 추출"""
     import re
     answers = {}
-
-    # 번호 기호 매핑
-    circle_map = {"①": "1", "②": "2", "③": "3", "④": "4", "⑤": "5"}
 
     for item in ocr_results:
         text = item["text"]
         conf = item["confidence"]
 
-        # 패턴: "1. ③" 또는 "1) ③" 또는 "1 ③" 또는 "1.③"
         patterns = [
             r"(\d+)\s*[.)]\s*([①②③④⑤])",
             r"(\d+)\s*[.)]\s*(\d)",
