@@ -84,13 +84,18 @@ async def _extract_with_gemini_vision(
             logger.info(f"자동 탐색된 정답 페이지: {[i+1 for i in page_indices]}")
         else:
             total_pages = _get_total_pages(pdf_bytes)
-            if total_pages <= 30:
+            if total_pages <= 10:
                 page_indices = list(range(total_pages))
-                logger.info(f"전체 {total_pages}p 처리 (30p 이하)")
+                logger.info(f"전체 {total_pages}p 처리 (10p 이하)")
             else:
-                # 30p 초과인데 정답 페이지를 못 찾으면 뒤쪽 30p만 처리
-                page_indices = list(range(max(0, total_pages - 30), total_pages))
-                logger.info(f"전체 {total_pages}p 중 뒤쪽 30p 처리 (정답은 보통 뒷부분)")
+                # 정답 페이지를 못 찾으면 뒤쪽 5p만 처리
+                page_indices = list(range(max(0, total_pages - 5), total_pages))
+                logger.info(f"전체 {total_pages}p 중 뒤쪽 5p 처리 (정답은 보통 뒷부분)")
+
+    # 최대 10페이지 제한 (Gemini API 비용/속도 최적화)
+    if len(page_indices) > 10:
+        logger.warning(f"페이지 {len(page_indices)}개 → 10개로 제한")
+        page_indices = page_indices[:10]
 
     page_images = _pdf_to_images(pdf_bytes, page_indices=page_indices)
     if not page_images:
@@ -124,12 +129,17 @@ async def _extract_with_gemini_vision(
 
 mc=객관식, short=단답형, essay=서술형""")
 
-    for img_bytes in page_images:
+    for i, img_bytes in enumerate(page_images):
         b64 = base64.b64encode(img_bytes).decode("utf-8")
-        parts.append({"mime_type": "image/png", "data": b64})
+        parts.append({"mime_type": "image/jpeg", "data": b64})
+        logger.info(f"  페이지 {i+1}: {len(img_bytes)//1024}KB")
+
+    total_size = sum(len(b) for b in page_images)
+    logger.info(f"Gemini Vision 요청: {len(page_images)}페이지, 총 {total_size//1024}KB")
 
     response = model.generate_content(parts)
     text = response.text.strip()
+    logger.info(f"Gemini Vision 응답: {text[:200]}")
 
     if text.startswith("```"):
         text = text.split("```")[1]
@@ -162,35 +172,74 @@ def _get_total_pages(pdf_bytes: bytes) -> int:
 def _find_answer_page_indices(pdf_bytes: bytes) -> list[int]:
     """PDF에서 정답/해설 페이지를 자동 탐색 (키워드 기반)
 
-    정답 키워드가 포함된 첫 페이지부터 마지막 페이지까지 반환
+    우선순위:
+    1. "빠른정답" 페이지 → 해당 페이지 + 2페이지 (보통 1~3p)
+    2. "정답" 페이지 → 해당 페이지 + 4페이지
+    3. "해설" 페이지 → 해당 페이지 + 7페이지 (해설은 좀 더 필요)
     """
+    QUICK_ANSWER_KEYWORDS = ["빠른정답", "빠른 정답", "정답과풀이", "정답및풀이", "정답·해설"]
+    ANSWER_KEYWORDS = ["정답", "답안", "Answer", "Solutions", "정답 및 해설", "정답과 해설"]
+    EXPLANATION_KEYWORDS = ["해설", "풀이"]
+
+    quick_start = None
     answer_start = None
+    explanation_start = None
 
     try:
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        total = len(doc)
+
         for i, page in enumerate(doc):
             text = page.get_text("text")
             if not text:
                 continue
 
             first_300 = text[:300].replace(" ", "")
-            for keyword in ANSWER_PAGE_KEYWORDS:
-                kw_clean = keyword.replace(" ", "")
-                if kw_clean in first_300:
-                    answer_start = i
-                    break
 
-            if answer_start is not None:
-                break
+            if quick_start is None:
+                for kw in QUICK_ANSWER_KEYWORDS:
+                    if kw.replace(" ", "") in first_300:
+                        quick_start = i
+                        break
 
-        if answer_start is not None:
-            total = len(doc)
-            doc.close()
-            indices = list(range(answer_start, min(answer_start + 50, total)))
-            logger.info(f"정답 페이지 자동 탐색: {answer_start + 1}p ~ {indices[-1] + 1}p (전체 {total}p)")
-            return indices
+            if answer_start is None and quick_start is None:
+                for kw in ANSWER_KEYWORDS:
+                    if kw.replace(" ", "") in first_300:
+                        answer_start = i
+                        break
+
+            if explanation_start is None:
+                for kw in EXPLANATION_KEYWORDS:
+                    if kw.replace(" ", "") in first_300:
+                        explanation_start = i
+                        break
 
         doc.close()
+
+        # 빠른정답 발견 → 그 페이지 + 2페이지만 (간결한 정답표)
+        if quick_start is not None:
+            end = min(quick_start + 3, total)
+            # 해설 시작 전까지만 (빠른정답과 해설 사이만)
+            if explanation_start and explanation_start > quick_start:
+                end = min(end, explanation_start)
+            indices = list(range(quick_start, end))
+            logger.info(f"[빠른정답] 발견: {quick_start+1}p ~ {end}p (전체 {total}p, {len(indices)}페이지만 처리)")
+            return indices
+
+        # 정답 페이지 발견 → + 5페이지
+        if answer_start is not None:
+            end = min(answer_start + 5, total)
+            indices = list(range(answer_start, end))
+            logger.info(f"[정답] 발견: {answer_start+1}p ~ {end}p (전체 {total}p, {len(indices)}페이지만 처리)")
+            return indices
+
+        # 해설만 발견 → + 8페이지 (해설에서 정답 추출 필요)
+        if explanation_start is not None:
+            end = min(explanation_start + 8, total)
+            indices = list(range(explanation_start, end))
+            logger.info(f"[해설] 발견: {explanation_start+1}p ~ {end}p (전체 {total}p, {len(indices)}페이지만 처리)")
+            return indices
+
     except Exception as e:
         logger.error(f"정답 페이지 탐색 실패: {e}")
 
@@ -201,7 +250,8 @@ def _pdf_to_images(
     pdf_bytes: bytes,
     page_indices: list[int] | None = None,
 ) -> list[bytes]:
-    """PDF 특정 페이지들을 PNG 이미지로 변환 (PyMuPDF 사용)"""
+    """PDF 특정 페이지들을 JPEG 이미지로 변환 (PyMuPDF 사용)"""
+    from PIL import Image
     images = []
     try:
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
@@ -214,9 +264,13 @@ def _pdf_to_images(
             if i >= total:
                 continue
             page = doc[i]
-            mat = fitz.Matrix(200 / 72, 200 / 72)  # 200 DPI
+            mat = fitz.Matrix(150 / 72, 150 / 72)  # 150 DPI (충분한 해상도 + 작은 크기)
             pix = page.get_pixmap(matrix=mat)
-            images.append(pix.tobytes("png"))
+            # PNG → JPEG 변환 (파일 크기 대폭 감소)
+            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=80)
+            images.append(buf.getvalue())
 
         doc.close()
         logger.info(f"PDF→이미지 변환: {len(images)}페이지 (전체 {total}p 중)")
