@@ -670,12 +670,14 @@ async def grade_homework(
             grade_result["total_score"], grade_result["max_score"]
         )
 
-        now_str = datetime.now().strftime('%Y%m%d_%H%M')
+        now = datetime.now()
+        now_str = now.strftime('%Y%m%d_%H%M')
         filename = f"{student['name']}_{now_str}_{idx+1}.jpg"
         sub_path = [
-            answer_key.get("subject", "") or "기타",
-            answer_key.get("title", ""),
-            student["name"]
+            str(now.year),
+            f"{now.month:02d}",
+            f"{now.day:02d}",
+            student["name"],
         ]
 
         # 1) 중앙 드라이브에 채점 결과 저장
