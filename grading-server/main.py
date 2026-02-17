@@ -38,6 +38,7 @@ from integrations.supabase_client import (
 from integrations.drive import (
     download_file_central, upload_to_central, upload_to_teacher_drive,
     search_answer_pdfs_central, cleanup_old_originals, delete_file,
+    upload_page_images_to_central,
 )
 from integrations.gemini import match_answer_key
 from scheduler.monthly_eval import run_monthly_evaluation
@@ -56,6 +57,93 @@ def _parse_page_range(range_str: str) -> tuple[int, int] | None:
     m = re.match(r"(\d+)", range_str)
     if m:
         return (int(m.group(1)), int(m.group(1)))
+    return None
+
+
+async def _match_by_image_comparison(
+    student_img_bytes: bytes,
+    candidate_keys: list[dict],
+    central_token: str | None,
+) -> dict | None:
+    """저장된 페이지 이미지와 학생 이미지를 Gemini Vision으로 비교하여 교재 매칭
+
+    후보 교재가 5개 이하이고 page_images_json이 있을 때만 실행.
+    각 교재에서 대표 이미지 1장을 가져와 학생 이미지와 비교.
+    """
+    import google.generativeai as genai
+    from config import GEMINI_API_KEY
+    import base64
+
+    if not central_token:
+        return None
+
+    candidates_with_images = [
+        k for k in candidate_keys
+        if k.get("page_images_json") and len(k["page_images_json"]) > 0
+    ]
+
+    if not candidates_with_images or len(candidates_with_images) > 5:
+        if len(candidates_with_images) > 5:
+            logger.info(f"[ImageMatch] 후보 {len(candidates_with_images)}개 > 5개 → 이미지 매칭 건너뜀")
+        return None
+
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel("gemini-2.0-flash")
+
+    parts = []
+    parts.append("""아래 "학생 숙제 사진"이 어느 교재의 페이지인지 판별하세요.
+각 교재의 대표 페이지 이미지와 학생 사진을 비교하여:
+- 레이아웃, 폰트, 문제 형식, 페이지 디자인이 같은 교재를 찾으세요.
+- 정확히 일치하는 교재가 없으면 -1을 반환하세요.
+
+반드시 아래 JSON만 응답 (다른 텍스트 없이):
+{"matched_index": 0}  (0-based 인덱스, 일치하는 교재 번호)
+또는
+{"matched_index": -1}  (일치하는 교재 없음)
+""")
+
+    # 학생 이미지 추가
+    parts.append("=== 학생 숙제 사진 ===")
+    student_b64 = base64.b64encode(student_img_bytes).decode("utf-8")
+    parts.append({"mime_type": "image/jpeg", "data": student_b64})
+
+    # 후보 교재 대표 이미지 추가 (Drive에서 다운로드)
+    from integrations.drive import download_file_central
+    for i, key in enumerate(candidates_with_images):
+        page_imgs = key["page_images_json"]
+        representative = page_imgs[0]
+        title = key.get("title", "")
+        parts.append(f"=== 교재 {i}: {title} ===")
+
+        try:
+            ref_bytes = download_file_central(central_token, representative["drive_file_id"])
+            ref_b64 = base64.b64encode(ref_bytes).decode("utf-8")
+            parts.append({"mime_type": "image/jpeg", "data": ref_b64})
+        except Exception as e:
+            logger.warning(f"[ImageMatch] 교재 '{title}' 대표 이미지 다운로드 실패: {e}")
+            parts.append(f"(이미지 로드 실패)")
+
+    try:
+        response = model.generate_content(parts)
+        text = response.text.strip()
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+
+        import json as _json
+        match_result = _json.loads(text.strip())
+        matched_idx = match_result.get("matched_index", -1)
+
+        if 0 <= matched_idx < len(candidates_with_images):
+            matched_key = candidates_with_images[matched_idx]
+            logger.info(f"[ImageMatch] 이미지 비교 매칭 성공 → #{matched_key['id']} '{matched_key.get('title','')}'")
+            return matched_key
+        else:
+            logger.info(f"[ImageMatch] 이미지 비교 결과: 일치하는 교재 없음 (index={matched_idx})")
+    except Exception as e:
+        logger.warning(f"[ImageMatch] Gemini Vision 이미지 비교 실패: {e}")
+
     return None
 
 
@@ -189,6 +277,20 @@ async def parse_answer_key(
 
     result = await extract_answers_from_pdf(pdf_bytes, total_hint=total_hint, page_range=page_range)
 
+    # 페이지 이미지를 중앙 Drive에 업로드
+    page_images_json = []
+    raw_page_images = result.pop("page_images", [])
+    if raw_page_images and central_token:
+        try:
+            page_images_json = upload_page_images_to_central(
+                central_token, title, raw_page_images
+            )
+            logger.info(f"[Parse] '{title}' 페이지 이미지 {len(page_images_json)}장 Drive 저장 완료")
+        except Exception as e:
+            logger.warning(f"[Parse] 페이지 이미지 Drive 업로드 실패 (채점은 정상 진행): {e}")
+    elif raw_page_images:
+        logger.warning("[Parse] 중앙 관리 토큰 없음 → 페이지 이미지 저장 건너뜀")
+
     key_data = {
         "teacher_id": teacher_id,
         "title": title,
@@ -197,6 +299,7 @@ async def parse_answer_key(
         "total_questions": result.get("total", 0),
         "answers_json": result.get("answers", {}),
         "question_types_json": result.get("types", {}),
+        "page_images_json": page_images_json,
         "parsed": True,
     }
     saved = await upsert_answer_key(key_data)
@@ -284,6 +387,22 @@ async def confirm_result(result_id: int):
     except Exception as e:
         logger.error(f"결과 확정 실패: {e}")
         return {"data": None}
+
+
+@app.delete("/api/results/{result_id}")
+async def delete_result(result_id: int):
+    """채점 결과 삭제 (관련 grading_items도 함께 삭제)"""
+    try:
+        sb = get_supabase()
+        sb.table("grading_items").delete().eq("result_id", result_id).execute()
+        res = sb.table("grading_results").delete().eq("id", result_id).execute()
+        if res.data:
+            logger.info(f"채점 결과 #{result_id} 삭제 완료")
+            return {"success": True, "message": "채점 결과가 삭제되었습니다"}
+        return {"success": False, "message": "삭제할 결과를 찾을 수 없습니다"}
+    except Exception as e:
+        logger.error(f"채점 결과 삭제 실패 (id={result_id}): {e}")
+        return {"success": False, "message": str(e)}
 
 
 @app.put("/api/results/{result_id}/annotations")
@@ -438,33 +557,67 @@ async def grade_homework(
     page_info_parts = []
 
     for idx, img_bytes in enumerate(image_bytes_list):
-        # ── Smart Grading: 교재 매칭 ──
+        # ── Smart Grading: 교재 매칭 (answer_key_id 미지정 시만) ──
         if not answer_key and mode == "auto_search":
-            # 1차: OCR로 교재 정보 추출 (별도 호출 아닌 grade_submission 내부에서 처리)
-            # 먼저 간단 OCR로 교재명만 빠르게 확인
-            from ocr.engines import ocr_gemini
-            preview = await ocr_gemini(img_bytes)
-            detected_name = preview.get("textbook_info", {}).get("name", "")
+            try:
+                # 해당 선생님의 파싱 완료된 교재만 조회
+                all_keys = await get_answer_keys_by_teacher(teacher_id, parsed_only=True)
+                if not all_keys:
+                    all_keys = await get_all_answer_keys()
+                logger.info(f"[Auto {idx+1}] 후보 교재 {len(all_keys)}개: "
+                            f"{[k.get('title','') for k in all_keys]}")
 
-            if detected_name:
-                # 등록된 교재 중 이름이 가장 비슷한 것 매칭
-                all_keys = await get_all_answer_keys()
-                matched = _match_by_textbook_name(detected_name, all_keys)
-                if matched:
-                    answer_key = await get_answer_key(matched)
-                    answer_key_id = matched
-                    logger.info(f"[Smart Match] '{detected_name}' → answer_key #{matched}")
+                from ocr.engines import ocr_gemini
+                preview = await ocr_gemini(img_bytes)
+                detected_name = preview.get("textbook_info", {}).get("name", "")
+                detected_nums = set(preview.get("answers", {}).keys())
+                logger.info(f"[Auto {idx+1}] 감지: 교재='{detected_name}', 문제={sorted(detected_nums)}")
 
-            # 이름 매칭 실패 시 기존 방식 fallback
-            if not answer_key:
-                all_keys = await get_all_answer_keys()
-                matched_id = await match_answer_key(preview.get("full_text", ""), all_keys)
-                if matched_id:
-                    answer_key = await get_answer_key(matched_id)
-                    answer_key_id = matched_id
+                # 1차: 교재명 매칭
+                if detected_name:
+                    matched = _match_by_textbook_name(detected_name, all_keys)
+                    if matched:
+                        answer_key = await get_answer_key(matched)
+                        answer_key_id = matched
+                        logger.info(f"[Match] 교재명 '{detected_name}' → #{matched}")
+
+                # 2차: 문제 번호 겹침 매칭
+                if not answer_key and detected_nums:
+                    best_key = None
+                    best_overlap = 0
+                    for key in all_keys:
+                        key_nums = set((key.get("answers_json") or {}).keys())
+                        overlap = len(detected_nums & key_nums)
+                        if overlap > best_overlap:
+                            best_overlap = overlap
+                            best_key = key
+                    if best_key and best_overlap >= max(1, len(detected_nums) * 0.3):
+                        answer_key = best_key
+                        answer_key_id = best_key["id"]
+                        logger.info(f"[Match] 문제번호 {best_overlap}개 겹침 → #{answer_key_id} '{best_key.get('title','')}'")
+
+                # 3차: 교재 1개만 있으면 자동 선택
+                if not answer_key and len(all_keys) == 1:
+                    answer_key = all_keys[0]
+                    answer_key_id = answer_key["id"]
+                    logger.info(f"[Match] 교재 1개 → 자동선택 #{answer_key_id}")
+
+                # 4차: 이미지 비교 매칭 (page_images_json 기반)
+                if not answer_key and len(all_keys) > 1:
+                    central_token_for_match = await get_central_admin_token()
+                    matched_by_image = await _match_by_image_comparison(
+                        img_bytes, all_keys, central_token_for_match
+                    )
+                    if matched_by_image:
+                        answer_key = matched_by_image
+                        answer_key_id = matched_by_image["id"]
+                        logger.info(f"[Match] 이미지 비교 → #{answer_key_id} '{matched_by_image.get('title','')}'")
+
+            except Exception as e:
+                logger.error(f"[Auto {idx+1}] 매칭 실패: {e}")
 
         if not answer_key:
-            logger.warning(f"정답 데이터를 찾을 수 없습니다 (student: {student_id})")
+            logger.warning(f"정답 데이터를 찾을 수 없습니다 (student: {student_id}, image: {idx+1}/{len(image_bytes_list)})")
             continue
 
         answers_json = answer_key.get("answers_json", {})
@@ -473,8 +626,15 @@ async def grade_homework(
         # 채점 실행 (Smart Grading: 교재 식별 + 미풀이 감지 포함)
         grade_result = await grade_submission(img_bytes, answers_json, types_json)
 
-        # 페이지 정보 수집
-        if grade_result.get("page_info"):
+        # 페이지 정보 수집 (등록된 교재 제목 우선, OCR 인식값 fallback)
+        ak_title = answer_key.get("title", "")
+        ocr_page = grade_result.get("textbook_info", {}).get("page", "")
+        if ak_title:
+            pi = ak_title
+            if ocr_page:
+                pi += f" p.{ocr_page}"
+            page_info_parts.append(pi)
+        elif grade_result.get("page_info"):
             page_info_parts.append(grade_result["page_info"])
 
         # 채점 이미지 생성

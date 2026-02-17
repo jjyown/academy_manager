@@ -977,18 +977,18 @@
 	</div>
 
 	<div class="upload-container">
-		<!-- 교재 선택 (선택사항) -->
+		<!-- 교재 선택 -->
 		<div class="section-card">
 			<div class="section-title">
 				<i class="fas fa-book"></i>
 				<span>교재 선택</span>
-				<span style="margin-left:auto;font-size:11px;color:var(--teal);font-weight:500;">선택사항</span>
+				<span style="margin-left:auto;font-size:11px;color:var(--gray);font-weight:500;">선택사항</span>
 			</div>
 			<select id="textbook-select" style="width:100%;padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:var(--bg-elevated);color:var(--text);font-size:14px;outline:none;cursor:pointer;appearance:none;-webkit-appearance:none;background-image:url('data:image/svg+xml;utf8,<svg fill=\'%2394a3b8\' viewBox=\'0 0 24 24\' xmlns=\'http://www.w3.org/2000/svg\'><path d=\'M7 10l5 5 5-5z\'/></svg>');background-repeat:no-repeat;background-position:right 12px center;background-size:20px;">
-				<option value="">자동 감지 (AI가 교재를 판별합니다)</option>
+				<option value="">-- 자동 감지 (선택 안 함) --</option>
 			</select>
 			<div style="font-size:11px;color:var(--gray);margin-top:8px;line-height:1.5;">
-				교재를 선택하면 더 정확하게 채점됩니다. 선택하지 않으면 AI가 사진에서 자동으로 교재를 판별합니다.
+				교재를 선택하면 더 정확한 채점이 가능합니다. 선택하지 않으면 자동으로 감지합니다.
 			</div>
 		</div>
 
@@ -1393,7 +1393,7 @@ async function selectStudent(student) {
 async function loadTextbookList() {
 	const select = document.getElementById('textbook-select');
 	if (!select) return;
-	select.innerHTML = '<option value="">자동 감지 (AI가 교재를 판별합니다)</option>';
+	select.innerHTML = '<option value="">-- 자동 감지 (선택 안 함) --</option>';
 
 	const teacherId = currentTeacher?.owner_user_id || currentStudent?.owner_user_id;
 	if (!teacherId) return;
@@ -2457,7 +2457,7 @@ async function handleSubmit() {
 		formData.append('owner_user_id', currentStudent.owner_user_id);
 		formData.append('submission_date', getTodayString());
 
-		// 교재 선택 정보 포함
+		// 교재 선택 정보 포함 (선택사항 - 미선택 시 자동 감지)
 		const selectedTextbook = document.getElementById('textbook-select')?.value;
 		if (selectedTextbook) {
 			formData.append('answer_key_id', selectedTextbook);

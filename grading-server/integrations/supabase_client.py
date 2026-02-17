@@ -60,9 +60,12 @@ async def get_answer_key(answer_key_id: int) -> dict | None:
         return None
 
 
-async def get_answer_keys_by_teacher(teacher_id: str) -> list[dict]:
+async def get_answer_keys_by_teacher(teacher_id: str, parsed_only: bool = False) -> list[dict]:
     sb = get_supabase()
-    res = sb.table("answer_keys").select("*").eq("teacher_id", teacher_id).order("created_at", desc=True).execute()
+    query = sb.table("answer_keys").select("*").eq("teacher_id", teacher_id)
+    if parsed_only:
+        query = query.eq("parsed", True)
+    res = query.order("created_at", desc=True).execute()
     return res.data or []
 
 

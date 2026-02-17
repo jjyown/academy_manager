@@ -31,9 +31,13 @@ CREATE TABLE IF NOT EXISTS answer_keys (
     answers_json JSONB DEFAULT '{}',              -- {"1":"③","2":"①",...}
     question_types_json JSONB DEFAULT '{}',       -- {"1":"mc","2":"mc","5":"essay"}
     parsed BOOLEAN DEFAULT FALSE,                 -- 정답 추출 완료 여부
+    page_images_json JSONB DEFAULT '[]',          -- [{page,drive_file_id,url}, ...]
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- 기존 테이블에 page_images_json 컬럼이 없으면 추가
+ALTER TABLE answer_keys ADD COLUMN IF NOT EXISTS page_images_json JSONB DEFAULT '[]';
 
 -- 2) 과제 배정
 CREATE TABLE IF NOT EXISTS grading_assignments (

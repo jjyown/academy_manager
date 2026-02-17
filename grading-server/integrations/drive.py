@@ -87,6 +87,47 @@ def upload_to_central(central_token: str, folder_name: str, sub_path: list[str],
     return _upload_file(service, parent, filename, image_bytes, mime_type)
 
 
+def upload_page_images_to_central(
+    central_token: str,
+    title: str,
+    page_images: list[dict],
+    root_folder_name: str = "교재 페이지 이미지",
+) -> list[dict]:
+    """교재 페이지 이미지를 중앙 드라이브에 업로드
+
+    Args:
+        central_token: 중앙 관리자 refresh_token
+        title: 교재 제목 (폴더명으로 사용)
+        page_images: [{"page": 1, "image_bytes": bytes}, ...]
+        root_folder_name: 루트 폴더명
+
+    Returns:
+        [{"page": 1, "drive_file_id": "abc", "url": "https://..."}, ...]
+    """
+    service = _build_service(central_token)
+    root_id = _find_or_create_folder(service, root_folder_name)
+    book_id = _find_or_create_folder(service, title, root_id)
+
+    results = []
+    for item in page_images:
+        page_num = item["page"]
+        img_bytes = item["image_bytes"]
+        filename = f"page_{page_num:03d}.jpg"
+
+        try:
+            uploaded = _upload_file(service, book_id, filename, img_bytes, "image/jpeg")
+            results.append({
+                "page": page_num,
+                "drive_file_id": uploaded["id"],
+                "url": uploaded["url"],
+            })
+        except Exception as e:
+            logger.warning(f"페이지 {page_num} 이미지 업로드 실패: {e}")
+
+    logger.info(f"[Drive] '{title}' 페이지 이미지 {len(results)}/{len(page_images)}장 업로드 완료")
+    return results
+
+
 # ──────────────────────────────────────────────
 # 선생님 드라이브 전용 함수
 # ──────────────────────────────────────────────

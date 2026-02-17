@@ -39,13 +39,19 @@ async def extract_answers_from_pdf(
         page_range: (시작페이지, 끝페이지) 1-based. 예: (45, 48)
 
     Returns:
-        {"answers": {...}, "types": {...}, "total": int}
+        {"answers": {...}, "types": {...}, "total": int,
+         "page_images": [{"page": 1, "image_bytes": bytes}, ...]}
     """
+    # 전체 페이지 썸네일 생성 (매칭용 저장 목적)
+    page_images = _pdf_to_thumbnails(pdf_bytes)
+    logger.info(f"[Thumbnails] {len(page_images)}페이지 썸네일 생성 완료")
+
     # 1차: Gemini Vision으로 정답 추출
     try:
         result = await _extract_with_gemini_vision(pdf_bytes, total_hint, page_range)
         if result.get("total", 0) > 0:
             logger.info(f"[Vision] 정답 추출 완료: {result['total']}문제")
+            result["page_images"] = page_images
             return result
         logger.warning("[Vision] 정답을 찾지 못함, 텍스트 방식으로 재시도")
     except Exception as e:
@@ -55,10 +61,11 @@ async def extract_answers_from_pdf(
     text = _extract_text_from_pdf(pdf_bytes, page_range)
     if not text.strip():
         logger.warning("PDF에서 텍스트를 추출할 수 없습니다")
-        return {"answers": {}, "types": {}, "total": 0}
+        return {"answers": {}, "types": {}, "total": 0, "page_images": page_images}
 
     result = await parse_answers_from_pdf(text, total_hint)
     logger.info(f"[Text] 정답 추출 완료: {result.get('total', 0)}문제")
+    result["page_images"] = page_images
     return result
 
 
@@ -325,6 +332,41 @@ def _pdf_to_images(
     except Exception as e:
         logger.error(f"PDF→이미지 변환 실패 (PyMuPDF): {e}")
     return images
+
+
+def _pdf_to_thumbnails(
+    pdf_bytes: bytes,
+) -> list[dict]:
+    """PDF 전체 페이지를 저해상도 썸네일로 변환 (이미지 매칭용 저장 목적)
+
+    한 번 저장하면 계속 재사용하므로 페이지 수 제한 없이 전체 저장.
+
+    Returns:
+        [{"page": 1, "image_bytes": bytes}, ...]  (page는 1-based)
+    """
+    from PIL import Image
+    thumbnails = []
+    try:
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        total = len(doc)
+
+        for i in range(total):
+            page = doc[i]
+            mat = fitz.Matrix(100 / 72, 100 / 72)  # 100 DPI (썸네일용)
+            pix = page.get_pixmap(matrix=mat)
+            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=60)
+            thumbnails.append({
+                "page": i + 1,
+                "image_bytes": buf.getvalue(),
+            })
+
+        doc.close()
+        logger.info(f"PDF→썸네일: 전체 {total}페이지 변환 완료")
+    except Exception as e:
+        logger.error(f"PDF→썸네일 변환 실패: {e}")
+    return thumbnails
 
 
 def _extract_text_from_pdf(

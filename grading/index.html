@@ -585,14 +585,21 @@ function renderResults() {
 		const unanswered = r.unanswered_count || 0;
 		const unansweredTag = unanswered > 0 ? ` 📝${unanswered}` : '';
 		const pageInfo = r.page_info ? `<div style="font-size:11px;color:var(--teal);margin-top:2px;">${escapeHtml(r.page_info)}</div>` : '';
-		return `<div class="list-item" onclick="openDetail(${r.id})">
-			<div class="list-item-icon" style="background:${iconBg};">${icon}</div>
-			<div class="list-item-info">
-				<div class="list-item-title">${escapeHtml(student.name || '?')} - ${r.total_score}/${r.max_score}점</div>
-				<div class="list-item-sub">⭕${r.correct_count} ✘${r.wrong_count} ❓${r.uncertain_count}${unansweredTag} · ${date}</div>
-				${pageInfo}
+		return `<div class="list-item" style="position:relative;">
+			<div style="display:flex;align-items:center;gap:12px;flex:1;cursor:pointer;" onclick="openDetail(${r.id})">
+				<div class="list-item-icon" style="background:${iconBg};">${icon}</div>
+				<div class="list-item-info">
+					<div class="list-item-title">${escapeHtml(student.name || '?')} - ${r.total_score}/${r.max_score}점</div>
+					<div class="list-item-sub">⭕${r.correct_count} ✘${r.wrong_count} ❓${r.uncertain_count}${unansweredTag} · ${date}</div>
+					${pageInfo}
+				</div>
+				<span class="list-item-badge ${statusCls}">${statusText}</span>
 			</div>
-			<span class="list-item-badge ${statusCls}">${statusText}</span>
+			<button onclick="event.stopPropagation();deleteResult(${r.id},'${escapeHtml(student.name || '?')}')" title="삭제"
+				style="background:none;border:none;color:var(--red,#ef4444);cursor:pointer;padding:8px;font-size:14px;opacity:0.4;transition:opacity 0.2s;margin-left:4px;"
+				onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.4'">
+				<i class="fas fa-trash-alt"></i>
+			</button>
 		</div>`;
 	}).join('');
 }
@@ -735,6 +742,22 @@ async function confirmResult() {
 	showToast('채점 결과가 확정되었습니다', 'success');
 	document.getElementById('detail-confirm-btn').style.display = 'none';
 	loadResults();
+}
+
+async function deleteResult(resultId, studentName) {
+	if (!confirm(`"${studentName}" 채점 결과를 삭제하시겠습니까?\n\n이 작업은 되돌릴 수 없습니다.`)) return;
+	try {
+		const res = await fetch(`${GRADING_SERVER_URL}/api/results/${resultId}`, { method: 'DELETE' });
+		const result = await res.json();
+		if (result.success) {
+			showToast('채점 결과가 삭제되었습니다', 'success');
+			loadResults();
+		} else {
+			showToast('삭제 실패: ' + (result.message || ''), 'error');
+		}
+	} catch (e) {
+		showToast('서버 연결 실패: ' + e.message, 'error');
+	}
 }
 
 // ============================================================
