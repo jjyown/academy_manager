@@ -123,28 +123,29 @@ async def _extract_with_gemini_vision(
             hint_text = f"이 이미지는 전체 답지의 일부입니다 ({chunk_label}). 보이는 문제의 정답만 추출하세요."
 
         parts = []
-        parts.append(f"""이 PDF는 학원 교재/프린트의 정답 또는 해설 부분입니다.
+        parts.append(f"""이 이미지들은 수학 교재/프린트의 정답 또는 해설 페이지입니다.
 
-가능한 구조:
-1) 프린트 과제: 문제 → 빠른정답 → 해설
-2) 시중 교재: 정답과 해설이 함께 있음 (각 문제의 풀이에서 정답 확인)
+각 문제의 **최종 정답만** 추출해주세요. 풀이 과정은 무시하세요.
 
-이 이미지들에서 각 문제의 정답을 추출해주세요.
+정답 찾는 방법:
+- "빠른정답" 표가 있으면 → 거기서 바로 추출 (가장 효율적)
+- 해설 페이지에서 → 각 문제 번호 옆의 최종 답만 추출
+- 정답이 보이지 않는 문제는 건너뛰세요 (추론하지 마세요)
 
-우선순위:
-1. "빠른정답" 페이지가 있으면 거기서 정답을 가져오세요
-2. 해설 페이지에서 각 문제의 정답을 확인하세요
-3. 문제 페이지만 있고 정답이 없으면 추론하지 마세요
+문제번호 규칙:
+- "001", "002" 같은 번호 → "1", "2"로 변환
+- 소문제가 있으면 → "1-1", "1-2" 또는 "1(1)", "1(2)" 형태로
+- 단원별로 번호가 초기화되더라도 그대로 유지
 
-추출 규칙:
-- 객관식: 문제번호와 정답 보기 (①②③④⑤ 또는 1,2,3,4,5)
-- 단답형: 문제번호와 정답 값 (숫자, 수식, 단어 등)
-- 서술형: 문제번호와 모범답안 핵심 내용 (간결하게)
+추출 형식:
+- 객관식: ①②③④⑤ 또는 1,2,3,4,5
+- 단답형: 숫자, 수식, 단어 (예: "12", "-3", "2√3")
+- 서술형: 핵심 답만 간결하게
 
 {hint_text}
 
-반드시 아래 JSON 형식으로만 응답하세요 (다른 텍스트 없이):
-{{"answers": {{"1": "③", "2": "12", "3": "정답텍스트"}}, "types": {{"1": "mc", "2": "short", "3": "essay"}}, "total": 문제수}}
+반드시 아래 JSON 형식으로만 응답 (다른 텍스트 없이):
+{{"answers": {{"1": "③", "2": "12", "3": "-3"}}, "types": {{"1": "mc", "2": "short", "3": "short"}}, "total": 문제수}}
 
 mc=객관식, short=단답형, essay=서술형""")
 
@@ -272,18 +273,19 @@ def _find_answer_page_indices(pdf_bytes: bytes) -> list[int]:
             logger.info(f"[답지 전용 PDF] 감지: 전체 {total}p 처리 (정답이 1p부터 시작)")
             return indices
 
-        # ── 케이스 3: 교재 뒷부분에 정답 섹션 ──
+        # ── 케이스 3: 전체 교재 (문제+정답 합본) ──
+        # 정답 섹션이 교재 뒷부분에 있으면 → 정답 시작부터 끝까지 전부
         if answer_start is not None:
-            end = min(answer_start + 8, total)
+            end = total
             indices = list(range(answer_start, end))
-            logger.info(f"[정답] 발견: {answer_start+1}p ~ {end}p (전체 {total}p, {len(indices)}페이지 처리)")
+            logger.info(f"[전체교재→정답섹션] {answer_start+1}p ~ {end}p (전체 {total}p, 정답 {len(indices)}페이지 처리)")
             return indices
 
-        # ── 케이스 4: 해설만 발견 ──
+        # ── 케이스 4: 해설만 발견 → 해설부터 끝까지 ──
         if explanation_start is not None:
-            end = min(explanation_start + 8, total)
+            end = total
             indices = list(range(explanation_start, end))
-            logger.info(f"[해설] 발견: {explanation_start+1}p ~ {end}p (전체 {total}p, {len(indices)}페이지 처리)")
+            logger.info(f"[전체교재→해설섹션] {explanation_start+1}p ~ {end}p (전체 {total}p, 해설 {len(indices)}페이지 처리)")
             return indices
 
     except Exception as e:
