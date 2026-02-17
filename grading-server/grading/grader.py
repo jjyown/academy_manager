@@ -36,7 +36,15 @@ async def grade_submission(image_bytes: bytes, answers_json: dict, types_json: d
 
     logger.info(f"[Smart OCR] 교재: {textbook_info.get('name', '?')}, "
                 f"페이지: {textbook_info.get('page', '?')}, "
-                f"인식 문제 수: {len(student_answers)}")
+                f"인식 문제 수: {len(student_answers)}, "
+                f"문제 번호: {list(student_answers.keys())}")
+
+    # 디버그: 학생 답안과 정답 비교 로그
+    for q_num in sorted(student_answers.keys(), key=lambda x: int(x) if x.isdigit() else 0):
+        s_data = student_answers[q_num]
+        s_ans = s_data.get("answer", "") if isinstance(s_data, dict) else str(s_data)
+        c_ans = answers_json.get(q_num, "(없음)")
+        logger.info(f"  [{q_num}번] 학생: '{s_ans}' / 정답: '{c_ans}'")
 
     items = []
     correct_count = 0
@@ -59,10 +67,6 @@ async def grade_submission(image_bytes: bytes, answers_json: dict, types_json: d
         student_data = student_answers.get(q_num, {})
         raw_answer = student_data.get("answer", "") if isinstance(student_data, dict) else ""
 
-        # OCR에서 반환한 위치 정보 (% 비율 → 실제 좌표는 image_marker에서 변환)
-        pos_x_pct = student_data.get("x", 0) if isinstance(student_data, dict) else 0
-        pos_y_pct = student_data.get("y", 0) if isinstance(student_data, dict) else 0
-
         item = {
             "question_number": int(q_num) if q_num.isdigit() else 0,
             "question_type": _map_type(q_type),
@@ -71,8 +75,6 @@ async def grade_submission(image_bytes: bytes, answers_json: dict, types_json: d
             "ocr1_answer": student_data.get("ocr1", "") if isinstance(student_data, dict) else "",
             "ocr2_answer": student_data.get("ocr2", "") if isinstance(student_data, dict) else "",
             "confidence": student_data.get("confidence", 0) if isinstance(student_data, dict) else 0,
-            "position_x_pct": pos_x_pct,
-            "position_y_pct": pos_y_pct,
         }
 
         # 미풀이 감지: OCR이 "unanswered"로 판별

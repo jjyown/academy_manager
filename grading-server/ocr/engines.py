@@ -73,27 +73,31 @@ async def ocr_gemini_double_check(image_bytes: bytes) -> dict:
 1. 교재 정보: 페이지에 보이는 교재명, 페이지 번호, 단원/섹션명
 2. 이 사진에 보이는 문제 번호만 나열 (학생이 안 푼 문제도 포함)
 3. 각 문제의 학생 답 (안 풀었으면 "unanswered")
-4. 각 문제 번호가 사진에서 어디에 있는지 위치(x%, y%) - 이미지 왼쪽상단이 (0,0), 오른쪽하단이 (100,100)
 
-추출 규칙:
-- 객관식: ①②③④⑤ 또는 1,2,3,4,5
-- 단답형: 숫자, 수식, 텍스트
-- 빈칸: "unanswered"
+중요 규칙:
+- 객관식: 학생이 동그라미 친 번호를 ①②③④⑤ 형태로 기록
+- 단답형: 학생이 적은 숫자/수식/텍스트를 그대로 기록
+- 빈칸/미작성: "unanswered"
 - 이 사진에 보이지 않는 문제는 절대 포함하지 마세요
+- 학생이 적은 답을 정확히 읽어주세요 (정답과 비교하지 마세요)
 
 JSON만 응답:
-{"textbook_info": {"name": "교재명", "page": "45", "section": "단원명"}, "answers": {"1": {"answer": "③", "x": 15, "y": 20}, "2": {"answer": "unanswered", "x": 15, "y": 45}}, "full_text": "..."}"""
+{"textbook_info": {"name": "교재명", "page": "45", "section": "단원명"}, "answers": {"1": "③", "2": "unanswered"}, "full_text": "..."}"""
 
     prompt2 = """이 사진은 학생의 숙제입니다. 수학 문제집 페이지에 학생이 답을 적었습니다.
 
 확인할 것:
 1. 어떤 교재인지 (페이지 헤더/푸터/디자인에서 교재명, 페이지 번호, 단원 확인)
 2. 이 사진에 보이는 문제 번호만 (사진에 없는 문제는 절대 포함 금지)
-3. 학생이 각 문제에 쓴 답 (빈칸이면 "unanswered")
-4. 각 문제 번호의 사진 내 위치(x%, y%) - 왼쪽상단(0,0) 오른쪽하단(100,100)
+3. 학생이 각 문제에 직접 쓴/동그라미친 답 (빈칸이면 "unanswered")
+
+중요:
+- 학생이 동그라미 친 객관식 번호를 정확히 읽으세요
+- 학생 필기를 있는 그대로 읽으세요 (맞다/틀리다 판단은 하지 마세요)
+- 사진에 안 보이는 문제는 포함하지 마세요
 
 JSON만 응답:
-{"textbook_info": {"name": "교재명", "page": "45", "section": "단원명"}, "answers": {"1": {"answer": "③", "x": 15, "y": 20}, "2": {"answer": "unanswered", "x": 15, "y": 45}}, "full_text": "..."}"""
+{"textbook_info": {"name": "교재명", "page": "45", "section": "단원명"}, "answers": {"1": "③", "2": "unanswered"}, "full_text": "..."}"""
 
     model = genai.GenerativeModel("gemini-2.0-flash")
     image_part = {"mime_type": "image/jpeg", "data": b64}
@@ -117,22 +121,18 @@ JSON만 응답:
     raw1 = text1.get("answers", {})
     raw2 = text2.get("answers", {})
 
-    # 새 JSON 구조 지원: {"1": {"answer": "③", "x": 15, "y": 20}} 또는 {"1": "③"}
+    # 값이 dict/str 모두 지원
     answers1 = {}
-    positions1 = {}
     for k, v in raw1.items():
         if isinstance(v, dict):
             answers1[k] = str(v.get("answer", ""))
-            positions1[k] = (v.get("x", 0), v.get("y", 0))
         else:
             answers1[k] = str(v)
 
     answers2 = {}
-    positions2 = {}
     for k, v in raw2.items():
         if isinstance(v, dict):
             answers2[k] = str(v.get("answer", ""))
-            positions2[k] = (v.get("x", 0), v.get("y", 0))
         else:
             answers2[k] = str(v)
 
@@ -153,16 +153,12 @@ JSON만 응답:
         a1 = answers1.get(q, "")
         a2 = answers2.get(q, "")
 
-        # 위치: 1차 우선, 없으면 2차
-        pos = positions1.get(q) or positions2.get(q) or (0, 0)
-
         # "unanswered" 처리: 둘 다 unanswered면 미풀이 확정
         if a1 == "unanswered" and a2 == "unanswered":
             combined[q] = {
                 "answer": "unanswered",
                 "ocr1": a1, "ocr2": a2,
                 "match": True, "confidence": 95,
-                "x": pos[0], "y": pos[1],
             }
             continue
 
@@ -171,14 +167,12 @@ JSON만 응답:
             combined[q] = {
                 "answer": a2, "ocr1": a1, "ocr2": a2,
                 "match": False, "confidence": 60,
-                "x": pos[0], "y": pos[1],
             }
             continue
         if a2 == "unanswered" and a1 and a1 != "unanswered":
             combined[q] = {
                 "answer": a1, "ocr1": a1, "ocr2": a2,
                 "match": False, "confidence": 60,
-                "x": pos[0], "y": pos[1],
             }
             continue
 
@@ -203,7 +197,6 @@ JSON만 응답:
             "answer": final,
             "ocr1": a1, "ocr2": a2,
             "match": match, "confidence": conf,
-            "x": pos[0], "y": pos[1],
         }
 
     return {
