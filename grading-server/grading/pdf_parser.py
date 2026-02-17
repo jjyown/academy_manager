@@ -92,23 +92,42 @@ async def _extract_with_gemini_vision(
                 page_indices = list(range(max(0, total_pages - 5), total_pages))
                 logger.info(f"전체 {total_pages}p 중 뒤쪽 5p 처리 (정답은 보통 뒷부분)")
 
-    # 최대 10페이지 제한 (Gemini API 비용/속도 최적화)
-    if len(page_indices) > 10:
-        logger.warning(f"페이지 {len(page_indices)}개 → 10개로 제한")
-        page_indices = page_indices[:10]
+    CHUNK_SIZE = 15
 
-    page_images = _pdf_to_images(pdf_bytes, page_indices=page_indices)
-    if not page_images:
-        raise Exception("PDF를 이미지로 변환할 수 없습니다")
+    # 15페이지 이하면 한 번에 처리, 초과하면 청크 분할
+    if len(page_indices) <= CHUNK_SIZE:
+        chunks = [page_indices]
+    else:
+        chunks = [
+            page_indices[i:i + CHUNK_SIZE]
+            for i in range(0, len(page_indices), CHUNK_SIZE)
+        ]
+        logger.info(f"대용량 PDF: {len(page_indices)}페이지 → {len(chunks)}개 청크로 분할 처리")
 
-    logger.info(f"PDF {len(page_images)}페이지를 이미지로 변환 완료")
+    all_answers = {}
+    all_types = {}
 
-    parts = []
-    parts.append(f"""이 PDF는 학원 교재/프린트의 정답 또는 해설 부분입니다.
+    for chunk_idx, chunk_indices in enumerate(chunks):
+        page_images = _pdf_to_images(pdf_bytes, page_indices=chunk_indices)
+        if not page_images:
+            logger.warning(f"청크 {chunk_idx+1}: 이미지 변환 실패, 건너뜀")
+            continue
+
+        chunk_label = f"청크 {chunk_idx+1}/{len(chunks)}" if len(chunks) > 1 else "단일"
+        logger.info(f"[{chunk_label}] {len(page_images)}페이지 이미지 변환 완료")
+
+        hint_text = ""
+        if total_hint and len(chunks) == 1:
+            hint_text = f"예상 총 문제 수: {total_hint}"
+        elif len(chunks) > 1:
+            hint_text = f"이 이미지는 전체 답지의 일부입니다 ({chunk_label}). 보이는 문제의 정답만 추출하세요."
+
+        parts = []
+        parts.append(f"""이 PDF는 학원 교재/프린트의 정답 또는 해설 부분입니다.
 
 가능한 구조:
 1) 프린트 과제: 문제 → 빠른정답 → 해설
-2) 시중 교재: 문제 → 해설 (해설에 정답 포함)
+2) 시중 교재: 정답과 해설이 함께 있음 (각 문제의 풀이에서 정답 확인)
 
 이 이미지들에서 각 문제의 정답을 추출해주세요.
 
@@ -122,31 +141,44 @@ async def _extract_with_gemini_vision(
 - 단답형: 문제번호와 정답 값 (숫자, 수식, 단어 등)
 - 서술형: 문제번호와 모범답안 핵심 내용 (간결하게)
 
-{f'예상 총 문제 수: {total_hint}' if total_hint else ''}
+{hint_text}
 
 반드시 아래 JSON 형식으로만 응답하세요 (다른 텍스트 없이):
 {{"answers": {{"1": "③", "2": "12", "3": "정답텍스트"}}, "types": {{"1": "mc", "2": "short", "3": "essay"}}, "total": 문제수}}
 
 mc=객관식, short=단답형, essay=서술형""")
 
-    for i, img_bytes in enumerate(page_images):
-        b64 = base64.b64encode(img_bytes).decode("utf-8")
-        parts.append({"mime_type": "image/jpeg", "data": b64})
-        logger.info(f"  페이지 {i+1}: {len(img_bytes)//1024}KB")
+        for i, img_bytes in enumerate(page_images):
+            b64 = base64.b64encode(img_bytes).decode("utf-8")
+            parts.append({"mime_type": "image/jpeg", "data": b64})
+            logger.info(f"  [{chunk_label}] 페이지 {i+1}: {len(img_bytes)//1024}KB")
 
-    total_size = sum(len(b) for b in page_images)
-    logger.info(f"Gemini Vision 요청: {len(page_images)}페이지, 총 {total_size//1024}KB")
+        total_size = sum(len(b) for b in page_images)
+        logger.info(f"[{chunk_label}] Gemini Vision 요청: {len(page_images)}페이지, 총 {total_size//1024}KB")
 
-    response = model.generate_content(parts)
-    text = response.text.strip()
-    logger.info(f"Gemini Vision 응답: {text[:200]}")
+        response = model.generate_content(parts)
+        text = response.text.strip()
+        logger.info(f"[{chunk_label}] Gemini Vision 응답: {text[:200]}")
 
-    if text.startswith("```"):
-        text = text.split("```")[1]
-        if text.startswith("json"):
-            text = text[4:]
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
 
-    result = json.loads(text.strip())
+        chunk_result = json.loads(text.strip())
+
+        # 청크별 결과 병합
+        chunk_answers = chunk_result.get("answers", {})
+        chunk_types = chunk_result.get("types", {})
+        all_answers.update(chunk_answers)
+        all_types.update(chunk_types)
+        logger.info(f"[{chunk_label}] {len(chunk_answers)}문제 추출 (누적: {len(all_answers)}문제)")
+
+    result = {
+        "answers": all_answers,
+        "types": all_types,
+        "total": len(all_answers),
+    }
     return result
 
 
@@ -216,28 +248,42 @@ def _find_answer_page_indices(pdf_bytes: bytes) -> list[int]:
 
         doc.close()
 
-        # 빠른정답 발견 → 그 페이지 + 2페이지만 (간결한 정답표)
+        # ── 케이스 1: 빠른정답 발견 → 해설 시작 전까지 ──
         if quick_start is not None:
-            end = min(quick_start + 3, total)
-            # 해설 시작 전까지만 (빠른정답과 해설 사이만)
             if explanation_start and explanation_start > quick_start:
-                end = min(end, explanation_start)
+                end = explanation_start
+            else:
+                end = min(quick_start + 10, total)
             indices = list(range(quick_start, end))
-            logger.info(f"[빠른정답] 발견: {quick_start+1}p ~ {end}p (전체 {total}p, {len(indices)}페이지만 처리)")
+            logger.info(f"[빠른정답] 발견: {quick_start+1}p ~ {end}p (전체 {total}p, {len(indices)}페이지 처리)")
             return indices
 
-        # 정답 페이지 발견 → + 5페이지
+        # ── 케이스 2: 답지 전용 PDF 감지 ──
+        # 정답/해설 키워드가 첫 2페이지 내에서 발견되면
+        # PDF 전체가 답지인 것으로 판단 → 전체 페이지 사용
+        is_answer_only_pdf = False
+        if answer_start is not None and answer_start <= 1:
+            is_answer_only_pdf = True
+        elif explanation_start is not None and explanation_start <= 1:
+            is_answer_only_pdf = True
+
+        if is_answer_only_pdf:
+            indices = list(range(total))
+            logger.info(f"[답지 전용 PDF] 감지: 전체 {total}p 처리 (정답이 1p부터 시작)")
+            return indices
+
+        # ── 케이스 3: 교재 뒷부분에 정답 섹션 ──
         if answer_start is not None:
-            end = min(answer_start + 5, total)
+            end = min(answer_start + 8, total)
             indices = list(range(answer_start, end))
-            logger.info(f"[정답] 발견: {answer_start+1}p ~ {end}p (전체 {total}p, {len(indices)}페이지만 처리)")
+            logger.info(f"[정답] 발견: {answer_start+1}p ~ {end}p (전체 {total}p, {len(indices)}페이지 처리)")
             return indices
 
-        # 해설만 발견 → + 8페이지 (해설에서 정답 추출 필요)
+        # ── 케이스 4: 해설만 발견 ──
         if explanation_start is not None:
             end = min(explanation_start + 8, total)
             indices = list(range(explanation_start, end))
-            logger.info(f"[해설] 발견: {explanation_start+1}p ~ {end}p (전체 {total}p, {len(indices)}페이지만 처리)")
+            logger.info(f"[해설] 발견: {explanation_start+1}p ~ {end}p (전체 {total}p, {len(indices)}페이지 처리)")
             return indices
 
     except Exception as e:
