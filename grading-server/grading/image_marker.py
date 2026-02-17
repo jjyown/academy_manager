@@ -37,30 +37,34 @@ def create_graded_image(image_bytes: bytes, items: list[dict], total_score: floa
 
     # 각 문항에 마크 표시
     w, h = image.size
-    margin_x = max(40, int(w * 0.85))
-    start_y = 30
-    spacing_y = max(28, int((h - 120) / max(len(items), 1)))
 
     for idx, item in enumerate(items):
-        px = item.get("position_x")
-        py = item.get("position_y")
+        # OCR이 감지한 문제 번호 위치 (% 비율)
+        px_pct = item.get("position_x_pct", 0)
+        py_pct = item.get("position_y_pct", 0)
         is_correct = item.get("is_correct")
 
-        if px is not None and py is not None:
-            x, y = int(px), int(py)
+        if px_pct and py_pct:
+            # 비율 → 실제 픽셀 좌표 변환
+            x = int(w * px_pct / 100)
+            y = int(h * py_pct / 100)
         else:
-            x = margin_x
-            y = start_y + idx * spacing_y
+            # 위치 정보 없으면 왼쪽에 균등 배치
+            x = max(30, int(w * 0.08))
+            spacing_y = max(28, int((h - 120) / max(len(items), 1)))
+            y = 30 + idx * spacing_y
 
         q_num = item.get("question_number", idx + 1)
 
         if is_correct is True:
             _draw_circle_mark(draw, x, y, COLOR_CORRECT, font_large)
         elif is_correct is False:
-            _draw_check_mark(draw, x, y, COLOR_WRONG, font_large)
+            _draw_x_mark(draw, x, y, COLOR_WRONG, font_large)
             correct = item.get("correct_answer", "")
             if correct:
-                draw.text((x + 40, y - 10), f"정답: {correct}", fill=COLOR_WRONG, font=font_small)
+                draw.text((x + 30, y - 10), f"{correct}", fill=COLOR_WRONG, font=font_small)
+        elif item.get("student_answer") == "(미풀이)":
+            _draw_dash_mark(draw, x, y, COLOR_UNCERTAIN, font_large)
         else:
             _draw_question_mark(draw, x, y, COLOR_UNCERTAIN, font_large)
 
@@ -82,11 +86,17 @@ def _draw_circle_mark(draw: ImageDraw.Draw, x: int, y: int, color: tuple, font):
     draw.ellipse([x - r, y - r, x + r, y + r], outline=color, width=3)
 
 
-def _draw_check_mark(draw: ImageDraw.Draw, x: int, y: int, color: tuple, font):
-    """✔ 오답 마크"""
+def _draw_x_mark(draw: ImageDraw.Draw, x: int, y: int, color: tuple, font):
+    """✘ 오답 마크"""
     size = 16
     draw.line([x - size, y - size, x + size, y + size], fill=color, width=3)
     draw.line([x - size, y + size, x + size, y - size], fill=color, width=3)
+
+
+def _draw_dash_mark(draw: ImageDraw.Draw, x: int, y: int, color: tuple, font):
+    """— 미풀이 마크"""
+    size = 16
+    draw.line([x - size, y, x + size, y], fill=color, width=3)
 
 
 def _draw_question_mark(draw: ImageDraw.Draw, x: int, y: int, color: tuple, font):

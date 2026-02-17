@@ -46,11 +46,10 @@ async def grade_submission(image_bytes: bytes, answers_json: dict, types_json: d
     essay_total = 0
     essay_earned = 0
 
-    # OCR이 찾은 문제 + 정답지에 있는 문제 합집합
+    # OCR이 이 페이지에서 감지한 문제만 채점 (답지 전체가 아닌 현재 페이지만)
     ocr_question_nums = set(student_answers.keys())
-    answer_key_nums = set(answers_json.keys())
     all_questions = sorted(
-        ocr_question_nums | answer_key_nums,
+        ocr_question_nums,
         key=lambda x: int(x) if x.isdigit() else 0,
     )
 
@@ -60,6 +59,10 @@ async def grade_submission(image_bytes: bytes, answers_json: dict, types_json: d
         student_data = student_answers.get(q_num, {})
         raw_answer = student_data.get("answer", "") if isinstance(student_data, dict) else ""
 
+        # OCR에서 반환한 위치 정보 (% 비율 → 실제 좌표는 image_marker에서 변환)
+        pos_x_pct = student_data.get("x", 0) if isinstance(student_data, dict) else 0
+        pos_y_pct = student_data.get("y", 0) if isinstance(student_data, dict) else 0
+
         item = {
             "question_number": int(q_num) if q_num.isdigit() else 0,
             "question_type": _map_type(q_type),
@@ -68,17 +71,16 @@ async def grade_submission(image_bytes: bytes, answers_json: dict, types_json: d
             "ocr1_answer": student_data.get("ocr1", "") if isinstance(student_data, dict) else "",
             "ocr2_answer": student_data.get("ocr2", "") if isinstance(student_data, dict) else "",
             "confidence": student_data.get("confidence", 0) if isinstance(student_data, dict) else 0,
-            "position_x": None,
-            "position_y": None,
+            "position_x_pct": pos_x_pct,
+            "position_y_pct": pos_y_pct,
         }
 
         # 미풀이 감지: OCR이 "unanswered"로 판별
         is_unanswered = raw_answer == "unanswered"
 
-        # 정답이 없는 문제 (OCR에만 있고 답안지에 없음) → 건너뜀
+        # 정답이 없는 문제 (답지에 없음) → 건너뜀
         if not correct_answer:
-            if q_num in ocr_question_nums and q_num not in answer_key_nums:
-                continue
+            continue
 
         if is_unanswered:
             item["is_correct"] = None
