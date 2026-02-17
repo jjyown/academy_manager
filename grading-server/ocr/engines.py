@@ -74,7 +74,12 @@ async def ocr_gemini_double_check(image_bytes: bytes) -> dict:
 2. 이 사진에 보이는 문제 번호만 나열 (학생이 안 푼 문제도 포함)
 3. 각 문제의 학생 답 (안 풀었으면 "unanswered")
 
-중요 규칙:
+문제 번호 규칙:
+- 일반 번호: "1", "2", "3"
+- 소문제: "1(1)", "1(2)" 또는 "1-1", "1-2" 형태 (답지와 동일한 형식)
+- 인쇄된 문제 번호를 그대로 사용
+
+답 읽기 규칙:
 - 객관식: 학생이 동그라미 친 번호를 ①②③④⑤ 형태로 기록
 - 단답형: 학생이 적은 숫자/수식/텍스트를 그대로 기록
 - 빈칸/미작성: "unanswered"
@@ -82,7 +87,7 @@ async def ocr_gemini_double_check(image_bytes: bytes) -> dict:
 - 학생이 적은 답을 정확히 읽어주세요 (정답과 비교하지 마세요)
 
 JSON만 응답:
-{"textbook_info": {"name": "교재명", "page": "45", "section": "단원명"}, "answers": {"1": "③", "2": "unanswered"}, "full_text": "..."}"""
+{"textbook_info": {"name": "교재명", "page": "45", "section": "단원명"}, "answers": {"1": "③", "2": "unanswered", "3(1)": "12", "3(2)": "-5"}, "full_text": "..."}"""
 
     prompt2 = """이 사진은 학생의 숙제입니다. 수학 문제집 페이지에 학생이 답을 적었습니다.
 
@@ -91,13 +96,17 @@ JSON만 응답:
 2. 이 사진에 보이는 문제 번호만 (사진에 없는 문제는 절대 포함 금지)
 3. 학생이 각 문제에 직접 쓴/동그라미친 답 (빈칸이면 "unanswered")
 
+문제 번호 형식:
+- 소문제가 있으면: "1(1)", "1(2)" 또는 "1-1", "1-2"
+- 인쇄된 번호를 그대로 사용
+
 중요:
 - 학생이 동그라미 친 객관식 번호를 정확히 읽으세요
 - 학생 필기를 있는 그대로 읽으세요 (맞다/틀리다 판단은 하지 마세요)
 - 사진에 안 보이는 문제는 포함하지 마세요
 
 JSON만 응답:
-{"textbook_info": {"name": "교재명", "page": "45", "section": "단원명"}, "answers": {"1": "③", "2": "unanswered"}, "full_text": "..."}"""
+{"textbook_info": {"name": "교재명", "page": "45", "section": "단원명"}, "answers": {"1": "③", "2": "unanswered", "3(1)": "12"}, "full_text": "..."}"""
 
     model = genai.GenerativeModel("gemini-2.0-flash")
     image_part = {"mime_type": "image/jpeg", "data": b64}

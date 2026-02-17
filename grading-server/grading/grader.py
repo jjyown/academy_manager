@@ -1,4 +1,5 @@
 """채점 로직: Smart Grading - 교재 식별 + OCR + 정답 대조 + 미풀이 감지"""
+import re
 import logging
 from ocr.engines import ocr_gemini_double_check
 from integrations.gemini import grade_essay, grade_essay_double_check
@@ -58,17 +59,21 @@ async def grade_submission(image_bytes: bytes, answers_json: dict, types_json: d
     ocr_question_nums = set(student_answers.keys())
     all_questions = sorted(
         ocr_question_nums,
-        key=lambda x: int(x) if x.isdigit() else 0,
+        key=lambda x: _sort_key(x),
     )
 
     for q_num in all_questions:
         correct_answer = answers_json.get(q_num)
         q_type = types_json.get(q_num, "mc")
         student_data = student_answers.get(q_num, {})
-        raw_answer = student_data.get("answer", "") if isinstance(student_data, dict) else ""
+        raw_answer = student_data.get("answer", "") if isinstance(student_data, dict) else str(student_data) if student_data else ""
+
+        # DB용 정수 번호 (소문제면 메인 번호만) + 표시용 라벨
+        main_num = int(re.match(r"(\d+)", q_num).group(1)) if re.match(r"(\d+)", q_num) else 0
 
         item = {
-            "question_number": int(q_num) if q_num.isdigit() else 0,
+            "question_number": main_num,
+            "question_label": q_num,
             "question_type": _map_type(q_type),
             "correct_answer": correct_answer or "",
             "student_answer": raw_answer if raw_answer != "unanswered" else "",
@@ -192,3 +197,16 @@ def _normalize_answer(answer: str) -> str:
     # 공백, 마침표 제거
     normalized = normalized.replace(" ", "").replace(".", "").replace(",", "")
     return normalized.lower()
+
+
+def _sort_key(x: str):
+    """문제 번호 정렬 키 (소문제 지원)
+    "1" → (1, 0, ""), "3(1)" → (3, 1, ""), "3-2" → (3, 2, "")
+    """
+    import re
+    m = re.match(r"(\d+)(?:[(-](\d+)[)]?)?", x)
+    if m:
+        main = int(m.group(1))
+        sub = int(m.group(2)) if m.group(2) else 0
+        return (main, sub, "")
+    return (9999, 0, x)
