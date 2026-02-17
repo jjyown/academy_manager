@@ -1,5 +1,8 @@
+import logging
 from supabase import create_client, Client
 from config import SUPABASE_URL, SUPABASE_SERVICE_KEY
+
+logger = logging.getLogger(__name__)
 
 _client: Client | None = None
 
@@ -15,12 +18,15 @@ def get_supabase() -> Client:
 
 async def get_central_admin_token() -> str | None:
     """중앙 관리자(is_central_admin=true) 드라이브 refresh_token 조회"""
-    sb = get_supabase()
-    res = sb.table("teachers").select("google_drive_refresh_token").eq(
-        "is_central_admin", True
-    ).eq("google_drive_connected", True).limit(1).maybe_single().execute()
-    if res.data:
-        return res.data.get("google_drive_refresh_token")
+    try:
+        sb = get_supabase()
+        res = sb.table("teachers").select("google_drive_refresh_token").eq(
+            "is_central_admin", True
+        ).eq("google_drive_connected", True).limit(1).execute()
+        if res.data and len(res.data) > 0:
+            return res.data[0].get("google_drive_refresh_token")
+    except Exception as e:
+        logger.error(f"중앙 관리자 토큰 조회 실패: {e}")
     return None
 
 
@@ -28,21 +34,30 @@ async def get_central_admin_token() -> str | None:
 
 async def get_teacher_drive_token(teacher_id: str) -> str | None:
     """선생님의 드라이브 refresh_token 조회 (owner_user_id 기준)"""
-    sb = get_supabase()
-    res = sb.table("teachers").select("google_drive_refresh_token, google_drive_connected").eq(
-        "owner_user_id", teacher_id
-    ).maybe_single().execute()
-    if res.data and res.data.get("google_drive_connected"):
-        return res.data.get("google_drive_refresh_token")
+    try:
+        sb = get_supabase()
+        res = sb.table("teachers").select("google_drive_refresh_token, google_drive_connected").eq(
+            "owner_user_id", teacher_id
+        ).limit(1).execute()
+        if res.data and len(res.data) > 0:
+            row = res.data[0]
+            if row.get("google_drive_connected"):
+                return row.get("google_drive_refresh_token")
+    except Exception as e:
+        logger.error(f"선생님 드라이브 토큰 조회 실패 (teacher_id={teacher_id}): {e}")
     return None
 
 
 # ── answer_keys ──
 
 async def get_answer_key(answer_key_id: int) -> dict | None:
-    sb = get_supabase()
-    res = sb.table("answer_keys").select("*").eq("id", answer_key_id).maybe_single().execute()
-    return res.data
+    try:
+        sb = get_supabase()
+        res = sb.table("answer_keys").select("*").eq("id", answer_key_id).limit(1).execute()
+        return res.data[0] if res.data and len(res.data) > 0 else None
+    except Exception as e:
+        logger.error(f"answer_key 조회 실패 (id={answer_key_id}): {e}")
+        return None
 
 
 async def get_answer_keys_by_teacher(teacher_id: str) -> list[dict]:
@@ -67,9 +82,13 @@ async def upsert_answer_key(data: dict) -> dict:
 # ── grading_assignments ──
 
 async def get_assignment(assignment_id: int) -> dict | None:
-    sb = get_supabase()
-    res = sb.table("grading_assignments").select("*").eq("id", assignment_id).maybe_single().execute()
-    return res.data
+    try:
+        sb = get_supabase()
+        res = sb.table("grading_assignments").select("*").eq("id", assignment_id).limit(1).execute()
+        return res.data[0] if res.data and len(res.data) > 0 else None
+    except Exception as e:
+        logger.error(f"assignment 조회 실패 (id={assignment_id}): {e}")
+        return None
 
 
 async def get_assignments_by_teacher(teacher_id: str) -> list[dict]:
@@ -154,9 +173,13 @@ async def update_submission_grading_status(submission_id: int, status: str):
 # ── students ──
 
 async def get_student(student_id: int) -> dict | None:
-    sb = get_supabase()
-    res = sb.table("students").select("*").eq("id", student_id).maybe_single().execute()
-    return res.data
+    try:
+        sb = get_supabase()
+        res = sb.table("students").select("*").eq("id", student_id).limit(1).execute()
+        return res.data[0] if res.data and len(res.data) > 0 else None
+    except Exception as e:
+        logger.error(f"student 조회 실패 (id={student_id}): {e}")
+        return None
 
 
 async def get_students_by_teacher(teacher_id: str) -> list[dict]:
@@ -168,15 +191,23 @@ async def get_students_by_teacher(teacher_id: str) -> list[dict]:
 # ── teachers ──
 
 async def get_teacher(teacher_id: str) -> dict | None:
-    sb = get_supabase()
-    res = sb.table("teachers").select("*").eq("owner_user_id", teacher_id).maybe_single().execute()
-    return res.data
+    try:
+        sb = get_supabase()
+        res = sb.table("teachers").select("*").eq("owner_user_id", teacher_id).limit(1).execute()
+        return res.data[0] if res.data and len(res.data) > 0 else None
+    except Exception as e:
+        logger.error(f"teacher 조회 실패 (owner_user_id={teacher_id}): {e}")
+        return None
 
 
 async def get_teacher_by_id(teacher_table_id: int) -> dict | None:
-    sb = get_supabase()
-    res = sb.table("teachers").select("*").eq("id", teacher_table_id).maybe_single().execute()
-    return res.data
+    try:
+        sb = get_supabase()
+        res = sb.table("teachers").select("*").eq("id", teacher_table_id).limit(1).execute()
+        return res.data[0] if res.data and len(res.data) > 0 else None
+    except Exception as e:
+        logger.error(f"teacher 조회 실패 (id={teacher_table_id}): {e}")
+        return None
 
 
 # ── grading_stats ──

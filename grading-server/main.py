@@ -631,9 +631,10 @@ async def cleanup_originals(result_id: int = Form(...)):
         raise HTTPException(400, "중앙 관리 드라이브가 연결되지 않았습니다")
 
     sb = get_supabase()
-    res = sb.table("grading_results").select("central_original_drive_ids").eq("id", result_id).maybe_single().execute()
-    if res.data and res.data.get("central_original_drive_ids"):
-        deleted = cleanup_old_originals(central_token, res.data["central_original_drive_ids"])
+    res = sb.table("grading_results").select("central_original_drive_ids").eq("id", result_id).limit(1).execute()
+    row = res.data[0] if res.data and len(res.data) > 0 else None
+    if row and row.get("central_original_drive_ids"):
+        deleted = cleanup_old_originals(central_token, row["central_original_drive_ids"])
         await update_grading_result(result_id, {"central_original_drive_ids": []})
         return {"deleted": deleted}
     return {"deleted": 0}
