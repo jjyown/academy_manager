@@ -1,19 +1,24 @@
-"""채점 로직: Smart Grading - 교재 식별 + OCR + 정답 대조 + 미풀이 감지"""
+"""채점 로직: Smart Grading - GPT-4o OCR + 정답 대조 + 미풀이 감지"""
 import re
 import logging
-from ocr.engines import ocr_gemini_double_check
 from integrations.gemini import grade_essay, grade_essay_double_check
 
 logger = logging.getLogger(__name__)
 
 
-async def grade_submission(image_bytes: bytes, answers_json: dict, types_json: dict) -> dict:
+async def grade_submission(
+    image_bytes: bytes,
+    answers_json: dict,
+    types_json: dict,
+    ocr_result: dict | None = None,
+) -> dict:
     """학생 답안 이미지를 채점 (Smart Grading)
 
     Args:
         image_bytes: 학생 답안 사진
         answers_json: {"1": "③", "2": "①", ...} 정답
         types_json: {"1": "mc", "2": "mc", "5": "essay"} 유형
+        ocr_result: 사전 OCR 결과 (GPT-4o 배치). None이면 내부에서 OCR 실행
 
     Returns:
         {
@@ -30,10 +35,22 @@ async def grade_submission(image_bytes: bytes, answers_json: dict, types_json: d
             "ocr_data": {...}
         }
     """
-    # 1. Gemini Vision 더블체크 OCR (교재 정보 + 답안 추출)
-    ocr_result = await ocr_gemini_double_check(image_bytes)
-    student_answers = ocr_result["answers"]
+    # 사전 OCR 결과가 있으면 사용, 없으면 Gemini fallback
+    if ocr_result is None:
+        from ocr.engines import ocr_gemini
+        ocr_result = await ocr_gemini(image_bytes)
+
+    student_answers = ocr_result.get("answers", {})
     textbook_info = ocr_result.get("textbook_info", {})
+
+    # GPT-4o 싱글체크 결과는 문자열이므로 dict 형태로 통일
+    normalized_answers = {}
+    for k, v in student_answers.items():
+        if isinstance(v, dict):
+            normalized_answers[k] = v
+        else:
+            normalized_answers[k] = {"answer": str(v), "confidence": 90}
+    student_answers = normalized_answers
 
     logger.info(f"[Smart OCR] 교재: {textbook_info.get('name', '?')}, "
                 f"페이지: {textbook_info.get('page', '?')}, "
@@ -175,7 +192,7 @@ async def grade_submission(image_bytes: bytes, answers_json: dict, types_json: d
         "textbook_info": textbook_info,
         "page_info": page_info,
         "ocr_data": {
-            "full_text_1": ocr_result.get("full_text_1", ""),
+            "full_text_1": ocr_result.get("full_text", ocr_result.get("full_text_1", "")),
             "full_text_2": ocr_result.get("full_text_2", ""),
         },
     }

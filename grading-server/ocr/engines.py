@@ -1,15 +1,131 @@
-"""OCR 엔진: Gemini Vision API 기반 (Smart Grading)
+"""OCR 엔진: GPT-4o (채점) + Gemini (교재등록/매칭)
 
-개선된 OCR 흐름:
-1. 교재 정보 (교재명, 페이지, 단원) 자동 식별
-2. 해당 페이지의 모든 문제 번호 추출 (미풀이 포함)
-3. 학생 답안 추출 (더블체크)
+하이브리드 엔진:
+- GPT-4o: 학생 숙제 채점 OCR (싱글체크, 배치 처리)
+- Gemini: 교재 등록, 이미지 매칭 등 보조 작업
 """
 import logging
 import json
 import base64
 
 logger = logging.getLogger(__name__)
+
+BATCH_SIZE = 20
+
+
+async def ocr_gpt4o_batch(image_bytes_list: list[bytes]) -> list[dict]:
+    """GPT-4o Vision으로 여러 이미지를 한 번에 OCR (싱글체크, 최대 20장)
+
+    Args:
+        image_bytes_list: 학생 답안 이미지 바이트 리스트
+
+    Returns:
+        [{"textbook_info": {...}, "answers": {...}}, ...]  (이미지 순서대로)
+    """
+    from openai import OpenAI
+    from config import OPENAI_API_KEY
+
+    if not OPENAI_API_KEY:
+        logger.warning("[GPT-4o] API 키 없음 → Gemini fallback")
+        results = []
+        for img_bytes in image_bytes_list:
+            result = await ocr_gemini(img_bytes)
+            results.append(result)
+        return results
+
+    client = OpenAI(api_key=OPENAI_API_KEY)
+    all_results = []
+
+    for chunk_start in range(0, len(image_bytes_list), BATCH_SIZE):
+        chunk = image_bytes_list[chunk_start:chunk_start + BATCH_SIZE]
+        chunk_label = f"배치 {chunk_start // BATCH_SIZE + 1}"
+
+        messages = [{"role": "system", "content": "수학 교재 채점 전문 OCR 시스템입니다."}]
+
+        content_parts = []
+        content_parts.append({
+            "type": "text",
+            "text": f"""아래 {len(chunk)}장의 학생 숙제 사진을 각각 분석해주세요.
+
+각 이미지별로:
+1. 교재 정보: 교재명, 페이지 번호, 단원명
+2. 이 사진에 보이는 문제 번호만 나열 (사진에 없는 문제는 포함 금지)
+3. 학생 답: 각 문제에 대해 학생이 쓴 답
+
+문제 번호 규칙:
+- 일반: "1", "2", "3"
+- 소문제: "1(1)", "1(2)" 또는 "1-1", "1-2"
+
+답 읽기 규칙:
+- 객관식: 학생이 동그라미 친 번호를 ①②③④⑤ 형태로
+- 단답형: 학생이 적은 숫자/수식/텍스트 그대로
+- 빈칸/미작성: "unanswered"
+- 학생이 적은 답을 정확히 읽기 (정답 판단은 하지 마세요)
+- 사진에 안 보이는 문제는 절대 포함 금지
+
+반드시 아래 JSON 배열로만 응답 (다른 텍스트 없이):
+[
+  {{"image_index": 0, "textbook_info": {{"name": "교재명", "page": "45", "section": "단원명"}}, "answers": {{"1": "③", "2": "unanswered", "3": "12"}}}},
+  {{"image_index": 1, ...}}
+]"""
+        })
+
+        for i, img_bytes in enumerate(chunk):
+            b64 = base64.b64encode(img_bytes).decode("utf-8")
+            content_parts.append({
+                "type": "text",
+                "text": f"=== 이미지 {i} ==="
+            })
+            content_parts.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{b64}", "detail": "high"}
+            })
+
+        messages.append({"role": "user", "content": content_parts})
+
+        try:
+            logger.info(f"[GPT-4o] {chunk_label}: {len(chunk)}장 OCR 요청")
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=messages,
+                max_tokens=4096,
+                temperature=0,
+            )
+
+            text = response.choices[0].message.content.strip()
+            if text.startswith("```"):
+                text = text.split("```")[1]
+                if text.startswith("json"):
+                    text = text[4:]
+
+            batch_results = json.loads(text.strip())
+            logger.info(f"[GPT-4o] {chunk_label}: {len(batch_results)}개 결과 수신")
+
+            result_map = {}
+            for r in batch_results:
+                idx = r.get("image_index", 0)
+                result_map[idx] = {
+                    "textbook_info": r.get("textbook_info", {}),
+                    "answers": r.get("answers", {}),
+                }
+
+            for i in range(len(chunk)):
+                if i in result_map:
+                    all_results.append(result_map[i])
+                else:
+                    logger.warning(f"[GPT-4o] 이미지 {chunk_start + i} 결과 누락")
+                    all_results.append({"textbook_info": {}, "answers": {}})
+
+        except Exception as e:
+            logger.error(f"[GPT-4o] {chunk_label} 실패: {e}, Gemini fallback")
+            for img_bytes in chunk:
+                try:
+                    fallback = await ocr_gemini(img_bytes)
+                    all_results.append(fallback)
+                except Exception:
+                    all_results.append({"textbook_info": {}, "answers": {}})
+
+    return all_results
 
 
 async def ocr_gemini(image_bytes: bytes) -> dict:

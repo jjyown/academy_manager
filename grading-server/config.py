@@ -10,6 +10,7 @@ GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
 PORT = int(os.getenv("PORT", "8000"))
 

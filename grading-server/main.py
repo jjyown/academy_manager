@@ -20,7 +20,7 @@ from config import (
     PORT, CENTRAL_GRADING_MATERIAL_FOLDER, CENTRAL_GRADED_RESULT_FOLDER,
     TEACHER_RESULT_FOLDER
 )
-from ocr.engines import ocr_gemini_double_check
+from ocr.engines import ocr_gpt4o_batch
 from grading.grader import grade_submission
 from grading.image_marker import create_graded_image
 from grading.pdf_parser import extract_answers_from_pdf
@@ -576,75 +576,82 @@ async def grade_homework(
     total_unanswered = 0
     page_info_parts = []
 
+    # ── GPT-4o 배치 OCR: 전체 이미지를 한 번에 처리 ──
+    logger.info(f"[OCR] GPT-4o 배치 OCR 시작: {len(image_bytes_list)}장")
+    ocr_results = await ocr_gpt4o_batch(image_bytes_list)
+    logger.info(f"[OCR] GPT-4o 배치 OCR 완료: {len(ocr_results)}개 결과")
+
+    # ── 교재 매칭 (answer_key_id 미지정 시) ──
+    if not answer_key and mode == "auto_search" and ocr_results:
+        try:
+            all_keys = await get_answer_keys_by_teacher(teacher_id, parsed_only=True)
+            if not all_keys:
+                all_keys = await get_all_answer_keys()
+            logger.info(f"[Auto] 후보 교재 {len(all_keys)}개: "
+                        f"{[k.get('title','') for k in all_keys]}")
+
+            first_ocr = ocr_results[0]
+            detected_name = first_ocr.get("textbook_info", {}).get("name", "")
+            detected_nums = set(first_ocr.get("answers", {}).keys())
+            logger.info(f"[Auto] 감지: 교재='{detected_name}', 문제={sorted(detected_nums)}")
+
+            # 1차: 교재명 매칭
+            if detected_name:
+                matched = _match_by_textbook_name(detected_name, all_keys)
+                if matched:
+                    answer_key = await get_answer_key(matched)
+                    answer_key_id = matched
+                    logger.info(f"[Match] 교재명 '{detected_name}' → #{matched}")
+
+            # 2차: 문제 번호 겹침 매칭
+            if not answer_key and detected_nums:
+                best_key = None
+                best_overlap = 0
+                for key in all_keys:
+                    key_nums = set((key.get("answers_json") or {}).keys())
+                    overlap = len(detected_nums & key_nums)
+                    if overlap > best_overlap:
+                        best_overlap = overlap
+                        best_key = key
+                if best_key and best_overlap >= max(1, len(detected_nums) * 0.3):
+                    answer_key = best_key
+                    answer_key_id = best_key["id"]
+                    logger.info(f"[Match] 문제번호 {best_overlap}개 겹침 → #{answer_key_id} '{best_key.get('title','')}'")
+
+            # 3차: 교재 1개만 있으면 자동 선택
+            if not answer_key and len(all_keys) == 1:
+                answer_key = all_keys[0]
+                answer_key_id = answer_key["id"]
+                logger.info(f"[Match] 교재 1개 → 자동선택 #{answer_key_id}")
+
+            # 4차: 이미지 비교 매칭 (page_images_json 기반, Gemini 사용)
+            if not answer_key and len(all_keys) > 1:
+                central_token_for_match = await get_central_admin_token()
+                matched_by_image = await _match_by_image_comparison(
+                    image_bytes_list[0], all_keys, central_token_for_match
+                )
+                if matched_by_image:
+                    answer_key = matched_by_image
+                    answer_key_id = matched_by_image["id"]
+                    logger.info(f"[Match] 이미지 비교 → #{answer_key_id} '{matched_by_image.get('title','')}'")
+
+        except Exception as e:
+            logger.error(f"[Auto] 매칭 실패: {e}")
+
+    if not answer_key:
+        logger.warning(f"정답 데이터를 찾을 수 없습니다 (student: {student_id})")
+
     for idx, img_bytes in enumerate(image_bytes_list):
-        # ── Smart Grading: 교재 매칭 (answer_key_id 미지정 시만) ──
-        if not answer_key and mode == "auto_search":
-            try:
-                # 해당 선생님의 파싱 완료된 교재만 조회
-                all_keys = await get_answer_keys_by_teacher(teacher_id, parsed_only=True)
-                if not all_keys:
-                    all_keys = await get_all_answer_keys()
-                logger.info(f"[Auto {idx+1}] 후보 교재 {len(all_keys)}개: "
-                            f"{[k.get('title','') for k in all_keys]}")
-
-                from ocr.engines import ocr_gemini
-                preview = await ocr_gemini(img_bytes)
-                detected_name = preview.get("textbook_info", {}).get("name", "")
-                detected_nums = set(preview.get("answers", {}).keys())
-                logger.info(f"[Auto {idx+1}] 감지: 교재='{detected_name}', 문제={sorted(detected_nums)}")
-
-                # 1차: 교재명 매칭
-                if detected_name:
-                    matched = _match_by_textbook_name(detected_name, all_keys)
-                    if matched:
-                        answer_key = await get_answer_key(matched)
-                        answer_key_id = matched
-                        logger.info(f"[Match] 교재명 '{detected_name}' → #{matched}")
-
-                # 2차: 문제 번호 겹침 매칭
-                if not answer_key and detected_nums:
-                    best_key = None
-                    best_overlap = 0
-                    for key in all_keys:
-                        key_nums = set((key.get("answers_json") or {}).keys())
-                        overlap = len(detected_nums & key_nums)
-                        if overlap > best_overlap:
-                            best_overlap = overlap
-                            best_key = key
-                    if best_key and best_overlap >= max(1, len(detected_nums) * 0.3):
-                        answer_key = best_key
-                        answer_key_id = best_key["id"]
-                        logger.info(f"[Match] 문제번호 {best_overlap}개 겹침 → #{answer_key_id} '{best_key.get('title','')}'")
-
-                # 3차: 교재 1개만 있으면 자동 선택
-                if not answer_key and len(all_keys) == 1:
-                    answer_key = all_keys[0]
-                    answer_key_id = answer_key["id"]
-                    logger.info(f"[Match] 교재 1개 → 자동선택 #{answer_key_id}")
-
-                # 4차: 이미지 비교 매칭 (page_images_json 기반)
-                if not answer_key and len(all_keys) > 1:
-                    central_token_for_match = await get_central_admin_token()
-                    matched_by_image = await _match_by_image_comparison(
-                        img_bytes, all_keys, central_token_for_match
-                    )
-                    if matched_by_image:
-                        answer_key = matched_by_image
-                        answer_key_id = matched_by_image["id"]
-                        logger.info(f"[Match] 이미지 비교 → #{answer_key_id} '{matched_by_image.get('title','')}'")
-
-            except Exception as e:
-                logger.error(f"[Auto {idx+1}] 매칭 실패: {e}")
-
         if not answer_key:
-            logger.warning(f"정답 데이터를 찾을 수 없습니다 (student: {student_id}, image: {idx+1}/{len(image_bytes_list)})")
+            logger.warning(f"교재 미매칭 → 이미지 {idx+1}/{len(image_bytes_list)} 건너뜀")
             continue
 
         answers_json = answer_key.get("answers_json", {})
         types_json = answer_key.get("question_types_json", {})
+        ocr_data = ocr_results[idx] if idx < len(ocr_results) else None
 
-        # 채점 실행 (Smart Grading: 교재 식별 + 미풀이 감지 포함)
-        grade_result = await grade_submission(img_bytes, answers_json, types_json)
+        # 채점 실행 (사전 OCR 결과 전달 → 추가 API 호출 없음)
+        grade_result = await grade_submission(img_bytes, answers_json, types_json, ocr_result=ocr_data)
 
         # 페이지 정보 수집 (등록된 교재 제목 우선, OCR 인식값 fallback)
         ak_title = answer_key.get("title", "")
