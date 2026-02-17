@@ -45,6 +45,19 @@ from scheduler.monthly_eval import run_monthly_evaluation
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
+
+def _parse_page_range(range_str: str) -> tuple[int, int] | None:
+    """페이지 범위 문자열 파싱 (예: "45-48" → (45, 48), "30" → (30, 30))"""
+    import re
+    range_str = range_str.replace(" ", "")
+    m = re.match(r"(\d+)\s*[-~]\s*(\d+)", range_str)
+    if m:
+        return (int(m.group(1)), int(m.group(2)))
+    m = re.match(r"(\d+)", range_str)
+    if m:
+        return (int(m.group(1)), int(m.group(1)))
+    return None
+
 scheduler = AsyncIOScheduler()
 
 
@@ -89,6 +102,16 @@ async def list_answer_keys(teacher_id: str):
     return {"data": keys}
 
 
+@app.delete("/api/answer-keys/{key_id}")
+async def delete_answer_key(key_id: int, teacher_id: str):
+    """교재 삭제"""
+    sb = get_supabase()
+    result = sb.table("answer_keys").delete().eq("id", key_id).eq("teacher_id", teacher_id).execute()
+    if result.data:
+        return {"success": True, "message": "교재가 삭제되었습니다"}
+    return {"success": False, "message": "삭제할 교재를 찾을 수 없습니다"}
+
+
 @app.post("/api/answer-keys/parse")
 async def parse_answer_key(
     teacher_id: str = Form(...),
@@ -96,9 +119,12 @@ async def parse_answer_key(
     subject: str = Form(""),
     drive_file_id: str = Form(""),
     pdf_file: UploadFile = File(None),
+    answer_page_range: str = Form(""),
+    total_hint: int = Form(None),
 ):
     """정답 PDF 파싱 및 교재 등록
     PDF는 중앙 드라이브의 '숙제 채점 자료' 폴더에서 가져옴
+    answer_page_range: "45-48" 형식으로 정답 페이지 범위 지정 가능
     """
     pdf_bytes = None
     central_token = await get_central_admin_token()
@@ -110,7 +136,12 @@ async def parse_answer_key(
     else:
         raise HTTPException(400, "PDF 파일 또는 드라이브 파일 ID가 필요합니다")
 
-    result = await extract_answers_from_pdf(pdf_bytes)
+    # 페이지 범위 파싱 (예: "45-48" → (45, 48))
+    page_range = None
+    if answer_page_range.strip():
+        page_range = _parse_page_range(answer_page_range.strip())
+
+    result = await extract_answers_from_pdf(pdf_bytes, total_hint=total_hint, page_range=page_range)
 
     key_data = {
         "teacher_id": teacher_id,

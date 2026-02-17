@@ -161,9 +161,9 @@
 
 	<div class="tabs" id="main-tabs">
 		<button class="tab-btn active" onclick="switchMainTab('results', event)">📊 채점 결과</button>
-		<button class="tab-btn" onclick="switchMainTab('assign', event)">📋 과제 배정</button>
 		<button class="tab-btn" onclick="switchMainTab('keys', event)">📚 교재 관리</button>
 		<button class="tab-btn" onclick="switchMainTab('stats', event)">📈 통계</button>
+		<button class="tab-btn" onclick="switchMainTab('assign', event)">📋 과제 배정</button>
 	</div>
 
 	<!-- 채점 결과 탭 -->
@@ -179,7 +179,14 @@
 	<!-- 과제 배정 탭 -->
 	<div id="tab-assign" class="tab-content" style="display:none;">
 		<div style="padding:8px 12px;">
-			<button class="btn btn-primary btn-sm" onclick="showAssignModal()"><i class="fas fa-plus"></i> 과제 배정</button>
+			<div style="background:#f0fdf4;border-radius:10px;padding:10px 12px;margin-bottom:8px;">
+				<p style="font-size:12px;color:#166534;margin:0;">
+					<i class="fas fa-magic" style="margin-right:4px;"></i>
+					<b>자동 채점 모드</b>: 교재만 등록하면 학생이 올린 숙제를 AI가 자동으로 교재를 매칭하고 채점합니다.<br>
+					<span style="font-size:11px;color:#64748b;">아래 과제 배정은 선택사항입니다. 특정 학생에게 과제를 명시적으로 지정하고 싶을 때만 사용하세요.</span>
+				</p>
+			</div>
+			<button class="btn btn-primary btn-sm" onclick="showAssignModal()"><i class="fas fa-plus"></i> 과제 배정 (선택)</button>
 		</div>
 		<div id="assignments-list"></div>
 	</div>
@@ -338,6 +345,22 @@
 <div class="modal-overlay" id="key-modal">
 	<div class="modal-box">
 		<div class="modal-title"><i class="fas fa-book" style="color:var(--primary);"></i> 교재 등록</div>
+
+		<!-- 교재 유형 선택 -->
+		<div class="form-group">
+			<label class="form-label">교재 유형</label>
+			<div style="display:flex;gap:8px;">
+				<button class="btn btn-sm" id="key-type-print" onclick="selectKeyType('print')"
+					style="flex:1;padding:10px;border:2px solid var(--primary);background:var(--primary);color:#fff;border-radius:10px;font-size:13px;">
+					<i class="fas fa-print"></i> 프린트 과제
+				</button>
+				<button class="btn btn-sm" id="key-type-book" onclick="selectKeyType('book')"
+					style="flex:1;padding:10px;border:2px solid var(--border);background:var(--card);color:var(--text);border-radius:10px;font-size:13px;">
+					<i class="fas fa-book-open"></i> 시중 교재
+				</button>
+			</div>
+		</div>
+
 		<div class="form-group">
 			<label class="form-label">교재명</label>
 			<input class="input" id="key-title" placeholder="예: 수학 문제집 A">
@@ -347,14 +370,48 @@
 			<input class="input" id="key-subject" placeholder="예: 수학">
 		</div>
 		<div class="form-group">
-			<label class="form-label">정답 PDF</label>
+			<label class="form-label">교재 PDF</label>
 			<input class="input" id="key-pdf" type="file" accept=".pdf">
 		</div>
-		<p style="font-size:12px;color:var(--text-sec);margin-bottom:12px;">
-			<i class="fas fa-info-circle"></i> PDF를 업로드하면 AI가 자동으로 정답을 추출합니다
-		</p>
+
+		<!-- 프린트 안내 (기본 표시) -->
+		<div id="key-print-info" style="background:#f0f9ff;border-radius:10px;padding:12px;margin-bottom:12px;">
+			<p style="font-size:12px;color:#0369a1;margin:0;">
+				<i class="fas fa-magic" style="margin-right:4px;"></i>
+				<b>프린트 과제</b>는 PDF를 올리면 자동으로 정답을 찾습니다.<br>
+				<span style="font-size:11px;color:#64748b;">구조: 문제 → 빠른정답 → 해설</span>
+			</p>
+		</div>
+
+		<!-- 시중 교재 설정 (숨김) -->
+		<div id="key-book-info" style="display:none;">
+			<div style="background:#fefce8;border-radius:10px;padding:12px;margin-bottom:12px;">
+				<p style="font-size:12px;color:#854d0e;margin:0 0 8px 0;">
+					<i class="fas fa-lightbulb" style="margin-right:4px;"></i>
+					<b>시중 교재</b>는 정답/해설 페이지를 지정하면 빠르고 정확합니다.<br>
+					<span style="font-size:11px;color:#64748b;">비워두면 AI가 자동으로 정답 페이지를 찾습니다.</span>
+				</p>
+			</div>
+			<div class="form-group">
+				<label class="form-label">정답/해설 시작 페이지 <span style="color:var(--text-sec);font-weight:400;">(선택)</span></label>
+				<div style="display:flex;gap:8px;align-items:center;">
+					<input class="input" id="key-page-start" type="number" placeholder="예: 180" style="flex:1;">
+					<span style="color:var(--text-sec);">~</span>
+					<input class="input" id="key-page-end" type="number" placeholder="예: 210" style="flex:1;">
+					<span style="font-size:12px;color:var(--text-sec);">페이지</span>
+				</div>
+			</div>
+		</div>
+
+		<div class="form-group">
+			<label class="form-label">예상 문제 수 <span style="color:var(--text-sec);font-weight:400;">(선택)</span></label>
+			<input class="input" id="key-total-hint" type="number" placeholder="예: 30">
+		</div>
+
 		<div style="display:flex;gap:8px;margin-top:16px;">
-			<button class="btn btn-primary" style="flex:1;" onclick="registerAnswerKey()">등록</button>
+			<button class="btn btn-primary" style="flex:1;" onclick="registerAnswerKey()">
+				<i class="fas fa-upload" style="margin-right:4px;"></i> 등록 및 정답 추출
+			</button>
 			<button class="btn btn-outline" style="flex:1;" onclick="closeModal('key-modal')">취소</button>
 		</div>
 	</div>
@@ -677,12 +734,17 @@ async function loadAnswerKeys() {
 		el.innerHTML = '<div class="empty-state"><i class="fas fa-book-open"></i><p>등록된 교재가 없습니다</p></div>';
 		return;
 	}
-	el.innerHTML = data.map(k => `<div class="list-item">
+	el.innerHTML = data.map(k => `<div class="list-item" style="position:relative;">
 		<div class="list-item-icon" style="background:rgba(20,184,166,0.15);">📚</div>
-		<div class="list-item-info">
+		<div class="list-item-info" style="flex:1;">
 			<div class="list-item-title">${escapeHtml(k.title)}</div>
 			<div class="list-item-sub">${k.subject || '과목 미정'} · ${k.total_questions}문제 · ${k.parsed ? '✅ 파싱완료' : '⏳ 파싱중'}</div>
 		</div>
+		<button onclick="deleteAnswerKey(${k.id}, '${escapeHtml(k.title)}')" title="삭제"
+			style="background:none;border:none;color:var(--red,#ef4444);cursor:pointer;padding:8px;font-size:16px;opacity:0.6;transition:opacity 0.2s;"
+			onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.6'">
+			<i class="fas fa-trash-alt"></i>
+		</button>
 	</div>`).join('');
 
 	// 과제 배정용 셀렉트 업데이트
@@ -692,7 +754,66 @@ async function loadAnswerKeys() {
 	}
 }
 
+async function deleteAnswerKey(id, title) {
+	if (!confirm(`"${title}" 교재를 삭제하시겠습니까?\n\n이 교재의 정답 데이터가 모두 삭제됩니다.`)) return;
+
+	try {
+		const res = await fetch(`${GRADING_SERVER_URL}/api/answer-keys/${id}?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`, {
+			method: 'DELETE',
+		});
+		const result = await res.json();
+		if (result.success) {
+			showToast('교재가 삭제되었습니다', 'success');
+			loadAnswerKeys();
+		} else {
+			showToast('삭제 실패: ' + (result.message || ''), 'error');
+		}
+	} catch (e) {
+		showToast('서버 연결 실패: ' + e.message, 'error');
+	}
+}
+
+let selectedKeyType = 'print';
+
+function selectKeyType(type) {
+	selectedKeyType = type;
+	const printBtn = document.getElementById('key-type-print');
+	const bookBtn = document.getElementById('key-type-book');
+	const printInfo = document.getElementById('key-print-info');
+	const bookInfo = document.getElementById('key-book-info');
+
+	if (type === 'print') {
+		printBtn.style.background = 'var(--primary)';
+		printBtn.style.color = '#fff';
+		printBtn.style.borderColor = 'var(--primary)';
+		bookBtn.style.background = 'var(--card)';
+		bookBtn.style.color = 'var(--text)';
+		bookBtn.style.borderColor = 'var(--border)';
+		printInfo.style.display = '';
+		bookInfo.style.display = 'none';
+	} else {
+		bookBtn.style.background = 'var(--primary)';
+		bookBtn.style.color = '#fff';
+		bookBtn.style.borderColor = 'var(--primary)';
+		printBtn.style.background = 'var(--card)';
+		printBtn.style.color = 'var(--text)';
+		printBtn.style.borderColor = 'var(--border)';
+		printInfo.style.display = 'none';
+		bookInfo.style.display = '';
+	}
+}
+
 function showAddKeyModal() {
+	selectedKeyType = 'print';
+	selectKeyType('print');
+	document.getElementById('key-title').value = '';
+	document.getElementById('key-subject').value = '';
+	document.getElementById('key-pdf').value = '';
+	document.getElementById('key-total-hint').value = '';
+	const ps = document.getElementById('key-page-start');
+	const pe = document.getElementById('key-page-end');
+	if (ps) ps.value = '';
+	if (pe) pe.value = '';
 	document.getElementById('key-modal').classList.add('show');
 }
 
@@ -700,16 +821,30 @@ async function registerAnswerKey() {
 	const title = document.getElementById('key-title').value.trim();
 	const subject = document.getElementById('key-subject').value.trim();
 	const pdfInput = document.getElementById('key-pdf');
+	const totalHint = document.getElementById('key-total-hint').value.trim();
+
+	// 시중 교재: 페이지 범위 조합
+	let pageRange = '';
+	if (selectedKeyType === 'book') {
+		const ps = document.getElementById('key-page-start').value.trim();
+		const pe = document.getElementById('key-page-end').value.trim();
+		if (ps && pe) {
+			pageRange = `${ps}-${pe}`;
+		} else if (ps) {
+			pageRange = ps;
+		}
+	}
 
 	if (!title) return showToast('교재명을 입력하세요', 'error');
 
 	if (pdfInput.files.length > 0) {
-		// PDF 파일을 서버에 전송하여 파싱
 		const formData = new FormData();
 		formData.append('teacher_id', currentTeacher.owner_user_id);
 		formData.append('title', title);
 		formData.append('subject', subject);
 		formData.append('pdf_file', pdfInput.files[0]);
+		if (pageRange) formData.append('answer_page_range', pageRange);
+		if (totalHint) formData.append('total_hint', totalHint);
 
 		showToast('정답 추출 중...', 'info');
 
