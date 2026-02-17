@@ -330,8 +330,9 @@ serve(async (req: Request) => {
       );
     }
 
-    // ─── 6) 자동 채점 트리거 (비동기, 실패해도 제출은 성공) ───
+    // ─── 6) 자동 채점 트리거 (타임아웃 적용, 실패해도 제출은 성공) ───
     const GRADING_SERVER_URL = Deno.env.get("GRADING_SERVER_URL") || "";
+    let gradingTriggered = false;
     if (GRADING_SERVER_URL) {
       try {
         // DB에서 방금 저장된 submission ID 조회
@@ -366,14 +367,34 @@ serve(async (req: Request) => {
           gradeForm.append("answer_key_id", answerKeyId);
         }
 
-        fetch(`${GRADING_SERVER_URL}/api/grade`, {
-          method: "POST",
-          body: gradeForm,
-        }).then(res => {
-          console.log(`자동 채점 요청 완료: status=${res.status}`);
-        }).catch(err => {
-          console.warn(`자동 채점 요청 실패 (제출은 정상): ${err}`);
-        });
+        // AbortController로 타임아웃 설정 (10초)
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+        try {
+          const gradeRes = await fetch(`${GRADING_SERVER_URL}/api/grade`, {
+            method: "POST",
+            body: gradeForm,
+            signal: controller.signal,
+          });
+          clearTimeout(timeoutId);
+          console.log(`자동 채점 요청 완료: status=${gradeRes.status}`);
+          gradingTriggered = gradeRes.ok;
+        } catch (fetchErr: unknown) {
+          clearTimeout(timeoutId);
+          const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+          console.warn(`자동 채점 요청 실패 (제출은 정상): ${msg}`);
+        }
+
+        // 채점 트리거 결과를 DB에 반영
+        if (submissionId) {
+          await supabase
+            .from("homework_submissions")
+            .update({
+              grading_status: gradingTriggered ? "grading" : "trigger_failed",
+            })
+            .eq("id", submissionId);
+        }
       } catch (gradeErr) {
         console.warn(`자동 채점 트리거 실패 (제출은 정상): ${gradeErr}`);
       }

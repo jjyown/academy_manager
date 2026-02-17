@@ -1,17 +1,27 @@
 import logging
+import threading
 from supabase import create_client, Client
 from config import SUPABASE_URL, SUPABASE_SERVICE_KEY
 
 logger = logging.getLogger(__name__)
 
 _client: Client | None = None
+_lock = threading.Lock()
 
 
 def get_supabase() -> Client:
+    """메인 스레드용 Supabase 싱글톤 클라이언트 (thread-safe 초기화)"""
     global _client
     if _client is None:
-        _client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+        with _lock:
+            if _client is None:
+                _client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
     return _client
+
+
+def create_supabase_for_background() -> Client:
+    """BackgroundTasks용 독립 Supabase 클라이언트 (스레드 안전)"""
+    return create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
 
 # ── 중앙 관리자 토큰 ──

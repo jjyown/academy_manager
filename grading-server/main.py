@@ -8,7 +8,10 @@
 import logging
 import io
 import json
+import re
+import time
 import zipfile
+from collections import defaultdict
 from datetime import datetime
 from contextlib import asynccontextmanager
 
@@ -18,9 +21,10 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from config import (
     PORT, CENTRAL_GRADING_MATERIAL_FOLDER, CENTRAL_GRADED_RESULT_FOLDER,
-    TEACHER_RESULT_FOLDER
+    TEACHER_RESULT_FOLDER, CORS_ORIGINS, RATE_LIMIT_PER_MINUTE
 )
-from ocr.engines import ocr_gpt4o_batch
+from ocr.engines import ocr_gpt4o_batch, cross_validate_ocr
+from ocr.preprocessor import preprocess_batch
 from grading.grader import grade_submission
 from grading.image_marker import create_graded_image
 from grading.pdf_parser import extract_answers_from_pdf
@@ -33,7 +37,7 @@ from integrations.supabase_client import (
     create_grading_items, get_grading_items, update_grading_item,
     get_student, get_teacher, get_teacher_by_id,
     get_pending_submissions, update_submission_grading_status,
-    get_supabase,
+    get_supabase, create_supabase_for_background,
 )
 from integrations.drive import (
     download_file_central, upload_to_central, upload_to_teacher_drive,
@@ -147,12 +151,20 @@ async def _match_by_image_comparison(
     return None
 
 
+def _tokenize_korean(text: str) -> set[str]:
+    """한국어 텍스트를 의미 있는 토큰으로 분리 (2글자 이상 단어)"""
+    import re
+    clean = re.sub(r"[^\w가-힣]", " ", text.lower())
+    return {w for w in clean.split() if len(w) >= 2}
+
+
 def _match_by_textbook_name(detected_name: str, available_keys: list[dict]) -> int | None:
     """OCR로 감지된 교재명과 등록된 교재 제목을 비교하여 가장 적합한 ID 반환"""
     if not detected_name or not available_keys:
         return None
 
     detected_clean = detected_name.replace(" ", "").lower()
+    detected_tokens = _tokenize_korean(detected_name)
     best_id = None
     best_score = 0
 
@@ -163,18 +175,23 @@ def _match_by_textbook_name(detected_name: str, available_keys: list[dict]) -> i
 
         # 정확히 포함되는지 확인
         if detected_clean in title or title in detected_clean:
-            score = len(title)
+            score = len(title) * 10
             if score > best_score:
                 best_score = score
                 best_id = key["id"]
             continue
 
-        # 단어 단위 겹침 확인
-        common = sum(1 for c in detected_clean if c in title)
-        ratio = common / max(len(detected_clean), 1)
-        if ratio > 0.6 and ratio > best_score / 100:
-            best_score = int(ratio * 100)
-            best_id = key["id"]
+        # 단어(토큰) 단위 겹침 확인
+        title_tokens = _tokenize_korean(key.get("title") or "")
+        if not title_tokens or not detected_tokens:
+            continue
+        common_tokens = detected_tokens & title_tokens
+        ratio = len(common_tokens) / max(len(detected_tokens), len(title_tokens))
+        if ratio > 0.4 and len(common_tokens) >= 1:
+            score = int(ratio * 100) + len(common_tokens)
+            if score > best_score:
+                best_score = score
+                best_id = key["id"]
 
     if best_id:
         logger.info(f"[TextbookMatch] '{detected_name}' → key #{best_id} (score={best_score})")
@@ -195,13 +212,40 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="자동 채점 서버", version="2.0.0", lifespan=lifespan)
 
+# CORS 설정: 환경변수 CORS_ORIGINS에 쉼표 구분으로 도메인 지정
+_allowed_origins = [o.strip() for o in CORS_ORIGINS.split(",") if o.strip()] if CORS_ORIGINS else ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ============================================================
+# Rate Limiting 미들웨어 (IP 기반, 분당 최대 요청 수 제한)
+# ============================================================
+_rate_limit_store: dict[str, list[float]] = defaultdict(list)
+
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    if request.url.path.startswith("/api/grade") or request.url.path.startswith("/api/auto-grade"):
+        client_ip = request.client.host if request.client else "unknown"
+        now = time.time()
+        window = 60.0
+        timestamps = _rate_limit_store[client_ip]
+        _rate_limit_store[client_ip] = [t for t in timestamps if now - t < window]
+        if len(_rate_limit_store[client_ip]) >= RATE_LIMIT_PER_MINUTE:
+            from fastapi.responses import JSONResponse
+            return JSONResponse(
+                status_code=429,
+                content={"detail": f"Rate limit exceeded. Max {RATE_LIMIT_PER_MINUTE} requests per minute."}
+            )
+        _rate_limit_store[client_ip].append(now)
+    return await call_next(request)
 
 
 # ============================================================
@@ -256,7 +300,7 @@ def _upload_page_images_background(
         )
         logger.info(f"[BG] '{title}' 페이지 이미지 {len(page_images_json)}장 Drive 업로드 완료")
 
-        sb = get_supabase()
+        sb = create_supabase_for_background()
         sb.table("answer_keys").update(
             {"page_images_json": page_images_json}
         ).eq("id", answer_key_id).execute()
@@ -576,12 +620,30 @@ async def grade_homework(
     total_unanswered = 0
     page_info_parts = []
 
-    # ── GPT-4o 배치 OCR: 전체 이미지를 한 번에 처리 ──
-    logger.info(f"[OCR] GPT-4o 배치 OCR 시작: {len(image_bytes_list)}장")
-    ocr_results = await ocr_gpt4o_batch(image_bytes_list)
-    logger.info(f"[OCR] GPT-4o 배치 OCR 완료: {len(ocr_results)}개 결과")
+    # ── #6: 이미지 전처리 (회전 보정, 대비 향상, 샤프닝) ──
+    logger.info(f"[Preprocess] {len(image_bytes_list)}장 이미지 전처리 시작")
+    image_bytes_list = preprocess_batch(image_bytes_list)
+    logger.info(f"[Preprocess] 전처리 완료")
 
-    # ── 교재 매칭 (answer_key_id 미지정 시) ──
+    # ── #4: 기대 문제번호 준비 (answer_key가 이미 있으면 전달) ──
+    expected_questions = None
+    if answer_key:
+        expected_questions = sorted(
+            (answer_key.get("answers_json") or {}).keys(),
+            key=lambda x: (int(re.match(r"(\d+)", x).group(1)) if re.match(r"(\d+)", x) else 9999)
+        )
+
+    # ── #3: GPT-4o 배치 OCR (5장씩 병렬) ──
+    logger.info(f"[OCR] GPT-4o 배치 OCR 시작: {len(image_bytes_list)}장")
+    gpt4o_results = await ocr_gpt4o_batch(image_bytes_list, expected_questions=expected_questions)
+    logger.info(f"[OCR] GPT-4o 배치 OCR 완료: {len(gpt4o_results)}개 결과")
+
+    # ── #1: 크로스 엔진 검증 (GPT-4o + Gemini) ──
+    logger.info(f"[CrossVal] Gemini 크로스 검증 시작")
+    ocr_results = await cross_validate_ocr(image_bytes_list, gpt4o_results)
+    logger.info(f"[CrossVal] 크로스 검증 완료: {len(ocr_results)}개 결과")
+
+    # ── #8: 교재 매칭 - 다중 이미지 집계 (answer_key_id 미지정 시) ──
     if not answer_key and mode == "auto_search" and ocr_results:
         try:
             all_keys = await get_answer_keys_by_teacher(teacher_id, parsed_only=True)
@@ -590,10 +652,28 @@ async def grade_homework(
             logger.info(f"[Auto] 후보 교재 {len(all_keys)}개: "
                         f"{[k.get('title','') for k in all_keys]}")
 
-            first_ocr = ocr_results[0]
-            detected_name = first_ocr.get("textbook_info", {}).get("name", "")
-            detected_nums = set(first_ocr.get("answers", {}).keys())
-            logger.info(f"[Auto] 감지: 교재='{detected_name}', 문제={sorted(detected_nums)}")
+            # 전체 OCR 결과에서 교재명/문제번호 집계 (#8)
+            all_detected_names = []
+            all_detected_nums = set()
+            for ocr_r in ocr_results:
+                tb = ocr_r.get("textbook_info", {})
+                name = tb.get("name", "")
+                if name:
+                    all_detected_names.append(name)
+                ans = ocr_r.get("answers", {})
+                for k, v in ans.items():
+                    # 크로스 검증 형식에서 키 추출
+                    all_detected_nums.add(k)
+
+            # 가장 많이 감지된 교재명 사용
+            detected_name = ""
+            if all_detected_names:
+                from collections import Counter
+                name_counts = Counter(all_detected_names)
+                detected_name = name_counts.most_common(1)[0][0]
+
+            logger.info(f"[Auto] 집계: 교재='{detected_name}' ({len(all_detected_names)}회), "
+                        f"문제 {len(all_detected_nums)}개")
 
             # 1차: 교재명 매칭
             if detected_name:
@@ -603,17 +683,17 @@ async def grade_homework(
                     answer_key_id = matched
                     logger.info(f"[Match] 교재명 '{detected_name}' → #{matched}")
 
-            # 2차: 문제 번호 겹침 매칭
-            if not answer_key and detected_nums:
+            # 2차: 문제 번호 겹침 매칭 (전체 이미지 집계)
+            if not answer_key and all_detected_nums:
                 best_key = None
                 best_overlap = 0
                 for key in all_keys:
                     key_nums = set((key.get("answers_json") or {}).keys())
-                    overlap = len(detected_nums & key_nums)
+                    overlap = len(all_detected_nums & key_nums)
                     if overlap > best_overlap:
                         best_overlap = overlap
                         best_key = key
-                if best_key and best_overlap >= max(1, len(detected_nums) * 0.3):
+                if best_key and best_overlap >= max(1, len(all_detected_nums) * 0.3):
                     answer_key = best_key
                     answer_key_id = best_key["id"]
                     logger.info(f"[Match] 문제번호 {best_overlap}개 겹침 → #{answer_key_id} '{best_key.get('title','')}'")
@@ -634,6 +714,14 @@ async def grade_homework(
                     answer_key = matched_by_image
                     answer_key_id = matched_by_image["id"]
                     logger.info(f"[Match] 이미지 비교 → #{answer_key_id} '{matched_by_image.get('title','')}'")
+
+            # 매칭 성공 후 기대 문제번호가 없었으면 다시 GPT-4o OCR (문제번호 힌트 포함)
+            if answer_key and expected_questions is None:
+                expected_questions = sorted(
+                    (answer_key.get("answers_json") or {}).keys(),
+                    key=lambda x: (int(re.match(r"(\d+)", x).group(1)) if re.match(r"(\d+)", x) else 9999)
+                )
+                logger.info(f"[Auto] 교재 매칭 완료, 기대 문제: {expected_questions[:10]}...")
 
         except Exception as e:
             logger.error(f"[Auto] 매칭 실패: {e}")
@@ -771,32 +859,6 @@ async def grade_homework(
 async def list_student_results(student_id: int):
     results = await get_grading_results_by_student(student_id)
     return {"data": results}
-
-
-@app.get("/api/results/{result_id}/items")
-async def get_result_items(result_id: int):
-    items = await get_grading_items(result_id)
-    return {"data": items}
-
-
-@app.put("/api/items/{item_id}")
-async def update_item(item_id: int, teacher_score: float = Form(None), teacher_feedback: str = Form("")):
-    data = {}
-    if teacher_score is not None:
-        data["teacher_score"] = teacher_score
-    if teacher_feedback:
-        data["teacher_feedback"] = teacher_feedback
-    updated = await update_grading_item(item_id, data)
-    return {"data": updated}
-
-
-@app.put("/api/results/{result_id}/annotations")
-async def save_annotations(result_id: int, annotations: str = Form("[]"), memo: str = Form("")):
-    data = {"teacher_annotations": json.loads(annotations)}
-    if memo:
-        data["teacher_memo"] = memo
-    updated = await update_grading_result(result_id, data)
-    return {"data": updated}
 
 
 # ============================================================

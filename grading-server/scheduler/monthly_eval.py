@@ -2,7 +2,7 @@
 import logging
 from datetime import datetime
 from integrations.supabase_client import (
-    get_supabase, get_grading_results_by_student,
+    get_supabase,
     get_students_by_teacher, upsert_evaluation
 )
 from integrations.gemini import generate_monthly_evaluation
@@ -31,12 +31,18 @@ async def run_monthly_evaluation():
 
         for student in students:
             try:
-                # 이번 달 채점 결과 수집
-                all_results = await get_grading_results_by_student(student["id"])
-                monthly_results = [
-                    r for r in all_results
-                    if r.get("created_at", "").startswith(month_str)
-                ]
+                # 이번 달 채점 결과 수집 (DB 레벨에서 월별 필터링)
+                month_start = f"{month_str}-01"
+                month_end_day = 28 if now.month == 2 else 30 if now.month in (4,6,9,11) else 31
+                month_end = f"{month_str}-{month_end_day}"
+                monthly_res = sb.table("grading_results").select(
+                    "*, answer_keys(title, subject)"
+                ).eq("student_id", student["id"]).eq(
+                    "status", "confirmed"
+                ).gte("created_at", month_start).lte(
+                    "created_at", month_end + "T23:59:59"
+                ).order("created_at", desc=True).execute()
+                monthly_results = monthly_res.data or []
 
                 if not monthly_results:
                     continue

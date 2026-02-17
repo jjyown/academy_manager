@@ -171,12 +171,11 @@ mc=객관식, short=단답형, essay=서술형""")
         text = response.text.strip()
         logger.info(f"[{chunk_label}] Gemini Vision 응답: {text[:200]}")
 
-        if text.startswith("```"):
-            text = text.split("```")[1]
-            if text.startswith("json"):
-                text = text[4:]
-
-        chunk_result = json.loads(text.strip())
+        from ocr.engines import _robust_json_parse
+        chunk_result = _robust_json_parse(text)
+        if not chunk_result or not isinstance(chunk_result, dict):
+            logger.warning(f"[{chunk_label}] JSON 파싱 실패, 건너뜀")
+            continue
 
         # 청크별 결과 병합
         chunk_answers = chunk_result.get("answers", {})
@@ -230,34 +229,35 @@ def _find_answer_page_indices(pdf_bytes: bytes) -> list[int]:
 
     try:
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-        total = len(doc)
+        try:
+            total = len(doc)
 
-        for i, page in enumerate(doc):
-            text = page.get_text("text")
-            if not text:
-                continue
+            for i, page in enumerate(doc):
+                text = page.get_text("text")
+                if not text:
+                    continue
 
-            first_300 = text[:300].replace(" ", "")
+                first_300 = text[:300].replace(" ", "")
 
-            if quick_start is None:
-                for kw in QUICK_ANSWER_KEYWORDS:
-                    if kw.replace(" ", "") in first_300:
-                        quick_start = i
-                        break
+                if quick_start is None:
+                    for kw in QUICK_ANSWER_KEYWORDS:
+                        if kw.replace(" ", "") in first_300:
+                            quick_start = i
+                            break
 
-            if answer_start is None and quick_start is None:
-                for kw in ANSWER_KEYWORDS:
-                    if kw.replace(" ", "") in first_300:
-                        answer_start = i
-                        break
+                if answer_start is None and quick_start is None:
+                    for kw in ANSWER_KEYWORDS:
+                        if kw.replace(" ", "") in first_300:
+                            answer_start = i
+                            break
 
-            if explanation_start is None:
-                for kw in EXPLANATION_KEYWORDS:
-                    if kw.replace(" ", "") in first_300:
-                        explanation_start = i
-                        break
-
-        doc.close()
+                if explanation_start is None:
+                    for kw in EXPLANATION_KEYWORDS:
+                        if kw.replace(" ", "") in first_300:
+                            explanation_start = i
+                            break
+        finally:
+            doc.close()
 
         # ── 케이스 1: 빠른정답 발견 → 해설 시작 전까지 ──
         if quick_start is not None:
@@ -322,7 +322,7 @@ def _pdf_to_images(
             if i >= total:
                 continue
             page = doc[i]
-            mat = fitz.Matrix(150 / 72, 150 / 72)  # 150 DPI (충분한 해상도 + 작은 크기)
+            mat = fitz.Matrix(220 / 72, 220 / 72)  # 220 DPI (수학 기호/분수 정확도 향상)
             pix = page.get_pixmap(matrix=mat)
             # PNG → JPEG 변환 (파일 크기 대폭 감소)
             img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)

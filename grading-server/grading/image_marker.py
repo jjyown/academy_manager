@@ -152,43 +152,75 @@ def _truncate(text: str, max_len: int) -> str:
 
 
 def _get_font(size: int):
-    """시스템 폰트 로드 (캐시)"""
+    """시스템 폰트 로드 (캐시) - 한글 폰트 우선"""
     if size in _font_cache:
         return _font_cache[size]
 
     font_paths = [
-        # Railway (fonts-noto-cjk)
+        # === 프로젝트 로컬 폰트 (최우선) ===
+        os.path.join(os.path.dirname(__file__), "fonts", "NotoSansKR-Regular.otf"),
+        os.path.join(os.path.dirname(__file__), "..", "fonts", "NotoSansKR-Regular.otf"),
+
+        # === Railway / Docker (fonts-noto-cjk) ===
         "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
         "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
         "/usr/share/fonts/truetype/noto/NotoSansKR-Regular.otf",
-        # Fallback Linux
+        "/usr/share/fonts/opentype/noto/NotoSansCJKkr-Regular.otf",
+        "/usr/share/fonts/truetype/noto/NotoSansCJKkr-Regular.otf",
+
+        # === Ubuntu / Debian ===
+        "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
+        "/usr/share/fonts/truetype/nanum/NanumBarunGothic.ttf",
+        "/usr/share/fonts/truetype/unfonts-core/UnDotum.ttf",
+
+        # === CentOS / RHEL / Fedora ===
+        "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/nhn-nanum/NanumGothic.ttf",
+
+        # === Alpine Linux ===
+        "/usr/share/fonts/noto/NotoSansCJK-Regular.ttc",
+
+        # === 일반 Noto Sans (한글 지원 안 되지만 fallback) ===
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        # Windows
+
+        # === Windows ===
         "C:/Windows/Fonts/malgun.ttf",
-        # Mac
+        "C:/Windows/Fonts/NanumGothic.ttf",
+        "C:/Windows/Fonts/gulim.ttc",
+
+        # === macOS ===
         "/System/Library/Fonts/AppleSDGothicNeo.ttc",
+        "/Library/Fonts/NanumGothic.ttf",
     ]
 
     # fonts-noto-cjk 패키지가 설치하는 경로 자동 탐색
     noto_dirs = [
         "/usr/share/fonts/opentype/noto",
         "/usr/share/fonts/truetype/noto",
+        "/usr/share/fonts/google-noto-cjk",
+        "/usr/share/fonts/noto",
     ]
     for d in noto_dirs:
         if os.path.isdir(d):
-            for f in os.listdir(d):
-                full = os.path.join(d, f)
-                if full not in font_paths:
-                    font_paths.insert(0, full)
+            for f in sorted(os.listdir(d)):
+                if f.lower().endswith((".ttf", ".ttc", ".otf")):
+                    full = os.path.join(d, f)
+                    if full not in font_paths:
+                        font_paths.insert(0, full)
 
     for path in font_paths:
         try:
             font = ImageFont.truetype(path, size)
             _font_cache[size] = font
+            if size == 28:
+                logger.info(f"[Font] 한글 폰트 로드 성공: {path}")
             return font
         except (OSError, IOError):
             continue
 
+    logger.warning("[Font] 한글 폰트를 찾지 못했습니다. 기본 폰트를 사용합니다. "
+                   "채점 이미지에 한글이 깨질 수 있습니다. "
+                   "fonts-noto-cjk 또는 fonts-nanum 패키지를 설치해주세요.")
     font = ImageFont.load_default()
     _font_cache[size] = font
     return font
