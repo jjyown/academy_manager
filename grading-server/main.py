@@ -58,6 +58,40 @@ def _parse_page_range(range_str: str) -> tuple[int, int] | None:
         return (int(m.group(1)), int(m.group(1)))
     return None
 
+
+def _match_by_textbook_name(detected_name: str, available_keys: list[dict]) -> int | None:
+    """OCR로 감지된 교재명과 등록된 교재 제목을 비교하여 가장 적합한 ID 반환"""
+    if not detected_name or not available_keys:
+        return None
+
+    detected_clean = detected_name.replace(" ", "").lower()
+    best_id = None
+    best_score = 0
+
+    for key in available_keys:
+        title = (key.get("title") or "").replace(" ", "").lower()
+        if not title:
+            continue
+
+        # 정확히 포함되는지 확인
+        if detected_clean in title or title in detected_clean:
+            score = len(title)
+            if score > best_score:
+                best_score = score
+                best_id = key["id"]
+            continue
+
+        # 단어 단위 겹침 확인
+        common = sum(1 for c in detected_clean if c in title)
+        ratio = common / max(len(detected_clean), 1)
+        if ratio > 0.6 and ratio > best_score / 100:
+            best_score = int(ratio * 100)
+            best_id = key["id"]
+
+    if best_id:
+        logger.info(f"[TextbookMatch] '{detected_name}' → key #{best_id} (score={best_score})")
+    return best_id
+
 scheduler = AsyncIOScheduler()
 
 
@@ -400,15 +434,34 @@ async def grade_homework(
     total_score = 0
     max_score = 0
 
+    total_unanswered = 0
+    page_info_parts = []
+
     for idx, img_bytes in enumerate(image_bytes_list):
-        # 자동 검색 모드: 정답 키 매칭
+        # ── Smart Grading: 교재 매칭 ──
         if not answer_key and mode == "auto_search":
-            ocr_preview = await ocr_gemini_double_check(img_bytes)
-            all_keys = await get_all_answer_keys()
-            matched_id = await match_answer_key(ocr_preview["full_text_1"], all_keys)
-            if matched_id:
-                answer_key = await get_answer_key(matched_id)
-                answer_key_id = matched_id
+            # 1차: OCR로 교재 정보 추출 (별도 호출 아닌 grade_submission 내부에서 처리)
+            # 먼저 간단 OCR로 교재명만 빠르게 확인
+            from ocr.engines import ocr_gemini
+            preview = await ocr_gemini(img_bytes)
+            detected_name = preview.get("textbook_info", {}).get("name", "")
+
+            if detected_name:
+                # 등록된 교재 중 이름이 가장 비슷한 것 매칭
+                all_keys = await get_all_answer_keys()
+                matched = _match_by_textbook_name(detected_name, all_keys)
+                if matched:
+                    answer_key = await get_answer_key(matched)
+                    answer_key_id = matched
+                    logger.info(f"[Smart Match] '{detected_name}' → answer_key #{matched}")
+
+            # 이름 매칭 실패 시 기존 방식 fallback
+            if not answer_key:
+                all_keys = await get_all_answer_keys()
+                matched_id = await match_answer_key(preview.get("full_text", ""), all_keys)
+                if matched_id:
+                    answer_key = await get_answer_key(matched_id)
+                    answer_key_id = matched_id
 
         if not answer_key:
             logger.warning(f"정답 데이터를 찾을 수 없습니다 (student: {student_id})")
@@ -417,8 +470,12 @@ async def grade_homework(
         answers_json = answer_key.get("answers_json", {})
         types_json = answer_key.get("question_types_json", {})
 
-        # 채점 실행
+        # 채점 실행 (Smart Grading: 교재 식별 + 미풀이 감지 포함)
         grade_result = await grade_submission(img_bytes, answers_json, types_json)
+
+        # 페이지 정보 수집
+        if grade_result.get("page_info"):
+            page_info_parts.append(grade_result["page_info"])
 
         # 채점 이미지 생성
         graded_img = create_graded_image(
@@ -461,6 +518,7 @@ async def grade_homework(
         total_correct += grade_result["correct_count"]
         total_wrong += grade_result["wrong_count"]
         total_uncertain += grade_result["uncertain_count"]
+        total_unanswered += grade_result.get("unanswered_count", 0)
         total_questions += grade_result["total_questions"]
         total_score += grade_result["total_score"]
         max_score += grade_result["max_score"]
@@ -470,16 +528,19 @@ async def grade_homework(
         await create_grading_items(all_items)
 
     # 결과 업데이트
+    combined_page_info = " / ".join(page_info_parts) if page_info_parts else ""
     status = "confirmed" if total_uncertain == 0 else "review_needed"
     await update_grading_result(result_id, {
         "answer_key_id": answer_key_id,
         "correct_count": total_correct,
         "wrong_count": total_wrong,
         "uncertain_count": total_uncertain,
+        "unanswered_count": total_unanswered,
         "total_questions": total_questions,
         "total_score": round(total_score, 1),
         "max_score": round(max_score, 1),
         "status": status,
+        "page_info": combined_page_info,
         "central_graded_drive_ids": central_graded_ids,
         "central_graded_image_urls": central_graded_urls,
         "teacher_graded_drive_ids": teacher_graded_ids,
@@ -497,21 +558,17 @@ async def grade_homework(
         "correct_count": total_correct,
         "wrong_count": total_wrong,
         "uncertain_count": total_uncertain,
+        "unanswered_count": total_unanswered,
         "total_questions": total_questions,
         "status": status,
+        "page_info": combined_page_info,
         "graded_images": teacher_graded_urls if teacher_graded_urls else central_graded_urls,
     }
 
 
 # ============================================================
-# 채점 결과 조회/수정
+# 채점 결과 조회/수정 (추가 엔드포인트)
 # ============================================================
-
-@app.get("/api/results")
-async def list_results(teacher_id: str, status: str = None):
-    results = await get_grading_results_by_teacher(teacher_id, status)
-    return {"data": results}
-
 
 @app.get("/api/results/student/{student_id}")
 async def list_student_results(student_id: int):
@@ -523,12 +580,6 @@ async def list_student_results(student_id: int):
 async def get_result_items(result_id: int):
     items = await get_grading_items(result_id)
     return {"data": items}
-
-
-@app.put("/api/results/{result_id}/confirm")
-async def confirm_result(result_id: int):
-    updated = await update_grading_result(result_id, {"status": "confirmed"})
-    return {"data": updated}
 
 
 @app.put("/api/items/{item_id}")

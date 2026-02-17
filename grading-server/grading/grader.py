@@ -1,4 +1,4 @@
-"""채점 로직: OCR 결과와 정답 대조, 서술형 AI 채점"""
+"""채점 로직: Smart Grading - 교재 식별 + OCR + 정답 대조 + 미풀이 감지"""
 import logging
 from ocr.engines import ocr_gemini_double_check
 from integrations.gemini import grade_essay, grade_essay_double_check
@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 
 async def grade_submission(image_bytes: bytes, answers_json: dict, types_json: dict) -> dict:
-    """학생 답안 이미지를 채점
+    """학생 답안 이미지를 채점 (Smart Grading)
 
     Args:
         image_bytes: 학생 답안 사진
@@ -16,40 +16,55 @@ async def grade_submission(image_bytes: bytes, answers_json: dict, types_json: d
 
     Returns:
         {
-            "items": [...],           # 문항별 채점 결과
+            "items": [...],
             "correct_count": 26,
             "wrong_count": 3,
             "uncertain_count": 1,
-            "total_questions": 30,
+            "unanswered_count": 2,
+            "total_questions": 32,
             "total_score": 85.0,
             "max_score": 100.0,
             "status": "review_needed" | "confirmed",
+            "textbook_info": {"name": "...", "page": "...", "section": "..."},
             "ocr_data": {...}
         }
     """
-    # 1. Gemini Vision 더블체크 OCR
+    # 1. Gemini Vision 더블체크 OCR (교재 정보 + 답안 추출)
     ocr_result = await ocr_gemini_double_check(image_bytes)
     student_answers = ocr_result["answers"]
+    textbook_info = ocr_result.get("textbook_info", {})
+
+    logger.info(f"[Smart OCR] 교재: {textbook_info.get('name', '?')}, "
+                f"페이지: {textbook_info.get('page', '?')}, "
+                f"인식 문제 수: {len(student_answers)}")
 
     items = []
     correct_count = 0
     wrong_count = 0
     uncertain_count = 0
+    unanswered_count = 0
     essay_total = 0
     essay_earned = 0
 
-    all_questions = sorted(answers_json.keys(), key=lambda x: int(x) if x.isdigit() else 0)
+    # OCR이 찾은 문제 + 정답지에 있는 문제 합집합
+    ocr_question_nums = set(student_answers.keys())
+    answer_key_nums = set(answers_json.keys())
+    all_questions = sorted(
+        ocr_question_nums | answer_key_nums,
+        key=lambda x: int(x) if x.isdigit() else 0,
+    )
 
     for q_num in all_questions:
-        correct_answer = answers_json[q_num]
+        correct_answer = answers_json.get(q_num)
         q_type = types_json.get(q_num, "mc")
         student_data = student_answers.get(q_num, {})
+        raw_answer = student_data.get("answer", "") if isinstance(student_data, dict) else ""
 
         item = {
             "question_number": int(q_num) if q_num.isdigit() else 0,
             "question_type": _map_type(q_type),
-            "correct_answer": correct_answer,
-            "student_answer": student_data.get("answer", "") if isinstance(student_data, dict) else "",
+            "correct_answer": correct_answer or "",
+            "student_answer": raw_answer if raw_answer != "unanswered" else "",
             "ocr1_answer": student_data.get("ocr1", "") if isinstance(student_data, dict) else "",
             "ocr2_answer": student_data.get("ocr2", "") if isinstance(student_data, dict) else "",
             "confidence": student_data.get("confidence", 0) if isinstance(student_data, dict) else 0,
@@ -57,17 +72,29 @@ async def grade_submission(image_bytes: bytes, answers_json: dict, types_json: d
             "position_y": None,
         }
 
-        if q_type in ("mc", "short"):
-            # 객관식 / 단답형: 단순 대조
+        # 미풀이 감지: OCR이 "unanswered"로 판별
+        is_unanswered = raw_answer == "unanswered"
+
+        # 정답이 없는 문제 (OCR에만 있고 답안지에 없음) → 건너뜀
+        if not correct_answer:
+            if q_num in ocr_question_nums and q_num not in answer_key_nums:
+                continue
+
+        if is_unanswered:
+            item["is_correct"] = None
+            item["student_answer"] = "(미풀이)"
+            item["ai_feedback"] = "학생이 풀지 않은 문제"
+            unanswered_count += 1
+
+        elif q_type in ("mc", "short"):
             if not item["student_answer"]:
                 item["is_correct"] = None
                 item["confidence"] = 0
                 uncertain_count += 1
-            elif _normalize_answer(item["student_answer"]) == _normalize_answer(correct_answer):
+            elif _normalize_answer(item["student_answer"]) == _normalize_answer(correct_answer or ""):
                 item["is_correct"] = True
                 correct_count += 1
             else:
-                # 확신도가 낮으면 불확실 처리
                 if item["confidence"] < 70:
                     item["is_correct"] = None
                     uncertain_count += 1
@@ -75,17 +102,13 @@ async def grade_submission(image_bytes: bytes, answers_json: dict, types_json: d
                     item["is_correct"] = False
                     wrong_count += 1
 
-            # Gemini Vision OCR는 위치 정보를 반환하지 않으므로
-            # position_x/y는 None으로 유지 (이미지 마커에서 자동 배치)
-
         elif q_type == "essay":
-            # 서술형: Gemini AI 채점 + 더블체크
             max_score = 10.0
             essay_total += max_score
 
             if item["student_answer"]:
-                first = await grade_essay(int(q_num), item["student_answer"], correct_answer, max_score)
-                second = await grade_essay_double_check(int(q_num), item["student_answer"], correct_answer, first, max_score)
+                first = await grade_essay(int(q_num), item["student_answer"], correct_answer or "", max_score)
+                second = await grade_essay_double_check(int(q_num), item["student_answer"], correct_answer or "", first, max_score)
 
                 item["ai_score"] = second.get("score", 0)
                 item["ai_max_score"] = max_score
@@ -112,28 +135,39 @@ async def grade_submission(image_bytes: bytes, answers_json: dict, types_json: d
 
         items.append(item)
 
-    # 점수 계산
-    total_questions = len(all_questions)
-    mc_questions = sum(1 for q in all_questions if types_json.get(q, "mc") in ("mc", "short"))
+    # 점수 계산 (미풀이는 오답과 동일하게 0점)
+    total_questions = len(items)
+    mc_questions = sum(1 for it in items if it["question_type"] in ("multiple_choice", "short_answer"))
     mc_per_score = (100 - essay_total) / mc_questions if mc_questions > 0 else 0
     mc_earned = correct_count * mc_per_score if mc_questions > 0 else 0
     total_score = round(mc_earned + essay_earned, 1)
 
-    # 상태 결정
     status = "confirmed" if uncertain_count == 0 else "review_needed"
+
+    # 페이지 정보 문자열 생성
+    page_info = ""
+    if textbook_info.get("name"):
+        page_info = textbook_info["name"]
+        if textbook_info.get("page"):
+            page_info += f" p.{textbook_info['page']}"
+        if textbook_info.get("section"):
+            page_info += f" ({textbook_info['section']})"
 
     return {
         "items": items,
         "correct_count": correct_count,
         "wrong_count": wrong_count,
         "uncertain_count": uncertain_count,
+        "unanswered_count": unanswered_count,
         "total_questions": total_questions,
         "total_score": total_score,
         "max_score": 100.0,
         "status": status,
+        "textbook_info": textbook_info,
+        "page_info": page_info,
         "ocr_data": {
-            "full_text_1": ocr_result["full_text_1"],
-            "full_text_2": ocr_result["full_text_2"],
+            "full_text_1": ocr_result.get("full_text_1", ""),
+            "full_text_2": ocr_result.get("full_text_2", ""),
         },
     }
 

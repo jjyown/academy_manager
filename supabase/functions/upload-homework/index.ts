@@ -187,6 +187,7 @@ serve(async (req: Request) => {
     const studentName = formData.get("student_name") as string | null;
     const ownerUserId = formData.get("owner_user_id") as string | null;
     const submissionDate = formData.get("submission_date") as string | null;
+    const answerKeyId = formData.get("answer_key_id") as string | null;
 
     if (!file || !teacherId || !studentId || !studentName || !ownerUserId || !submissionDate) {
       return new Response(
@@ -357,6 +358,9 @@ serve(async (req: Request) => {
         gradeForm.append("zip_drive_id", centralFileId);
         if (submissionId) {
           gradeForm.append("homework_submission_id", String(submissionId));
+        }
+        if (answerKeyId) {
+          gradeForm.append("answer_key_id", answerKeyId);
         }
 
         fetch(`${GRADING_SERVER_URL}/api/grade`, {

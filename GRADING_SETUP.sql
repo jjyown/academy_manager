@@ -62,7 +62,9 @@ CREATE TABLE IF NOT EXISTS grading_results (
     correct_count INTEGER DEFAULT 0,
     wrong_count INTEGER DEFAULT 0,
     uncertain_count INTEGER DEFAULT 0,
+    unanswered_count INTEGER DEFAULT 0,             -- 미풀이 문제 수
     total_questions INTEGER DEFAULT 0,
+    page_info TEXT DEFAULT '',                       -- 채점 페이지 정보 (예: "쎈 공통수학1 p.45-47")
     status TEXT DEFAULT 'grading' CHECK (status IN ('grading', 'review_needed', 'confirmed')),
     -- 중앙 드라이브(jjyown) 원본 파일
     central_original_drive_ids JSONB DEFAULT '[]',
@@ -182,3 +184,9 @@ CREATE POLICY grading_stats_teacher_all ON grading_stats FOR ALL USING (auth.uid
 ALTER TABLE evaluations ENABLE ROW LEVEL SECURITY;
 CREATE POLICY evaluations_teacher_all ON evaluations FOR ALL USING (auth.uid() = teacher_id);
 CREATE POLICY evaluations_authenticated_read ON evaluations FOR SELECT USING (auth.role() = 'authenticated');
+
+-- ============================================================
+-- 마이그레이션: Smart Grading 컬럼 추가
+-- ============================================================
+ALTER TABLE grading_results ADD COLUMN IF NOT EXISTS unanswered_count INTEGER DEFAULT 0;
+ALTER TABLE grading_results ADD COLUMN IF NOT EXISTS page_info TEXT DEFAULT '';

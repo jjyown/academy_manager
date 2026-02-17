@@ -72,6 +72,7 @@
 		.q-correct { background:rgba(34,197,94,0.2); color:var(--green); border:2px solid var(--green); }
 		.q-wrong { background:rgba(239,68,68,0.2); color:var(--red); border:2px solid var(--red); }
 		.q-uncertain { background:rgba(234,179,8,0.2); color:var(--yellow); border:2px solid var(--yellow); }
+		.q-unanswered { background:rgba(100,116,139,0.15); color:var(--gray); border:2px dashed var(--gray); }
 
 		/* 캔버스 도구 바 */
 		.canvas-toolbar { display:flex; flex-wrap:wrap; gap:6px; padding:10px 12px; background:var(--bg-card); border-top:1px solid var(--border); position:sticky; bottom:0; z-index:50; }
@@ -233,7 +234,13 @@
 						<div class="stat-item"><div class="stat-num" style="color:var(--yellow);" id="detail-uncertain">0</div><div class="stat-label">확인필요</div></div>
 						<div class="stat-item"><div class="stat-num" style="color:var(--text-sec);" id="detail-total">0</div><div class="stat-label">총문항</div></div>
 					</div>
+					<div class="stat-row">
+						<div class="stat-item"><div class="stat-num" style="color:var(--gray);" id="detail-unanswered">0</div><div class="stat-label">미풀이</div></div>
+						<div class="stat-item"></div>
+					</div>
 				</div>
+			</div>
+			<div id="detail-page-info" style="display:none;font-size:12px;color:var(--teal);margin-top:8px;padding:8px 12px;background:rgba(20,184,166,0.08);border-radius:8px;">
 			</div>
 		</div>
 
@@ -575,11 +582,15 @@ function renderResults() {
 		const iconBg = r.status === 'confirmed' ? 'rgba(34,197,94,0.15)' : r.status === 'review_needed' ? 'rgba(234,179,8,0.15)' : 'rgba(129,140,248,0.15)';
 		const icon = r.status === 'confirmed' ? '✅' : r.status === 'review_needed' ? '⚠️' : '⏳';
 		const date = new Date(r.created_at).toLocaleDateString('ko-KR');
+		const unanswered = r.unanswered_count || 0;
+		const unansweredTag = unanswered > 0 ? ` 📝${unanswered}` : '';
+		const pageInfo = r.page_info ? `<div style="font-size:11px;color:var(--teal);margin-top:2px;">${escapeHtml(r.page_info)}</div>` : '';
 		return `<div class="list-item" onclick="openDetail(${r.id})">
 			<div class="list-item-icon" style="background:${iconBg};">${icon}</div>
 			<div class="list-item-info">
 				<div class="list-item-title">${escapeHtml(student.name || '?')} - ${r.total_score}/${r.max_score}점</div>
-				<div class="list-item-sub">⭕${r.correct_count} ✘${r.wrong_count} ❓${r.uncertain_count} · ${date}</div>
+				<div class="list-item-sub">⭕${r.correct_count} ✘${r.wrong_count} ❓${r.uncertain_count}${unansweredTag} · ${date}</div>
+				${pageInfo}
 			</div>
 			<span class="list-item-badge ${statusCls}">${statusText}</span>
 		</div>`;
@@ -594,12 +605,23 @@ async function openDetail(resultId) {
 	const result = currentResults.find(r => r.id === resultId);
 	if (!result) return;
 
-	document.getElementById('detail-title').textContent = (result.students?.name || '?') + ' 채점 상세';
+	const detailTitle = (result.students?.name || '?') + ' 채점 상세';
+	const pageLabel = result.page_info ? ` (${result.page_info})` : '';
+	document.getElementById('detail-title').textContent = detailTitle;
 	document.getElementById('detail-score').textContent = result.total_score + '/' + result.max_score;
 	document.getElementById('detail-correct').textContent = result.correct_count;
 	document.getElementById('detail-wrong').textContent = result.wrong_count;
 	document.getElementById('detail-uncertain').textContent = result.uncertain_count;
 	document.getElementById('detail-total').textContent = result.total_questions;
+	// 미풀이 표시
+	const unansweredEl = document.getElementById('detail-unanswered');
+	if (unansweredEl) unansweredEl.textContent = result.unanswered_count || 0;
+	// 페이지 정보 표시
+	const pageInfoEl = document.getElementById('detail-page-info');
+	if (pageInfoEl) {
+		pageInfoEl.textContent = result.page_info || '';
+		pageInfoEl.style.display = result.page_info ? 'block' : 'none';
+	}
 	document.getElementById('detail-memo').value = result.teacher_memo || '';
 	document.getElementById('detail-confirm-btn').style.display = result.status === 'confirmed' ? 'none' : 'inline-flex';
 
@@ -626,9 +648,22 @@ async function openDetail(resultId) {
 function renderQuestionGrid() {
 	const grid = document.getElementById('detail-grid');
 	grid.innerHTML = currentItems.map(item => {
-		const cls = item.is_correct === true ? 'q-correct' : item.is_correct === false ? 'q-wrong' : 'q-uncertain';
-		const mark = item.is_correct === true ? '⭕' : item.is_correct === false ? '✘' : '❓';
-		return `<div class="q-cell ${cls}" onclick="openItemEdit(${item.id})" title="문제 ${item.question_number}">${item.question_number}</div>`;
+		const isUnanswered = item.student_answer === '(미풀이)' || item.ai_feedback === '학생이 풀지 않은 문제';
+		let cls, titleText;
+		if (isUnanswered) {
+			cls = 'q-unanswered';
+			titleText = `문제 ${item.question_number} (미풀이)`;
+		} else if (item.is_correct === true) {
+			cls = 'q-correct';
+			titleText = `문제 ${item.question_number}`;
+		} else if (item.is_correct === false) {
+			cls = 'q-wrong';
+			titleText = `문제 ${item.question_number}`;
+		} else {
+			cls = 'q-uncertain';
+			titleText = `문제 ${item.question_number} (확인필요)`;
+		}
+		return `<div class="q-cell ${cls}" onclick="openItemEdit(${item.id})" title="${titleText}">${item.question_number}</div>`;
 	}).join('');
 }
 

@@ -977,6 +977,21 @@
 	</div>
 
 	<div class="upload-container">
+		<!-- 교재 선택 (선택사항) -->
+		<div class="section-card">
+			<div class="section-title">
+				<i class="fas fa-book"></i>
+				<span>교재 선택</span>
+				<span style="margin-left:auto;font-size:11px;color:var(--teal);font-weight:500;">선택사항</span>
+			</div>
+			<select id="textbook-select" style="width:100%;padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:var(--bg-elevated);color:var(--text);font-size:14px;outline:none;cursor:pointer;appearance:none;-webkit-appearance:none;background-image:url('data:image/svg+xml;utf8,<svg fill=\'%2394a3b8\' viewBox=\'0 0 24 24\' xmlns=\'http://www.w3.org/2000/svg\'><path d=\'M7 10l5 5 5-5z\'/></svg>');background-repeat:no-repeat;background-position:right 12px center;background-size:20px;">
+				<option value="">자동 감지 (AI가 교재를 판별합니다)</option>
+			</select>
+			<div style="font-size:11px;color:var(--gray);margin-top:8px;line-height:1.5;">
+				교재를 선택하면 더 정확하게 채점됩니다. 선택하지 않으면 AI가 사진에서 자동으로 교재를 판별합니다.
+			</div>
+		</div>
+
 		<!-- 파일 업로드 영역 -->
 		<div class="section-card">
 			<div class="section-title">
@@ -1168,6 +1183,8 @@ function escapeHtml(str) {
 let currentStudent = null;
 let currentTeacher = null;
 let selectedFiles = [];
+let availableTextbooks = [];
+const GRADING_SERVER_URL_HW = localStorage.getItem('grading_server_url') || 'https://academymanager-production.up.railway.app';
 
 // ============================================================
 // Toast
@@ -1366,8 +1383,36 @@ async function selectStudent(student) {
 		}
 	}
 
+	// 교재 목록 로드
+	await loadTextbookList();
+
 	// 제출 현황 페이지 표시 (업로드 대신)
 	showStatusPage();
+}
+
+async function loadTextbookList() {
+	const select = document.getElementById('textbook-select');
+	if (!select) return;
+	select.innerHTML = '<option value="">자동 감지 (AI가 교재를 판별합니다)</option>';
+
+	const teacherId = currentTeacher?.owner_user_id || currentStudent?.owner_user_id;
+	if (!teacherId) return;
+
+	try {
+		const res = await fetch(`${GRADING_SERVER_URL_HW}/api/answer-keys?teacher_id=${teacherId}`);
+		const result = await res.json();
+		availableTextbooks = result.data || [];
+
+		availableTextbooks.forEach(tb => {
+			if (!tb.parsed || tb.total_questions === 0) return;
+			const opt = document.createElement('option');
+			opt.value = tb.id;
+			opt.textContent = `${tb.title} (${tb.total_questions}문제)`;
+			select.appendChild(opt);
+		});
+	} catch (e) {
+		console.warn('교재 목록 로드 실패:', e);
+	}
 }
 
 // ============================================================
@@ -2411,6 +2456,12 @@ async function handleSubmit() {
 		formData.append('student_name', currentStudent.name);
 		formData.append('owner_user_id', currentStudent.owner_user_id);
 		formData.append('submission_date', getTodayString());
+
+		// 교재 선택 정보 포함
+		const selectedTextbook = document.getElementById('textbook-select')?.value;
+		if (selectedTextbook) {
+			formData.append('answer_key_id', selectedTextbook);
+		}
 
 		const response = await fetch(EDGE_FUNCTION_URL + '/upload-homework', {
 			method: 'POST',
