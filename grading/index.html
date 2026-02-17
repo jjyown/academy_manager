@@ -452,12 +452,13 @@ async function hashPin(pin) {
 }
 
 async function loadTeacherList() {
-	const { data, error } = await db.from('teachers').select('*').order('created_at', { ascending: true });
-	if (error) {
-		console.error('[채점관리] 선생님 목록 로드 실패:', error.message);
+	try {
+		const res = await fetch(`${GRADING_SERVER_URL}/api/teachers`);
+		const result = await res.json();
+		teacherList = result.data || [];
+	} catch (e) {
+		console.error('[채점관리] 선생님 목록 로드 실패:', e);
 		teacherList = [];
-	} else {
-		teacherList = data || [];
 	}
 	const sel = document.getElementById('login-teacher-select');
 	sel.innerHTML = '<option value="">선생님을 선택해주세요</option>' +
@@ -541,10 +542,16 @@ async function loadAllData() {
 
 async function loadResults() {
 	if (!currentTeacher) return;
-	let query = db.from('grading_results').select('*, students(name, grade, school)').eq('teacher_id', currentTeacher.owner_user_id);
-	if (currentFilter !== 'all') query = query.eq('status', currentFilter);
-	const { data } = await query.order('created_at', { ascending: false });
-	currentResults = data || [];
+	try {
+		const params = new URLSearchParams({ teacher_id: currentTeacher.owner_user_id });
+		if (currentFilter !== 'all') params.append('status', currentFilter);
+		const res = await fetch(`${GRADING_SERVER_URL}/api/results?${params}`);
+		const result = await res.json();
+		currentResults = result.data || [];
+	} catch (e) {
+		console.warn('채점 결과 로드 실패:', e);
+		currentResults = [];
+	}
 	renderResults();
 }
 
@@ -603,8 +610,14 @@ async function openDetail(resultId) {
 	}
 
 	// 문항별 로드
-	const { data: items } = await db.from('grading_items').select('*').eq('result_id', resultId).order('question_number');
-	currentItems = items || [];
+	try {
+		const itemsRes = await fetch(`${GRADING_SERVER_URL}/api/results/${resultId}/items`);
+		const itemsResult = await itemsRes.json();
+		currentItems = itemsResult.data || [];
+	} catch (e) {
+		console.warn('문항 로드 실패:', e);
+		currentItems = [];
+	}
 	renderQuestionGrid();
 
 	showPage('detail');
@@ -650,22 +663,40 @@ async function saveItemEdit() {
 	if (score !== '') updates.teacher_score = parseFloat(score);
 	if (feedback) updates.teacher_feedback = feedback;
 
-	const { error } = await db.from('grading_items').update(updates).eq('id', itemId);
-	if (error) return showToast('저장 실패', 'error');
+	try {
+		const res = await fetch(`${GRADING_SERVER_URL}/api/items/${itemId}`, {
+			method: 'PUT',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(updates),
+		});
+		if (!res.ok) return showToast('저장 실패', 'error');
+	} catch (e) {
+		return showToast('서버 연결 실패', 'error');
+	}
 
 	showToast('저장 완료', 'success');
 	closeModal('item-modal');
 
 	// 새로고침
-	const { data: items } = await db.from('grading_items').select('*').eq('result_id', currentResultId).order('question_number');
-	currentItems = items || [];
+	try {
+		const itemsRes = await fetch(`${GRADING_SERVER_URL}/api/results/${currentResultId}/items`);
+		const itemsResult = await itemsRes.json();
+		currentItems = itemsResult.data || [];
+	} catch (e) {
+		currentItems = [];
+	}
 	renderQuestionGrid();
 }
 
 async function confirmResult() {
 	if (!currentResultId) return;
-	const { error } = await db.from('grading_results').update({ status: 'confirmed', updated_at: new Date().toISOString() }).eq('id', currentResultId);
-	if (error) return showToast('확정 실패', 'error');
+	try {
+		const res = await fetch(`${GRADING_SERVER_URL}/api/results/${currentResultId}/confirm`, { method: 'PUT' });
+		const result = await res.json();
+		if (!result.data) return showToast('확정 실패', 'error');
+	} catch (e) {
+		return showToast('서버 연결 실패', 'error');
+	}
 	showToast('채점 결과가 확정되었습니다', 'success');
 	document.getElementById('detail-confirm-btn').style.display = 'none';
 	loadResults();
@@ -676,7 +707,14 @@ async function confirmResult() {
 // ============================================================
 async function loadAssignments() {
 	if (!currentTeacher) return;
-	const { data } = await db.from('grading_assignments').select('*, answer_keys(title, subject)').eq('teacher_id', currentTeacher.owner_user_id).order('created_at', { ascending: false });
+	let data = [];
+	try {
+		const res = await fetch(`${GRADING_SERVER_URL}/api/assignments?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`);
+		const result = await res.json();
+		data = result.data || [];
+	} catch (e) {
+		console.warn('과제 목록 로드 실패:', e);
+	}
 	const el = document.getElementById('assignments-list');
 	if (!data?.length) {
 		el.innerHTML = '<div class="empty-state"><i class="fas fa-clipboard-list"></i><p>배정된 과제가 없습니다</p></div>';
@@ -696,10 +734,15 @@ async function loadAssignments() {
 }
 
 async function showAssignModal() {
-	// 교재 목록 로드
-	const { data: keys } = await db.from('answer_keys').select('id, title, subject').eq('teacher_id', currentTeacher.owner_user_id);
+	// 교재 목록 로드 (서버 API)
+	let keys = [];
+	try {
+		const res = await fetch(`${GRADING_SERVER_URL}/api/answer-keys?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`);
+		const result = await res.json();
+		keys = result.data || [];
+	} catch (e) {}
 	const sel = document.getElementById('assign-key');
-	sel.innerHTML = '<option value="">자동 검색 모드</option>' + (keys || []).map(k => `<option value="${k.id}">${k.title} (${k.subject || ''})</option>`).join('');
+	sel.innerHTML = '<option value="">자동 검색 모드</option>' + keys.map(k => `<option value="${k.id}">${k.title} (${k.subject || ''})</option>`).join('');
 	document.getElementById('assign-modal').classList.add('show');
 }
 
@@ -708,16 +751,20 @@ async function createAssignment() {
 	if (!title) return showToast('과제 제목을 입력하세요', 'error');
 
 	const keyId = document.getElementById('assign-key').value;
-	const { error } = await db.from('grading_assignments').insert({
-		teacher_id: currentTeacher.owner_user_id,
-		title,
-		answer_key_id: keyId || null,
-		page_range: document.getElementById('assign-pages').value,
-		due_date: document.getElementById('assign-due').value || null,
-		mode: keyId ? 'assigned' : 'auto_search',
-	});
-
-	if (error) return showToast('배정 실패: ' + error.message, 'error');
+	try {
+		const formData = new FormData();
+		formData.append('teacher_id', currentTeacher.owner_user_id);
+		formData.append('title', title);
+		if (keyId) formData.append('answer_key_id', keyId);
+		formData.append('page_range', document.getElementById('assign-pages').value);
+		const due = document.getElementById('assign-due').value;
+		if (due) formData.append('due_date', due);
+		formData.append('mode', keyId ? 'assigned' : 'auto_search');
+		const res = await fetch(`${GRADING_SERVER_URL}/api/assignments`, { method: 'POST', body: formData });
+		if (!res.ok) return showToast('배정 실패', 'error');
+	} catch (e) {
+		return showToast('서버 연결 실패', 'error');
+	}
 	showToast('과제가 배정되었습니다', 'success');
 	closeModal('assign-modal');
 	loadAssignments();
@@ -728,7 +775,14 @@ async function createAssignment() {
 // ============================================================
 async function loadAnswerKeys() {
 	if (!currentTeacher) return;
-	const { data } = await db.from('answer_keys').select('*').eq('teacher_id', currentTeacher.owner_user_id).order('created_at', { ascending: false });
+	let data = [];
+	try {
+		const res = await fetch(`${GRADING_SERVER_URL}/api/answer-keys?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`);
+		const result = await res.json();
+		data = result.data || [];
+	} catch (e) {
+		console.warn('교재 목록 로드 실패:', e);
+	}
 	const el = document.getElementById('keys-list');
 	if (!data?.length) {
 		el.innerHTML = '<div class="empty-state"><i class="fas fa-book-open"></i><p>등록된 교재가 없습니다</p></div>';
@@ -866,13 +920,17 @@ async function registerAnswerKey() {
 			showToast('서버 연결 실패: ' + e.message, 'error');
 		}
 	} else {
-		// PDF 없이 수동 등록
-		const { error } = await db.from('answer_keys').insert({
-			teacher_id: currentTeacher.owner_user_id,
-			title, subject,
-			parsed: false,
-		});
-		if (error) return showToast('등록 실패', 'error');
+		// PDF 없이 수동 등록 (서버 API)
+		try {
+			const formData = new FormData();
+			formData.append('teacher_id', currentTeacher.owner_user_id);
+			formData.append('title', title);
+			formData.append('subject', subject);
+			const res = await fetch(`${GRADING_SERVER_URL}/api/answer-keys/parse`, { method: 'POST', body: formData });
+			if (!res.ok) return showToast('등록 실패', 'error');
+		} catch (e) {
+			return showToast('서버 연결 실패', 'error');
+		}
 		showToast('교재가 등록되었습니다 (정답은 나중에 추가)', 'success');
 		closeModal('key-modal');
 		loadAnswerKeys();
@@ -897,7 +955,14 @@ async function scanDrivePDFs() {
 async function loadStats() {
 	if (!currentTeacher) return;
 	const el = document.getElementById('stats-content');
-	const { data: results } = await db.from('grading_results').select('total_score, max_score, correct_count, wrong_count, total_questions, students(name)').eq('teacher_id', currentTeacher.owner_user_id).eq('status', 'confirmed');
+	let results = [];
+	try {
+		const res = await fetch(`${GRADING_SERVER_URL}/api/stats?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`);
+		const result = await res.json();
+		results = result.data || [];
+	} catch (e) {
+		console.warn('통계 로드 실패:', e);
+	}
 
 	if (!results?.length) {
 		el.innerHTML = '<div class="empty-state"><i class="fas fa-chart-bar"></i><p>확정된 채점 결과가 없습니다</p></div>';
@@ -1109,13 +1174,20 @@ async function saveAnnotations() {
 	const annotationData = canvas.toDataURL();
 	const memo = document.getElementById('detail-memo').value;
 
-	const { error } = await db.from('grading_results').update({
-		teacher_annotations: [{ type: 'canvas', data: annotationData }],
-		teacher_memo: memo,
-		updated_at: new Date().toISOString(),
-	}).eq('id', currentResultId);
-
-	if (error) return showToast('저장 실패', 'error');
+	try {
+		const res = await fetch(`${GRADING_SERVER_URL}/api/results/${currentResultId}/annotations`, {
+			method: 'PUT',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				teacher_annotations: [{ type: 'canvas', data: annotationData }],
+				teacher_memo: memo,
+				updated_at: new Date().toISOString(),
+			}),
+		});
+		if (!res.ok) return showToast('저장 실패', 'error');
+	} catch (e) {
+		return showToast('서버 연결 실패', 'error');
+	}
 	showToast('필기 및 메모가 저장되었습니다', 'success');
 }
 

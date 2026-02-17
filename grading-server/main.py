@@ -12,7 +12,7 @@ import zipfile
 from datetime import datetime
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -94,6 +94,14 @@ async def health():
 # ============================================================
 # 교재/정답 관리 (중앙 드라이브에서 관리)
 # ============================================================
+
+@app.get("/api/teachers")
+async def list_teachers():
+    """선생님 목록 조회 (채점 관리 로그인용)"""
+    sb = get_supabase()
+    res = sb.table("teachers").select("*").order("created_at").execute()
+    return {"data": res.data or []}
+
 
 @app.get("/api/answer-keys")
 async def list_answer_keys(teacher_id: str):
@@ -197,6 +205,65 @@ async def create_new_assignment(
     }
     result = await create_assignment(data)
     return {"data": result}
+
+
+# ============================================================
+# 채점 결과 조회/수정 API
+# ============================================================
+
+@app.get("/api/results")
+async def list_results(teacher_id: str, status: str = ""):
+    """채점 결과 목록 조회 (학생 정보 포함)"""
+    sb = get_supabase()
+    query = sb.table("grading_results").select("*, students(name, grade, school)").eq("teacher_id", teacher_id)
+    if status and status != "all":
+        query = query.eq("status", status)
+    res = query.order("created_at", desc=True).execute()
+    return {"data": res.data or []}
+
+
+@app.put("/api/results/{result_id}/confirm")
+async def confirm_result(result_id: int):
+    """채점 결과 확정"""
+    sb = get_supabase()
+    res = sb.table("grading_results").update({"status": "confirmed"}).eq("id", result_id).execute()
+    return {"data": res.data}
+
+
+@app.put("/api/results/{result_id}/annotations")
+async def save_annotations(result_id: int, request: Request):
+    """선생님 메모/수정사항 저장"""
+    body = await request.json()
+    sb = get_supabase()
+    res = sb.table("grading_results").update(body).eq("id", result_id).execute()
+    return {"data": res.data}
+
+
+@app.get("/api/results/{result_id}/items")
+async def list_result_items(result_id: int):
+    """채점 문항별 결과 조회"""
+    sb = get_supabase()
+    res = sb.table("grading_items").select("*").eq("result_id", result_id).order("question_num").execute()
+    return {"data": res.data or []}
+
+
+@app.put("/api/items/{item_id}")
+async def update_item(item_id: int, request: Request):
+    """문항별 점수/피드백 수정"""
+    body = await request.json()
+    sb = get_supabase()
+    res = sb.table("grading_items").update(body).eq("id", item_id).execute()
+    return {"data": res.data}
+
+
+@app.get("/api/stats")
+async def get_stats(teacher_id: str):
+    """통계 데이터 조회"""
+    sb = get_supabase()
+    res = sb.table("grading_results").select(
+        "total_score, max_score, correct_count, wrong_count, total_questions, students(name)"
+    ).eq("teacher_id", teacher_id).eq("status", "confirmed").execute()
+    return {"data": res.data or []}
 
 
 # ============================================================
