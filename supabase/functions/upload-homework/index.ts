@@ -261,11 +261,14 @@ serve(async (req: Request) => {
       fileBuffer
     );
 
-    // ─── 4) 담당 선생님 드라이브에도 원본 업로드 ───
+    // ─── 4) 담당 선생님 드라이브에도 원본 업로드 (중앙과 다른 계정일 때만) ───
     let teacherFileId: string | null = null;
     let teacherFileUrl: string | null = null;
 
-    if (teacherHasDrive) {
+    const isSameAccount = teacherHasDrive &&
+      teacher!.google_drive_refresh_token === centralAdmin.google_drive_refresh_token;
+
+    if (teacherHasDrive && !isSameAccount) {
       try {
         const teacherAccessToken = await getAccessToken(teacher!.google_drive_refresh_token);
         const teacherFolderId = await getOrCreateFolderPath(teacherAccessToken, year, month, day, studentName);

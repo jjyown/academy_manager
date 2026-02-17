@@ -687,8 +687,8 @@ async def grade_homework(
         central_graded_urls.append(central_uploaded["url"])
         central_graded_ids.append(central_uploaded["id"])
 
-        # 2) 선생님 드라이브에 채점 결과 전송
-        if teacher_token:
+        # 2) 선생님 드라이브에 채점 결과 전송 (중앙과 다른 계정일 때만)
+        if teacher_token and teacher_token != central_token:
             try:
                 teacher_uploaded = upload_to_teacher_drive(
                     teacher_token, TEACHER_RESULT_FOLDER, sub_path, filename, graded_img

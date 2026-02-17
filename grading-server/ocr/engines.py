@@ -22,7 +22,7 @@ async def ocr_gpt4o_batch(image_bytes_list: list[bytes]) -> list[dict]:
     Returns:
         [{"textbook_info": {...}, "answers": {...}}, ...]  (이미지 순서대로)
     """
-    from openai import OpenAI
+    from openai import AsyncOpenAI
     from config import OPENAI_API_KEY
 
     if not OPENAI_API_KEY:
@@ -33,40 +33,51 @@ async def ocr_gpt4o_batch(image_bytes_list: list[bytes]) -> list[dict]:
             results.append(result)
         return results
 
-    client = OpenAI(api_key=OPENAI_API_KEY)
+    client = AsyncOpenAI(api_key=OPENAI_API_KEY)
     all_results = []
 
     for chunk_start in range(0, len(image_bytes_list), BATCH_SIZE):
         chunk = image_bytes_list[chunk_start:chunk_start + BATCH_SIZE]
         chunk_label = f"배치 {chunk_start // BATCH_SIZE + 1}"
 
-        messages = [{"role": "system", "content": "수학 교재 채점 전문 OCR 시스템입니다."}]
+        messages = [{"role": "system", "content": (
+            "당신은 학생 숙제 사진에서 문제 번호와 학생 답안을 정확하게 읽어내는 "
+            "수학 전문 OCR 시스템입니다. 학생이 손으로 쓴 글씨, 동그라미 친 번호, "
+            "수식 등을 정확히 인식해야 합니다."
+        )}]
 
         content_parts = []
         content_parts.append({
             "type": "text",
             "text": f"""아래 {len(chunk)}장의 학생 숙제 사진을 각각 분석해주세요.
 
-각 이미지별로:
-1. 교재 정보: 교재명, 페이지 번호, 단원명
-2. 이 사진에 보이는 문제 번호만 나열 (사진에 없는 문제는 포함 금지)
-3. 학생 답: 각 문제에 대해 학생이 쓴 답
+★ 핵심 규칙 ★
+- 학생이 손으로 쓴 답을 반드시 읽어야 합니다
+- 인쇄된 문제와 학생의 필기를 구분하세요
+- 학생이 동그라미(○)를 친 객관식 번호를 읽으세요
+- 학생이 연필/펜으로 적은 숫자, 수식, 텍스트를 읽으세요
+- 학생이 아무것도 안 적은 빈 문제만 "unanswered"로 표시하세요
+- 학생이 무언가를 적었으면 반드시 그 내용을 읽어주세요 (정답인지 오답인지 판단하지 마세요)
 
-문제 번호 규칙:
-- 일반: "1", "2", "3"
+각 이미지별로:
+1. 교재 정보: 페이지 상단/하단에서 교재명, 페이지 번호, 단원명 확인
+2. 이 사진에 보이는 문제 번호 (인쇄된 번호 기준)
+3. 학생이 각 문제에 적은 답
+
+문제 번호 형식:
+- 일반: "1", "2", "3" (또는 "130", "131" 등 연속 번호)
 - 소문제: "1(1)", "1(2)" 또는 "1-1", "1-2"
 
-답 읽기 규칙:
-- 객관식: 학생이 동그라미 친 번호를 ①②③④⑤ 형태로
-- 단답형: 학생이 적은 숫자/수식/텍스트 그대로
-- 빈칸/미작성: "unanswered"
-- 학생이 적은 답을 정확히 읽기 (정답 판단은 하지 마세요)
-- 사진에 안 보이는 문제는 절대 포함 금지
+답 형식:
+- 객관식: ①②③④⑤ (학생이 동그라미 친 번호)
+- 단답형: 학생이 적은 숫자/수식 그대로 (예: "2√3", "-5", "x²+1")
+- 서술형: 학생이 적은 풀이의 최종 답
+- 빈칸/미작성: "unanswered" (학생이 아무것도 안 적은 경우만)
 
 반드시 아래 JSON 배열로만 응답 (다른 텍스트 없이):
 [
   {{"image_index": 0, "textbook_info": {{"name": "교재명", "page": "45", "section": "단원명"}}, "answers": {{"1": "③", "2": "unanswered", "3": "12"}}}},
-  {{"image_index": 1, ...}}
+  {{"image_index": 1, "textbook_info": {{"name": "교재명", "page": "46", "section": "단원명"}}, "answers": {{...}}}}
 ]"""
         })
 
@@ -84,15 +95,17 @@ async def ocr_gpt4o_batch(image_bytes_list: list[bytes]) -> list[dict]:
         messages.append({"role": "user", "content": content_parts})
 
         try:
-            logger.info(f"[GPT-4o] {chunk_label}: {len(chunk)}장 OCR 요청")
-            response = client.chat.completions.create(
+            total_kb = sum(len(b) for b in chunk) // 1024
+            logger.info(f"[GPT-4o] {chunk_label}: {len(chunk)}장 OCR 요청 (총 {total_kb}KB)")
+            response = await client.chat.completions.create(
                 model="gpt-4o",
                 messages=messages,
-                max_tokens=4096,
+                max_tokens=8192,
                 temperature=0,
             )
 
             text = response.choices[0].message.content.strip()
+            logger.info(f"[GPT-4o] {chunk_label} 응답: {text[:300]}...")
             if text.startswith("```"):
                 text = text.split("```")[1]
                 if text.startswith("json"):
@@ -104,20 +117,27 @@ async def ocr_gpt4o_batch(image_bytes_list: list[bytes]) -> list[dict]:
             result_map = {}
             for r in batch_results:
                 idx = r.get("image_index", 0)
+                answers = r.get("answers", {})
                 result_map[idx] = {
                     "textbook_info": r.get("textbook_info", {}),
-                    "answers": r.get("answers", {}),
+                    "answers": answers,
                 }
+                logger.info(f"[GPT-4o] 이미지 {idx}: {len(answers)}문제 인식, "
+                            f"answers={dict(list(answers.items())[:5])}")
 
             for i in range(len(chunk)):
                 if i in result_map:
                     all_results.append(result_map[i])
                 else:
-                    logger.warning(f"[GPT-4o] 이미지 {chunk_start + i} 결과 누락")
-                    all_results.append({"textbook_info": {}, "answers": {}})
+                    logger.warning(f"[GPT-4o] 이미지 {chunk_start + i} 결과 누락 → Gemini fallback")
+                    try:
+                        fallback = await ocr_gemini(chunk[i])
+                        all_results.append(fallback)
+                    except Exception:
+                        all_results.append({"textbook_info": {}, "answers": {}})
 
         except Exception as e:
-            logger.error(f"[GPT-4o] {chunk_label} 실패: {e}, Gemini fallback")
+            logger.error(f"[GPT-4o] {chunk_label} 실패: {e} → Gemini fallback")
             for img_bytes in chunk:
                 try:
                     fallback = await ocr_gemini(img_bytes)

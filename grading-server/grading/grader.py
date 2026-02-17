@@ -205,14 +205,25 @@ def _map_type(t: str) -> str:
 
 
 def _normalize_answer(answer: str) -> str:
-    """답안 정규화 (비교용)"""
-    # 원문자 → 숫자
+    """답안 정규화 (비교용) - 수학 기호 통일"""
     circle_map = {"①": "1", "②": "2", "③": "3", "④": "4", "⑤": "5"}
     normalized = answer.strip()
     for k, v in circle_map.items():
         normalized = normalized.replace(k, v)
-    # 공백, 마침표 제거
+
+    # 수학 기호 통일
+    normalized = normalized.replace("²", "^2").replace("³", "^3")
+    normalized = normalized.replace("√", "sqrt")
+    normalized = normalized.replace("−", "-").replace("–", "-").replace("—", "-")
+    normalized = normalized.replace("×", "*").replace("÷", "/")
+    normalized = normalized.replace("π", "pi")
+    # 분수 기호
+    normalized = normalized.replace("½", "1/2").replace("⅓", "1/3").replace("¼", "1/4")
+
+    # 공백, 마침표, 쉼표 제거
     normalized = normalized.replace(" ", "").replace(".", "").replace(",", "")
+    # 괄호 통일
+    normalized = normalized.replace("[", "(").replace("]", ")").replace("{", "(").replace("}", ")")
     return normalized.lower()
 
 
