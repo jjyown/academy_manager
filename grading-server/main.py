@@ -510,10 +510,18 @@ async def grade_homework(
                 logger.warning(f"선생님 드라이브 전송 실패: {e}")
                 teacher_graded_urls.append(central_uploaded["url"])
 
-        # 문항별 데이터
+        # 문항별 데이터 (DB 컬럼에 맞는 필드만 전달)
+        db_fields = {
+            "result_id", "question_number", "question_type",
+            "student_answer", "correct_answer", "is_correct",
+            "confidence", "ocr1_answer", "ocr2_answer",
+            "ai_score", "ai_max_score", "ai_feedback",
+            "position_x", "position_y",
+        }
         for item in grade_result["items"]:
             item["result_id"] = result_id
-            all_items.append(item)
+            db_item = {k: v for k, v in item.items() if k in db_fields}
+            all_items.append(db_item)
 
         total_correct += grade_result["correct_count"]
         total_wrong += grade_result["wrong_count"]
