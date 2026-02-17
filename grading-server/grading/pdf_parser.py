@@ -42,30 +42,33 @@ async def extract_answers_from_pdf(
         {"answers": {...}, "types": {...}, "total": int,
          "page_images": [{"page": 1, "image_bytes": bytes}, ...]}
     """
-    # 전체 페이지 썸네일 생성 (매칭용 저장 목적)
-    page_images = _pdf_to_thumbnails(pdf_bytes)
-    logger.info(f"[Thumbnails] {len(page_images)}페이지 썸네일 생성 완료")
-
-    # 1차: Gemini Vision으로 정답 추출
+    # 1차: Gemini Vision으로 정답 추출 (썸네일보다 먼저 - 빠른 응답 우선)
+    result = None
     try:
         result = await _extract_with_gemini_vision(pdf_bytes, total_hint, page_range)
         if result.get("total", 0) > 0:
             logger.info(f"[Vision] 정답 추출 완료: {result['total']}문제")
-            result["page_images"] = page_images
-            return result
-        logger.warning("[Vision] 정답을 찾지 못함, 텍스트 방식으로 재시도")
+        else:
+            logger.warning("[Vision] 정답을 찾지 못함, 텍스트 방식으로 재시도")
+            result = None
     except Exception as e:
         logger.warning(f"[Vision] 실패: {e}, 텍스트 방식으로 재시도")
 
     # 2차 fallback: pdfplumber 텍스트 추출 → Gemini 텍스트 파싱
-    text = _extract_text_from_pdf(pdf_bytes, page_range)
-    if not text.strip():
-        logger.warning("PDF에서 텍스트를 추출할 수 없습니다")
-        return {"answers": {}, "types": {}, "total": 0, "page_images": page_images}
+    if not result:
+        text = _extract_text_from_pdf(pdf_bytes, page_range)
+        if not text.strip():
+            logger.warning("PDF에서 텍스트를 추출할 수 없습니다")
+            result = {"answers": {}, "types": {}, "total": 0}
+        else:
+            result = await parse_answers_from_pdf(text, total_hint)
+            logger.info(f"[Text] 정답 추출 완료: {result.get('total', 0)}문제")
 
-    result = await parse_answers_from_pdf(text, total_hint)
-    logger.info(f"[Text] 정답 추출 완료: {result.get('total', 0)}문제")
+    # 정답 추출 후 전체 페이지 썸네일 생성 (백그라운드 Drive 업로드용)
+    page_images = _pdf_to_thumbnails(pdf_bytes)
+    logger.info(f"[Thumbnails] {len(page_images)}페이지 썸네일 생성 완료")
     result["page_images"] = page_images
+
     return result
 
 

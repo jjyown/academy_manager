@@ -12,7 +12,7 @@ import zipfile
 from datetime import datetime
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -246,8 +246,28 @@ async def delete_answer_key(key_id: int, teacher_id: str):
     return {"success": False, "message": "삭제할 교재를 찾을 수 없습니다"}
 
 
+def _upload_page_images_background(
+    central_token: str, title: str, raw_page_images: list[dict], answer_key_id: int
+):
+    """백그라운드에서 페이지 이미지를 Drive에 업로드하고 DB 업데이트"""
+    try:
+        page_images_json = upload_page_images_to_central(
+            central_token, title, raw_page_images
+        )
+        logger.info(f"[BG] '{title}' 페이지 이미지 {len(page_images_json)}장 Drive 업로드 완료")
+
+        sb = get_supabase()
+        sb.table("answer_keys").update(
+            {"page_images_json": page_images_json}
+        ).eq("id", answer_key_id).execute()
+        logger.info(f"[BG] answer_key #{answer_key_id} page_images_json 업데이트 완료")
+    except Exception as e:
+        logger.error(f"[BG] 페이지 이미지 업로드 실패 (answer_key #{answer_key_id}): {e}")
+
+
 @app.post("/api/answer-keys/parse")
 async def parse_answer_key(
+    background_tasks: BackgroundTasks,
     teacher_id: str = Form(...),
     title: str = Form(...),
     subject: str = Form(""),
@@ -259,6 +279,7 @@ async def parse_answer_key(
     """정답 PDF 파싱 및 교재 등록
     PDF는 중앙 드라이브의 '숙제 채점 자료' 폴더에서 가져옴
     answer_page_range: "45-48" 형식으로 정답 페이지 범위 지정 가능
+    페이지 이미지는 백그라운드에서 Drive에 업로드 (응답 지연 방지)
     """
     pdf_bytes = None
     central_token = await get_central_admin_token()
@@ -277,20 +298,10 @@ async def parse_answer_key(
 
     result = await extract_answers_from_pdf(pdf_bytes, total_hint=total_hint, page_range=page_range)
 
-    # 페이지 이미지를 중앙 Drive에 업로드
-    page_images_json = []
+    # page_images는 응답에서 제거 (바이트 데이터라 JSON 직렬화 불가)
     raw_page_images = result.pop("page_images", [])
-    if raw_page_images and central_token:
-        try:
-            page_images_json = upload_page_images_to_central(
-                central_token, title, raw_page_images
-            )
-            logger.info(f"[Parse] '{title}' 페이지 이미지 {len(page_images_json)}장 Drive 저장 완료")
-        except Exception as e:
-            logger.warning(f"[Parse] 페이지 이미지 Drive 업로드 실패 (채점은 정상 진행): {e}")
-    elif raw_page_images:
-        logger.warning("[Parse] 중앙 관리 토큰 없음 → 페이지 이미지 저장 건너뜀")
 
+    # 먼저 정답 데이터만 DB에 저장 (빠르게 응답)
     key_data = {
         "teacher_id": teacher_id,
         "title": title,
@@ -299,10 +310,19 @@ async def parse_answer_key(
         "total_questions": result.get("total", 0),
         "answers_json": result.get("answers", {}),
         "question_types_json": result.get("types", {}),
-        "page_images_json": page_images_json,
         "parsed": True,
     }
     saved = await upsert_answer_key(key_data)
+
+    # 페이지 이미지는 백그라운드에서 Drive 업로드 + DB 업데이트
+    saved_id = saved.get("id")
+    if raw_page_images and central_token and saved_id:
+        background_tasks.add_task(
+            _upload_page_images_background,
+            central_token, title, raw_page_images, saved_id
+        )
+        logger.info(f"[Parse] '{title}' 정답 {result.get('total', 0)}문제 저장 완료. "
+                     f"페이지 이미지 {len(raw_page_images)}장은 백그라운드 업로드 예약됨")
 
     return {"data": saved, "parsed_result": result}
 
