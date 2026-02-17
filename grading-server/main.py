@@ -38,6 +38,7 @@ from integrations.supabase_client import (
     get_student, get_teacher, get_teacher_by_id,
     get_pending_submissions, update_submission_grading_status,
     get_supabase, create_supabase_for_background,
+    create_notification, get_notifications, mark_notifications_read,
 )
 from integrations.drive import (
     download_file_central, upload_to_central, upload_to_teacher_drive,
@@ -280,6 +281,75 @@ async def list_answer_keys(teacher_id: str):
     return {"data": keys}
 
 
+@app.put("/api/answer-keys/{key_id}")
+async def update_answer_key(key_id: int, request: Request):
+    """정답지 수정 (제목, 정답, 문제 유형 개별/전체 수정 가능)
+
+    Body 예시:
+    - {"title": "새 제목"}
+    - {"answers_json": {"1": "③", "2": "①"}}  (전체 교체)
+    - {"update_answers": {"3": "②"}}  (개별 문제만 수정, 기존 유지)
+    - {"update_types": {"3": "essay"}}  (개별 문제 유형만 수정)
+    """
+    try:
+        body = await request.json()
+        sb = get_supabase()
+
+        # 기존 데이터 조회
+        existing = sb.table("answer_keys").select("*").eq("id", key_id).limit(1).execute()
+        if not existing.data:
+            raise HTTPException(404, "교재를 찾을 수 없습니다")
+        old_key = existing.data[0]
+
+        update_data = {}
+
+        # 제목 수정
+        if "title" in body:
+            update_data["title"] = body["title"]
+
+        # 과목 수정
+        if "subject" in body:
+            update_data["subject"] = body["subject"]
+
+        # 정답 전체 교체
+        if "answers_json" in body:
+            update_data["answers_json"] = body["answers_json"]
+            update_data["total_questions"] = len(body["answers_json"])
+
+        # 개별 문제 정답 수정 (기존 유지 + 병합)
+        if "update_answers" in body:
+            merged = dict(old_key.get("answers_json") or {})
+            merged.update(body["update_answers"])
+            update_data["answers_json"] = merged
+            update_data["total_questions"] = len(merged)
+
+        # 문제 유형 전체 교체
+        if "question_types_json" in body:
+            update_data["question_types_json"] = body["question_types_json"]
+
+        # 개별 문제 유형 수정 (기존 유지 + 병합)
+        if "update_types" in body:
+            merged_types = dict(old_key.get("question_types_json") or {})
+            merged_types.update(body["update_types"])
+            update_data["question_types_json"] = merged_types
+
+        if not update_data:
+            return {"success": False, "message": "수정할 내용이 없습니다"}
+
+        from datetime import datetime, timezone
+        update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+        res = sb.table("answer_keys").update(update_data).eq("id", key_id).execute()
+        logger.info(f"[AnswerKey] #{key_id} 수정: {list(update_data.keys())}")
+
+        return {"success": True, "data": res.data[0] if res.data else {}}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"정답지 수정 실패 (id={key_id}): {e}")
+        raise HTTPException(500, f"정답지 수정 실패: {str(e)[:200]}")
+
+
 @app.delete("/api/answer-keys/{key_id}")
 async def delete_answer_key(key_id: int, teacher_id: str):
     """교재 삭제"""
@@ -496,15 +566,79 @@ async def list_result_items(result_id: int):
 
 @app.put("/api/items/{item_id}")
 async def update_item(item_id: int, request: Request):
-    """문항별 점수/피드백 수정"""
+    """문항별 점수/피드백 수정 → 해당 result 총점 자동 재계산"""
     try:
         body = await request.json()
         sb = get_supabase()
         res = sb.table("grading_items").update(body).eq("id", item_id).execute()
+        updated_item = res.data[0] if res.data else None
+
+        # result_id를 통해 해당 채점 결과의 모든 문항을 가져와 총점 재계산
+        if updated_item and updated_item.get("result_id"):
+            await _recalculate_result_totals(updated_item["result_id"])
+
         return {"data": res.data}
     except Exception as e:
         logger.error(f"문항 수정 실패: {e}")
         return {"data": None}
+
+
+async def _recalculate_result_totals(result_id: int):
+    """채점 결과의 문항별 데이터를 기반으로 총점/정답수 재계산"""
+    try:
+        sb = get_supabase()
+        items_res = sb.table("grading_items").select("*").eq("result_id", result_id).execute()
+        items = items_res.data or []
+
+        if not items:
+            return
+
+        correct = 0
+        wrong = 0
+        uncertain = 0
+        unanswered = 0
+        total_score = 0.0
+        max_score = 0.0
+
+        for item in items:
+            q_type = item.get("question_type", "mc")
+            is_correct = item.get("is_correct")
+
+            if q_type == "essay":
+                ai_score = float(item.get("ai_score") or 0)
+                ai_max = float(item.get("ai_max_score") or 0)
+                total_score += ai_score
+                max_score += ai_max if ai_max > 0 else 10
+            else:
+                max_score += (100.0 / max(len(items), 1))
+                if is_correct is True:
+                    correct += 1
+                    total_score += (100.0 / max(len(items), 1))
+                elif is_correct is False:
+                    if not item.get("student_answer"):
+                        unanswered += 1
+                    else:
+                        wrong += 1
+                elif is_correct is None:
+                    uncertain += 1
+
+        status = "confirmed" if uncertain == 0 else "review_needed"
+
+        await update_grading_result(result_id, {
+            "correct_count": correct,
+            "wrong_count": wrong,
+            "uncertain_count": uncertain,
+            "unanswered_count": unanswered,
+            "total_questions": len(items),
+            "total_score": round(total_score, 1),
+            "max_score": round(max_score, 1),
+            "status": status,
+        })
+        logger.info(f"[Recalc] result #{result_id} 재계산 완료: "
+                     f"{correct}맞/{wrong}틀/{uncertain}보류, "
+                     f"점수 {round(total_score, 1)}/{round(max_score, 1)}")
+    except Exception as e:
+        logger.error(f"[Recalc] result #{result_id} 재계산 실패: {e}")
 
 
 @app.get("/api/stats")
@@ -529,6 +663,153 @@ async def get_stats(teacher_id: str):
         return {"data": []}
 
 
+@app.get("/api/stats/student/{student_id}")
+async def get_student_stats(student_id: int, teacher_id: str = ""):
+    """학생별 성적 추이 조회 (최근 결과 시간순)"""
+    try:
+        sb = get_supabase()
+        query = sb.table("grading_results").select(
+            "id, created_at, total_score, max_score, correct_count, wrong_count, "
+            "total_questions, status, page_info, answer_key_id, answer_keys(title)"
+        ).eq("student_id", student_id).in_(
+            "status", ["confirmed", "review_needed"]
+        ).order("created_at", desc=False)
+
+        if teacher_id:
+            query = query.eq("teacher_id", teacher_id)
+
+        res = query.execute()
+        results = res.data or []
+
+        # 추이 데이터 생성
+        trend = []
+        for r in results:
+            max_s = float(r.get("max_score") or 1)
+            total_s = float(r.get("total_score") or 0)
+            accuracy = round((total_s / max_s * 100) if max_s > 0 else 0, 1)
+            ak = r.get("answer_keys") or {}
+            trend.append({
+                "result_id": r["id"],
+                "date": r.get("created_at", "")[:10],
+                "total_score": total_s,
+                "max_score": max_s,
+                "accuracy": accuracy,
+                "correct_count": r.get("correct_count", 0),
+                "wrong_count": r.get("wrong_count", 0),
+                "total_questions": r.get("total_questions", 0),
+                "textbook": ak.get("title", ""),
+                "page_info": r.get("page_info", ""),
+            })
+
+        # 요약 통계
+        if trend:
+            avg_accuracy = round(sum(t["accuracy"] for t in trend) / len(trend), 1)
+            recent_accuracy = trend[-1]["accuracy"] if trend else 0
+            best_accuracy = max(t["accuracy"] for t in trend)
+            total_submissions = len(trend)
+        else:
+            avg_accuracy = recent_accuracy = best_accuracy = 0
+            total_submissions = 0
+
+        return {
+            "student_id": student_id,
+            "summary": {
+                "total_submissions": total_submissions,
+                "avg_accuracy": avg_accuracy,
+                "recent_accuracy": recent_accuracy,
+                "best_accuracy": best_accuracy,
+            },
+            "trend": trend,
+        }
+    except Exception as e:
+        logger.error(f"학생 통계 조회 실패 (student_id={student_id}): {e}")
+        return {"student_id": student_id, "summary": {}, "trend": []}
+
+
+@app.get("/api/stats/wrong-answers")
+async def get_wrong_answer_stats(teacher_id: str, answer_key_id: int = 0):
+    """교재별 오답률 분석 (어떤 문제를 많이 틀리는지)"""
+    try:
+        sb = get_supabase()
+
+        # 해당 교사의 확정된 결과 조회
+        query = sb.table("grading_results").select("id").eq("teacher_id", teacher_id).in_(
+            "status", ["confirmed", "review_needed"]
+        )
+        if answer_key_id:
+            query = query.eq("answer_key_id", answer_key_id)
+        results = query.execute()
+        result_ids = [r["id"] for r in (results.data or [])]
+
+        if not result_ids:
+            return {"data": [], "summary": {}}
+
+        # 문항별 데이터 조회 (배치)
+        all_items = []
+        batch_size = 50
+        for i in range(0, len(result_ids), batch_size):
+            batch = result_ids[i:i + batch_size]
+            items_res = sb.table("grading_items").select(
+                "question_number, question_label, question_type, is_correct, correct_answer"
+            ).in_("result_id", batch).execute()
+            all_items.extend(items_res.data or [])
+
+        # 문제별 오답률 집계
+        question_stats = {}
+        for item in all_items:
+            q_label = item.get("question_label") or str(item.get("question_number", "?"))
+            if q_label not in question_stats:
+                question_stats[q_label] = {
+                    "question": q_label,
+                    "correct_answer": item.get("correct_answer", ""),
+                    "total": 0, "correct": 0, "wrong": 0, "unanswered": 0,
+                }
+            stats = question_stats[q_label]
+            stats["total"] += 1
+            if item.get("is_correct") is True:
+                stats["correct"] += 1
+            elif item.get("is_correct") is False:
+                if not item.get("student_answer"):
+                    stats["unanswered"] += 1
+                else:
+                    stats["wrong"] += 1
+
+        # 오답률 계산 및 정렬 (오답률 높은 순)
+        result_data = []
+        for q_label, stats in question_stats.items():
+            total = stats["total"]
+            wrong_rate = round(((stats["wrong"] + stats["unanswered"]) / total * 100) if total > 0 else 0, 1)
+            result_data.append({
+                "question": q_label,
+                "correct_answer": stats["correct_answer"],
+                "total_attempts": total,
+                "correct_count": stats["correct"],
+                "wrong_count": stats["wrong"],
+                "unanswered_count": stats["unanswered"],
+                "wrong_rate": wrong_rate,
+            })
+
+        result_data.sort(key=lambda x: x["wrong_rate"], reverse=True)
+
+        # 전체 요약
+        total_items = len(all_items)
+        total_correct = sum(1 for i in all_items if i.get("is_correct") is True)
+        overall_accuracy = round((total_correct / total_items * 100) if total_items > 0 else 0, 1)
+
+        return {
+            "data": result_data,
+            "summary": {
+                "total_results": len(result_ids),
+                "total_items": total_items,
+                "overall_accuracy": overall_accuracy,
+                "most_missed": result_data[:5] if result_data else [],
+            },
+        }
+    except Exception as e:
+        logger.error(f"오답률 통계 조회 실패: {e}")
+        return {"data": [], "summary": {}}
+
+
 # ============================================================
 # 채점 실행 (핵심 API)
 # ============================================================
@@ -551,6 +832,22 @@ async def grade_homework(
     student = await get_student(student_id)
     if not student:
         raise HTTPException(404, "학생을 찾을 수 없습니다")
+
+    # 중복 채점 방지: 같은 submission에 대해 이미 채점 완료/진행 중이면 건너뜀
+    if homework_submission_id:
+        sb = get_supabase()
+        existing = sb.table("grading_results").select("id, status").eq(
+            "homework_submission_id", homework_submission_id
+        ).in_("status", ["grading", "confirmed", "review_needed"]).limit(1).execute()
+        if existing.data:
+            existing_result = existing.data[0]
+            logger.info(f"[Dedup] submission #{homework_submission_id} 이미 채점됨 → result #{existing_result['id']} ({existing_result['status']})")
+            return {
+                "result_id": existing_result["id"],
+                "status": existing_result["status"],
+                "message": "이미 채점된 제출입니다",
+                "duplicate": True,
+            }
 
     # 중앙 드라이브 토큰 조회
     central_token = await get_central_admin_token()
@@ -605,6 +902,63 @@ async def grade_homework(
     if homework_submission_id:
         await update_submission_grading_status(homework_submission_id, "grading")
 
+    # ── 채점 본체: 실패 시 failed 상태로 전환 ──
+    try:
+        return await _execute_grading(
+            result_id=result_id,
+            student=student,
+            student_id=student_id,
+            teacher_id=teacher_id,
+            central_token=central_token,
+            teacher_token=teacher_token,
+            answer_key=answer_key,
+            answer_key_id=answer_key_id,
+            image_bytes_list=image_bytes_list,
+            mode=mode,
+            homework_submission_id=homework_submission_id,
+        )
+    except Exception as e:
+        logger.error(f"[FATAL] 채점 실패 (result #{result_id}): {e}", exc_info=True)
+        # 실패 상태로 DB 업데이트
+        try:
+            error_msg = str(e)[:500]
+            await update_grading_result(result_id, {
+                "status": "failed",
+                "error_message": error_msg,
+            })
+            if homework_submission_id:
+                await update_submission_grading_status(homework_submission_id, "grading_failed")
+
+            # 채점 실패 알림
+            student_name = student.get("name", "학생") if student else "학생"
+            await create_notification({
+                "teacher_id": teacher_id,
+                "type": "grading_failed",
+                "title": "채점 실패",
+                "message": f"{student_name} 숙제 채점 실패: {str(e)[:100]}",
+                "data": {"result_id": result_id, "student_id": student_id, "error": error_msg[:200]},
+                "read": False,
+            })
+        except Exception as db_err:
+            logger.error(f"[FATAL] 실패 상태 DB 업데이트도 실패: {db_err}")
+        raise HTTPException(500, f"채점 처리 중 오류가 발생했습니다: {str(e)[:200]}")
+
+
+async def _execute_grading(
+    *,
+    result_id: int,
+    student: dict,
+    student_id: int,
+    teacher_id: str,
+    central_token: str,
+    teacher_token: str | None,
+    answer_key: dict | None,
+    answer_key_id: int | None,
+    image_bytes_list: list[bytes],
+    mode: str,
+    homework_submission_id: int | None,
+) -> dict:
+    """채점 실행 본체 (grade_homework에서 호출, 예외 시 상위에서 처리)"""
     all_items = []
     central_graded_urls = []
     central_graded_ids = []
@@ -652,10 +1006,12 @@ async def grade_homework(
             logger.info(f"[Auto] 후보 교재 {len(all_keys)}개: "
                         f"{[k.get('title','') for k in all_keys]}")
 
-            # 전체 OCR 결과에서 교재명/문제번호 집계 (#8)
+            # 전체 OCR 결과에서 교재명/문제번호 집계 (#8) - 풀이 노트 제외
             all_detected_names = []
             all_detected_nums = set()
             for ocr_r in ocr_results:
+                if ocr_r.get("page_type") == "solution_only":
+                    continue  # 풀이 노트는 교재 매칭에서 제외
                 tb = ocr_r.get("textbook_info", {})
                 name = tb.get("name", "")
                 if name:
@@ -729,17 +1085,71 @@ async def grade_homework(
     if not answer_key:
         logger.warning(f"정답 데이터를 찾을 수 없습니다 (student: {student_id})")
 
+    solution_only_count = 0
+    graded_questions = set()  # 중복 채점 방지: 이미 채점된 문제번호 추적
+
     for idx, img_bytes in enumerate(image_bytes_list):
         if not answer_key:
             logger.warning(f"교재 미매칭 → 이미지 {idx+1}/{len(image_bytes_list)} 건너뜀")
             continue
 
+        # ── 풀이 노트(solution_only) 판별: 채점 건너뛰고 원본만 저장 ──
+        ocr_data = ocr_results[idx] if idx < len(ocr_results) else None
+        is_solution_only = (ocr_data or {}).get("page_type") == "solution_only"
+
+        if is_solution_only:
+            solution_only_count += 1
+            logger.info(f"[Grade] 이미지 {idx+1}/{len(image_bytes_list)}: 풀이 노트 → 채점 건너뜀, 원본 저장")
+            page_info_parts.append(f"풀이노트 {solution_only_count}")
+
+            now = datetime.now()
+            now_str = now.strftime('%Y%m%d_%H%M')
+            filename = f"{student['name']}_{now_str}_{idx+1}_풀이.jpg"
+            sub_path = [
+                str(now.year),
+                f"{now.month:02d}",
+                f"{now.day:02d}",
+                student["name"],
+            ]
+
+            # 풀이 노트 원본을 드라이브에 저장 (채점 마킹 없이)
+            central_uploaded = upload_to_central(
+                central_token, CENTRAL_GRADED_RESULT_FOLDER, sub_path, filename, img_bytes
+            )
+            central_graded_urls.append(central_uploaded["url"])
+            central_graded_ids.append(central_uploaded["id"])
+
+            if teacher_token and teacher_token != central_token:
+                try:
+                    teacher_uploaded = upload_to_teacher_drive(
+                        teacher_token, TEACHER_RESULT_FOLDER, sub_path, filename, img_bytes
+                    )
+                    teacher_graded_urls.append(teacher_uploaded["url"])
+                    teacher_graded_ids.append(teacher_uploaded["id"])
+                except Exception as e:
+                    logger.warning(f"선생님 드라이브 풀이노트 전송 실패: {e}")
+                    teacher_graded_urls.append(central_uploaded["url"])
+
+            continue  # 채점 및 문항 데이터 저장 건너뜀
+
+        # ── 정답지(answer_sheet) 페이지: 정상 채점 ──
         answers_json = answer_key.get("answers_json", {})
         types_json = answer_key.get("question_types_json", {})
-        ocr_data = ocr_results[idx] if idx < len(ocr_results) else None
 
-        # 채점 실행 (사전 OCR 결과 전달 → 추가 API 호출 없음)
-        grade_result = await grade_submission(img_bytes, answers_json, types_json, ocr_result=ocr_data)
+        # 채점 실행 (중복 문제번호 건너뛰기 적용)
+        grade_result = await grade_submission(
+            img_bytes, answers_json, types_json,
+            ocr_result=ocr_data,
+            skip_questions=graded_questions if graded_questions else None,
+        )
+
+        # 채점된 문제번호 누적 (다음 이미지에서 중복 방지)
+        newly_graded = grade_result.get("graded_questions", set())
+        if newly_graded:
+            graded_questions.update(newly_graded)
+        skipped = grade_result.get("skipped_duplicates", [])
+        if skipped:
+            logger.info(f"[Dedup] 이미지 {idx+1}: 중복 {len(skipped)}개 건너뜀 → {skipped}")
 
         # 페이지 정보 수집 (등록된 교재 제목 우선, OCR 인식값 fallback)
         ak_title = answer_key.get("title", "")
@@ -836,6 +1246,29 @@ async def grade_homework(
     if homework_submission_id:
         await update_submission_grading_status(homework_submission_id, "graded")
 
+    # ── 채점 완료 알림 ──
+    try:
+        student_name = student.get("name", "학생")
+        score_text = f"{round(total_score, 1)}/{round(max_score, 1)}점" if max_score > 0 else ""
+        notif_message = f"{student_name} 숙제 채점 완료"
+        if combined_page_info:
+            notif_message += f" ({combined_page_info})"
+        if score_text:
+            notif_message += f" - {score_text}"
+        if status == "review_needed":
+            notif_message += " [검토 필요]"
+
+        await create_notification({
+            "teacher_id": teacher_id,
+            "type": "grading_complete",
+            "title": "채점 완료",
+            "message": notif_message,
+            "data": {"result_id": result_id, "student_id": student_id, "status": status},
+            "read": False,
+        })
+    except Exception as notif_err:
+        logger.warning(f"채점 완료 알림 생성 실패 (무시): {notif_err}")
+
     return {
         "result_id": result_id,
         "total_score": round(total_score, 1),
@@ -859,6 +1292,150 @@ async def grade_homework(
 async def list_student_results(student_id: int):
     results = await get_grading_results_by_student(student_id)
     return {"data": results}
+
+
+@app.post("/api/results/{result_id}/regrade")
+async def regrade_result(result_id: int):
+    """기존 채점 결과를 정답지 기준으로 재채점 (OCR 결과는 유지, 정답 비교만 다시 수행)"""
+    try:
+        sb = get_supabase()
+
+        # 기존 결과 조회
+        res = sb.table("grading_results").select("*").eq("id", result_id).limit(1).execute()
+        if not res.data:
+            raise HTTPException(404, "채점 결과를 찾을 수 없습니다")
+        result = res.data[0]
+
+        answer_key_id = result.get("answer_key_id")
+        if not answer_key_id:
+            raise HTTPException(400, "정답지가 연결되지 않은 결과입니다")
+
+        # 최신 정답지 조회
+        answer_key = await get_answer_key(answer_key_id)
+        if not answer_key:
+            raise HTTPException(404, "정답지를 찾을 수 없습니다")
+
+        answers_json = answer_key.get("answers_json", {})
+        types_json = answer_key.get("question_types_json", {})
+
+        # 기존 문항 조회
+        items_res = sb.table("grading_items").select("*").eq("result_id", result_id).order("question_number").execute()
+        old_items = items_res.data or []
+
+        if not old_items:
+            raise HTTPException(400, "재채점할 문항이 없습니다")
+
+        # 상태를 grading으로 변경
+        await update_grading_result(result_id, {"status": "regrading"})
+
+        correct = 0
+        wrong = 0
+        uncertain = 0
+        unanswered = 0
+        total_score = 0.0
+        max_score_total = 0.0
+        regraded_count = 0
+
+        for item in old_items:
+            q_label = item.get("question_label") or str(item.get("question_number", ""))
+            student_answer = item.get("student_answer", "")
+            correct_answer = answers_json.get(q_label, item.get("correct_answer", ""))
+            q_type = types_json.get(q_label, item.get("question_type", "mc"))
+
+            update_data = {"correct_answer": correct_answer}
+
+            if q_type in ("mc", "short"):
+                from grading.grader import compare_answers
+                if not student_answer:
+                    update_data["is_correct"] = False
+                    unanswered += 1
+                else:
+                    match_result = compare_answers(student_answer, correct_answer, q_type)
+                    if match_result == "correct":
+                        update_data["is_correct"] = True
+                        correct += 1
+                    elif match_result == "wrong":
+                        update_data["is_correct"] = False
+                        wrong += 1
+                    else:
+                        update_data["is_correct"] = None
+                        uncertain += 1
+
+                per_q_score = 100.0 / max(len(old_items), 1)
+                max_score_total += per_q_score
+                if update_data.get("is_correct") is True:
+                    total_score += per_q_score
+
+            elif q_type == "essay":
+                # 서술형은 기존 AI 채점 점수 유지 (재채점 시 선택적으로 다시 할 수 있음)
+                ai_score = float(item.get("ai_score") or 0)
+                ai_max = float(item.get("ai_max_score") or 10)
+                total_score += ai_score
+                max_score_total += ai_max
+
+            sb.table("grading_items").update(update_data).eq("id", item["id"]).execute()
+            regraded_count += 1
+
+        status = "confirmed" if uncertain == 0 else "review_needed"
+        await update_grading_result(result_id, {
+            "correct_count": correct,
+            "wrong_count": wrong,
+            "uncertain_count": uncertain,
+            "unanswered_count": unanswered,
+            "total_questions": len(old_items),
+            "total_score": round(total_score, 1),
+            "max_score": round(max_score_total, 1),
+            "status": status,
+        })
+
+        logger.info(f"[Regrade] result #{result_id}: {regraded_count}문항 재채점 완료 "
+                     f"→ {correct}맞/{wrong}틀/{uncertain}보류")
+
+        return {
+            "result_id": result_id,
+            "regraded_count": regraded_count,
+            "correct_count": correct,
+            "wrong_count": wrong,
+            "uncertain_count": uncertain,
+            "total_score": round(total_score, 1),
+            "max_score": round(max_score_total, 1),
+            "status": status,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[Regrade] result #{result_id} 재채점 실패: {e}", exc_info=True)
+        raise HTTPException(500, f"재채점 실패: {str(e)[:200]}")
+
+
+# ============================================================
+# 알림 API
+# ============================================================
+
+@app.get("/api/notifications")
+async def list_notifications(teacher_id: str, unread_only: bool = False):
+    """알림 목록 조회"""
+    notifications = await get_notifications(teacher_id, unread_only=unread_only)
+    unread_count = sum(1 for n in notifications if not n.get("read"))
+    return {"data": notifications, "unread_count": unread_count}
+
+
+@app.put("/api/notifications/read")
+async def read_notifications(request: Request):
+    """알림 읽음 처리"""
+    try:
+        body = await request.json()
+        teacher_id = body.get("teacher_id", "")
+        notification_ids = body.get("notification_ids")
+        if not teacher_id:
+            raise HTTPException(400, "teacher_id가 필요합니다")
+        await mark_notifications_read(teacher_id, notification_ids)
+        return {"success": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"알림 읽음 처리 실패: {e}")
+        return {"success": False}
 
 
 # ============================================================

@@ -1,4 +1,5 @@
 """Gemini AI 연동: 서술형 채점 (독립 2회 + 중재), 정답 PDF 파싱, 종합평가 생성"""
+import asyncio
 import json
 import logging
 import google.generativeai as genai
@@ -9,6 +10,27 @@ logger = logging.getLogger(__name__)
 genai.configure(api_key=GEMINI_API_KEY)
 _model = genai.GenerativeModel("gemini-2.0-flash")
 _request_opts = {"timeout": AI_API_TIMEOUT}
+
+RETRY_MAX = 2
+RETRY_BASE_DELAY = 1.5
+
+
+async def _gemini_call_with_retry(prompt, label: str = "Gemini"):
+    """Gemini API 호출 + 자동 재시도 (지수 백오프)"""
+    last_err = None
+    for attempt in range(1, RETRY_MAX + 1):
+        try:
+            response = _model.generate_content(prompt, request_options=_request_opts)
+            return response
+        except Exception as e:
+            last_err = e
+            if attempt < RETRY_MAX:
+                delay = RETRY_BASE_DELAY * (2 ** (attempt - 1))
+                logger.warning(f"[Retry] {label} 실패 (시도 {attempt}/{RETRY_MAX}): {e} → {delay:.1f}초 후 재시도")
+                await asyncio.sleep(delay)
+            else:
+                logger.error(f"[Retry] {label} 최종 실패 ({RETRY_MAX}회 시도): {e}")
+    raise last_err
 
 
 def _parse_ai_json(text: str) -> dict | None:
@@ -141,7 +163,7 @@ async def grade_essay_independent(
     result_b = {"score": 0, "max_score": max_score, "feedback": "AI 채점 실패"}
 
     try:
-        res_a = _model.generate_content(prompt_a, request_options=_request_opts)
+        res_a = await _gemini_call_with_retry(prompt_a, label=f"Essay#{question_num}-A")
         parsed = _parse_ai_json(res_a.text)
         if parsed:
             result_a = parsed
@@ -149,7 +171,7 @@ async def grade_essay_independent(
         logger.error(f"서술형 1차 채점 실패 (문제 {question_num}): {e}")
 
     try:
-        res_b = _model.generate_content(prompt_b, request_options=_request_opts)
+        res_b = await _gemini_call_with_retry(prompt_b, label=f"Essay#{question_num}-B")
         parsed = _parse_ai_json(res_b.text)
         if parsed:
             result_b = parsed
@@ -230,7 +252,7 @@ async def grade_essay_mediate(
 }}"""
 
     try:
-        response = _model.generate_content(prompt, request_options=_request_opts)
+        response = await _gemini_call_with_retry(prompt, label=f"Essay#{question_num}-중재")
         result = _parse_ai_json(response.text)
         if result:
             return result

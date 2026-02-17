@@ -231,6 +231,38 @@ async def upsert_grading_stats(data: dict) -> dict:
     return res.data[0] if res.data else {}
 
 
+# ── notifications (알림) ──
+
+async def create_notification(data: dict) -> dict:
+    """알림 생성"""
+    try:
+        sb = get_supabase()
+        res = sb.table("notifications").insert(data).execute()
+        return res.data[0] if res.data else {}
+    except Exception as e:
+        logger.warning(f"알림 생성 실패 (무시): {e}")
+        return {}
+
+
+async def get_notifications(teacher_id: str, unread_only: bool = False, limit: int = 50) -> list[dict]:
+    """알림 목록 조회"""
+    sb = get_supabase()
+    query = sb.table("notifications").select("*").eq("teacher_id", teacher_id)
+    if unread_only:
+        query = query.eq("read", False)
+    res = query.order("created_at", desc=True).limit(limit).execute()
+    return res.data or []
+
+
+async def mark_notifications_read(teacher_id: str, notification_ids: list[int] | None = None):
+    """알림 읽음 처리"""
+    sb = get_supabase()
+    query = sb.table("notifications").update({"read": True}).eq("teacher_id", teacher_id)
+    if notification_ids:
+        query = query.in_("id", notification_ids)
+    query.execute()
+
+
 # ── evaluations (종합평가) ──
 
 async def upsert_evaluation(data: dict) -> dict:

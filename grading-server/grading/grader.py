@@ -13,6 +13,7 @@ async def grade_submission(
     types_json: dict,
     ocr_result: dict | None = None,
     question_texts: dict | None = None,
+    skip_questions: set | None = None,
 ) -> dict:
     """학생 답안 이미지를 채점 (Smart Grading)
 
@@ -22,6 +23,7 @@ async def grade_submission(
         types_json: {"1": "mc", "2": "mc", "5": "essay"} 유형
         ocr_result: 사전 OCR 결과 (크로스 검증 완료). None이면 내부에서 OCR 실행
         question_texts: {"3": "삼각형의 넓이를 구하시오", ...} 문제 본문 (서술형용)
+        skip_questions: 이미 채점된 문제번호 set (중복 채점 방지)
 
     Returns:
         채점 결과 dict
@@ -41,6 +43,16 @@ async def grade_submission(
         else:
             normalized_answers[k] = {"answer": str(v), "confidence": 90}
     student_answers = normalized_answers
+
+    # 중복 문제번호 제거 (이전 이미지에서 이미 채점된 문제)
+    skipped_dupes = []
+    if skip_questions:
+        for q in list(student_answers.keys()):
+            if q in skip_questions:
+                skipped_dupes.append(q)
+                del student_answers[q]
+        if skipped_dupes:
+            logger.info(f"[Dedup] 중복 문제 {len(skipped_dupes)}개 건너뜀: {skipped_dupes}")
 
     logger.info(f"[Smart OCR] 교재: {textbook_info.get('name', '?')}, "
                 f"페이지: {textbook_info.get('page', '?')}, "
@@ -185,6 +197,8 @@ async def grade_submission(
         "status": status,
         "textbook_info": textbook_info,
         "page_info": page_info,
+        "graded_questions": set(student_answers.keys()),
+        "skipped_duplicates": skipped_dupes,
         "ocr_data": {
             "full_text_1": ocr_result.get("full_text", ocr_result.get("full_text_1", "")),
             "full_text_2": ocr_result.get("full_text_2", ""),

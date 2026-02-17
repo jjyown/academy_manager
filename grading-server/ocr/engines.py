@@ -14,6 +14,25 @@ import base64
 logger = logging.getLogger(__name__)
 
 BATCH_SIZE = 5
+MAX_RETRIES = 3
+RETRY_BASE_DELAY = 2.0
+
+
+async def _retry_async(func, *args, label: str = "API", max_retries: int = MAX_RETRIES, **kwargs):
+    """비동기 함수 자동 재시도 (지수 백오프)"""
+    last_err = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            return await func(*args, **kwargs)
+        except Exception as e:
+            last_err = e
+            if attempt < max_retries:
+                delay = RETRY_BASE_DELAY * (2 ** (attempt - 1))
+                logger.warning(f"[Retry] {label} 실패 (시도 {attempt}/{max_retries}): {e} → {delay:.1f}초 후 재시도")
+                await asyncio.sleep(delay)
+            else:
+                logger.error(f"[Retry] {label} 최종 실패 ({max_retries}회 시도): {e}")
+    raise last_err
 
 
 # ============================================================
@@ -101,10 +120,29 @@ async def ocr_gpt4o_batch(
         logger.info(f"[GPT-4o] {len(image_bytes_list)}장 → {len(chunks)}개 배치 병렬 처리")
 
     tasks = [
-        _ocr_gpt4o_chunk(client, chunk, chunk_idx, expected_questions)
+        _retry_async(
+            _ocr_gpt4o_chunk, client, chunk, chunk_idx, expected_questions,
+            label=f"GPT-4o 배치{chunk_idx+1}", max_retries=2,
+        )
         for chunk_idx, chunk in enumerate(chunks)
     ]
-    chunk_results = await asyncio.gather(*tasks)
+    chunk_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    # 실패한 청크는 Gemini fallback
+    resolved_results = []
+    for i, result in enumerate(chunk_results):
+        if isinstance(result, Exception):
+            logger.error(f"[GPT-4o] 배치 {i+1} 최종 실패 → Gemini fallback: {result}")
+            fallback = []
+            for img in chunks[i]:
+                try:
+                    fallback.append(await ocr_gemini(img))
+                except Exception:
+                    fallback.append({"textbook_info": {}, "answers": {}})
+            resolved_results.append(fallback)
+        else:
+            resolved_results.append(result)
+    chunk_results = resolved_results
 
     all_results = []
     for results in chunk_results:
@@ -148,7 +186,17 @@ async def _ocr_gpt4o_chunk(
         "type": "text",
         "text": f"""아래 {len(chunk)}장의 학생 숙제 사진을 각각 분석해주세요.
 {hint_text}
-각 이미지별로:
+★ 페이지 유형 분류 (매우 중요) ★
+먼저 각 이미지가 어떤 종류인지 판별하세요:
+- "answer_sheet": 문제집/교재 페이지 (인쇄된 문제 번호가 있고, 학생이 답을 체크/기입한 페이지)
+- "solution_only": 풀이 노트 (노트, A4, 이면지 등에 학생이 풀이 과정만 적은 페이지. 인쇄된 문제 형식 없음)
+
+판별 기준:
+- 인쇄된 문제 번호, 출판사 로고, 교재 레이아웃이 보이면 → "answer_sheet"
+- 줄 노트, 빈 종이, 격자 노트에 손글씨만 있으면 → "solution_only"
+- "solution_only"인 경우 answers는 빈 객체 {{}}로 응답하세요
+
+각 이미지별로 (answer_sheet인 경우만):
 1. 교재 정보: 페이지 상단/하단에서 교재명, 페이지 번호, 단원명 확인
 2. 이 사진에 보이는 문제 번호 (인쇄된 번호 기준)
 3. 학생이 각 문제에 적은 답
@@ -165,8 +213,8 @@ async def _ocr_gpt4o_chunk(
 
 반드시 아래 JSON 배열로만 응답 (다른 텍스트 없이):
 [
-  {{"image_index": 0, "textbook_info": {{"name": "교재명", "page": "45", "section": "단원명"}}, "answers": {{"1": "③", "2": "unanswered", "3": "12"}}}},
-  {{"image_index": 1, "textbook_info": {{"name": "교재명", "page": "46", "section": "단원명"}}, "answers": {{...}}}}
+  {{"image_index": 0, "page_type": "answer_sheet", "textbook_info": {{"name": "교재명", "page": "45", "section": "단원명"}}, "answers": {{"1": "③", "2": "unanswered", "3": "12"}}}},
+  {{"image_index": 1, "page_type": "solution_only", "textbook_info": {{}}, "answers": {{}}}}
 ]"""
     }]
 
@@ -203,12 +251,17 @@ async def _ocr_gpt4o_chunk(
         for r in batch_results:
             idx = r.get("image_index", 0)
             answers = r.get("answers", {})
+            page_type = r.get("page_type", "answer_sheet")
             result_map[idx] = {
                 "textbook_info": r.get("textbook_info", {}),
                 "answers": answers,
+                "page_type": page_type,
             }
-            logger.info(f"[GPT-4o] 이미지 {idx}: {len(answers)}문제 인식, "
-                        f"answers={dict(list(answers.items())[:5])}")
+            if page_type == "solution_only":
+                logger.info(f"[GPT-4o] 이미지 {idx}: 풀이 노트 (채점 건너뜀)")
+            else:
+                logger.info(f"[GPT-4o] 이미지 {idx}: {len(answers)}문제 인식, "
+                            f"answers={dict(list(answers.items())[:5])}")
 
         results = []
         for i in range(len(chunk)):
@@ -267,7 +320,7 @@ async def ocr_gemini(image_bytes: bytes) -> dict:
 반드시 아래 JSON 형식으로만 응답하세요 (다른 텍스트 없이):
 {"textbook_info": {"name": "교재명", "page": "45", "section": "단원명"}, "answers": {"1": "③", "2": "unanswered", "3": "12"}, "full_text": "전체 인식 텍스트"}"""
 
-    try:
+    async def _call_gemini():
         response = model.generate_content(
             [prompt, {"mime_type": "image/jpeg", "data": b64}],
             request_options=_request_opts,
@@ -280,8 +333,11 @@ async def ocr_gemini(image_bytes: bytes) -> dict:
             "answers": result.get("answers", {}),
             "full_text": result.get("full_text", ""),
         }
+
+    try:
+        return await _retry_async(_call_gemini, label="Gemini OCR", max_retries=2)
     except Exception as e:
-        logger.error(f"Gemini OCR 실패: {e}")
+        logger.error(f"Gemini OCR 최종 실패: {e}")
         return {"textbook_info": {}, "answers": {}, "full_text": ""}
 
 
@@ -305,11 +361,27 @@ async def cross_validate_ocr(
     """
     validated = []
 
-    # Gemini 검증을 비동기 병렬 실행
-    gemini_tasks = [ocr_gemini(img) for img in image_bytes_list]
+    # solution_only 페이지는 Gemini 호출 건너뛰기 (비용 절약)
+    async def _noop_gemini():
+        return None
+
+    gemini_tasks = []
+    for i, img in enumerate(image_bytes_list):
+        if i < len(gpt4o_results) and gpt4o_results[i].get("page_type") == "solution_only":
+            gemini_tasks.append(_noop_gemini())
+        else:
+            gemini_tasks.append(ocr_gemini(img))
     gemini_results = await asyncio.gather(*gemini_tasks, return_exceptions=True)
 
     for idx, (gpt_result, gemini_result) in enumerate(zip(gpt4o_results, gemini_results)):
+        # 풀이 노트(solution_only)는 Gemini 검증 건너뜀 → 비용 절약
+        if gpt_result.get("page_type") == "solution_only":
+            logger.info(f"[CrossVal] 이미지 {idx}: 풀이 노트 → 크로스 검증 건너뜀")
+            result = _to_single_check_format(gpt_result)
+            result["page_type"] = "solution_only"
+            validated.append(result)
+            continue
+
         if isinstance(gemini_result, Exception):
             logger.warning(f"[CrossVal] 이미지 {idx} Gemini 검증 실패: {gemini_result}")
             # Gemini 실패 시 GPT-4o 결과를 단일 체크로 사용
