@@ -871,7 +871,9 @@ function showAddKeyModal() {
 	document.getElementById('key-modal').classList.add('show');
 }
 
+let isRegistering = false;
 async function registerAnswerKey() {
+	if (isRegistering) return;
 	const title = document.getElementById('key-title').value.trim();
 	const subject = document.getElementById('key-subject').value.trim();
 	const pdfInput = document.getElementById('key-pdf');
@@ -900,7 +902,8 @@ async function registerAnswerKey() {
 		if (pageRange) formData.append('answer_page_range', pageRange);
 		if (totalHint) formData.append('total_hint', totalHint);
 
-		showToast('정답 추출 중...', 'info');
+		isRegistering = true;
+		showToast('정답 추출 중... (최대 30초 소요)', 'info');
 
 		try {
 			const res = await fetch(GRADING_SERVER_URL + '/api/answer-keys/parse', {
@@ -918,6 +921,8 @@ async function registerAnswerKey() {
 			}
 		} catch (e) {
 			showToast('서버 연결 실패: ' + e.message, 'error');
+		} finally {
+			isRegistering = false;
 		}
 	} else {
 		// PDF 없이 수동 등록 (서버 API)
