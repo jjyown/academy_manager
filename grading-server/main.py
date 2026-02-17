@@ -98,9 +98,13 @@ async def health():
 @app.get("/api/teachers")
 async def list_teachers():
     """선생님 목록 조회 (채점 관리 로그인용)"""
-    sb = get_supabase()
-    res = sb.table("teachers").select("*").order("created_at").execute()
-    return {"data": res.data or []}
+    try:
+        sb = get_supabase()
+        res = sb.table("teachers").select("*").order("created_at").execute()
+        return {"data": res.data or []}
+    except Exception as e:
+        logger.error(f"선생님 목록 조회 실패: {e}")
+        return {"data": []}
 
 
 @app.get("/api/answer-keys")
@@ -213,57 +217,99 @@ async def create_new_assignment(
 
 @app.get("/api/results")
 async def list_results(teacher_id: str, status: str = ""):
-    """채점 결과 목록 조회 (학생 정보 포함)"""
-    sb = get_supabase()
-    query = sb.table("grading_results").select("*, students(name, grade, school)").eq("teacher_id", teacher_id)
-    if status and status != "all":
-        query = query.eq("status", status)
-    res = query.order("created_at", desc=True).execute()
-    return {"data": res.data or []}
+    """채점 결과 목록 조회"""
+    try:
+        sb = get_supabase()
+        query = sb.table("grading_results").select("*").eq("teacher_id", teacher_id)
+        if status and status != "all":
+            query = query.eq("status", status)
+        res = query.order("created_at", desc=True).execute()
+        results = res.data or []
+        # 학생 정보 별도 조회
+        student_ids = list(set(r.get("student_id") for r in results if r.get("student_id")))
+        student_map = {}
+        if student_ids:
+            s_res = sb.table("students").select("id, name, grade, school").in_("id", student_ids).execute()
+            for s in (s_res.data or []):
+                student_map[s["id"]] = s
+        for r in results:
+            r["students"] = student_map.get(r.get("student_id"), {})
+        return {"data": results}
+    except Exception as e:
+        logger.error(f"결과 조회 실패: {e}")
+        return {"data": []}
 
 
 @app.put("/api/results/{result_id}/confirm")
 async def confirm_result(result_id: int):
     """채점 결과 확정"""
-    sb = get_supabase()
-    res = sb.table("grading_results").update({"status": "confirmed"}).eq("id", result_id).execute()
-    return {"data": res.data}
+    try:
+        sb = get_supabase()
+        res = sb.table("grading_results").update({"status": "confirmed"}).eq("id", result_id).execute()
+        return {"data": res.data}
+    except Exception as e:
+        logger.error(f"결과 확정 실패: {e}")
+        return {"data": None}
 
 
 @app.put("/api/results/{result_id}/annotations")
 async def save_annotations(result_id: int, request: Request):
     """선생님 메모/수정사항 저장"""
-    body = await request.json()
-    sb = get_supabase()
-    res = sb.table("grading_results").update(body).eq("id", result_id).execute()
-    return {"data": res.data}
+    try:
+        body = await request.json()
+        sb = get_supabase()
+        res = sb.table("grading_results").update(body).eq("id", result_id).execute()
+        return {"data": res.data}
+    except Exception as e:
+        logger.error(f"메모 저장 실패: {e}")
+        return {"data": None}
 
 
 @app.get("/api/results/{result_id}/items")
 async def list_result_items(result_id: int):
     """채점 문항별 결과 조회"""
-    sb = get_supabase()
-    res = sb.table("grading_items").select("*").eq("result_id", result_id).order("question_num").execute()
-    return {"data": res.data or []}
+    try:
+        sb = get_supabase()
+        res = sb.table("grading_items").select("*").eq("result_id", result_id).order("question_num").execute()
+        return {"data": res.data or []}
+    except Exception as e:
+        logger.error(f"문항 조회 실패: {e}")
+        return {"data": []}
 
 
 @app.put("/api/items/{item_id}")
 async def update_item(item_id: int, request: Request):
     """문항별 점수/피드백 수정"""
-    body = await request.json()
-    sb = get_supabase()
-    res = sb.table("grading_items").update(body).eq("id", item_id).execute()
-    return {"data": res.data}
+    try:
+        body = await request.json()
+        sb = get_supabase()
+        res = sb.table("grading_items").update(body).eq("id", item_id).execute()
+        return {"data": res.data}
+    except Exception as e:
+        logger.error(f"문항 수정 실패: {e}")
+        return {"data": None}
 
 
 @app.get("/api/stats")
 async def get_stats(teacher_id: str):
     """통계 데이터 조회"""
-    sb = get_supabase()
-    res = sb.table("grading_results").select(
-        "total_score, max_score, correct_count, wrong_count, total_questions, students(name)"
-    ).eq("teacher_id", teacher_id).eq("status", "confirmed").execute()
-    return {"data": res.data or []}
+    try:
+        sb = get_supabase()
+        res = sb.table("grading_results").select("*").eq("teacher_id", teacher_id).eq("status", "confirmed").execute()
+        results = res.data or []
+        # 학생 정보 별도 조회
+        student_ids = list(set(r.get("student_id") for r in results if r.get("student_id")))
+        student_map = {}
+        if student_ids:
+            s_res = sb.table("students").select("id, name").in_("id", student_ids).execute()
+            for s in (s_res.data or []):
+                student_map[s["id"]] = s
+        for r in results:
+            r["students"] = student_map.get(r.get("student_id"), {})
+        return {"data": results}
+    except Exception as e:
+        logger.error(f"통계 조회 실패: {e}")
+        return {"data": []}
 
 
 # ============================================================
