@@ -14,6 +14,16 @@ const corsHeaders = {
 
 const DRIVE_FOLDER_NAME = "숙제 제출";
 
+async function getDriveEmail(accessToken: string): Promise<string> {
+  const res = await fetch(
+    "https://www.googleapis.com/drive/v3/about?fields=user",
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+  if (!res.ok) return "";
+  const data = await res.json();
+  return data?.user?.emailAddress || "";
+}
+
 async function getAccessToken(refreshToken: string): Promise<string> {
   const response = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
@@ -265,8 +275,16 @@ serve(async (req: Request) => {
     let teacherFileId: string | null = null;
     let teacherFileUrl: string | null = null;
 
-    const isSameAccount = teacherHasDrive &&
-      teacher!.google_drive_refresh_token === centralAdmin.google_drive_refresh_token;
+    let isSameAccount = false;
+    if (teacherHasDrive) {
+      const teacherAccessTokenCheck = await getAccessToken(teacher!.google_drive_refresh_token);
+      const centralEmail = await getDriveEmail(centralAccessToken);
+      const teacherEmail = await getDriveEmail(teacherAccessTokenCheck);
+      isSameAccount = !!(centralEmail && teacherEmail && centralEmail === teacherEmail);
+      if (isSameAccount) {
+        console.log(`중앙/선생님 동일 계정 확인: ${centralEmail}`);
+      }
+    }
 
     if (teacherHasDrive && !isSameAccount) {
       try {

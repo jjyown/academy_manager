@@ -1162,6 +1162,7 @@ const MAX_TOTAL_SIZE = 50 * 1024 * 1024;  // 전체 50MB
 
 const { createClient } = supabase;
 const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+	realtime: { params: { eventsPerSecond: 0 } },
 	auth: {
 		autoRefreshToken: false,
 		persistSession: false,
