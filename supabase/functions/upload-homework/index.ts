@@ -106,6 +106,36 @@ async function getOrCreateFolderPath(
   return studentId;
 }
 
+async function deleteExistingFiles(
+  accessToken: string,
+  folderId: string,
+  fileName: string
+): Promise<void> {
+  const safeName = fileName.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+  const searchUrl = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(
+    `'${folderId}' in parents and name='${safeName}' and trashed=false`
+  )}&fields=files(id)`;
+
+  const res = await fetch(searchUrl, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const data = await res.json();
+
+  if (data.files && data.files.length > 0) {
+    for (const file of data.files) {
+      try {
+        await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        console.log(`기존 파일 삭제: ${file.id}`);
+      } catch (e) {
+        console.warn(`기존 파일 삭제 실패: ${file.id}`, e);
+      }
+    }
+  }
+}
+
 async function uploadFileToDrive(
   accessToken: string,
   folderId: string,
@@ -245,6 +275,7 @@ serve(async (req: Request) => {
     // ─── 2) 중앙 드라이브(jjyown@gmail.com)에 원본 업로드 ───
     const centralAccessToken = await getAccessToken(centralAdmin.google_drive_refresh_token);
     const centralFolderId = await getOrCreateFolderPath(centralAccessToken, year, month, day, studentName);
+    await deleteExistingFiles(centralAccessToken, centralFolderId, fileName);
     const { fileId: centralFileId, fileUrl: centralFileUrl } = await uploadFileToDrive(
       centralAccessToken,
       centralFolderId,

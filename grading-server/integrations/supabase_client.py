@@ -1,5 +1,6 @@
 import logging
 import threading
+from datetime import date
 from supabase import create_client, Client
 from config import SUPABASE_URL, SUPABASE_SERVICE_KEY
 
@@ -119,19 +120,62 @@ async def delete_assignment(assignment_id: int) -> bool:
 
 
 async def get_student_assigned_key(student_id: int) -> dict | None:
-    """학생에게 배정된 최신 교재(answer_key) 조회
-    grading_assignments.assigned_students JSONB 배열에서 student_id 포함 여부 확인"""
+    """학생에게 배정된 교재(answer_key) 조회 - due_date 기준
+    1) 오늘/미래 과제 중 due_date가 가장 가까운 것
+    2) 없으면 과거 과제 중 가장 최근 것"""
     try:
         sb = get_supabase()
+        today = date.today().isoformat()
+
         res = sb.table("grading_assignments").select(
-            "answer_key_id, answer_keys(*)"
+            "answer_key_id, due_date, answer_keys(*)"
         ).contains(
             "assigned_students", [student_id]
-        ).order("created_at", desc=True).limit(1).execute()
+        ).gte("due_date", today).order("due_date", desc=False).limit(1).execute()
+
+        if res.data and res.data[0].get("answer_keys"):
+            return res.data[0]["answer_keys"]
+
+        res = sb.table("grading_assignments").select(
+            "answer_key_id, due_date, answer_keys(*)"
+        ).contains(
+            "assigned_students", [student_id]
+        ).order("due_date", desc=True).limit(1).execute()
+
         if res.data and res.data[0].get("answer_keys"):
             return res.data[0]["answer_keys"]
     except Exception as e:
         logger.error(f"학생 배정 교재 조회 실패 (student_id={student_id}): {e}")
+    return None
+
+
+async def get_best_book_by_assignment(book_key_ids: list[int]) -> dict | None:
+    """학생의 교재 목록 중 현재 과제와 매칭되는 교재 찾기 (due_date 기준)"""
+    if not book_key_ids:
+        return None
+    try:
+        sb = get_supabase()
+        today = date.today().isoformat()
+
+        res = sb.table("grading_assignments").select(
+            "answer_key_id, due_date, answer_keys(*)"
+        ).in_("answer_key_id", book_key_ids).gte(
+            "due_date", today
+        ).order("due_date", desc=False).limit(1).execute()
+
+        if res.data and res.data[0].get("answer_keys"):
+            return res.data[0]["answer_keys"]
+
+        res = sb.table("grading_assignments").select(
+            "answer_key_id, due_date, answer_keys(*)"
+        ).in_("answer_key_id", book_key_ids).order(
+            "due_date", desc=True
+        ).limit(1).execute()
+
+        if res.data and res.data[0].get("answer_keys"):
+            return res.data[0]["answer_keys"]
+    except Exception as e:
+        logger.error(f"교재-과제 매칭 조회 실패: {e}")
     return None
 
 

@@ -35,7 +35,7 @@ from integrations.supabase_client import (
     get_central_admin_token,
     get_answer_key, get_answer_keys_by_teacher, upsert_answer_key,
     get_assignment, get_assignments_by_teacher, create_assignment, update_assignment, delete_assignment,
-    get_student_assigned_key,
+    get_student_assigned_key, get_best_book_by_assignment,
     get_student_books, get_student_books_by_teacher, add_student_book, remove_student_book, get_student_book_keys,
     create_grading_result, update_grading_result,
     get_grading_results_by_teacher, get_grading_results_by_student,
@@ -961,9 +961,21 @@ async def grade_homework(
     if not answer_key:
         book_keys = await get_student_book_keys(student_id)
         if book_keys:
-            answer_key = book_keys[0]
-            answer_key_id = answer_key.get("id")
-            logger.info(f"[StudentBooks] 학생 #{student_id} 교재 목록에서 선택 → #{answer_key_id} '{answer_key.get('title','')}' (총 {len(book_keys)}개)")
+            if len(book_keys) == 1:
+                answer_key = book_keys[0]
+                answer_key_id = answer_key.get("id")
+                logger.info(f"[StudentBooks] 학생 #{student_id} 교재 1개 → #{answer_key_id} '{answer_key.get('title','')}'")
+            else:
+                book_key_ids = [bk["id"] for bk in book_keys if bk.get("id")]
+                matched = await get_best_book_by_assignment(book_key_ids)
+                if matched:
+                    answer_key = matched
+                    answer_key_id = matched.get("id")
+                    logger.info(f"[StudentBooks+Assign] 학생 #{student_id} 과제 매칭 교재 → #{answer_key_id} '{matched.get('title','')}' (총 {len(book_keys)}개)")
+                else:
+                    answer_key = book_keys[0]
+                    answer_key_id = answer_key.get("id")
+                    logger.warning(f"[StudentBooks] 학생 #{student_id} 교재 {len(book_keys)}개 중 과제 매칭 없음 → 첫 번째 교재 #{answer_key_id} '{answer_key.get('title','')}'선택")
 
     # 이미지 가져오기
     image_bytes_list = []
