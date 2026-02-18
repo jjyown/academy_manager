@@ -218,6 +218,77 @@
 	.stu-tag button { background:none; border:none; color:var(--text-sec); cursor:pointer; font-size:11px; padding:0 2px; line-height:1; }
 	.stu-tag button:hover { color:var(--red); }
 
+	/* 달력 */
+	.cal-container { display:grid; grid-template-columns:1fr 340px; gap:12px; padding:8px 12px; min-height:0; }
+	.cal-left { background:var(--bg-card); border-radius:var(--radius); padding:16px; border:1px solid var(--border); }
+	.cal-header { display:flex; align-items:center; gap:8px; margin-bottom:14px; }
+	.cal-title { font-size:16px; font-weight:800; flex-shrink:0; }
+	.cal-nav-btn { width:32px; height:32px; border-radius:8px; border:1px solid var(--border); background:var(--bg-elevated); color:var(--text-sec); cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:13px; transition:all 0.15s; }
+	.cal-nav-btn:hover { border-color:var(--primary); color:var(--primary); }
+	.cal-weekdays { display:grid; grid-template-columns:repeat(7,1fr); text-align:center; font-size:11px; font-weight:700; color:var(--text-sec); margin-bottom:6px; padding-bottom:6px; border-bottom:1px solid var(--border); }
+	.cal-weekdays .cal-sat { color:#6898fa; }
+	.cal-weekdays .cal-sun { color:var(--red); }
+	.cal-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:2px; }
+	.cal-cell { min-height:64px; border-radius:10px; padding:6px; cursor:pointer; transition:all 0.15s; display:flex; flex-direction:column; align-items:center; position:relative; }
+	.cal-cell:hover { background:rgba(129,140,248,0.08); }
+	.cal-cell.cal-today .cal-date { background:var(--primary); color:#fff; border-radius:50%; width:28px; height:28px; display:flex; align-items:center; justify-content:center; }
+	.cal-cell.cal-selected { background:rgba(129,140,248,0.15); border:1px solid rgba(129,140,248,0.4); }
+	.cal-cell.cal-other { opacity:0.3; }
+	.cal-date { font-size:13px; font-weight:600; margin-bottom:4px; }
+	.cal-cell.cal-sun .cal-date { color:var(--red); }
+	.cal-cell.cal-sat .cal-date { color:#6898fa; }
+	.cal-dots { display:flex; gap:3px; flex-wrap:wrap; justify-content:center; }
+	.cal-dot { width:6px; height:6px; border-radius:50%; }
+	.cal-dot.dot-assign { background:#818cf8; }
+	.cal-dot.dot-confirmed { background:#22c55e; }
+	.cal-dot.dot-review { background:#eab308; }
+	.cal-dot.dot-failed { background:#ef4444; }
+	.cal-dot.dot-grading { background:#818cf8; opacity:0.6; }
+	.cal-count { font-size:9px; color:var(--text-sec); margin-top:2px; }
+
+	.cal-side { background:var(--bg-card); border-radius:var(--radius); padding:0; border:1px solid var(--border); display:flex; flex-direction:column; max-height:calc(100vh - 160px); overflow:hidden; }
+	.cal-side-header { padding:14px 16px 8px; font-size:15px; font-weight:700; border-bottom:1px solid var(--border); flex-shrink:0; }
+	.cal-side-tabs { display:flex; gap:4px; padding:8px 12px; flex-shrink:0; }
+	.cal-side-tab { flex:1; padding:7px 0; border:none; border-radius:8px; background:transparent; color:var(--text-sec); font-size:12px; font-weight:700; cursor:pointer; transition:all 0.15s; }
+	.cal-side-tab.active { background:rgba(129,140,248,0.15); color:var(--primary); }
+	.cal-side-content { flex:1; overflow-y:auto; padding:8px 12px 12px; }
+	.cal-side-content::-webkit-scrollbar { width:5px; }
+	.cal-side-content::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
+
+	.cal-result-item { display:flex; align-items:center; gap:10px; padding:10px; background:var(--bg-elevated); border-radius:10px; margin-bottom:6px; cursor:pointer; transition:all 0.15s; border:1px solid transparent; }
+	.cal-result-item:hover { border-color:var(--primary); }
+	.cal-result-icon { width:34px; height:34px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:15px; flex-shrink:0; }
+	.cal-result-info { flex:1; min-width:0; }
+	.cal-result-title { font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+	.cal-result-sub { font-size:11px; color:var(--text-sec); margin-top:2px; }
+	.cal-result-badge { padding:3px 8px; border-radius:12px; font-size:10px; font-weight:700; flex-shrink:0; }
+	.cal-result-del { background:none; border:none; color:var(--gray); cursor:pointer; padding:4px; font-size:12px; opacity:0.4; transition:opacity 0.15s; flex-shrink:0; }
+	.cal-result-del:hover { opacity:1; color:var(--red); }
+
+	.cal-assign-item { padding:10px; background:var(--bg-elevated); border-radius:10px; margin-bottom:6px; border:1px solid transparent; transition:all 0.15s; position:relative; }
+	.cal-assign-item:hover { border-color:var(--border); }
+	.cal-assign-title { font-size:13px; font-weight:600; margin-bottom:3px; padding-right:28px; }
+	.cal-assign-sub { font-size:11px; color:var(--text-sec); }
+	.cal-assign-students { display:flex; flex-wrap:wrap; gap:3px; margin-top:5px; }
+	.cal-assign-tag { padding:2px 7px; border-radius:10px; font-size:10px; background:rgba(129,140,248,0.12); color:var(--primary); font-weight:600; }
+	.cal-assign-del { position:absolute; top:8px; right:8px; background:none; border:none; color:var(--text-sec); cursor:pointer; font-size:12px; padding:3px 5px; border-radius:6px; opacity:0; transition:all 0.15s; }
+	.cal-assign-item:hover .cal-assign-del { opacity:1; }
+	.cal-assign-del:hover { color:#ef4444; background:rgba(239,68,68,0.1); }
+
+	.cal-side-filter { display:flex; gap:4px; padding:0 0 8px; flex-wrap:wrap; }
+	.cal-side-filter button { padding:4px 10px; border:1px solid var(--border); border-radius:14px; background:transparent; color:var(--text-sec); font-size:11px; font-weight:600; cursor:pointer; transition:all 0.15s; }
+	.cal-side-filter button.active { background:rgba(129,140,248,0.15); color:var(--primary); border-color:rgba(129,140,248,0.3); }
+
+	@media (max-width:768px) {
+		.cal-container { grid-template-columns:1fr; }
+		.cal-side { max-height:50vh; }
+	}
+	@media (max-width:480px) {
+		.cal-cell { min-height:48px; padding:4px 2px; }
+		.cal-date { font-size:11px; }
+		.cal-container { padding:6px 8px; gap:8px; }
+	}
+
 	/* 이미지 네비게이션 */
 	.image-nav { display:flex; align-items:center; justify-content:center; gap:10px; margin-top:8px; }
 	.image-nav button { width:32px; height:32px; border-radius:8px; border:1px solid var(--border); background:var(--bg-elevated); color:var(--text-sec); cursor:pointer; font-size:13px; display:flex; align-items:center; justify-content:center; transition:all 0.15s; }
@@ -328,38 +399,39 @@
 	</div>
 
 	<div class="tabs" id="main-tabs">
-		<button class="tab-btn active" onclick="switchMainTab('results', event)">📊 채점 결과</button>
+		<button class="tab-btn active" onclick="switchMainTab('results', event)">📅 달력</button>
 		<button class="tab-btn" onclick="switchMainTab('keys', event)">📚 교재 관리</button>
 		<button class="tab-btn" onclick="switchMainTab('stats', event)">📈 통계</button>
-		<button class="tab-btn" onclick="switchMainTab('assign', event)">📋 과제 배정</button>
 	</div>
 
-	<!-- 채점 결과 탭 -->
+	<!-- 채점 결과 탭 (달력 뷰) -->
 	<div id="tab-results" class="tab-content">
 		<!-- 실시간 채점 진행률 -->
-		<div id="grading-progress-container" style="display:none;padding:8px 12px;">
-		</div>
-		<div style="padding:8px 12px;display:flex;gap:6px;">
-			<button class="btn btn-sm btn-outline" onclick="filterResults('all')" id="filter-all">전체</button>
-			<button class="btn btn-sm btn-outline" onclick="filterResults('review_needed')" id="filter-review">⚠️ 검토 필요</button>
-			<button class="btn btn-sm btn-outline" onclick="filterResults('confirmed')" id="filter-confirmed">✅ 확정</button>
-		</div>
-		<div id="results-list"></div>
-	</div>
-
-	<!-- 과제 배정 탭 -->
-	<div id="tab-assign" class="tab-content" style="display:none;">
-		<div style="padding:8px 12px;">
-			<div style="background:#f0fdf4;border-radius:10px;padding:10px 12px;margin-bottom:8px;">
-				<p style="font-size:12px;color:#166534;margin:0;">
-					<i class="fas fa-book-open" style="margin-right:4px;"></i>
-					<b>교재 배정 방식</b>: 교재를 등록하고 학생에게 배정하면, 숙제 제출 시 배정된 교재로 자동 채점됩니다.<br>
-					<span style="font-size:11px;color:#64748b;">배정하지 않은 학생이 제출하면 "확인 필요" 상태로 표시됩니다.</span>
-				</p>
+		<div id="grading-progress-container" style="display:none;padding:8px 12px;"></div>
+		<div class="cal-container">
+			<div class="cal-left">
+				<div class="cal-header">
+					<button class="cal-nav-btn" onclick="navigateMonth(-1)"><i class="fas fa-chevron-left"></i></button>
+					<span class="cal-title" id="cal-title"></span>
+					<button class="cal-nav-btn" onclick="navigateMonth(1)"><i class="fas fa-chevron-right"></i></button>
+					<button class="btn btn-sm btn-outline" onclick="goToday()" style="margin-left:auto;font-size:11px;">오늘</button>
+				</div>
+				<div class="cal-weekdays">
+					<span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span class="cal-sat">토</span><span class="cal-sun">일</span>
+				</div>
+				<div class="cal-grid" id="cal-grid"></div>
 			</div>
-			<button class="btn btn-primary btn-sm" onclick="showAssignModal()"><i class="fas fa-plus"></i> 과제 배정</button>
+			<div class="cal-side">
+				<div class="cal-side-header" id="cal-side-header">날짜를 선택하세요</div>
+				<div class="cal-side-tabs">
+					<button class="cal-side-tab active" onclick="switchSideTab('assign', event)" id="side-tab-assign">📋 배정</button>
+					<button class="cal-side-tab" onclick="switchSideTab('results', event)" id="side-tab-results">📊 결과</button>
+				</div>
+				<div class="cal-side-content" id="cal-side-content">
+					<div class="empty-state"><i class="fas fa-calendar-day"></i><p>날짜를 선택하면 해당일의<br>과제와 채점 결과를 확인할 수 있습니다</p></div>
+				</div>
+			</div>
 		</div>
-		<div id="assignments-list"></div>
 	</div>
 
 	<!-- 교재 관리 탭 -->
@@ -797,6 +869,14 @@ let currentResults = [];
 let currentItems = [];
 let currentResultId = null;
 let currentFilter = 'all';
+let currentAssignments = [];
+
+// 달력 상태
+const _now = new Date();
+let calYear = _now.getFullYear();
+let calMonth = _now.getMonth();
+let calSelectedDate = '';
+let calSideTab = 'assign';
 
 // 캔버스 관련
 let canvasTool = 'pen';
@@ -959,6 +1039,7 @@ window.addEventListener('beforeunload', (e) => {
 
 let currentMainTab = 'results';
 function switchMainTab(tab, e) {
+	if (!document.getElementById('tab-' + tab)) tab = 'results';
 	currentMainTab = tab;
 	document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
 	document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
@@ -1102,7 +1183,6 @@ async function loadResults() {
 	if (!currentTeacher) return;
 	try {
 		const params = new URLSearchParams({ teacher_id: currentTeacher.owner_user_id });
-		if (currentFilter !== 'all') params.append('status', currentFilter);
 		const res = await fetch(`${GRADING_SERVER_URL}/api/results?${params}`);
 		if (!res.ok) throw new Error(`서버 응답 오류 (${res.status})`);
 		const result = await res.json();
@@ -1112,53 +1192,236 @@ async function loadResults() {
 		showToast('채점 결과 로드 실패: ' + e.message, 'error');
 		currentResults = [];
 	}
-	renderResults();
+	renderCalendar();
 }
 
 function filterResults(filter) {
 	currentFilter = filter;
-	document.querySelectorAll('[id^="filter-"]').forEach(el => el.classList.remove('btn-primary'));
-	document.getElementById('filter-' + (filter === 'all' ? 'all' : filter === 'review_needed' ? 'review' : 'confirmed')).classList.add('btn-primary');
-	loadResults();
+	document.querySelectorAll('.cal-side-filter button').forEach(b => b.classList.remove('active'));
+	const btn = document.querySelector(`.cal-side-filter button[data-filter="${filter}"]`);
+	if (btn) btn.classList.add('active');
+	renderSidePanel();
 }
 
-function renderResults() {
-	const el = document.getElementById('results-list');
-	if (!currentResults.length) {
-		el.innerHTML = '<div class="empty-state"><i class="fas fa-inbox"></i><p>채점 결과가 없습니다</p></div>';
+// ============================================================
+// 달력 코어
+// ============================================================
+function _dateStr(y, m, d) {
+	return `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+function _toDateStr(dt) {
+	if (!dt) return '';
+	const d = new Date(dt);
+	if (isNaN(d)) return '';
+	return _dateStr(d.getFullYear(), d.getMonth(), d.getDate());
+}
+function _formatDateHeader(ds) {
+	if (!ds) return '날짜를 선택하세요';
+	const d = new Date(ds + 'T00:00:00');
+	const days = ['일','월','화','수','목','금','토'];
+	return `${d.getMonth() + 1}월 ${d.getDate()}일 (${days[d.getDay()]})`;
+}
+
+function _getCalendarEvents() {
+	const resultsByDate = {};
+	const assignsByDate = {};
+	for (const r of currentResults) {
+		const ds = _toDateStr(r.created_at);
+		if (!ds) continue;
+		if (!resultsByDate[ds]) resultsByDate[ds] = [];
+		resultsByDate[ds].push(r);
+	}
+	for (const a of currentAssignments) {
+		const ds = a.due_date || '';
+		if (!ds) continue;
+		if (!assignsByDate[ds]) assignsByDate[ds] = [];
+		assignsByDate[ds].push(a);
+	}
+	return { resultsByDate, assignsByDate };
+}
+
+function renderCalendar() {
+	const grid = document.getElementById('cal-grid');
+	const titleEl = document.getElementById('cal-title');
+	if (!grid || !titleEl) return;
+
+	titleEl.textContent = `${calYear}년 ${calMonth + 1}월`;
+
+	const firstDay = new Date(calYear, calMonth, 1);
+	const lastDay = new Date(calYear, calMonth + 1, 0);
+	let startDow = firstDay.getDay();
+	if (startDow === 0) startDow = 7;
+	startDow--;
+
+	const today = new Date();
+	const todayStr = _dateStr(today.getFullYear(), today.getMonth(), today.getDate());
+
+	const { resultsByDate, assignsByDate } = _getCalendarEvents();
+
+	let html = '';
+
+	const prevLast = new Date(calYear, calMonth, 0);
+	for (let i = startDow - 1; i >= 0; i--) {
+		const d = prevLast.getDate() - i;
+		const ds = _dateStr(prevLast.getFullYear(), prevLast.getMonth(), d);
+		html += _renderCell(d, ds, 'other', todayStr, resultsByDate, assignsByDate);
+	}
+
+	for (let d = 1; d <= lastDay.getDate(); d++) {
+		const ds = _dateStr(calYear, calMonth, d);
+		html += _renderCell(d, ds, '', todayStr, resultsByDate, assignsByDate);
+	}
+
+	const totalCells = startDow + lastDay.getDate();
+	const remaining = (7 - (totalCells % 7)) % 7;
+	for (let d = 1; d <= remaining; d++) {
+		const nextMonth = calMonth + 1;
+		const ny = nextMonth > 11 ? calYear + 1 : calYear;
+		const nm = nextMonth > 11 ? 0 : nextMonth;
+		const ds = _dateStr(ny, nm, d);
+		html += _renderCell(d, ds, 'other', todayStr, resultsByDate, assignsByDate);
+	}
+
+	grid.innerHTML = html;
+	renderSidePanel();
+}
+
+function _renderCell(d, ds, extraCls, todayStr, resultsByDate, assignsByDate) {
+	const isToday = ds === todayStr;
+	const isSelected = ds === calSelectedDate;
+	const dow = new Date(ds + 'T00:00:00').getDay();
+	const dowCls = dow === 0 ? 'cal-sun' : dow === 6 ? 'cal-sat' : '';
+	let cls = `cal-cell ${dowCls}`;
+	if (isToday) cls += ' cal-today';
+	if (isSelected) cls += ' cal-selected';
+	if (extraCls) cls += ` cal-${extraCls}`;
+
+	let dots = '';
+	const assigns = assignsByDate[ds];
+	const results = resultsByDate[ds];
+	if (assigns || results) {
+		dots = '<div class="cal-dots">';
+		if (assigns) dots += '<span class="cal-dot dot-assign"></span>';
+		if (results) {
+			const statuses = new Set(results.map(r => r.status));
+			if (statuses.has('confirmed')) dots += '<span class="cal-dot dot-confirmed"></span>';
+			if (statuses.has('review_needed')) dots += '<span class="cal-dot dot-review"></span>';
+			if (statuses.has('failed')) dots += '<span class="cal-dot dot-failed"></span>';
+			if (statuses.has('grading') || statuses.has('regrading')) dots += '<span class="cal-dot dot-grading"></span>';
+		}
+		dots += '</div>';
+		const cnt = (assigns ? assigns.length : 0) + (results ? results.length : 0);
+		if (cnt > 1) dots += `<span class="cal-count">${cnt}건</span>`;
+	}
+
+	return `<div class="${cls}" onclick="selectDate('${ds}')">
+		<span class="cal-date">${d}</span>${dots}</div>`;
+}
+
+function navigateMonth(delta) {
+	calMonth += delta;
+	if (calMonth > 11) { calMonth = 0; calYear++; }
+	else if (calMonth < 0) { calMonth = 11; calYear--; }
+	calSelectedDate = '';
+	renderCalendar();
+}
+
+function goToday() {
+	const t = new Date();
+	calYear = t.getFullYear();
+	calMonth = t.getMonth();
+	calSelectedDate = _dateStr(t.getFullYear(), t.getMonth(), t.getDate());
+	renderCalendar();
+}
+
+function selectDate(ds) {
+	calSelectedDate = ds;
+	renderCalendar();
+}
+
+function switchSideTab(tab, e) {
+	calSideTab = tab;
+	document.querySelectorAll('.cal-side-tab').forEach(b => b.classList.remove('active'));
+	if (e) (e.target.closest('.cal-side-tab') || e.target).classList.add('active');
+	else {
+		const btn = document.getElementById('side-tab-' + tab);
+		if (btn) btn.classList.add('active');
+	}
+	renderSidePanel();
+}
+
+function renderSidePanel() {
+	const header = document.getElementById('cal-side-header');
+	const content = document.getElementById('cal-side-content');
+	if (!header || !content) return;
+
+	header.textContent = _formatDateHeader(calSelectedDate);
+
+	if (!calSelectedDate) {
+		content.innerHTML = '<div class="empty-state" style="padding:30px 10px;"><i class="fas fa-calendar-day" style="font-size:32px;margin-bottom:8px;opacity:0.3;"></i><p style="font-size:13px;">날짜를 선택하면 해당일의<br>과제와 채점 결과를 확인할 수 있습니다</p></div>';
 		return;
 	}
-	el.innerHTML = currentResults.map(r => {
-		const student = r.students || {};
+
+	const { resultsByDate, assignsByDate } = _getCalendarEvents();
+
+	if (calSideTab === 'assign') {
+		const addBtn = `<button class="btn btn-primary btn-sm" style="width:100%;margin-bottom:10px;font-size:12px;" onclick="showAssignModal('${calSelectedDate}')"><i class="fas fa-plus" style="margin-right:4px;"></i>과제 배정</button>`;
+		const items = assignsByDate[calSelectedDate] || [];
+		if (!items.length) {
+			content.innerHTML = addBtn + '<div class="empty-state" style="padding:20px 10px;"><i class="fas fa-clipboard-list" style="font-size:28px;margin-bottom:8px;opacity:0.3;"></i><p style="font-size:12px;">이 날짜에 배정된 과제가 없습니다</p></div>';
+			return;
+		}
+		content.innerHTML = addBtn + items.map(a => {
+			const key = a.answer_keys;
+			const students = a.assigned_students || [];
+			const stuTags = students.length ? `<div class="cal-assign-students">${students.slice(0, 5).map(sid => `<span class="cal-assign-tag">${sid}</span>`).join('')}${students.length > 5 ? `<span class="cal-assign-tag">+${students.length - 5}</span>` : ''}</div>` : '';
+			return `<div class="cal-assign-item">
+				<div class="cal-assign-title">${escapeHtml(a.title)}</div>
+				<div class="cal-assign-sub">${key ? escapeHtml(key.title) + (key.subject ? ' · ' + escapeHtml(key.subject) : '') : '자동 검색'}${a.page_range ? ' · p.' + escapeHtml(a.page_range) : ''}</div>
+				${stuTags}
+				<button class="cal-assign-del" onclick="deleteAssignment(${a.id})" title="삭제"><i class="fas fa-trash-alt"></i></button>
+			</div>`;
+		}).join('');
+	} else {
+		let results = resultsByDate[calSelectedDate] || [];
+		const filterHtml = `<div class="cal-side-filter">
+			<button data-filter="all" class="${currentFilter === 'all' ? 'active' : ''}" onclick="filterResults('all')">전체</button>
+			<button data-filter="review_needed" class="${currentFilter === 'review_needed' ? 'active' : ''}" onclick="filterResults('review_needed')">검토 필요</button>
+			<button data-filter="confirmed" class="${currentFilter === 'confirmed' ? 'active' : ''}" onclick="filterResults('confirmed')">확정</button>
+		</div>`;
+
+		if (currentFilter !== 'all') {
+			results = results.filter(r => r.status === currentFilter);
+		}
+
+		if (!results.length) {
+			content.innerHTML = filterHtml + '<div class="empty-state" style="padding:20px 10px;"><i class="fas fa-inbox" style="font-size:28px;margin-bottom:8px;opacity:0.3;"></i><p style="font-size:12px;">이 날짜에 채점 결과가 없습니다</p></div>';
+			return;
+		}
+
 		const statusMap = {
 			confirmed: { cls:'badge-confirmed', text:'확정', bg:'rgba(34,197,94,0.15)', icon:'✅' },
 			review_needed: { cls:'badge-review', text:'검토 필요', bg:'rgba(234,179,8,0.15)', icon:'⚠️' },
 			failed: { cls:'badge-failed', text:'채점 실패', bg:'rgba(239,68,68,0.15)', icon:'❌' },
 			regrading: { cls:'badge-regrading', text:'재채점 중', bg:'rgba(129,140,248,0.15)', icon:'🔄' },
 		};
-		const sm = statusMap[r.status] || { cls:'badge-grading', text:'채점 중', bg:'rgba(129,140,248,0.15)', icon:'⏳' };
-		const statusCls = sm.cls, statusText = sm.text, iconBg = sm.bg, icon = sm.icon;
-		const date = new Date(r.created_at).toLocaleDateString('ko-KR');
-		const unanswered = r.unanswered_count || 0;
-		const unansweredTag = unanswered > 0 ? ` 📝${unanswered}` : '';
-		const pageInfo = r.page_info ? `<div style="font-size:11px;color:var(--teal);margin-top:2px;">${escapeHtml(r.page_info)}</div>` : '';
-		return `<div class="list-item" style="position:relative;">
-			<div style="display:flex;align-items:center;gap:12px;flex:1;cursor:pointer;" onclick="openDetail(${r.id})">
-				<div class="list-item-icon" style="background:${iconBg};">${icon}</div>
-				<div class="list-item-info">
-					<div class="list-item-title">${escapeHtml(student.name || '?')} - ${r.total_score}/${r.max_score}점</div>
-					<div class="list-item-sub">⭕${r.correct_count} ✘${r.wrong_count} ❓${r.uncertain_count}${unansweredTag} · ${date}</div>
-					${pageInfo}
+
+		content.innerHTML = filterHtml + results.map(r => {
+			const student = r.students || {};
+			const sm = statusMap[r.status] || { cls:'badge-grading', text:'채점 중', bg:'rgba(129,140,248,0.15)', icon:'⏳' };
+			const unanswered = r.unanswered_count || 0;
+			const unansweredTag = unanswered > 0 ? ` · 미풀이 ${unanswered}` : '';
+			return `<div class="cal-result-item" onclick="openDetail(${r.id})">
+				<div class="cal-result-icon" style="background:${sm.bg};">${sm.icon}</div>
+				<div class="cal-result-info">
+					<div class="cal-result-title">${escapeHtml(student.name || '?')} · ${r.total_score}/${r.max_score}점</div>
+					<div class="cal-result-sub">⭕${r.correct_count} ✘${r.wrong_count} ❓${r.uncertain_count}${unansweredTag}</div>
 				</div>
-				<span class="list-item-badge ${statusCls}">${statusText}</span>
-			</div>
-			<button onclick="event.stopPropagation();deleteResult(${r.id},'${escapeHtml(student.name || '?')}')" title="삭제"
-				style="background:none;border:none;color:var(--red,#ef4444);cursor:pointer;padding:8px;font-size:14px;opacity:0.4;transition:opacity 0.2s;margin-left:4px;"
-				onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.4'">
-				<i class="fas fa-trash-alt"></i>
-			</button>
-		</div>`;
-	}).join('');
+				<span class="cal-result-badge ${sm.cls}">${sm.text}</span>
+				<button class="cal-result-del" onclick="event.stopPropagation();deleteResult(${r.id},'${escapeHtml(student.name || '?')}')" title="삭제"><i class="fas fa-trash-alt"></i></button>
+			</div>`;
+		}).join('');
+	}
 }
 
 // ============================================================
@@ -1471,36 +1734,21 @@ async function deleteResult(resultId, studentName) {
 // ============================================================
 async function loadAssignments() {
 	if (!currentTeacher) return;
-	let data = [];
 	try {
 		const res = await fetch(`${GRADING_SERVER_URL}/api/assignments?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`);
 		const result = await res.json();
-		data = result.data || [];
+		currentAssignments = result.data || [];
 	} catch (e) {
 		console.warn('과제 목록 로드 실패:', e);
+		currentAssignments = [];
 	}
-	const el = document.getElementById('assignments-list');
-	if (!data?.length) {
-		el.innerHTML = '<div class="empty-state"><i class="fas fa-clipboard-list"></i><p>배정된 과제가 없습니다</p></div>';
-		return;
-	}
-	el.innerHTML = data.map(a => {
-		const key = a.answer_keys;
-		return `<div class="list-item">
-			<div class="list-item-icon" style="background:rgba(129,140,248,0.15);">📋</div>
-			<div class="list-item-info">
-				<div class="list-item-title">${escapeHtml(a.title)}</div>
-				<div class="list-item-sub">${key ? key.title + ' · ' + (key.subject || '') : '자동 검색'} · ${a.page_range || ''}</div>
-			</div>
-			<span style="font-size:12px;color:var(--text-sec);">${a.due_date || ''}</span>
-		</div>`;
-	}).join('');
+	renderCalendar();
 }
 
 let assignStudentList = [];
 let assignSelectedStudents = [];
 
-async function showAssignModal() {
+async function showAssignModal(prefillDate) {
 	let keys = [];
 	assignSelectedStudents = [];
 	try {
@@ -1522,8 +1770,14 @@ async function showAssignModal() {
 	const sel = document.getElementById('assign-key');
 	sel.innerHTML = '<option value="">교재를 선택해주세요</option>' + keys.map(k => `<option value="${k.id}">${k.title} (${k.subject || ''})</option>`).join('');
 	document.getElementById('assign-student-search').value = '';
+	document.getElementById('assign-title').value = '';
+	document.getElementById('assign-pages').value = '';
 	renderSelectedStudents();
 	document.getElementById('assign-student-dropdown').style.display = 'none';
+
+	const dueInput = document.getElementById('assign-due');
+	dueInput.value = prefillDate || '';
+
 	document.getElementById('assign-modal').classList.add('show');
 }
 
@@ -1605,6 +1859,18 @@ async function createAssignment() {
 	showToast('과제가 배정되었습니다', 'success');
 	closeModal('assign-modal');
 	loadAssignments();
+}
+
+async function deleteAssignment(id) {
+	if (!confirm('이 과제 배정을 삭제하시겠습니까?')) return;
+	try {
+		const res = await fetch(`${GRADING_SERVER_URL}/api/assignments/${id}`, { method: 'DELETE' });
+		if (!res.ok) throw new Error('삭제 실패');
+		showToast('과제가 삭제되었습니다', 'success');
+		loadAssignments();
+	} catch (e) {
+		showToast('과제 삭제 실패: ' + e.message, 'error');
+	}
 }
 
 // ============================================================

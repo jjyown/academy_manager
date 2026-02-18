@@ -63,7 +63,22 @@ async def get_answer_keys_by_teacher(teacher_id: str, parsed_only: bool = False)
 
 async def upsert_answer_key(data: dict) -> dict:
     sb = get_supabase()
-    res = sb.table("answer_keys").upsert(data).execute()
+    if data.get("id"):
+        res = sb.table("answer_keys").upsert(data).execute()
+    else:
+        teacher_id = data.get("teacher_id")
+        title = data.get("title")
+        if teacher_id and title:
+            existing = sb.table("answer_keys").select("id").eq(
+                "teacher_id", teacher_id
+            ).eq("title", title).limit(1).execute()
+            if existing.data:
+                data["id"] = existing.data[0]["id"]
+                res = sb.table("answer_keys").update(data).eq("id", data["id"]).execute()
+            else:
+                res = sb.table("answer_keys").insert(data).execute()
+        else:
+            res = sb.table("answer_keys").insert(data).execute()
     return res.data[0] if res.data else {}
 
 
@@ -89,6 +104,12 @@ async def create_assignment(data: dict) -> dict:
     sb = get_supabase()
     res = sb.table("grading_assignments").insert(data).execute()
     return res.data[0] if res.data else {}
+
+
+async def delete_assignment(assignment_id: int) -> bool:
+    sb = get_supabase()
+    res = sb.table("grading_assignments").delete().eq("id", assignment_id).execute()
+    return bool(res.data)
 
 
 async def get_student_assigned_key(student_id: int) -> dict | None:

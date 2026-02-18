@@ -34,7 +34,7 @@ from grading.hml_parser import extract_answers_from_hml
 from integrations.supabase_client import (
     get_central_admin_token,
     get_answer_key, get_answer_keys_by_teacher, upsert_answer_key,
-    get_assignment, get_assignments_by_teacher, create_assignment,
+    get_assignment, get_assignments_by_teacher, create_assignment, delete_assignment,
     get_student_assigned_key,
     create_grading_result, update_grading_result,
     get_grading_results_by_teacher, get_grading_results_by_student,
@@ -394,7 +394,12 @@ async def create_new_assignment(
     page_range: str = Form(""),
     due_date: str = Form(None),
     mode: str = Form("assigned"),
+    assigned_students: str = Form("[]"),
 ):
+    try:
+        students = json.loads(assigned_students)
+    except Exception:
+        students = []
     data = {
         "teacher_id": teacher_id,
         "title": title,
@@ -402,9 +407,18 @@ async def create_new_assignment(
         "page_range": page_range,
         "due_date": due_date,
         "mode": mode,
+        "assigned_students": students,
     }
     result = await create_assignment(data)
     return {"data": result}
+
+
+@app.delete("/api/assignments/{assignment_id}")
+async def delete_assignment_endpoint(assignment_id: int):
+    ok = await delete_assignment(assignment_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="과제를 찾을 수 없습니다")
+    return {"ok": True}
 
 
 # ============================================================

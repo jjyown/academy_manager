@@ -171,6 +171,17 @@ DO $$ BEGIN
   END IF;
 END $$;
 
+-- answer_keys: 같은 선생님이 같은 제목으로 중복 등록 방지
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'uq_answer_keys_teacher_title'
+  ) THEN
+    ALTER TABLE answer_keys
+      ADD CONSTRAINT uq_answer_keys_teacher_title
+      UNIQUE (teacher_id, title);
+  END IF;
+END $$;
+
 -- ============================================================
 -- 인덱스
 -- ============================================================
