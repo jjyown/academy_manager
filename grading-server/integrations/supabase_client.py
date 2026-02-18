@@ -106,6 +106,12 @@ async def create_assignment(data: dict) -> dict:
     return res.data[0] if res.data else {}
 
 
+async def update_assignment(assignment_id: int, data: dict) -> dict:
+    sb = get_supabase()
+    res = sb.table("grading_assignments").update(data).eq("id", assignment_id).execute()
+    return res.data[0] if res.data else {}
+
+
 async def delete_assignment(assignment_id: int) -> bool:
     sb = get_supabase()
     res = sb.table("grading_assignments").delete().eq("id", assignment_id).execute()

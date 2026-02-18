@@ -790,7 +790,7 @@
 <!-- 과제 배정 모달 -->
 <div class="modal-overlay" id="assign-modal">
 	<div class="modal-box">
-		<div class="modal-title"><i class="fas fa-clipboard-list" style="color:var(--primary);"></i> 과제 배정</div>
+		<div class="modal-title"><i class="fas fa-clipboard-list" style="color:var(--primary);"></i> <span id="assign-modal-title">과제 배정</span></div>
 		<div class="form-group">
 			<label class="form-label">과제 제목</label>
 			<input class="input" id="assign-title" placeholder="예: 수학 42~45쪽">
@@ -819,7 +819,7 @@
 			<input class="input" id="assign-due" type="date">
 		</div>
 		<div style="display:flex;gap:8px;margin-top:16px;">
-			<button class="btn btn-primary" style="flex:1;" onclick="createAssignment()">배정</button>
+			<button class="btn btn-primary" style="flex:1;" onclick="createAssignment()" id="assign-modal-btn">배정</button>
 			<button class="btn btn-outline" style="flex:1;" onclick="closeModal('assign-modal')">취소</button>
 		</div>
 	</div>
@@ -1433,11 +1433,11 @@ function renderSidePanel() {
 			const key = a.answer_keys;
 			const students = a.assigned_students || [];
 			const stuTags = students.length ? `<div class="cal-assign-students">${students.slice(0, 5).map(sid => `<span class="cal-assign-tag">${sid}</span>`).join('')}${students.length > 5 ? `<span class="cal-assign-tag">+${students.length - 5}</span>` : ''}</div>` : '';
-			return `<div class="cal-assign-item">
+			return `<div class="cal-assign-item" style="cursor:pointer;" onclick="editAssignment(${a.id})">
 				<div class="cal-assign-title">${escapeHtml(a.title)}</div>
 				<div class="cal-assign-sub">${key ? escapeHtml(key.title) + (key.subject ? ' · ' + escapeHtml(key.subject) : '') : '자동 검색'}${a.page_range ? ' · p.' + escapeHtml(a.page_range) : ''}</div>
 				${stuTags}
-				<button class="cal-assign-del" onclick="deleteAssignment(${a.id})" title="삭제"><i class="fas fa-trash-alt"></i></button>
+				<button class="cal-assign-del" onclick="event.stopPropagation();deleteAssignment(${a.id})" title="삭제"><i class="fas fa-trash-alt"></i></button>
 			</div>`;
 		}).join('');
 	} else {
@@ -2005,8 +2005,10 @@ async function loadAssignments() {
 
 let assignStudentList = [];
 let assignSelectedStudents = [];
+let editingAssignmentId = null;
 
 async function showAssignModal(prefillDate) {
+	editingAssignmentId = null;
 	let keys = [];
 	assignSelectedStudents = [];
 	try {
@@ -2036,6 +2038,8 @@ async function showAssignModal(prefillDate) {
 	const dueInput = document.getElementById('assign-due');
 	dueInput.value = prefillDate || '';
 
+	document.getElementById('assign-modal-title').textContent = editingAssignmentId ? '과제 수정' : '과제 배정';
+	document.getElementById('assign-modal-btn').textContent = editingAssignmentId ? '수정' : '배정';
 	document.getElementById('assign-modal').classList.add('show');
 }
 
@@ -2089,6 +2093,44 @@ function renderSelectedStudents() {
 	).join('');
 }
 
+async function editAssignment(assignId) {
+	const a = currentAssignments.find(x => x.id === assignId);
+	if (!a) return;
+	editingAssignmentId = assignId;
+
+	let keys = [];
+	assignSelectedStudents = [];
+	try {
+		const keysRes = await fetch(`${GRADING_SERVER_URL}/api/answer-keys?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`);
+		keys = (await keysRes.json()).data || [];
+	} catch (e) {}
+	try {
+		const { data: d1 } = await db.from('students').select('id, name, grade, school').eq('owner_user_id', currentTeacher.owner_user_id).order('name');
+		const { data: d2 } = await db.from('students').select('id, name, grade, school').eq('teacher_id', currentTeacher.id).order('name');
+		const merged = new Map();
+		[...(d1 || []), ...(d2 || [])].forEach(s => merged.set(s.id, s));
+		assignStudentList = [...merged.values()].sort((x, y) => (x.name || '').localeCompare(y.name || ''));
+	} catch (e) {}
+
+	const sel = document.getElementById('assign-key');
+	sel.innerHTML = '<option value="">교재를 선택해주세요</option>' + keys.map(k => `<option value="${k.id}">${k.title} (${k.subject || ''})</option>`).join('');
+
+	document.getElementById('assign-title').value = a.title || '';
+	sel.value = a.answer_key_id || '';
+	document.getElementById('assign-pages').value = a.page_range || '';
+	document.getElementById('assign-due').value = a.due_date || '';
+
+	const stuIds = a.assigned_students || [];
+	assignSelectedStudents = stuIds.map(sid => assignStudentList.find(s => s.id === sid)).filter(Boolean);
+	renderSelectedStudents();
+
+	document.getElementById('assign-student-search').value = '';
+	document.getElementById('assign-student-dropdown').style.display = 'none';
+	document.getElementById('assign-modal-title').textContent = '과제 수정';
+	document.getElementById('assign-modal-btn').textContent = '수정';
+	document.getElementById('assign-modal').classList.add('show');
+}
+
 async function createAssignment() {
 	const title = document.getElementById('assign-title').value.trim();
 	if (!title) return showToast('과제 제목을 입력하세요', 'error');
@@ -2101,20 +2143,27 @@ async function createAssignment() {
 
 	try {
 		const formData = new FormData();
-		formData.append('teacher_id', currentTeacher.owner_user_id);
 		formData.append('title', title);
 		formData.append('answer_key_id', keyId);
 		formData.append('page_range', document.getElementById('assign-pages').value);
 		formData.append('assigned_students', JSON.stringify(selectedStudents));
 		const due = document.getElementById('assign-due').value;
 		if (due) formData.append('due_date', due);
-		formData.append('mode', 'assigned');
-		const res = await fetch(`${GRADING_SERVER_URL}/api/assignments`, { method: 'POST', body: formData });
-		if (!res.ok) return showToast('배정 실패', 'error');
+
+		let res;
+		if (editingAssignmentId) {
+			res = await fetch(`${GRADING_SERVER_URL}/api/assignments/${editingAssignmentId}`, { method: 'PUT', body: formData });
+		} else {
+			formData.append('teacher_id', currentTeacher.owner_user_id);
+			formData.append('mode', 'assigned');
+			res = await fetch(`${GRADING_SERVER_URL}/api/assignments`, { method: 'POST', body: formData });
+		}
+		if (!res.ok) return showToast(editingAssignmentId ? '수정 실패' : '배정 실패', 'error');
 	} catch (e) {
 		return showToast('서버 연결 실패', 'error');
 	}
-	showToast('과제가 배정되었습니다', 'success');
+	showToast(editingAssignmentId ? '과제가 수정되었습니다' : '과제가 배정되었습니다', 'success');
+	editingAssignmentId = null;
 	closeModal('assign-modal');
 	loadAssignments();
 }

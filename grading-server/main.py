@@ -34,7 +34,7 @@ from grading.hml_parser import extract_answers_from_hml
 from integrations.supabase_client import (
     get_central_admin_token,
     get_answer_key, get_answer_keys_by_teacher, upsert_answer_key,
-    get_assignment, get_assignments_by_teacher, create_assignment, delete_assignment,
+    get_assignment, get_assignments_by_teacher, create_assignment, update_assignment, delete_assignment,
     get_student_assigned_key,
     get_student_books, get_student_books_by_teacher, add_student_book, remove_student_book, get_student_book_keys,
     create_grading_result, update_grading_result,
@@ -422,6 +422,32 @@ async def create_new_assignment(
         "assigned_students": students,
     }
     result = await create_assignment(data)
+    return {"data": result}
+
+
+@app.put("/api/assignments/{assignment_id}")
+async def update_assignment_endpoint(
+    assignment_id: int,
+    title: str = Form(...),
+    answer_key_id: int = Form(None),
+    page_range: str = Form(""),
+    due_date: str = Form(None),
+    assigned_students: str = Form("[]"),
+):
+    try:
+        students = json.loads(assigned_students)
+    except Exception:
+        students = []
+    data = {
+        "title": title,
+        "answer_key_id": answer_key_id,
+        "page_range": page_range,
+        "due_date": due_date,
+        "assigned_students": students,
+    }
+    result = await update_assignment(assignment_id, data)
+    if not result:
+        raise HTTPException(status_code=404, detail="과제를 찾을 수 없습니다")
     return {"data": result}
 
 
@@ -1083,10 +1109,11 @@ async def _execute_grading(
         logger.warning(f"배정된 교재 없음 (student: {student_id}) → 확인 요청 상태로 전환")
 
         now = datetime.now()
-        now_str = now.strftime('%Y%m%d_%H%M')
+        date_label = f"{now.year}년 {now.month}월 {now.day}일"
+        folder_date = f"{date_label} {student['name']}"
         for idx, img_bytes in enumerate(image_bytes_list):
-            filename = f"{student['name']}_{now_str}_{idx+1}_원본.jpg"
-            sub_path = [str(now.year), f"{now.month:02d}", f"{now.day:02d}", student["name"]]
+            filename = f"{date_label} {student['name']} 원본_{idx+1}.jpg"
+            sub_path = [folder_date]
             uploaded = upload_to_central(
                 central_token, CENTRAL_GRADED_RESULT_FOLDER, sub_path, filename, img_bytes
             )
@@ -1163,9 +1190,9 @@ async def _execute_grading(
             page_info_parts.append(f"풀이노트 {solution_only_count}")
 
             now = datetime.now()
-            now_str = now.strftime('%Y%m%d_%H%M')
-            filename = f"{student['name']}_{now_str}_{idx+1}_풀이.jpg"
-            sub_path = [str(now.year), f"{now.month:02d}", f"{now.day:02d}", student["name"]]
+            date_label = f"{now.year}년 {now.month}월 {now.day}일"
+            filename = f"{date_label} {student['name']} 풀이_{idx+1}.jpg"
+            sub_path = [f"{date_label} {student['name']}"]
             central_uploaded = upload_to_central(
                 central_token, CENTRAL_GRADED_RESULT_FOLDER, sub_path, filename, img_bytes
             )
@@ -1203,9 +1230,9 @@ async def _execute_grading(
         )
 
         now = datetime.now()
-        now_str = now.strftime('%Y%m%d_%H%M')
-        filename = f"{student['name']}_{now_str}_{idx+1}.jpg"
-        sub_path = [str(now.year), f"{now.month:02d}", f"{now.day:02d}", student["name"]]
+        date_label = f"{now.year}년 {now.month}월 {now.day}일"
+        filename = f"{date_label} {student['name']} 채점_{idx+1}.jpg"
+        sub_path = [f"{date_label} {student['name']}"]
 
         central_uploaded = upload_to_central(
             central_token, CENTRAL_GRADED_RESULT_FOLDER, sub_path, filename, graded_img
