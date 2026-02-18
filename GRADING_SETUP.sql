@@ -136,7 +136,16 @@ CREATE TABLE IF NOT EXISTS evaluations (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 7) 알림
+-- 7) 학생-교재 연결 (학생이 현재 풀고 있는 교재 목록)
+CREATE TABLE IF NOT EXISTS student_books (
+    id BIGSERIAL PRIMARY KEY,
+    student_id BIGINT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+    answer_key_id BIGINT NOT NULL REFERENCES answer_keys(id) ON DELETE CASCADE,
+    teacher_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 8) 알림
 CREATE TABLE IF NOT EXISTS notifications (
     id BIGSERIAL PRIMARY KEY,
     teacher_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -171,6 +180,17 @@ DO $$ BEGIN
   END IF;
 END $$;
 
+-- student_books: 같은 학생에게 같은 교재 중복 방지
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'uq_student_books_student_key'
+  ) THEN
+    ALTER TABLE student_books
+      ADD CONSTRAINT uq_student_books_student_key
+      UNIQUE (student_id, answer_key_id);
+  END IF;
+END $$;
+
 -- answer_keys: 같은 선생님이 같은 제목으로 중복 등록 방지
 DO $$ BEGIN
   IF NOT EXISTS (
@@ -196,6 +216,8 @@ CREATE INDEX IF NOT EXISTS idx_grading_items_result ON grading_items(result_id);
 CREATE INDEX IF NOT EXISTS idx_grading_stats_teacher_month ON grading_stats(teacher_id, month);
 CREATE INDEX IF NOT EXISTS idx_homework_grading_status ON homework_submissions(grading_status);
 CREATE INDEX IF NOT EXISTS idx_notifications_teacher ON notifications(teacher_id);
+CREATE INDEX IF NOT EXISTS idx_student_books_student ON student_books(student_id);
+CREATE INDEX IF NOT EXISTS idx_student_books_teacher ON student_books(teacher_id);
 
 -- ============================================================
 -- RLS 정책
@@ -266,6 +288,14 @@ DO $$ BEGIN
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'evaluations_authenticated_read' AND tablename = 'evaluations') THEN
     EXECUTE 'CREATE POLICY evaluations_authenticated_read ON evaluations FOR SELECT USING (auth.role() = ''authenticated'')';
+  END IF;
+END $$;
+
+-- student_books: 본인 데이터만
+ALTER TABLE student_books ENABLE ROW LEVEL SECURITY;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'student_books_teacher_all' AND tablename = 'student_books') THEN
+    EXECUTE 'CREATE POLICY student_books_teacher_all ON student_books FOR ALL USING (auth.uid() = teacher_id)';
   END IF;
 END $$;
 

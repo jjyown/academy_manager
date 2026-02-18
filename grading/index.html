@@ -359,6 +359,50 @@
 		.progress-fill { height:100%; background:linear-gradient(90deg, var(--primary), var(--teal)); border-radius:4px; transition:width 0.5s ease; }
 		.progress-card .pc-detail { font-size:11px; color:var(--text-sec); margin-top:6px; }
 		@keyframes progressPulse { 0%,100%{border-color:rgba(129,140,248,0.4)} 50%{border-color:var(--primary)} }
+
+		/* 학생 목록 탭 — 2-column drag & drop */
+		.stu-layout { display:grid; grid-template-columns:260px 1fr; gap:0; min-height:calc(100vh - 120px); }
+		.stu-sidebar { background:var(--bg-card); border-right:1px solid var(--border); padding:12px; overflow-y:auto; display:flex; flex-direction:column; gap:8px; }
+		.stu-sidebar-title { font-size:13px; font-weight:700; color:var(--text-sec); margin-bottom:4px; display:flex; align-items:center; gap:6px; }
+		.stu-drag-item { display:flex; align-items:center; gap:8px; padding:9px 11px; background:var(--bg-elevated); border-radius:10px; cursor:grab; border:1px solid transparent; transition:all 0.15s; font-size:12px; user-select:none; }
+		.stu-drag-item:hover { border-color:var(--primary); background:rgba(129,140,248,0.08); }
+		.stu-drag-item:active { cursor:grabbing; }
+		.stu-drag-item.dragging { opacity:0.5; }
+		.stu-drag-icon { color:var(--text-sec); font-size:10px; flex-shrink:0; }
+		.stu-drag-title { flex:1; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+		.stu-drag-sub { font-size:10px; color:var(--text-sec); flex-shrink:0; }
+
+		.stu-main { padding:12px; overflow-y:auto; }
+		.stu-search-bar { display:flex; align-items:center; gap:8px; background:var(--bg-elevated); border-radius:10px; padding:4px 12px; margin-bottom:12px; }
+		.stu-grade-group { margin-bottom:16px; }
+		.stu-grade-header { font-size:13px; font-weight:700; color:var(--text-sec); padding:4px 4px 8px; display:flex; align-items:center; gap:6px; border-bottom:1px solid var(--border); margin-bottom:8px; }
+		.stu-grade-header .stu-grade-count { font-size:11px; font-weight:600; color:var(--gray); }
+
+		.stu-card { background:var(--bg-card); border-radius:var(--radius); border:2px solid var(--border); margin-bottom:8px; overflow:hidden; transition:all 0.2s; }
+		.stu-card:hover { border-color:rgba(129,140,248,0.3); }
+		.stu-card.drop-over { border-color:var(--primary); background:rgba(129,140,248,0.06); box-shadow:0 0 0 3px rgba(129,140,248,0.15); }
+		.stu-card-header { display:flex; align-items:center; gap:10px; padding:10px 12px; cursor:pointer; }
+		.stu-card-avatar { width:34px; height:34px; border-radius:50%; background:rgba(129,140,248,0.15); display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:700; color:var(--primary); flex-shrink:0; }
+		.stu-card-info { flex:1; min-width:0; }
+		.stu-card-name { font-size:13px; font-weight:700; }
+		.stu-card-meta { font-size:11px; color:var(--text-sec); margin-top:1px; }
+		.stu-card-books-preview { display:flex; flex-wrap:wrap; gap:4px; margin-left:auto; }
+		.stu-book-tag { padding:2px 7px; border-radius:8px; font-size:10px; font-weight:600; background:rgba(129,140,248,0.12); color:var(--primary); max-width:100px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+		.stu-card-toggle { color:var(--text-sec); font-size:11px; transition:transform 0.2s; padding:3px 5px; flex-shrink:0; }
+		.stu-card.open .stu-card-toggle { transform:rotate(180deg); }
+		.stu-card-body { display:none; padding:0 12px 10px; border-top:1px solid var(--border); }
+		.stu-card.open .stu-card-body { display:block; padding-top:8px; }
+		.stu-book-list { display:flex; flex-direction:column; gap:5px; }
+		.stu-book-item { display:flex; align-items:center; gap:8px; padding:6px 10px; background:var(--bg-elevated); border-radius:8px; font-size:12px; }
+		.stu-book-item .stu-book-title { flex:1; font-weight:600; }
+		.stu-book-item .stu-book-subject { color:var(--text-sec); font-size:11px; }
+		.stu-book-del { background:none; border:none; color:var(--text-sec); cursor:pointer; font-size:11px; padding:3px 5px; border-radius:6px; transition:all 0.15s; }
+		.stu-book-del:hover { color:#ef4444; background:rgba(239,68,68,0.1); }
+		.stu-empty-books { font-size:11px; color:var(--text-sec); text-align:center; padding:8px 0; }
+		@media (max-width:700px) {
+			.stu-layout { grid-template-columns:1fr; }
+			.stu-sidebar { border-right:none; border-bottom:1px solid var(--border); max-height:200px; }
+		}
 	</style>
 </head>
 <body>
@@ -400,6 +444,7 @@
 
 	<div class="tabs" id="main-tabs">
 		<button class="tab-btn active" onclick="switchMainTab('results', event)">📅 달력</button>
+		<button class="tab-btn" onclick="switchMainTab('students', event)">👨‍🎓 학생</button>
 		<button class="tab-btn" onclick="switchMainTab('keys', event)">📚 교재 관리</button>
 		<button class="tab-btn" onclick="switchMainTab('stats', event)">📈 통계</button>
 	</div>
@@ -430,6 +475,23 @@
 				<div class="cal-side-content" id="cal-side-content">
 					<div class="empty-state"><i class="fas fa-calendar-day"></i><p>날짜를 선택하면 해당일의<br>과제와 채점 결과를 확인할 수 있습니다</p></div>
 				</div>
+			</div>
+		</div>
+	</div>
+
+	<!-- 학생 목록 탭 -->
+	<div id="tab-students" class="tab-content" style="display:none;">
+		<div class="stu-layout">
+			<div class="stu-sidebar" id="stu-sidebar">
+				<div class="stu-sidebar-title"><i class="fas fa-book"></i> 등록 교재</div>
+				<div id="stu-book-drag-list"></div>
+			</div>
+			<div class="stu-main">
+				<div class="stu-search-bar">
+					<i class="fas fa-search" style="color:var(--text-sec);font-size:13px;"></i>
+					<input class="input" id="stu-tab-search" placeholder="학생 검색..." oninput="filterStudentList()" style="flex:1;background:transparent;border:none;padding:6px 0;">
+				</div>
+				<div id="stu-list-container"></div>
 			</div>
 		</div>
 	</div>
@@ -1093,7 +1155,7 @@ function showToast(msg, type = 'info') {
 // 데이터 로드
 // ============================================================
 async function loadAllData() {
-	await Promise.all([loadResults(), loadAssignments(), loadAnswerKeys(), loadStats()]);
+	await Promise.all([loadResults(), loadAssignments(), loadAnswerKeys(), loadStats(), loadStudentList()]);
 	startProgressPolling();
 }
 
@@ -1726,6 +1788,205 @@ async function deleteResult(resultId, studentName) {
 		}
 	} catch (e) {
 		showToast('서버 연결 실패: ' + e.message, 'error');
+	}
+}
+
+// ============================================================
+// 학생 목록 & 교재 지정 (드래그 앤 드롭)
+// ============================================================
+let stuAllStudents = [];
+let stuAllBooks = [];
+let stuBookMap = {};
+let _stuDragKeyId = null;
+
+async function loadStudentList() {
+	if (!currentTeacher) return;
+	try {
+		const { data: d1 } = await db.from('students').select('id, name, grade, school').eq('owner_user_id', currentTeacher.owner_user_id).order('name');
+		const { data: d2 } = await db.from('students').select('id, name, grade, school').eq('teacher_id', currentTeacher.id).order('name');
+		const merged = new Map();
+		[...(d1 || []), ...(d2 || [])].forEach(s => merged.set(s.id, s));
+		stuAllStudents = [...merged.values()].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+	} catch (e) { stuAllStudents = []; }
+
+	try {
+		const keysRes = await fetch(`${GRADING_SERVER_URL}/api/answer-keys?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`);
+		stuAllBooks = (await keysRes.json()).data || [];
+	} catch (e) { stuAllBooks = []; }
+
+	try {
+		const booksRes = await fetch(`${GRADING_SERVER_URL}/api/student-books?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`);
+		const allLinks = (await booksRes.json()).data || [];
+		stuBookMap = {};
+		allLinks.forEach(link => {
+			const sid = link.student_id;
+			if (!stuBookMap[sid]) stuBookMap[sid] = [];
+			stuBookMap[sid].push(link);
+		});
+	} catch (e) { stuBookMap = {}; }
+
+	renderStuSidebar();
+	renderStudentList();
+}
+
+function renderStuSidebar() {
+	const el = document.getElementById('stu-book-drag-list');
+	if (!el) return;
+	if (!stuAllBooks.length) {
+		el.innerHTML = '<div style="font-size:11px;color:var(--text-sec);text-align:center;padding:16px 0;">등록된 교재가 없습니다<br><span style="font-size:10px;">교재 관리 탭에서 먼저 등록하세요</span></div>';
+		return;
+	}
+	el.innerHTML = stuAllBooks.map(k =>
+		`<div class="stu-drag-item" draggable="true" data-key-id="${k.id}" title="${escapeHtml(k.title)}">
+			<span class="stu-drag-icon"><i class="fas fa-grip-vertical"></i></span>
+			<span class="stu-drag-title">${escapeHtml(k.title)}</span>
+			${k.subject ? `<span class="stu-drag-sub">${escapeHtml(k.subject)}</span>` : ''}
+		</div>`
+	).join('');
+
+	el.querySelectorAll('.stu-drag-item').forEach(item => {
+		item.addEventListener('dragstart', e => {
+			_stuDragKeyId = item.dataset.keyId;
+			e.dataTransfer.effectAllowed = 'copy';
+			e.dataTransfer.setData('text/plain', item.dataset.keyId);
+			item.classList.add('dragging');
+		});
+		item.addEventListener('dragend', () => {
+			_stuDragKeyId = null;
+			item.classList.remove('dragging');
+			document.querySelectorAll('.stu-card.drop-over').forEach(c => c.classList.remove('drop-over'));
+		});
+	});
+}
+
+function filterStudentList() { renderStudentList(); }
+
+function renderStudentList() {
+	const container = document.getElementById('stu-list-container');
+	if (!container) return;
+	const q = (document.getElementById('stu-tab-search')?.value || '').trim().toLowerCase();
+	let list = stuAllStudents;
+	if (q) list = list.filter(s => (s.name || '').toLowerCase().includes(q) || (s.school || '').toLowerCase().includes(q));
+
+	if (!list.length) {
+		container.innerHTML = '<div class="empty-state" style="padding:40px 10px;"><i class="fas fa-user-graduate" style="font-size:32px;margin-bottom:8px;opacity:0.3;"></i><p style="font-size:13px;">등록된 학생이 없습니다</p></div>';
+		return;
+	}
+
+	const grouped = {};
+	list.forEach(s => {
+		const g = s.grade ? s.grade + '학년' : '미지정';
+		if (!grouped[g]) grouped[g] = [];
+		grouped[g].push(s);
+	});
+
+	const gradeOrder = Object.keys(grouped).sort((a, b) => {
+		const na = parseInt(a), nb = parseInt(b);
+		if (!isNaN(na) && !isNaN(nb)) return na - nb;
+		if (a === '미지정') return 1;
+		if (b === '미지정') return -1;
+		return a.localeCompare(b);
+	});
+
+	let html = '';
+	gradeOrder.forEach(grade => {
+		const students = grouped[grade];
+		html += `<div class="stu-grade-group">
+			<div class="stu-grade-header"><i class="fas fa-users" style="font-size:12px;"></i> ${escapeHtml(grade)} <span class="stu-grade-count">(${students.length}명)</span></div>`;
+		students.forEach(s => {
+			const books = stuBookMap[s.id] || [];
+			const initial = (s.name || '?')[0];
+			const bookTags = books.slice(0, 3).map(b => {
+				const ak = b.answer_keys || {};
+				return `<span class="stu-book-tag">${escapeHtml(ak.title || '?')}</span>`;
+			}).join('') + (books.length > 3 ? `<span class="stu-book-tag">+${books.length - 3}</span>` : '');
+
+			const bookListHtml = books.length
+				? books.map(b => {
+					const ak = b.answer_keys || {};
+					return `<div class="stu-book-item">
+						<span class="stu-book-title">${escapeHtml(ak.title || '?')}</span>
+						<span class="stu-book-subject">${escapeHtml(ak.subject || '')}</span>
+						<button class="stu-book-del" onclick="event.stopPropagation();removeStudentBook(${b.id},${s.id})" title="제거"><i class="fas fa-times"></i></button>
+					</div>`;
+				}).join('')
+				: '<div class="stu-empty-books"><i class="fas fa-arrow-left" style="margin-right:4px;opacity:0.4;"></i>왼쪽에서 교재를 드래그하세요</div>';
+
+			html += `<div class="stu-card" id="stu-card-${s.id}" data-student-id="${s.id}">
+				<div class="stu-card-header" onclick="toggleStudentCard(${s.id})">
+					<div class="stu-card-avatar">${escapeHtml(initial)}</div>
+					<div class="stu-card-info">
+						<div class="stu-card-name">${escapeHtml(s.name || '이름 없음')}</div>
+						<div class="stu-card-meta">${s.school ? escapeHtml(s.school) : ''}</div>
+					</div>
+					<div class="stu-card-books-preview">${bookTags}</div>
+					<span class="stu-card-toggle"><i class="fas fa-chevron-down"></i></span>
+				</div>
+				<div class="stu-card-body">
+					<div class="stu-book-list">${bookListHtml}</div>
+				</div>
+			</div>`;
+		});
+		html += '</div>';
+	});
+
+	container.innerHTML = html;
+
+	container.querySelectorAll('.stu-card').forEach(card => {
+		const sid = parseInt(card.dataset.studentId);
+		card.addEventListener('dragover', e => {
+			e.preventDefault();
+			e.dataTransfer.dropEffect = 'copy';
+			card.classList.add('drop-over');
+		});
+		card.addEventListener('dragleave', e => {
+			if (!card.contains(e.relatedTarget)) card.classList.remove('drop-over');
+		});
+		card.addEventListener('drop', async e => {
+			e.preventDefault();
+			card.classList.remove('drop-over');
+			const keyId = e.dataTransfer.getData('text/plain') || _stuDragKeyId;
+			if (!keyId || !sid) return;
+			const existing = (stuBookMap[sid] || []).some(b => String(b.answer_key_id) === String(keyId));
+			if (existing) return showToast('이미 배정된 교재입니다', 'error');
+			await addStudentBookDrop(sid, parseInt(keyId));
+		});
+	});
+}
+
+function toggleStudentCard(studentId) {
+	const card = document.getElementById('stu-card-' + studentId);
+	if (card) card.classList.toggle('open');
+}
+
+async function addStudentBookDrop(studentId, answerKeyId) {
+	try {
+		const formData = new FormData();
+		formData.append('student_id', studentId);
+		formData.append('answer_key_id', answerKeyId);
+		formData.append('teacher_id', currentTeacher.owner_user_id);
+		const res = await fetch(`${GRADING_SERVER_URL}/api/student-books`, { method: 'POST', body: formData });
+		if (!res.ok) throw new Error('추가 실패');
+		const book = stuAllBooks.find(k => k.id === answerKeyId);
+		showToast(`${book ? book.title : '교재'}가 배정되었습니다`, 'success');
+		await loadStudentList();
+		const card = document.getElementById('stu-card-' + studentId);
+		if (card) card.classList.add('open');
+	} catch (e) {
+		showToast('교재 배정 실패: ' + e.message, 'error');
+	}
+}
+
+async function removeStudentBook(bookId, studentId) {
+	try {
+		const res = await fetch(`${GRADING_SERVER_URL}/api/student-books/${bookId}`, { method: 'DELETE' });
+		if (!res.ok) throw new Error('제거 실패');
+		showToast('교재가 제거되었습니다', 'success');
+		await loadStudentList();
+		const card = document.getElementById('stu-card-' + studentId);
+		if (card) card.classList.add('open');
+	} catch (e) {
+		showToast('교재 제거 실패: ' + e.message, 'error');
 	}
 }
 

@@ -36,6 +36,7 @@ from integrations.supabase_client import (
     get_answer_key, get_answer_keys_by_teacher, upsert_answer_key,
     get_assignment, get_assignments_by_teacher, create_assignment, delete_assignment,
     get_student_assigned_key,
+    get_student_books, get_student_books_by_teacher, add_student_book, remove_student_book, get_student_book_keys,
     create_grading_result, update_grading_result,
     get_grading_results_by_teacher, get_grading_results_by_student,
     create_grading_items, get_grading_items, update_grading_item,
@@ -418,6 +419,40 @@ async def delete_assignment_endpoint(assignment_id: int):
     ok = await delete_assignment(assignment_id)
     if not ok:
         raise HTTPException(status_code=404, detail="과제를 찾을 수 없습니다")
+    return {"ok": True}
+
+
+# ============================================================
+# 학생-교재 관리 API
+# ============================================================
+
+@app.get("/api/student-books")
+async def list_student_books(teacher_id: str):
+    data = await get_student_books_by_teacher(teacher_id)
+    return {"data": data}
+
+
+@app.get("/api/student-books/{student_id}")
+async def list_books_for_student(student_id: int):
+    data = await get_student_books(student_id)
+    return {"data": data}
+
+
+@app.post("/api/student-books")
+async def add_student_book_endpoint(
+    student_id: int = Form(...),
+    answer_key_id: int = Form(...),
+    teacher_id: str = Form(...),
+):
+    result = await add_student_book(student_id, answer_key_id, teacher_id)
+    return {"data": result}
+
+
+@app.delete("/api/student-books/{book_id}")
+async def remove_student_book_endpoint(book_id: int):
+    ok = await remove_student_book(book_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="해당 교재 연결을 찾을 수 없습니다")
     return {"ok": True}
 
 
@@ -869,6 +904,12 @@ async def grade_homework(
             answer_key = assigned
             answer_key_id = assigned.get("id")
             logger.info(f"[Assign] 학생 #{student_id} 배정 교재 → #{answer_key_id} '{assigned.get('title','')}'")
+    if not answer_key:
+        book_keys = await get_student_book_keys(student_id)
+        if book_keys:
+            answer_key = book_keys[0]
+            answer_key_id = answer_key.get("id")
+            logger.info(f"[StudentBooks] 학생 #{student_id} 교재 목록에서 선택 → #{answer_key_id} '{answer_key.get('title','')}' (총 {len(book_keys)}개)")
 
     # 이미지 가져오기
     image_bytes_list = []

@@ -129,6 +129,48 @@ async def get_student_assigned_key(student_id: int) -> dict | None:
     return None
 
 
+# ── student_books (학생-교재 연결) ──
+
+async def get_student_books(student_id: int) -> list[dict]:
+    sb = get_supabase()
+    res = sb.table("student_books").select(
+        "*, answer_keys(id, title, subject, parsed)"
+    ).eq("student_id", student_id).order("created_at", desc=True).execute()
+    return res.data or []
+
+
+async def get_student_books_by_teacher(teacher_id: str) -> list[dict]:
+    sb = get_supabase()
+    res = sb.table("student_books").select(
+        "*, answer_keys(id, title, subject)"
+    ).eq("teacher_id", teacher_id).order("student_id").execute()
+    return res.data or []
+
+
+async def add_student_book(student_id: int, answer_key_id: int, teacher_id: str) -> dict:
+    sb = get_supabase()
+    res = sb.table("student_books").upsert(
+        {"student_id": student_id, "answer_key_id": answer_key_id, "teacher_id": teacher_id},
+        on_conflict="student_id,answer_key_id",
+    ).execute()
+    return res.data[0] if res.data else {}
+
+
+async def remove_student_book(student_book_id: int) -> bool:
+    sb = get_supabase()
+    res = sb.table("student_books").delete().eq("id", student_book_id).execute()
+    return bool(res.data)
+
+
+async def get_student_book_keys(student_id: int) -> list[dict]:
+    """채점 시 학생이 풀고 있는 교재 answer_key 목록 반환"""
+    sb = get_supabase()
+    res = sb.table("student_books").select(
+        "answer_key_id, answer_keys(*)"
+    ).eq("student_id", student_id).execute()
+    return [r["answer_keys"] for r in (res.data or []) if r.get("answer_keys")]
+
+
 # ── grading_results ──
 
 async def create_grading_result(data: dict) -> dict:
