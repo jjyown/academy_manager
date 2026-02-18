@@ -2301,7 +2301,7 @@ window.openMyInfoEditModal = async function() {
     try {
         const { data, error } = await supabase
             .from('teachers')
-            .select('name, phone, google_email, address, address_detail, google_drive_connected')
+            .select('name, phone, google_email, address, address_detail')
             .eq('id', currentTeacher.id)
             .single();
 
@@ -2324,13 +2324,10 @@ window.openMyInfoEditModal = async function() {
             noEmail.style.display = 'block';
         }
 
-        // Google Drive 연결 상태 표시
-        updateDriveConnectionUI(data.google_drive_connected, data.google_email);
     } catch (e) {
         console.error('[openMyInfoEditModal] 조회 실패:', e);
         document.getElementById('my-info-name').value = currentTeacher.name || '';
         document.getElementById('my-info-phone').value = currentTeacher.phone || '';
-        updateDriveConnectionUI(false, null);
     }
 
     openModal('my-info-modal');
@@ -2394,136 +2391,6 @@ window._googleAuthTarget = null; // 'register' | 'myinfo'
 window.startGoogleAuthForMyInfo = function() {
     window._googleAuthTarget = 'myinfo';
     startGoogleAuth();
-}
-
-// ========== Google Drive 연결 (숙제 제출 시스템) ==========
-
-function updateDriveConnectionUI(isConnected, email) {
-    const connectedEl = document.getElementById('my-info-drive-connected');
-    const disconnectedEl = document.getElementById('my-info-drive-disconnected');
-    const connectBtn = document.getElementById('my-info-drive-connect-btn');
-    const disconnectBtn = document.getElementById('my-info-drive-disconnect-btn');
-    const driveEmailEl = document.getElementById('my-info-drive-email');
-
-    if (isConnected) {
-        if (connectedEl) connectedEl.style.display = 'block';
-        if (disconnectedEl) disconnectedEl.style.display = 'none';
-        if (connectBtn) connectBtn.style.display = 'none';
-        if (disconnectBtn) disconnectBtn.style.display = 'block';
-        if (driveEmailEl) driveEmailEl.textContent = email ? `(${email})` : '';
-    } else {
-        if (connectedEl) connectedEl.style.display = 'none';
-        if (disconnectedEl) disconnectedEl.style.display = 'block';
-        if (connectBtn) connectBtn.style.display = 'flex';
-        if (disconnectBtn) disconnectBtn.style.display = 'none';
-    }
-}
-
-window.connectGoogleDrive = function() {
-    if (!currentTeacher || !currentTeacher.id) {
-        showToast('선생님 정보를 찾을 수 없습니다.', 'warning');
-        return;
-    }
-
-    if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) {
-        showToast('Google 인증 서비스를 로드하는 중입니다. 잠시 후 다시 시도해주세요.', 'info');
-        return;
-    }
-
-    if (window.GOOGLE_CLIENT_ID === 'YOUR_CLIENT_ID.apps.googleusercontent.com') {
-        showToast('Google Client ID가 설정되지 않았습니다.', 'warning');
-        return;
-    }
-
-    console.log('[connectGoogleDrive] Google Drive 인증 시작 (Authorization Code Flow)');
-
-    try {
-        const codeClient = google.accounts.oauth2.initCodeClient({
-            client_id: window.GOOGLE_CLIENT_ID,
-            scope: 'email profile https://www.googleapis.com/auth/drive.file',
-            ux_mode: 'popup',
-            callback: async (response) => {
-                if (response.error) {
-                    console.error('[connectGoogleDrive] OAuth 에러:', response.error);
-                    showToast('Google 인증 실패: ' + response.error, 'error');
-                    return;
-                }
-
-                console.log('[connectGoogleDrive] 인증 코드 수신, Edge Function으로 전송...');
-                showToast('Google Drive 연결 중...', 'info');
-
-                try {
-                    const { data: result, error: fnError } = await supabase.functions.invoke('exchange-google-token', {
-                        body: {
-                            code: response.code,
-                            teacherId: currentTeacher.id,
-                            redirectUri: 'postmessage',
-                        },
-                    });
-
-                    if (fnError) {
-                        throw new Error(fnError.message || 'Drive 연결에 실패했습니다.');
-                    }
-
-                    if (result && result.error) {
-                        throw new Error(result.error);
-                    }
-
-                    console.log('[connectGoogleDrive] Drive 연결 성공:', result);
-
-                    // UI 업데이트
-                    currentTeacher.google_drive_connected = true;
-                    updateDriveConnectionUI(true, result.driveEmail || currentTeacher.google_email);
-
-                    if (!result.hasRefreshToken) {
-                        showToast('Google Drive가 연결되었습니다. (참고: 브라우저가 이전에 권한을 부여한 적이 있어 refresh token이 발급되지 않았을 수 있습니다. 문제가 있으면 Google 계정 설정에서 앱 접근 권한을 해제 후 다시 연결해주세요.)', 'warning');
-                    } else {
-                        showToast('Google Drive가 연결되었습니다!', 'success');
-                    }
-
-                } catch (err) {
-                    console.error('[connectGoogleDrive] Edge Function 에러:', err);
-                    showToast('Drive 연결 실패: ' + err.message, 'error');
-                }
-            },
-            error_callback: (error) => {
-                console.error('[connectGoogleDrive] OAuth 에러:', error);
-                if (error.type !== 'popup_closed') {
-                    showToast('Google 인증 중 오류가 발생했습니다.', 'error');
-                }
-            }
-        });
-
-        codeClient.requestCode();
-    } catch (err) {
-        console.error('[connectGoogleDrive] 예외:', err);
-        showToast('Google Drive 연결 초기화 실패: ' + err.message, 'error');
-    }
-}
-
-window.disconnectGoogleDrive = async function() {
-    if (!currentTeacher || !currentTeacher.id) return;
-
-    if (!confirm('Google Drive 연결을 해제하시겠습니까?\n\n해제하면 학생들의 숙제 제출이 불가능해집니다.')) return;
-
-    try {
-        const { error } = await supabase
-            .from('teachers')
-            .update({
-                google_drive_refresh_token: null,
-                google_drive_connected: false
-            })
-            .eq('id', currentTeacher.id);
-
-        if (error) throw error;
-
-        currentTeacher.google_drive_connected = false;
-        updateDriveConnectionUI(false, null);
-        showToast('Google Drive 연결이 해제되었습니다.', 'success');
-    } catch (e) {
-        console.error('[disconnectGoogleDrive] 실패:', e);
-        showToast('연결 해제 실패: ' + e.message, 'error');
-    }
 }
 
 const defaultColor = '#ef4444';

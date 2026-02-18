@@ -14,16 +14,6 @@ const corsHeaders = {
 
 const DRIVE_FOLDER_NAME = "숙제 제출";
 
-async function getDriveEmail(accessToken: string): Promise<string> {
-  const res = await fetch(
-    "https://www.googleapis.com/drive/v3/about?fields=user",
-    { headers: { Authorization: `Bearer ${accessToken}` } }
-  );
-  if (!res.ok) return "";
-  const data = await res.json();
-  return data?.user?.emailAddress || "";
-}
-
 async function getAccessToken(refreshToken: string): Promise<string> {
   const response = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
@@ -235,15 +225,6 @@ serve(async (req: Request) => {
       );
     }
 
-    // ─── 2) 담당 선생님 드라이브 토큰 조회 ───
-    const { data: teacher } = await supabase
-      .from("teachers")
-      .select("google_drive_refresh_token, google_drive_connected, name")
-      .eq("id", teacherId)
-      .single();
-
-    const teacherHasDrive = teacher?.google_drive_connected && teacher?.google_drive_refresh_token;
-
     // submissionDate 검증
     const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
     if (!dateRegex.test(submissionDate)) {
@@ -261,7 +242,7 @@ serve(async (req: Request) => {
 
     const fileBuffer = new Uint8Array(await file.arrayBuffer());
 
-    // ─── 3) 중앙 드라이브(jjyown@gmail.com)에 원본 업로드 ───
+    // ─── 2) 중앙 드라이브(jjyown@gmail.com)에 원본 업로드 ───
     const centralAccessToken = await getAccessToken(centralAdmin.google_drive_refresh_token);
     const centralFolderId = await getOrCreateFolderPath(centralAccessToken, year, month, day, studentName);
     const { fileId: centralFileId, fileUrl: centralFileUrl } = await uploadFileToDrive(
@@ -271,41 +252,7 @@ serve(async (req: Request) => {
       fileBuffer
     );
 
-    // ─── 4) 담당 선생님 드라이브에도 원본 업로드 (중앙과 다른 계정일 때만) ───
-    let teacherFileId: string | null = null;
-    let teacherFileUrl: string | null = null;
-
-    let isSameAccount = false;
-    if (teacherHasDrive) {
-      const teacherAccessTokenCheck = await getAccessToken(teacher!.google_drive_refresh_token);
-      const centralEmail = await getDriveEmail(centralAccessToken);
-      const teacherEmail = await getDriveEmail(teacherAccessTokenCheck);
-      isSameAccount = !!(centralEmail && teacherEmail && centralEmail === teacherEmail);
-      if (isSameAccount) {
-        console.log(`중앙/선생님 동일 계정 확인: ${centralEmail}`);
-      }
-    }
-
-    if (teacherHasDrive && !isSameAccount) {
-      try {
-        const teacherAccessToken = await getAccessToken(teacher!.google_drive_refresh_token);
-        const teacherFolderId = await getOrCreateFolderPath(teacherAccessToken, year, month, day, studentName);
-        const teacherResult = await uploadFileToDrive(
-          teacherAccessToken,
-          teacherFolderId,
-          fileName,
-          fileBuffer
-        );
-        teacherFileId = teacherResult.fileId;
-        teacherFileUrl = teacherResult.fileUrl;
-        console.log(`선생님 드라이브 업로드 성공: ${teacherFileId}`);
-      } catch (teacherUploadErr: unknown) {
-        const msg = teacherUploadErr instanceof Error ? teacherUploadErr.message : String(teacherUploadErr);
-        console.warn(`선생님 드라이브 업로드 실패 (중앙 저장은 정상): ${msg}`);
-      }
-    }
-
-    // ─── 5) DB에 제출 기록 저장 ───
+    // ─── 3) DB에 제출 기록 저장 ───
     const { error: insertError } = await supabase
       .from("homework_submissions")
       .insert({
@@ -317,12 +264,8 @@ serve(async (req: Request) => {
         // 기존 호환: drive_file_id/url은 중앙 드라이브 기준
         drive_file_id: centralFileId,
         drive_file_url: centralFileUrl,
-        // 중앙 드라이브 정보
         central_drive_file_id: centralFileId,
         central_drive_file_url: centralFileUrl,
-        // 선생님 드라이브 정보
-        teacher_drive_file_id: teacherFileId,
-        teacher_drive_file_url: teacherFileUrl,
         file_size: fileBuffer.length,
         status: "uploaded",
         grading_status: "pending",
@@ -336,7 +279,6 @@ serve(async (req: Request) => {
           fileName,
           driveFileId: centralFileId,
           driveFileUrl: centralFileUrl,
-          teacherDriveFileId: teacherFileId,
           fileSize: fileBuffer.length,
           dbSaved: false,
           dbError: insertError.message || 'DB 저장 실패',
@@ -348,12 +290,11 @@ serve(async (req: Request) => {
       );
     }
 
-    // ─── 6) 자동 채점 트리거 (타임아웃 적용, 실패해도 제출은 성공) ───
+    // ─── 4) 자동 채점 트리거 (fire-and-forget: 서버가 비동기로 처리) ───
     const GRADING_SERVER_URL = Deno.env.get("GRADING_SERVER_URL") || "";
     let gradingTriggered = false;
     if (GRADING_SERVER_URL) {
       try {
-        // DB에서 방금 저장된 submission ID 조회
         const { data: submissionRow } = await supabase
           .from("homework_submissions")
           .select("id")
@@ -364,7 +305,6 @@ serve(async (req: Request) => {
 
         const submissionId = submissionRow?.id;
 
-        // 선생님의 owner_user_id 조회 (채점 서버는 UUID 기반)
         const { data: teacherRow } = await supabase
           .from("teachers")
           .select("owner_user_id")
@@ -376,7 +316,7 @@ serve(async (req: Request) => {
         const gradeForm = new FormData();
         gradeForm.append("student_id", studentId);
         gradeForm.append("teacher_id", teacherUid);
-        gradeForm.append("mode", "auto_search");
+        gradeForm.append("mode", "assigned");
         gradeForm.append("zip_drive_id", centralFileId);
         if (submissionId) {
           gradeForm.append("homework_submission_id", String(submissionId));
@@ -385,9 +325,9 @@ serve(async (req: Request) => {
           gradeForm.append("answer_key_id", answerKeyId);
         }
 
-        // AbortController로 타임아웃 설정 (10초)
+        // 채점 서버가 비동기로 처리하므로 짧은 타임아웃으로 충분
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000);
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
 
         try {
           const gradeRes = await fetch(`${GRADING_SERVER_URL}/api/grade`, {
@@ -396,20 +336,19 @@ serve(async (req: Request) => {
             signal: controller.signal,
           });
           clearTimeout(timeoutId);
-          console.log(`자동 채점 요청 완료: status=${gradeRes.status}`);
+          console.log(`자동 채점 트리거 완료: status=${gradeRes.status}`);
           gradingTriggered = gradeRes.ok;
         } catch (fetchErr: unknown) {
           clearTimeout(timeoutId);
           const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
-          console.warn(`자동 채점 요청 실패 (제출은 정상): ${msg}`);
+          console.warn(`자동 채점 트리거 실패 (제출은 정상): ${msg}`);
         }
 
-        // 채점 트리거 결과를 DB에 반영
         if (submissionId) {
           await supabase
             .from("homework_submissions")
             .update({
-              grading_status: gradingTriggered ? "grading" : "trigger_failed",
+              grading_status: gradingTriggered ? "grading" : "grading_failed",
             })
             .eq("id", submissionId);
         }
@@ -424,8 +363,6 @@ serve(async (req: Request) => {
         fileName,
         driveFileId: centralFileId,
         driveFileUrl: centralFileUrl,
-        teacherDriveFileId: teacherFileId,
-        teacherDriveFileUrl: teacherFileUrl,
         fileSize: fileBuffer.length,
         dbSaved: true,
       }),

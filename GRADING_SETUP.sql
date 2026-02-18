@@ -36,8 +36,9 @@ CREATE TABLE IF NOT EXISTS answer_keys (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 기존 테이블에 page_images_json 컬럼이 없으면 추가
+-- 기존 테이블에 컬럼이 없으면 추가
 ALTER TABLE answer_keys ADD COLUMN IF NOT EXISTS page_images_json JSONB DEFAULT '[]';
+ALTER TABLE answer_keys ADD COLUMN IF NOT EXISTS bookmarks_json JSONB DEFAULT '[]';
 
 -- 2) 과제 배정
 CREATE TABLE IF NOT EXISTS grading_assignments (
@@ -135,6 +136,41 @@ CREATE TABLE IF NOT EXISTS evaluations (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- 7) 알림
+CREATE TABLE IF NOT EXISTS notifications (
+    id BIGSERIAL PRIMARY KEY,
+    teacher_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    type TEXT DEFAULT 'info',
+    title TEXT DEFAULT '',
+    message TEXT DEFAULT '',
+    data JSONB DEFAULT '{}',
+    read BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============================================================
+-- UNIQUE 제약조건 (upsert용)
+-- ============================================================
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'uq_grading_stats_teacher_key_month'
+  ) THEN
+    ALTER TABLE grading_stats
+      ADD CONSTRAINT uq_grading_stats_teacher_key_month
+      UNIQUE (teacher_id, answer_key_id, month);
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'uq_evaluations_teacher_student_month'
+  ) THEN
+    ALTER TABLE evaluations
+      ADD CONSTRAINT uq_evaluations_teacher_student_month
+      UNIQUE (teacher_id, student_id, month);
+  END IF;
+END $$;
+
 -- ============================================================
 -- 인덱스
 -- ============================================================
@@ -148,6 +184,7 @@ CREATE INDEX IF NOT EXISTS idx_grading_results_homework ON grading_results(homew
 CREATE INDEX IF NOT EXISTS idx_grading_items_result ON grading_items(result_id);
 CREATE INDEX IF NOT EXISTS idx_grading_stats_teacher_month ON grading_stats(teacher_id, month);
 CREATE INDEX IF NOT EXISTS idx_homework_grading_status ON homework_submissions(grading_status);
+CREATE INDEX IF NOT EXISTS idx_notifications_teacher ON notifications(teacher_id);
 
 -- ============================================================
 -- RLS 정책
@@ -157,6 +194,7 @@ ALTER TABLE grading_assignments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE grading_results ENABLE ROW LEVEL SECURITY;
 ALTER TABLE grading_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE grading_stats ENABLE ROW LEVEL SECURITY;
+ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
 
 -- teachers: 인증된 사용자만 조회 가능 (채점 관리 로그인 확인용)
 DO $$ BEGIN
@@ -217,6 +255,13 @@ DO $$ BEGIN
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'evaluations_authenticated_read' AND tablename = 'evaluations') THEN
     EXECUTE 'CREATE POLICY evaluations_authenticated_read ON evaluations FOR SELECT USING (auth.role() = ''authenticated'')';
+  END IF;
+END $$;
+
+-- notifications: 본인 알림만
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'notifications_teacher_all' AND tablename = 'notifications') THEN
+    EXECUTE 'CREATE POLICY notifications_teacher_all ON notifications FOR ALL USING (auth.uid() = teacher_id)';
   END IF;
 END $$;
 

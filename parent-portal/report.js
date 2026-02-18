@@ -715,7 +715,7 @@ async function loadGradingResults() {
 			const date = new Date(r.created_at).toLocaleDateString('ko-KR');
 			const scorePercent = r.max_score > 0 ? Math.round(r.total_score / r.max_score * 100) : 0;
 			const scoreColor = scorePercent >= 80 ? 'var(--green)' : scorePercent >= 60 ? 'var(--yellow)' : 'var(--red)';
-			const imgUrl = (r.teacher_graded_image_urls || r.central_graded_image_urls || [])[0] || '';
+			const imgUrl = (r.central_graded_image_urls || r.teacher_graded_image_urls || [])[0] || '';
 
 			return `<div style="background:var(--bg-elevated);border-radius:12px;padding:14px;margin-bottom:8px;cursor:pointer;" onclick="showGradingDetail(${r.id})">
 				<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
@@ -744,7 +744,7 @@ async function showGradingDetail(resultId) {
 
 		const { data: items } = await db.from('grading_items').select('*').eq('result_id', resultId).order('question_number');
 
-		const imgUrl = (result.teacher_graded_image_urls || result.central_graded_image_urls || [])[0] || '';
+		const imgUrl = (result.central_graded_image_urls || result.teacher_graded_image_urls || [])[0] || '';
 		const key = result.answer_keys;
 
 		let html = `<div style="position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:300;display:flex;align-items:center;justify-content:center;padding:16px;" onclick="if(event.target===this)this.remove()">

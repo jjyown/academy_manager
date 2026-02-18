@@ -395,9 +395,7 @@ def _pdf_to_images(
 def _pdf_to_thumbnails(
     pdf_bytes: bytes,
 ) -> list[dict]:
-    """PDF 전체 페이지를 저해상도 썸네일로 변환 (이미지 매칭용 저장 목적)
-
-    한 번 저장하면 계속 재사용하므로 페이지 수 제한 없이 전체 저장.
+    """PDF 전체 페이지를 썸네일로 변환 (base64 data URL로 DB 직접 저장용)
 
     Returns:
         [{"page": 1, "image_bytes": bytes}, ...]  (page는 1-based)
@@ -410,11 +408,11 @@ def _pdf_to_thumbnails(
 
         for i in range(total):
             page = doc[i]
-            mat = fitz.Matrix(100 / 72, 100 / 72)  # 100 DPI (썸네일용)
+            mat = fitz.Matrix(200 / 72, 200 / 72)  # 200 DPI
             pix = page.get_pixmap(matrix=mat)
             img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
             buf = io.BytesIO()
-            img.save(buf, format="JPEG", quality=60)
+            img.save(buf, format="JPEG", quality=85)
             thumbnails.append({
                 "page": i + 1,
                 "image_bytes": buf.getvalue(),

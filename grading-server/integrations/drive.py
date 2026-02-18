@@ -1,4 +1,4 @@
-"""Google Drive 연동: 중앙 드라이브 + 선생님 드라이브 지원"""
+"""Google Drive 연동: 중앙 드라이브(jjyown@gmail.com) 전용"""
 import io
 import logging
 from googleapiclient.discovery import build
@@ -129,24 +129,6 @@ def upload_page_images_to_central(
 
 
 # ──────────────────────────────────────────────
-# 선생님 드라이브 전용 함수
-# ──────────────────────────────────────────────
-
-def upload_to_teacher_drive(teacher_token: str, folder_name: str, sub_path: list[str],
-                            filename: str, image_bytes: bytes, mime_type: str = "image/jpeg") -> dict:
-    """선생님 드라이브에 채점 결과 업로드
-    folder_name: '채점 결과'
-    sub_path: ['수학', '문제집A', '김민철']
-    """
-    service = _build_service(teacher_token)
-    parent = _find_or_create_folder(service, folder_name)
-    for folder in sub_path:
-        parent = _find_or_create_folder(service, folder, parent)
-
-    return _upload_file(service, parent, filename, image_bytes, mime_type)
-
-
-# ──────────────────────────────────────────────
 # 공통 함수
 # ──────────────────────────────────────────────
 
@@ -192,6 +174,35 @@ def delete_file(refresh_token: str, file_id: str) -> bool:
         return True
     except Exception as e:
         logger.error(f"파일 삭제 실패 ({file_id}): {e}")
+        return False
+
+
+def delete_page_images_folder(refresh_token: str, title: str,
+                              root_folder_name: str = "교재 페이지 이미지") -> bool:
+    """교재 페이지 이미지 폴더를 Drive에서 삭제 (폴더 내 모든 파일 포함)"""
+    try:
+        service = _build_service(refresh_token)
+        safe_root = root_folder_name.replace("'", "\\'")
+        root_q = f"name='{safe_root}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
+        root_res = service.files().list(q=root_q, fields="files(id)", pageSize=1).execute()
+        root_files = root_res.get("files", [])
+        if not root_files:
+            return False
+
+        root_id = root_files[0]["id"]
+        safe_title = title.replace("'", "\\'")
+        folder_q = (f"name='{safe_title}' and mimeType='application/vnd.google-apps.folder' "
+                     f"and '{root_id}' in parents and trashed=false")
+        folder_res = service.files().list(q=folder_q, fields="files(id,name)", pageSize=10).execute()
+
+        deleted = False
+        for f in folder_res.get("files", []):
+            service.files().delete(fileId=f["id"]).execute()
+            logger.info(f"[Drive] 폴더 삭제: '{f['name']}' ({f['id']})")
+            deleted = True
+        return deleted
+    except Exception as e:
+        logger.error(f"페이지 이미지 폴더 삭제 실패 ('{title}'): {e}")
         return False
 
 

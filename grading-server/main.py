@@ -1,11 +1,13 @@
 """자동 채점 서버 - FastAPI
 전체 흐름:
 1. 학생이 숙제 제출 → 중앙 드라이브(jjyown@gmail.com)에 저장
-2. Python 서버가 중앙 드라이브에서 ZIP 다운로드 → OCR 채점
-3. 채점 결과 이미지를 중앙 드라이브 + 담당 선생님 드라이브에 저장
-4. 선생님이 채점 관리 페이지에서 검토/수정
+2. Edge Function이 채점 서버에 비동기 트리거
+3. 채점 서버가 ZIP 다운로드 → OCR → 배정된 교재로 채점
+4. 채점 결과 이미지를 중앙 드라이브에 저장
+5. 선생님이 채점 관리 페이지에서 검토/다운로드
 """
 import logging
+import base64
 import io
 import json
 import re
@@ -21,7 +23,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from config import (
     PORT, CENTRAL_GRADING_MATERIAL_FOLDER, CENTRAL_GRADED_RESULT_FOLDER,
-    TEACHER_RESULT_FOLDER, CORS_ORIGINS, RATE_LIMIT_PER_MINUTE
+    CORS_ORIGINS, RATE_LIMIT_PER_MINUTE
 )
 from ocr.engines import ocr_gpt4o_batch, cross_validate_ocr
 from ocr.preprocessor import preprocess_batch
@@ -30,23 +32,23 @@ from grading.image_marker import create_graded_image
 from grading.pdf_parser import extract_answers_from_pdf
 from grading.hml_parser import extract_answers_from_hml
 from integrations.supabase_client import (
-    get_central_admin_token, get_teacher_drive_token,
-    get_answer_key, get_all_answer_keys, get_answer_keys_by_teacher, upsert_answer_key,
+    get_central_admin_token,
+    get_answer_key, get_answer_keys_by_teacher, upsert_answer_key,
     get_assignment, get_assignments_by_teacher, create_assignment,
+    get_student_assigned_key,
     create_grading_result, update_grading_result,
     get_grading_results_by_teacher, get_grading_results_by_student,
     create_grading_items, get_grading_items, update_grading_item,
     get_student, get_teacher, get_teacher_by_id,
     get_pending_submissions, update_submission_grading_status,
-    get_supabase, create_supabase_for_background,
+    get_supabase,
     create_notification, get_notifications, mark_notifications_read,
 )
 from integrations.drive import (
-    download_file_central, upload_to_central, upload_to_teacher_drive,
+    download_file_central, upload_to_central,
     search_answer_pdfs_central, cleanup_old_originals, delete_file,
-    upload_page_images_to_central,
+    delete_page_images_folder,
 )
-from integrations.gemini import match_answer_key
 from scheduler.monthly_eval import run_monthly_evaluation
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -89,139 +91,6 @@ def _parse_page_range(range_str: str) -> tuple[int, int] | None:
         return (int(m.group(1)), int(m.group(1)))
     return None
 
-
-async def _match_by_image_comparison(
-    student_img_bytes: bytes,
-    candidate_keys: list[dict],
-    central_token: str | None,
-) -> dict | None:
-    """저장된 페이지 이미지와 학생 이미지를 Gemini Vision으로 비교하여 교재 매칭
-
-    후보 교재가 5개 이하이고 page_images_json이 있을 때만 실행.
-    각 교재에서 대표 이미지 1장을 가져와 학생 이미지와 비교.
-    """
-    import google.generativeai as genai
-    from config import GEMINI_API_KEY
-    import base64
-
-    if not central_token:
-        return None
-
-    candidates_with_images = [
-        k for k in candidate_keys
-        if k.get("page_images_json") and len(k["page_images_json"]) > 0
-    ]
-
-    if not candidates_with_images or len(candidates_with_images) > 5:
-        if len(candidates_with_images) > 5:
-            logger.info(f"[ImageMatch] 후보 {len(candidates_with_images)}개 > 5개 → 이미지 매칭 건너뜀")
-        return None
-
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel("gemini-2.0-flash")
-
-    parts = []
-    parts.append("""아래 "학생 숙제 사진"이 어느 교재의 페이지인지 판별하세요.
-각 교재의 대표 페이지 이미지와 학생 사진을 비교하여:
-- 레이아웃, 폰트, 문제 형식, 페이지 디자인이 같은 교재를 찾으세요.
-- 정확히 일치하는 교재가 없으면 -1을 반환하세요.
-
-반드시 아래 JSON만 응답 (다른 텍스트 없이):
-{"matched_index": 0}  (0-based 인덱스, 일치하는 교재 번호)
-또는
-{"matched_index": -1}  (일치하는 교재 없음)
-""")
-
-    # 학생 이미지 추가
-    parts.append("=== 학생 숙제 사진 ===")
-    student_b64 = base64.b64encode(student_img_bytes).decode("utf-8")
-    parts.append({"mime_type": "image/jpeg", "data": student_b64})
-
-    # 후보 교재 대표 이미지 추가 (Drive에서 다운로드)
-    from integrations.drive import download_file_central
-    for i, key in enumerate(candidates_with_images):
-        page_imgs = key["page_images_json"]
-        representative = page_imgs[0]
-        title = key.get("title", "")
-        parts.append(f"=== 교재 {i}: {title} ===")
-
-        try:
-            ref_bytes = download_file_central(central_token, representative["drive_file_id"])
-            ref_b64 = base64.b64encode(ref_bytes).decode("utf-8")
-            parts.append({"mime_type": "image/jpeg", "data": ref_b64})
-        except Exception as e:
-            logger.warning(f"[ImageMatch] 교재 '{title}' 대표 이미지 다운로드 실패: {e}")
-            parts.append(f"(이미지 로드 실패)")
-
-    try:
-        response = model.generate_content(parts)
-        text = response.text.strip()
-        if text.startswith("```"):
-            text = text.split("```")[1]
-            if text.startswith("json"):
-                text = text[4:]
-
-        import json as _json
-        match_result = _json.loads(text.strip())
-        matched_idx = match_result.get("matched_index", -1)
-
-        if 0 <= matched_idx < len(candidates_with_images):
-            matched_key = candidates_with_images[matched_idx]
-            logger.info(f"[ImageMatch] 이미지 비교 매칭 성공 → #{matched_key['id']} '{matched_key.get('title','')}'")
-            return matched_key
-        else:
-            logger.info(f"[ImageMatch] 이미지 비교 결과: 일치하는 교재 없음 (index={matched_idx})")
-    except Exception as e:
-        logger.warning(f"[ImageMatch] Gemini Vision 이미지 비교 실패: {e}")
-
-    return None
-
-
-def _tokenize_korean(text: str) -> set[str]:
-    """한국어 텍스트를 의미 있는 토큰으로 분리 (2글자 이상 단어)"""
-    import re
-    clean = re.sub(r"[^\w가-힣]", " ", text.lower())
-    return {w for w in clean.split() if len(w) >= 2}
-
-
-def _match_by_textbook_name(detected_name: str, available_keys: list[dict]) -> int | None:
-    """OCR로 감지된 교재명과 등록된 교재 제목을 비교하여 가장 적합한 ID 반환"""
-    if not detected_name or not available_keys:
-        return None
-
-    detected_clean = detected_name.replace(" ", "").lower()
-    detected_tokens = _tokenize_korean(detected_name)
-    best_id = None
-    best_score = 0
-
-    for key in available_keys:
-        title = (key.get("title") or "").replace(" ", "").lower()
-        if not title:
-            continue
-
-        # 정확히 포함되는지 확인
-        if detected_clean in title or title in detected_clean:
-            score = len(title) * 10
-            if score > best_score:
-                best_score = score
-                best_id = key["id"]
-            continue
-
-        # 단어(토큰) 단위 겹침 확인
-        title_tokens = _tokenize_korean(key.get("title") or "")
-        if not title_tokens or not detected_tokens:
-            continue
-        common_tokens = detected_tokens & title_tokens
-        ratio = len(common_tokens) / max(len(detected_tokens), len(title_tokens))
-        if ratio > 0.4 and len(common_tokens) >= 1:
-            score = int(ratio * 100) + len(common_tokens)
-            if score > best_score:
-                best_score = score
-                best_id = key["id"]
-
-    if best_id:
-        logger.info(f"[TextbookMatch] '{detected_name}' → key #{best_id} (score={best_score})")
-    return best_id
 
 scheduler = AsyncIOScheduler()
 
@@ -358,6 +227,10 @@ async def update_answer_key(key_id: int, request: Request):
             merged_types.update(body["update_types"])
             update_data["question_types_json"] = merged_types
 
+        # 북마크 수정
+        if "bookmarks_json" in body:
+            update_data["bookmarks_json"] = body["bookmarks_json"]
+
         if not update_data:
             return {"success": False, "message": "수정할 내용이 없습니다"}
 
@@ -377,36 +250,44 @@ async def update_answer_key(key_id: int, request: Request):
 
 @app.delete("/api/answer-keys/{key_id}")
 async def delete_answer_key(key_id: int, teacher_id: str):
-    """교재 삭제"""
+    """교재 삭제 (DB + Drive 페이지 이미지 폴더)"""
     sb = get_supabase()
-    result = sb.table("answer_keys").delete().eq("id", key_id).eq("teacher_id", teacher_id).execute()
-    if result.data:
-        return {"success": True, "message": "교재가 삭제되었습니다"}
-    return {"success": False, "message": "삭제할 교재를 찾을 수 없습니다"}
+
+    # 삭제 전 레코드 조회 (Drive 폴더명 = title)
+    record = sb.table("answer_keys").select("id, title, page_images_json").eq(
+        "id", key_id
+    ).eq("teacher_id", teacher_id).limit(1).execute()
+
+    if not record.data:
+        return {"success": False, "message": "삭제할 교재를 찾을 수 없습니다"}
+
+    key_data = record.data[0]
+    title = key_data.get("title", "")
+
+    # DB 삭제
+    sb.table("answer_keys").delete().eq("id", key_id).execute()
+
+    # Drive 폴더 삭제 (비동기 실패해도 DB 삭제는 유지)
+    drive_deleted = False
+    if title:
+        central_token = await get_central_admin_token()
+        if central_token:
+            drive_deleted = delete_page_images_folder(central_token, title)
+            if drive_deleted:
+                logger.info(f"[Delete] 교재 '{title}' Drive 폴더 삭제 완료")
+            else:
+                logger.warning(f"[Delete] 교재 '{title}' Drive 폴더 없거나 삭제 실패")
+
+    return {
+        "success": True,
+        "message": f"교재가 삭제되었습니다" + (" (Drive 폴더도 삭제됨)" if drive_deleted else ""),
+    }
 
 
-def _upload_page_images_background(
-    central_token: str, title: str, raw_page_images: list[dict], answer_key_id: int
-):
-    """백그라운드에서 페이지 이미지를 Drive에 업로드하고 DB 업데이트"""
-    try:
-        page_images_json = upload_page_images_to_central(
-            central_token, title, raw_page_images
-        )
-        logger.info(f"[BG] '{title}' 페이지 이미지 {len(page_images_json)}장 Drive 업로드 완료")
-
-        sb = create_supabase_for_background()
-        sb.table("answer_keys").update(
-            {"page_images_json": page_images_json}
-        ).eq("id", answer_key_id).execute()
-        logger.info(f"[BG] answer_key #{answer_key_id} page_images_json 업데이트 완료")
-    except Exception as e:
-        logger.error(f"[BG] 페이지 이미지 업로드 실패 (answer_key #{answer_key_id}): {e}")
 
 
 @app.post("/api/answer-keys/parse")
 async def parse_answer_key(
-    background_tasks: BackgroundTasks,
     teacher_id: str = Form(...),
     title: str = Form(...),
     subject: str = Form(""),
@@ -422,7 +303,7 @@ async def parse_answer_key(
     - HML: 수학비서 XML에서 미주/꼬릿말 정답 직접 추출 (100% 정확)
 
     answer_page_range: PDF 전용, "45-48" 형식 정답 페이지 범위
-    페이지 이미지는 백그라운드에서 Drive에 업로드 (응답 지연 방지)
+    페이지 이미지는 base64 data URL로 DB에 직접 저장
     """
     file_bytes = None
     file_ext = ""
@@ -455,6 +336,17 @@ async def parse_answer_key(
         result = await extract_answers_from_pdf(file_bytes, total_hint=total_hint, page_range=page_range)
         raw_page_images = result.pop("page_images", [])
 
+    # base64 data URL로 페이지 이미지 즉시 저장 (Drive 업로드 불필요)
+    page_images_json = []
+    if raw_page_images:
+        for img in raw_page_images:
+            b64 = base64.b64encode(img["image_bytes"]).decode("utf-8")
+            page_images_json.append({
+                "page": img["page"],
+                "url": f"data:image/jpeg;base64,{b64}",
+            })
+        logger.info(f"[Parse] '{title}' 페이지 이미지 {len(page_images_json)}장 base64 변환 완료")
+
     key_data = {
         "teacher_id": teacher_id,
         "title": title,
@@ -463,21 +355,13 @@ async def parse_answer_key(
         "total_questions": result.get("total", 0),
         "answers_json": result.get("answers", {}),
         "question_types_json": result.get("types", {}),
+        "page_images_json": page_images_json,
         "parsed": True,
     }
     saved = await upsert_answer_key(key_data)
-
-    saved_id = saved.get("id")
-    if raw_page_images and central_token and saved_id:
-        background_tasks.add_task(
-            _upload_page_images_background,
-            central_token, title, raw_page_images, saved_id
-        )
-        logger.info(f"[Parse] '{title}' 정답 {result.get('total', 0)}문제 저장 완료. "
-                     f"페이지 이미지 {len(raw_page_images)}장은 백그라운드 업로드 예약됨")
-    else:
-        logger.info(f"[Parse] '{title}' 정답 {result.get('total', 0)}문제 저장 완료 "
-                     f"(파서: {'HML' if file_ext == 'hml' else 'PDF'})")
+    logger.info(f"[Parse] '{title}' 정답 {result.get('total', 0)}문제 저장 완료 "
+                 f"(파서: {'HML' if file_ext == 'hml' else 'PDF'}, "
+                 f"페이지 이미지: {len(page_images_json)}장)")
 
     return {"data": saved, "parsed_result": result}
 
@@ -624,7 +508,7 @@ async def list_result_items(result_id: int):
     """채점 문항별 결과 조회"""
     try:
         sb = get_supabase()
-        res = sb.table("grading_items").select("*").eq("result_id", result_id).order("question_num").execute()
+        res = sb.table("grading_items").select("*").eq("result_id", result_id).order("question_number").execute()
         return {"data": res.data or []}
     except Exception as e:
         logger.error(f"문항 조회 실패: {e}")
@@ -920,6 +804,7 @@ async def get_wrong_answer_stats(teacher_id: str, answer_key_id: int = 0):
 
 @app.post("/api/grade")
 async def grade_homework(
+    background_tasks: BackgroundTasks,
     student_id: int = Form(...),
     teacher_id: str = Form(...),
     assignment_id: int = Form(None),
@@ -929,15 +814,12 @@ async def grade_homework(
     image: UploadFile = File(None),
     zip_drive_id: str = Form(""),
 ):
-    """채점 실행
-    - image: 직접 업로드 (즉시 채점)
-    - zip_drive_id: 중앙 드라이브의 ZIP 파일 ID (수업 전 제출 채점)
-    """
+    """채점 실행 (비동기: 즉시 result_id 반환 후 백그라운드 채점)"""
     student = await get_student(student_id)
     if not student:
         raise HTTPException(404, "학생을 찾을 수 없습니다")
 
-    # 중복 채점 방지: 같은 submission에 대해 이미 채점 완료/진행 중이면 건너뜀
+    # 중복 채점 방지
     if homework_submission_id:
         sb = get_supabase()
         existing = sb.table("grading_results").select("id, status").eq(
@@ -945,7 +827,7 @@ async def grade_homework(
         ).in_("status", ["grading", "confirmed", "review_needed"]).limit(1).execute()
         if existing.data:
             existing_result = existing.data[0]
-            logger.info(f"[Dedup] submission #{homework_submission_id} 이미 채점됨 → result #{existing_result['id']} ({existing_result['status']})")
+            logger.info(f"[Dedup] submission #{homework_submission_id} 이미 채점됨 → result #{existing_result['id']}")
             return {
                 "result_id": existing_result["id"],
                 "status": existing_result["status"],
@@ -958,10 +840,7 @@ async def grade_homework(
     if not central_token:
         raise HTTPException(400, "중앙 관리 드라이브가 연결되지 않았습니다")
 
-    # 선생님 드라이브 토큰 조회
-    teacher_token = await get_teacher_drive_token(teacher_id)
-
-    # 정답 데이터 조회
+    # 정답 데이터 조회: answer_key_id → assignment → 학생 배정 교재
     answer_key = None
     if answer_key_id:
         answer_key = await get_answer_key(answer_key_id)
@@ -970,10 +849,15 @@ async def grade_homework(
         if assignment and assignment.get("answer_key_id"):
             answer_key = await get_answer_key(assignment["answer_key_id"])
             answer_key_id = assignment["answer_key_id"]
+    if not answer_key:
+        assigned = await get_student_assigned_key(student_id)
+        if assigned:
+            answer_key = assigned
+            answer_key_id = assigned.get("id")
+            logger.info(f"[Assign] 학생 #{student_id} 배정 교재 → #{answer_key_id} '{assigned.get('title','')}'")
 
     # 이미지 가져오기
     image_bytes_list = []
-
     if image:
         img_data = await image.read()
         if image.filename and image.filename.endswith(".zip"):
@@ -981,9 +865,12 @@ async def grade_homework(
         else:
             image_bytes_list = [img_data]
     elif zip_drive_id:
-        # 중앙 드라이브에서 ZIP 다운로드
         zip_data = download_file_central(central_token, zip_drive_id)
+        logger.info(f"[Grade] Drive ZIP 다운로드 완료: {len(zip_data)} bytes")
         image_bytes_list = _extract_images_from_zip(zip_data)
+
+    logger.info(f"[Grade] 추출된 이미지: {len(image_bytes_list)}장 "
+                f"(크기: {[len(b)//1024 for b in image_bytes_list[:10]]}KB)")
 
     if not image_bytes_list:
         raise HTTPException(400, "채점할 이미지가 없습니다 (지원 형식: JPG, PNG, GIF, WEBP, BMP, HEIC, PDF)")
@@ -1002,19 +889,52 @@ async def grade_homework(
     grading_result = await create_grading_result(result_data)
     result_id = grading_result["id"]
 
-    # 숙제 제출 상태 업데이트
     if homework_submission_id:
         await update_submission_grading_status(homework_submission_id, "grading")
 
-    # ── 채점 본체: 실패 시 failed 상태로 전환 ──
+    # 백그라운드에서 채점 실행 (즉시 응답 반환)
+    background_tasks.add_task(
+        _run_grading_background,
+        result_id=result_id,
+        student=student,
+        student_id=student_id,
+        teacher_id=teacher_id,
+        central_token=central_token,
+        answer_key=answer_key,
+        answer_key_id=answer_key_id,
+        image_bytes_list=image_bytes_list,
+        mode=mode,
+        homework_submission_id=homework_submission_id,
+    )
+
+    return {
+        "result_id": result_id,
+        "status": "grading",
+        "message": "채점이 백그라운드에서 시작되었습니다",
+    }
+
+
+async def _run_grading_background(
+    *,
+    result_id: int,
+    student: dict,
+    student_id: int,
+    teacher_id: str,
+    central_token: str,
+    answer_key: dict | None,
+    answer_key_id: int | None,
+    image_bytes_list: list[bytes],
+    mode: str,
+    homework_submission_id: int | None,
+):
+    """백그라운드 채점 래퍼: 실패 시 review_needed 상태로 전환"""
     try:
-        return await _execute_grading(
+        await _execute_grading(
             result_id=result_id,
             student=student,
             student_id=student_id,
             teacher_id=teacher_id,
             central_token=central_token,
-            teacher_token=teacher_token,
             answer_key=answer_key,
             answer_key_id=answer_key_id,
             image_bytes_list=image_bytes_list,
@@ -1024,29 +944,26 @@ async def grade_homework(
     except Exception as e:
         logger.error(f"[FATAL] 채점 실패 (result #{result_id}): {e}", exc_info=True)
         _update_progress(result_id, "failed", 0, 0, f"채점 실패: {str(e)[:100]}")
-        # 실패 상태로 DB 업데이트
         try:
             error_msg = str(e)[:500]
             await update_grading_result(result_id, {
-                "status": "failed",
+                "status": "review_needed",
                 "error_message": error_msg,
             })
             if homework_submission_id:
                 await update_submission_grading_status(homework_submission_id, "grading_failed")
 
-            # 채점 실패 알림
             student_name = student.get("name", "학생") if student else "학생"
             await create_notification({
                 "teacher_id": teacher_id,
                 "type": "grading_failed",
-                "title": "채점 실패",
-                "message": f"{student_name} 숙제 채점 실패: {str(e)[:100]}",
+                "title": "채점 실패 - 확인 필요",
+                "message": f"{student_name} 숙제 채점 실패: {str(e)[:100]}. 원본 파일을 확인해주세요.",
                 "data": {"result_id": result_id, "student_id": student_id, "error": error_msg[:200]},
                 "read": False,
             })
         except Exception as db_err:
             logger.error(f"[FATAL] 실패 상태 DB 업데이트도 실패: {db_err}")
-        raise HTTPException(500, f"채점 처리 중 오류가 발생했습니다: {str(e)[:200]}")
 
 
 async def _execute_grading(
@@ -1056,19 +973,16 @@ async def _execute_grading(
     student_id: int,
     teacher_id: str,
     central_token: str,
-    teacher_token: str | None,
     answer_key: dict | None,
     answer_key_id: int | None,
     image_bytes_list: list[bytes],
     mode: str,
     homework_submission_id: int | None,
 ) -> dict:
-    """채점 실행 본체 (grade_homework에서 호출, 예외 시 상위에서 처리)"""
+    """채점 실행 본체 (백그라운드에서 호출)"""
     all_items = []
     central_graded_urls = []
     central_graded_ids = []
-    teacher_graded_urls = []
-    teacher_graded_ids = []
     total_correct = 0
     total_wrong = 0
     total_uncertain = 0
@@ -1081,25 +995,54 @@ async def _execute_grading(
 
     total_images = len(image_bytes_list)
 
-    # ── #6: 이미지 전처리 (회전 보정, Deskew, 대비 향상, 샤프닝) ──
+    # 배정 교재 없으면 review_needed 상태로 원본만 저장
+    if not answer_key:
+        logger.warning(f"배정된 교재 없음 (student: {student_id}) → 확인 요청 상태로 전환")
+
+        now = datetime.now()
+        now_str = now.strftime('%Y%m%d_%H%M')
+        for idx, img_bytes in enumerate(image_bytes_list):
+            filename = f"{student['name']}_{now_str}_{idx+1}_원본.jpg"
+            sub_path = [str(now.year), f"{now.month:02d}", f"{now.day:02d}", student["name"]]
+            uploaded = upload_to_central(
+                central_token, CENTRAL_GRADED_RESULT_FOLDER, sub_path, filename, img_bytes
+            )
+            central_graded_urls.append(uploaded["url"])
+            central_graded_ids.append(uploaded["id"])
+
+        await update_grading_result(result_id, {
+            "status": "review_needed",
+            "error_message": "배정된 교재가 없습니다. 교재를 배정한 후 재채점해주세요.",
+            "central_graded_drive_ids": central_graded_ids,
+            "central_graded_image_urls": central_graded_urls,
+        })
+        if homework_submission_id:
+            await update_submission_grading_status(homework_submission_id, "graded")
+
+        await create_notification({
+            "teacher_id": teacher_id,
+            "type": "grading_review",
+            "title": "확인 필요 - 교재 미배정",
+            "message": f"{student.get('name', '학생')} 숙제: 배정된 교재가 없어 채점할 수 없습니다. 원본 파일을 확인해주세요.",
+            "data": {"result_id": result_id, "student_id": student_id},
+            "read": False,
+        })
+        _update_progress(result_id, "done", total_images, total_images, "확인 요청")
+        return {"result_id": result_id, "status": "review_needed"}
+
+    # 이미지 전처리
     _update_progress(result_id, "preprocess", 0, total_images, "이미지 전처리 중...")
     logger.info(f"[Preprocess] {total_images}장 이미지 전처리 시작")
     image_bytes_list = preprocess_batch(image_bytes_list)
-    logger.info(f"[Preprocess] 전처리 완료")
 
-    # ── #4: 기대 문제번호 준비 (answer_key가 이미 있으면 전달) ──
-    expected_questions = None
-    if answer_key:
-        expected_questions = sorted(
-            (answer_key.get("answers_json") or {}).keys(),
-            key=lambda x: (int(re.match(r"(\d+)", x).group(1)) if re.match(r"(\d+)", x) else 9999)
-        )
+    # 기대 문제번호 + 유형 힌트
+    expected_questions = sorted(
+        (answer_key.get("answers_json") or {}).keys(),
+        key=lambda x: (int(re.match(r"(\d+)", x).group(1)) if re.match(r"(\d+)", x) else 9999)
+    )
+    question_types = answer_key.get("question_types_json") or None
 
-    # ── #3: GPT-4o 배치 OCR (5장씩 병렬) ──
-    # 문제 유형 힌트 준비 (answer_key에 types가 있으면 OCR에 전달)
-    question_types = None
-    if answer_key:
-        question_types = answer_key.get("question_types_json") or None
+    # GPT-4o 배치 OCR
     _update_progress(result_id, "ocr", 1, 4, f"GPT-4o OCR 처리 중 ({total_images}장)...")
     logger.info(f"[OCR] GPT-4o 배치 OCR 시작: {total_images}장"
                 f"{f', 유형 힌트 {len(question_types)}문제' if question_types else ''}")
@@ -1108,177 +1051,59 @@ async def _execute_grading(
         expected_questions=expected_questions,
         question_types=question_types,
     )
-    logger.info(f"[OCR] GPT-4o 배치 OCR 완료: {len(gpt4o_results)}개 결과")
 
-    # ── #1: 크로스 엔진 검증 (GPT-4o + Gemini) ──
+    # 크로스 엔진 검증
     _update_progress(result_id, "cross_validate", 2, 4, "Gemini 크로스 검증 중...")
-    logger.info(f"[CrossVal] Gemini 크로스 검증 시작")
     ocr_results = await cross_validate_ocr(
         image_bytes_list, gpt4o_results,
         expected_questions=expected_questions,
         question_types=question_types,
     )
-    logger.info(f"[CrossVal] 크로스 검증 완료: {len(ocr_results)}개 결과")
-
-    # ── #8: 교재 매칭 - 다중 이미지 집계 (answer_key_id 미지정 시) ──
-    if not answer_key and mode == "auto_search" and ocr_results:
-        try:
-            all_keys = await get_answer_keys_by_teacher(teacher_id, parsed_only=True)
-            if not all_keys:
-                all_keys = await get_all_answer_keys()
-            logger.info(f"[Auto] 후보 교재 {len(all_keys)}개: "
-                        f"{[k.get('title','') for k in all_keys]}")
-
-            # 전체 OCR 결과에서 교재명/문제번호 집계 (#8) - 풀이 노트 제외
-            all_detected_names = []
-            all_detected_nums = set()
-            for ocr_r in ocr_results:
-                if ocr_r.get("page_type") == "solution_only":
-                    continue  # 풀이 노트는 교재 매칭에서 제외
-                tb = ocr_r.get("textbook_info", {})
-                name = tb.get("name", "")
-                if name:
-                    all_detected_names.append(name)
-                ans = ocr_r.get("answers", {})
-                for k, v in ans.items():
-                    # 크로스 검증 형식에서 키 추출
-                    all_detected_nums.add(k)
-
-            # 가장 많이 감지된 교재명 사용
-            detected_name = ""
-            if all_detected_names:
-                from collections import Counter
-                name_counts = Counter(all_detected_names)
-                detected_name = name_counts.most_common(1)[0][0]
-
-            logger.info(f"[Auto] 집계: 교재='{detected_name}' ({len(all_detected_names)}회), "
-                        f"문제 {len(all_detected_nums)}개")
-
-            # 1차: 교재명 매칭
-            if detected_name:
-                matched = _match_by_textbook_name(detected_name, all_keys)
-                if matched:
-                    answer_key = await get_answer_key(matched)
-                    answer_key_id = matched
-                    logger.info(f"[Match] 교재명 '{detected_name}' → #{matched}")
-
-            # 2차: 문제 번호 겹침 매칭 (전체 이미지 집계)
-            if not answer_key and all_detected_nums:
-                best_key = None
-                best_overlap = 0
-                for key in all_keys:
-                    key_nums = set((key.get("answers_json") or {}).keys())
-                    overlap = len(all_detected_nums & key_nums)
-                    if overlap > best_overlap:
-                        best_overlap = overlap
-                        best_key = key
-                if best_key and best_overlap >= max(1, len(all_detected_nums) * 0.3):
-                    answer_key = best_key
-                    answer_key_id = best_key["id"]
-                    logger.info(f"[Match] 문제번호 {best_overlap}개 겹침 → #{answer_key_id} '{best_key.get('title','')}'")
-
-            # 3차: 교재 1개만 있으면 자동 선택
-            if not answer_key and len(all_keys) == 1:
-                answer_key = all_keys[0]
-                answer_key_id = answer_key["id"]
-                logger.info(f"[Match] 교재 1개 → 자동선택 #{answer_key_id}")
-
-            # 4차: 이미지 비교 매칭 (page_images_json 기반, Gemini 사용)
-            if not answer_key and len(all_keys) > 1:
-                central_token_for_match = await get_central_admin_token()
-                matched_by_image = await _match_by_image_comparison(
-                    image_bytes_list[0], all_keys, central_token_for_match
-                )
-                if matched_by_image:
-                    answer_key = matched_by_image
-                    answer_key_id = matched_by_image["id"]
-                    logger.info(f"[Match] 이미지 비교 → #{answer_key_id} '{matched_by_image.get('title','')}'")
-
-            # 매칭 성공 후 기대 문제번호가 없었으면 다시 GPT-4o OCR (문제번호 힌트 포함)
-            if answer_key and expected_questions is None:
-                expected_questions = sorted(
-                    (answer_key.get("answers_json") or {}).keys(),
-                    key=lambda x: (int(re.match(r"(\d+)", x).group(1)) if re.match(r"(\d+)", x) else 9999)
-                )
-                logger.info(f"[Auto] 교재 매칭 완료, 기대 문제: {expected_questions[:10]}...")
-
-        except Exception as e:
-            logger.error(f"[Auto] 매칭 실패: {e}")
-
-    if not answer_key:
-        logger.warning(f"정답 데이터를 찾을 수 없습니다 (student: {student_id})")
 
     _update_progress(result_id, "grading", 0, total_images, "채점 시작...")
     solution_only_count = 0
-    graded_questions = set()  # 중복 채점 방지: 이미 채점된 문제번호 추적
+    graded_questions = set()
 
     for idx, img_bytes in enumerate(image_bytes_list):
         _update_progress(result_id, "grading", idx + 1, total_images,
                          f"이미지 {idx+1}/{total_images} 채점 중...")
 
-        if not answer_key:
-            logger.warning(f"교재 미매칭 → 이미지 {idx+1}/{total_images} 건너뜀")
-            continue
-
-        # ── 풀이 노트(solution_only) 판별: 채점 건너뛰고 원본만 저장 ──
         ocr_data = ocr_results[idx] if idx < len(ocr_results) else None
         is_solution_only = (ocr_data or {}).get("page_type") == "solution_only"
+        ocr_answers = (ocr_data or {}).get("answers", {})
+        logger.info(f"[Grade] 이미지 {idx+1}/{total_images}: page_type={ocr_data.get('page_type', '?') if ocr_data else 'None'}, "
+                    f"인식문제={len(ocr_answers)}개, 문제번호={list(ocr_answers.keys())[:10]}")
 
         if is_solution_only:
             solution_only_count += 1
-            logger.info(f"[Grade] 이미지 {idx+1}/{len(image_bytes_list)}: 풀이 노트 → 채점 건너뜀, 원본 저장")
+            logger.info(f"[Grade] 이미지 {idx+1}: 풀이 노트 → 원본 저장")
             page_info_parts.append(f"풀이노트 {solution_only_count}")
 
             now = datetime.now()
             now_str = now.strftime('%Y%m%d_%H%M')
             filename = f"{student['name']}_{now_str}_{idx+1}_풀이.jpg"
-            sub_path = [
-                str(now.year),
-                f"{now.month:02d}",
-                f"{now.day:02d}",
-                student["name"],
-            ]
-
-            # 풀이 노트 원본을 드라이브에 저장 (채점 마킹 없이)
+            sub_path = [str(now.year), f"{now.month:02d}", f"{now.day:02d}", student["name"]]
             central_uploaded = upload_to_central(
                 central_token, CENTRAL_GRADED_RESULT_FOLDER, sub_path, filename, img_bytes
             )
             central_graded_urls.append(central_uploaded["url"])
             central_graded_ids.append(central_uploaded["id"])
+            continue
 
-            if teacher_token and teacher_token != central_token:
-                try:
-                    teacher_uploaded = upload_to_teacher_drive(
-                        teacher_token, TEACHER_RESULT_FOLDER, sub_path, filename, img_bytes
-                    )
-                    teacher_graded_urls.append(teacher_uploaded["url"])
-                    teacher_graded_ids.append(teacher_uploaded["id"])
-                except Exception as e:
-                    logger.warning(f"선생님 드라이브 풀이노트 전송 실패: {e}")
-                    teacher_graded_urls.append(central_uploaded["url"])
-
-            continue  # 채점 및 문항 데이터 저장 건너뜀
-
-        # ── 정답지(answer_sheet) 페이지: 정상 채점 ──
+        # 정상 채점
         answers_json = answer_key.get("answers_json", {})
         types_json = answer_key.get("question_types_json", {})
 
-        # 채점 실행 (중복 문제번호 건너뛰기 적용)
         grade_result = await grade_submission(
             img_bytes, answers_json, types_json,
             ocr_result=ocr_data,
             skip_questions=graded_questions if graded_questions else None,
         )
 
-        # 채점된 문제번호 누적 (다음 이미지에서 중복 방지)
         newly_graded = grade_result.get("graded_questions", set())
         if newly_graded:
             graded_questions.update(newly_graded)
-        skipped = grade_result.get("skipped_duplicates", [])
-        if skipped:
-            logger.info(f"[Dedup] 이미지 {idx+1}: 중복 {len(skipped)}개 건너뜀 → {skipped}")
 
-        # 페이지 정보 수집 (등록된 교재 제목 우선, OCR 인식값 fallback)
         ak_title = answer_key.get("title", "")
         ocr_page = grade_result.get("textbook_info", {}).get("page", "")
         if ak_title:
@@ -1289,7 +1114,6 @@ async def _execute_grading(
         elif grade_result.get("page_info"):
             page_info_parts.append(grade_result["page_info"])
 
-        # 채점 이미지 생성
         graded_img = create_graded_image(
             img_bytes, grade_result["items"],
             grade_result["total_score"], grade_result["max_score"]
@@ -1298,33 +1122,14 @@ async def _execute_grading(
         now = datetime.now()
         now_str = now.strftime('%Y%m%d_%H%M')
         filename = f"{student['name']}_{now_str}_{idx+1}.jpg"
-        sub_path = [
-            str(now.year),
-            f"{now.month:02d}",
-            f"{now.day:02d}",
-            student["name"],
-        ]
+        sub_path = [str(now.year), f"{now.month:02d}", f"{now.day:02d}", student["name"]]
 
-        # 1) 중앙 드라이브에 채점 결과 저장
         central_uploaded = upload_to_central(
             central_token, CENTRAL_GRADED_RESULT_FOLDER, sub_path, filename, graded_img
         )
         central_graded_urls.append(central_uploaded["url"])
         central_graded_ids.append(central_uploaded["id"])
 
-        # 2) 선생님 드라이브에 채점 결과 전송 (중앙과 다른 계정일 때만)
-        if teacher_token and teacher_token != central_token:
-            try:
-                teacher_uploaded = upload_to_teacher_drive(
-                    teacher_token, TEACHER_RESULT_FOLDER, sub_path, filename, graded_img
-                )
-                teacher_graded_urls.append(teacher_uploaded["url"])
-                teacher_graded_ids.append(teacher_uploaded["id"])
-            except Exception as e:
-                logger.warning(f"선생님 드라이브 전송 실패: {e}")
-                teacher_graded_urls.append(central_uploaded["url"])
-
-        # 문항별 데이터 (DB 컬럼에 맞는 필드만 전달)
         db_fields = {
             "result_id", "question_number", "question_label", "question_type",
             "student_answer", "correct_answer", "is_correct",
@@ -1345,12 +1150,11 @@ async def _execute_grading(
         total_score += grade_result["total_score"]
         max_score += grade_result["max_score"]
 
-    # 문항별 DB 저장
+    # DB 저장
     _update_progress(result_id, "saving", total_images, total_images, "결과 저장 중...")
     if all_items:
         await create_grading_items(all_items)
 
-    # 결과 업데이트
     combined_page_info = " / ".join(page_info_parts) if page_info_parts else ""
     status = "confirmed" if total_uncertain == 0 else "review_needed"
     await update_grading_result(result_id, {
@@ -1366,15 +1170,11 @@ async def _execute_grading(
         "page_info": combined_page_info,
         "central_graded_drive_ids": central_graded_ids,
         "central_graded_image_urls": central_graded_urls,
-        "teacher_graded_drive_ids": teacher_graded_ids,
-        "teacher_graded_image_urls": teacher_graded_urls if teacher_graded_urls else central_graded_urls,
     })
 
-    # 숙제 제출 상태 업데이트
     if homework_submission_id:
         await update_submission_grading_status(homework_submission_id, "graded")
 
-    # ── 채점 완료 알림 ──
     try:
         student_name = student.get("name", "학생")
         score_text = f"{round(total_score, 1)}/{round(max_score, 1)}점" if max_score > 0 else ""
@@ -1397,7 +1197,6 @@ async def _execute_grading(
     except Exception as notif_err:
         logger.warning(f"채점 완료 알림 생성 실패 (무시): {notif_err}")
 
-    # 진행률 완료 표시
     _update_progress(result_id, "done", total_images, total_images, "채점 완료")
 
     return {
@@ -1411,7 +1210,7 @@ async def _execute_grading(
         "total_questions": total_questions,
         "status": status,
         "page_info": combined_page_info,
-        "graded_images": teacher_graded_urls if teacher_graded_urls else central_graded_urls,
+        "graded_images": central_graded_urls,
     }
 
 
@@ -1426,9 +1225,16 @@ async def list_student_results(student_id: int):
 
 
 @app.post("/api/results/{result_id}/regrade")
-async def regrade_result(result_id: int):
-    """기존 채점 결과를 정답지 기준으로 재채점 (OCR 결과는 유지, 정답 비교만 다시 수행)"""
+async def regrade_result(result_id: int, request: Request):
+    """기존 채점 결과를 정답지 기준으로 재채점 (OCR 결과는 유지, 정답 비교만 다시 수행)
+    
+    body에 answer_key_id가 포함되면 교재를 변경한 후 재채점합니다.
+    """
     try:
+        body = {}
+        if request.headers.get("content-type", "").startswith("application/json"):
+            body = await request.json()
+
         sb = get_supabase()
 
         # 기존 결과 조회
@@ -1437,7 +1243,14 @@ async def regrade_result(result_id: int):
             raise HTTPException(404, "채점 결과를 찾을 수 없습니다")
         result = res.data[0]
 
-        answer_key_id = result.get("answer_key_id")
+        new_key_id = body.get("answer_key_id")
+        if new_key_id:
+            await update_grading_result(result_id, {"answer_key_id": new_key_id})
+            answer_key_id = new_key_id
+            logger.info(f"[Regrade] result #{result_id}: 교재 변경 → key #{new_key_id}")
+        else:
+            answer_key_id = result.get("answer_key_id")
+
         if not answer_key_id:
             raise HTTPException(400, "정답지가 연결되지 않은 결과입니다")
 
@@ -1625,32 +1438,24 @@ async def cleanup_student_data(
     student_id: int = Form(...),
     delete_files: bool = Form(False),
 ):
-    """학생 삭제 시 자료 정리 (중앙 + 선생님 드라이브)"""
+    """학생 삭제 시 자료 정리 (중앙 드라이브)"""
     sb = get_supabase()
 
     if delete_files:
         central_token = await get_central_admin_token()
 
         results = sb.table("grading_results").select(
-            "central_original_drive_ids, central_graded_drive_ids, teacher_graded_drive_ids, teacher_id"
+            "central_original_drive_ids, central_graded_drive_ids"
         ).eq("student_id", student_id).execute()
 
         total_deleted = 0
         for r in (results.data or []):
-            # 중앙 드라이브 파일 삭제
             if central_token:
                 for fid in (r.get("central_original_drive_ids") or []):
                     if delete_file(central_token, fid):
                         total_deleted += 1
                 for fid in (r.get("central_graded_drive_ids") or []):
                     if delete_file(central_token, fid):
-                        total_deleted += 1
-
-            # 선생님 드라이브 파일 삭제
-            teacher_token = await get_teacher_drive_token(r.get("teacher_id", ""))
-            if teacher_token:
-                for fid in (r.get("teacher_graded_drive_ids") or []):
-                    if delete_file(teacher_token, fid):
                         total_deleted += 1
 
         logger.info(f"학생 {student_id} 드라이브 파일 {total_deleted}개 삭제")

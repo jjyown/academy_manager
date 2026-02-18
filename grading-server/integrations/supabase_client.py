@@ -40,24 +40,6 @@ async def get_central_admin_token() -> str | None:
     return None
 
 
-# ── 선생님 토큰 ──
-
-async def get_teacher_drive_token(teacher_id: str) -> str | None:
-    """선생님의 드라이브 refresh_token 조회 (owner_user_id 기준)"""
-    try:
-        sb = get_supabase()
-        res = sb.table("teachers").select("google_drive_refresh_token, google_drive_connected").eq(
-            "owner_user_id", teacher_id
-        ).limit(1).execute()
-        if res.data and len(res.data) > 0:
-            row = res.data[0]
-            if row.get("google_drive_connected"):
-                return row.get("google_drive_refresh_token")
-    except Exception as e:
-        logger.error(f"선생님 드라이브 토큰 조회 실패 (teacher_id={teacher_id}): {e}")
-    return None
-
-
 # ── answer_keys ──
 
 async def get_answer_key(answer_key_id: int) -> dict | None:
@@ -76,13 +58,6 @@ async def get_answer_keys_by_teacher(teacher_id: str, parsed_only: bool = False)
     if parsed_only:
         query = query.eq("parsed", True)
     res = query.order("created_at", desc=True).execute()
-    return res.data or []
-
-
-async def get_all_answer_keys() -> list[dict]:
-    """모든 교재 조회 (자동 검색용)"""
-    sb = get_supabase()
-    res = sb.table("answer_keys").select("*").eq("parsed", True).order("created_at", desc=True).execute()
     return res.data or []
 
 
@@ -114,6 +89,23 @@ async def create_assignment(data: dict) -> dict:
     sb = get_supabase()
     res = sb.table("grading_assignments").insert(data).execute()
     return res.data[0] if res.data else {}
+
+
+async def get_student_assigned_key(student_id: int) -> dict | None:
+    """학생에게 배정된 최신 교재(answer_key) 조회
+    grading_assignments.assigned_students JSONB 배열에서 student_id 포함 여부 확인"""
+    try:
+        sb = get_supabase()
+        res = sb.table("grading_assignments").select(
+            "answer_key_id, answer_keys(*)"
+        ).contains(
+            "assigned_students", [student_id]
+        ).order("created_at", desc=True).limit(1).execute()
+        if res.data and res.data[0].get("answer_keys"):
+            return res.data[0]["answer_keys"]
+    except Exception as e:
+        logger.error(f"학생 배정 교재 조회 실패 (student_id={student_id}): {e}")
+    return None
 
 
 # ── grading_results ──

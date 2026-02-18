@@ -7,6 +7,7 @@
 	<link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.8/dist/web/static/pretendard.css" />
 	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 	<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+	<script defer src="https://unpkg.com/mathlive"></script>
 	<style>
 		:root {
 			--bg: #0f172a; --bg-card: #1e293b; --bg-elevated: #334155;
@@ -60,6 +61,21 @@
 		.badge-confirmed { background:rgba(34,197,94,0.15); color:var(--green); }
 		.badge-review { background:rgba(234,179,8,0.15); color:var(--yellow); }
 		.badge-grading { background:rgba(129,140,248,0.15); color:var(--primary); }
+		.badge-failed { background:rgba(239,68,68,0.15); color:var(--red); }
+		.badge-regrading { background:rgba(129,140,248,0.15); color:var(--primary); }
+
+		/* 상세 상태 배너 */
+		.detail-status-banner { display:flex; align-items:center; gap:10px; padding:12px 16px; border-radius:var(--radius); margin-bottom:10px; font-size:13px; line-height:1.5; }
+		.detail-status-banner.status-grading { background:rgba(129,140,248,0.1); border:1px solid rgba(129,140,248,0.3); color:var(--primary); }
+		.detail-status-banner.status-failed { background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); color:var(--red); }
+		.detail-status-banner.status-review { background:rgba(234,179,8,0.1); border:1px solid rgba(234,179,8,0.3); color:var(--yellow); }
+		.detail-status-banner .status-icon { font-size:20px; flex-shrink:0; }
+		.detail-status-banner .status-text { flex:1; }
+		.detail-status-banner .status-text strong { display:block; margin-bottom:2px; }
+		.detail-progress-bar { width:100%; height:6px; background:rgba(129,140,248,0.15); border-radius:3px; margin-top:8px; overflow:hidden; }
+		.detail-progress-fill { height:100%; background:var(--primary); border-radius:3px; transition:width 0.3s ease; }
+		@keyframes pulse-opacity { 0%,100%{opacity:1;} 50%{opacity:0.5;} }
+		.status-pulse { animation: pulse-opacity 1.5s ease-in-out infinite; }
 
 		/* 점수 카드 */
 		.score-card { text-align:center; padding:20px; background:var(--bg-elevated); border-radius:var(--radius); }
@@ -117,10 +133,105 @@
 		.g-toast.info { background:var(--primary); color:#fff; }
 		@keyframes fadeSlide { from { opacity:0; transform:translateX(-50%) translateY(-10px); } to { opacity:1; transform:translateX(-50%) translateY(0); } }
 
-		/* 이미지 뷰어 */
-		.image-viewer { position:relative; width:100%; overflow:auto; background:#000; border-radius:var(--radius); min-height:200px; max-height:70vh; }
-		.image-viewer img { display:block; transform-origin:0 0; transition:transform 0.15s ease; }
-		.image-viewer canvas { position:absolute; top:0; left:0; transform-origin:0 0; cursor:crosshair; }
+	/* 이미지 뷰어 */
+	.image-viewer { position:relative; width:100%; overflow:auto; background:#000; border-radius:var(--radius); min-height:200px; max-height:70vh; }
+	.image-viewer img { display:block; transform-origin:0 0; transition:transform 0.15s ease; }
+	.image-viewer canvas { position:absolute; top:0; left:0; transform-origin:0 0; cursor:crosshair; }
+	.image-viewer .empty-image { display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:200px; color:var(--text-sec); gap:8px; }
+	.image-viewer .empty-image i { font-size:32px; opacity:0.3; }
+	.image-viewer .empty-image p { font-size:13px; }
+
+	/* 교재 상세 - 문제 테이블 (grid로 헤더-행 정렬 보장) */
+	.kd-table-header, .kd-row {
+		display:grid;
+		grid-template-columns: 64px 56px 1fr 36px;
+		gap:8px;
+		align-items:center;
+		padding:6px 10px;
+	}
+	.kd-table-header { background:var(--bg); border-radius:8px; margin-bottom:6px; font-size:11px; font-weight:700; color:var(--text-sec); padding:8px 10px; }
+	.kd-col-num, .kd-col-type, .kd-col-answer { text-align:center; }
+	.kd-col-answer { text-align:left; }
+	.kd-row { border-bottom:1px solid var(--border); transition:background 0.1s; }
+	.kd-row:hover { background:rgba(129,140,248,0.04); }
+	.kd-row .kd-num-input { width:100%; box-sizing:border-box; text-align:center; font-weight:700; padding:7px 6px; border:1px solid var(--border); border-radius:8px; background:var(--bg-elevated); color:var(--text); font-size:13px; outline:none; }
+	.kd-row .kd-num-input:focus { border-color:var(--primary); }
+	.kd-type-badge { display:inline-flex; align-items:center; justify-content:center; min-width:40px; padding:4px 6px; border-radius:6px; font-size:10px; font-weight:700; cursor:pointer; user-select:none; transition:all 0.15s; border:1px solid transparent; line-height:1; }
+	.kd-type-badge:hover { filter:brightness(1.15); transform:scale(1.05); }
+	.kd-type-badge.type-mc { background:rgba(100,116,139,0.15); color:var(--text-sec); }
+	.kd-type-badge.type-short { background:rgba(20,184,166,0.15); color:#14b8a6; border-color:rgba(20,184,166,0.3); }
+	.kd-type-badge.type-essay { background:rgba(129,140,248,0.15); color:var(--primary); border-color:rgba(129,140,248,0.3); }
+	.kd-row .kd-answer-display { font-size:15px; }
+	.kd-row .kd-del-btn { width:36px; height:36px; border:none; background:none; color:var(--gray); cursor:pointer; font-size:14px; border-radius:8px; display:flex; align-items:center; justify-content:center; transition:all 0.15s; }
+	.kd-row .kd-del-btn:hover { color:var(--red); background:rgba(239,68,68,0.1); }
+	.kd-row.kd-type-short { background:rgba(20,184,166,0.04); border-left:3px solid #14b8a6; }
+	.kd-row.kd-type-essay { background:rgba(129,140,248,0.06); border-left:3px solid var(--primary); }
+
+	/* 수식 편집기 팝업 (MathLive) */
+	.math-editor-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:1200; display:none; align-items:center; justify-content:center; opacity:0; transition:opacity 0.15s; }
+	.math-editor-overlay.show { opacity:1; }
+	.math-editor { background:var(--bg-elevated); border-radius:16px; width:min(560px,94vw); max-height:85vh; overflow-y:auto; box-shadow:0 20px 60px rgba(0,0,0,0.4); }
+	.math-editor-header { display:flex; align-items:center; justify-content:space-between; padding:14px 18px 10px; border-bottom:1px solid var(--border); }
+	.math-editor-header h3 { font-size:15px; font-weight:700; margin:0; }
+	.math-editor-body { padding:16px 18px; }
+	#math-editor-field { width:100%; box-sizing:border-box; font-size:22px; padding:12px 14px; border-radius:10px; border:1px solid var(--border); --hue:230; --caret-color:var(--primary); --keyboard-zindex:1300; background:var(--bg); color:var(--text); }
+	#math-editor-field:focus-within { border-color:var(--primary); box-shadow:0 0 0 3px rgba(129,140,248,0.15); }
+	.math-nav-bar { margin-top:8px; display:flex; align-items:center; justify-content:space-between; gap:8px; }
+	.math-nav-btns { display:flex; gap:4px; align-items:center; }
+	.math-nav-btn { padding:4px 8px; font-size:12px; border:1px solid var(--border); border-radius:6px; background:var(--bg); color:var(--text-sec); cursor:pointer; transition:all 0.12s; display:flex; align-items:center; gap:3px; }
+	.math-nav-btn:hover { border-color:var(--primary); color:var(--primary); background:rgba(129,140,248,0.08); }
+	math-virtual-keyboard { z-index:1300 !important; }
+	.ML__popover, .ML__menu-container, .ML__menu, .ML__context-menu { z-index:1300 !important; }
+	.kd-answer-display { min-height:36px; padding:8px 12px; cursor:pointer; display:flex; align-items:center; border-radius:8px; background:var(--bg-elevated); border:1px solid var(--border); transition:border-color 0.15s; overflow:hidden; font-size:15px; }
+	.kd-answer-display:hover { border-color:var(--primary); }
+	math-field.kd-math-ro { display:inline-block; width:auto !important; min-height:auto !important; border:none !important; background:transparent !important; padding:0 !important; box-shadow:none !important; font-size:16px; pointer-events:none; --hue:230; }
+
+	/* 교재 상세 - 2단 레이아웃 */
+	.kd-split { display:flex; gap:12px; align-items:flex-start; }
+	.kd-split-left { flex:1; min-width:0; position:sticky; top:60px; max-height:calc(100vh - 80px); overflow:hidden; }
+	.kd-split-right { flex:1; min-width:0; max-height:calc(100vh - 80px); overflow-y:auto; }
+	.kd-split-right::-webkit-scrollbar { width:6px; }
+	.kd-split-right::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
+	@media (max-width:768px) {
+		.kd-split { flex-direction:column; }
+		.kd-split-left { position:static; max-height:50vh; }
+		.kd-split-right { max-height:none; }
+	}
+
+	/* 교재 상세 - 페이지 이미지 */
+	.kd-pages-wrap { overflow:hidden; max-height:calc(100vh - 220px); border-radius:8px; position:relative; cursor:grab; background:var(--bg); }
+	.kd-pages-wrap:active { cursor:grabbing; }
+	.kd-page-img { width:100%; border-radius:8px; border:1px solid var(--border); display:block; transform-origin:0 0; will-change:transform; user-select:none; -webkit-user-drag:none; }
+
+	/* 파일 드래그앤드롭 */
+	.file-drop-zone { border:2px dashed var(--border); border-radius:12px; padding:24px 16px; text-align:center; cursor:pointer; transition:all 0.2s; background:var(--bg); }
+	.file-drop-zone:hover { border-color:var(--primary); background:rgba(129,140,248,0.04); }
+	.file-drop-zone.drag-over { border-color:var(--primary); background:rgba(129,140,248,0.1); transform:scale(1.01); }
+	.file-drop-zone.has-file { border-style:solid; border-color:var(--primary); background:rgba(129,140,248,0.06); }
+
+	/* 학생 검색 드롭다운 */
+	.stu-drop-item { padding:10px 14px; cursor:pointer; font-size:13px; border-bottom:1px solid var(--border); transition:background 0.1s; }
+	.stu-drop-item:last-child { border-bottom:none; }
+	.stu-drop-item:hover { background:rgba(129,140,248,0.15); }
+	.stu-drop-item .stu-grade { font-size:11px; color:var(--text-sec); margin-left:6px; }
+	.stu-tag { display:inline-flex; align-items:center; gap:4px; padding:4px 10px; border-radius:16px; background:rgba(129,140,248,0.15); color:var(--primary); font-size:12px; font-weight:600; }
+	.stu-tag button { background:none; border:none; color:var(--text-sec); cursor:pointer; font-size:11px; padding:0 2px; line-height:1; }
+	.stu-tag button:hover { color:var(--red); }
+
+	/* 이미지 네비게이션 */
+	.image-nav { display:flex; align-items:center; justify-content:center; gap:10px; margin-top:8px; }
+	.image-nav button { width:32px; height:32px; border-radius:8px; border:1px solid var(--border); background:var(--bg-elevated); color:var(--text-sec); cursor:pointer; font-size:13px; display:flex; align-items:center; justify-content:center; transition:all 0.15s; }
+	.image-nav button:hover:not(:disabled) { border-color:var(--primary); color:var(--primary); }
+	.image-nav button:disabled { opacity:0.3; cursor:default; }
+	.image-nav .page-indicator { font-size:12px; color:var(--text-sec); min-width:60px; text-align:center; cursor:pointer; user-select:none; }
+	.image-nav .page-indicator:hover { color:var(--primary); }
+	.image-nav .page-jump-input { width:48px; padding:3px 4px; font-size:13px; text-align:center; border:1px solid var(--primary); border-radius:6px; background:var(--bg-elevated); color:var(--text); outline:none; }
+	.kd-bookmarks { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; justify-content:center; }
+	.kd-bookmark-btn { display:inline-flex; align-items:center; gap:4px; padding:4px 10px; font-size:11px; border-radius:14px; border:1px solid var(--border); background:var(--bg-elevated); color:var(--text-sec); cursor:pointer; transition:all 0.15s; white-space:nowrap; }
+	.kd-bookmark-btn:hover { border-color:var(--primary); color:var(--primary); background:rgba(129,140,248,0.08); }
+	.kd-bookmark-btn.active { border-color:var(--primary); color:#fff; background:var(--primary); }
+	.kd-bookmark-btn i { font-size:9px; }
+	.kd-bookmark-add { border-style:dashed; }
 
 		/* Split View (이미지 + 정답 패널) */
 		.split-view { display:flex; gap:8px; margin:8px 12px; }
@@ -182,7 +293,7 @@
 <body>
 
 <!-- 로그인 페이지 -->
-<div id="page-login" style="display:flex; min-height:100vh; align-items:center; justify-content:center; padding:20px;">
+<div id="page-login" style="display:none; min-height:100vh; align-items:center; justify-content:center; padding:20px;">
 	<div style="max-width:380px; width:100%; text-align:center;">
 		<div style="font-size:48px; margin-bottom:16px;">📝</div>
 		<h1 style="font-size:22px; font-weight:800; margin-bottom:4px;">채점 관리</h1>
@@ -241,12 +352,12 @@
 		<div style="padding:8px 12px;">
 			<div style="background:#f0fdf4;border-radius:10px;padding:10px 12px;margin-bottom:8px;">
 				<p style="font-size:12px;color:#166534;margin:0;">
-					<i class="fas fa-magic" style="margin-right:4px;"></i>
-					<b>자동 채점 모드</b>: 교재만 등록하면 학생이 올린 숙제를 AI가 자동으로 교재를 매칭하고 채점합니다.<br>
-					<span style="font-size:11px;color:#64748b;">아래 과제 배정은 선택사항입니다. 특정 학생에게 과제를 명시적으로 지정하고 싶을 때만 사용하세요.</span>
+					<i class="fas fa-book-open" style="margin-right:4px;"></i>
+					<b>교재 배정 방식</b>: 교재를 등록하고 학생에게 배정하면, 숙제 제출 시 배정된 교재로 자동 채점됩니다.<br>
+					<span style="font-size:11px;color:#64748b;">배정하지 않은 학생이 제출하면 "확인 필요" 상태로 표시됩니다.</span>
 				</p>
 			</div>
-			<button class="btn btn-primary btn-sm" onclick="showAssignModal()"><i class="fas fa-plus"></i> 과제 배정 (선택)</button>
+			<button class="btn btn-primary btn-sm" onclick="showAssignModal()"><i class="fas fa-plus"></i> 과제 배정</button>
 		</div>
 		<div id="assignments-list"></div>
 	</div>
@@ -277,6 +388,9 @@
 	</div>
 
 	<div style="padding:0 0 120px;">
+		<!-- 상태 배너 (채점중/실패/검토필요 시 표시) -->
+		<div id="detail-status-banner" style="display:none;" class="detail-status-banner"></div>
+
 		<!-- 점수 요약 -->
 		<div class="card">
 			<div style="display:flex;gap:12px;">
@@ -301,6 +415,16 @@
 			</div>
 			<div id="detail-page-info" style="display:none;font-size:12px;color:var(--teal);margin-top:8px;padding:8px 12px;background:rgba(20,184,166,0.08);border-radius:8px;">
 			</div>
+			<!-- 교재 변경 + 재채점 -->
+			<div style="display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap;">
+				<span style="font-size:12px;color:var(--text-sec);white-space:nowrap;"><i class="fas fa-book" style="margin-right:4px;"></i>교재:</span>
+				<select class="input" id="detail-key-select" style="flex:1;min-width:120px;font-size:12px;padding:6px 8px;">
+					<option value="">교재 없음</option>
+				</select>
+				<button class="btn btn-sm btn-outline" id="detail-regrade-btn" onclick="regradeWithKey()" style="white-space:nowrap;font-size:12px;">
+					<i class="fas fa-sync-alt" style="margin-right:4px;"></i>재채점
+				</button>
+			</div>
 		</div>
 
 		<!-- 문항 그리드 -->
@@ -316,8 +440,9 @@
 			<span class="sk"><kbd>2</kbd> 오답</span>
 			<span class="sk"><kbd>3</kbd> 확인필요</span>
 			<span class="sk"><kbd>Enter</kbd> 저장</span>
-			<span class="sk"><kbd>+</kbd><kbd>-</kbd> 줌</span>
-		</div>
+		<span class="sk"><kbd>+</kbd><kbd>-</kbd> 줌</span>
+		<span class="sk"><kbd>←</kbd><kbd>→</kbd> 이미지</span>
+	</div>
 
 		<!-- Split View: 이미지(좌) + 정답 패널(우) -->
 		<div class="split-view">
@@ -332,10 +457,19 @@
 							<button onclick="zoomImage(0, true)" title="원본"><i class="fas fa-expand"></i></button>
 						</div>
 					</div>
-					<div class="image-viewer" id="image-viewer">
-						<img id="graded-image" src="" alt="채점 이미지" onload="initCanvas()">
-						<canvas id="annotation-canvas"></canvas>
+				<div class="image-viewer" id="image-viewer">
+					<div class="empty-image" id="image-empty-state">
+						<i class="fas fa-image"></i>
+						<p>채점 이미지가 없습니다</p>
 					</div>
+					<img id="graded-image" src="" alt="채점 이미지" onload="initCanvas()" style="display:none;">
+					<canvas id="annotation-canvas"></canvas>
+				</div>
+				<div class="image-nav" id="image-nav" style="display:none;">
+					<button onclick="prevImage()" id="btn-prev-img" disabled><i class="fas fa-chevron-left"></i></button>
+					<span class="page-indicator" id="image-page-indicator">1 / 1</span>
+					<button onclick="nextImage()" id="btn-next-img" disabled><i class="fas fa-chevron-right"></i></button>
+				</div>
 				</div>
 			</div>
 			<div class="split-right">
@@ -374,6 +508,121 @@
 		<button class="tool-btn" onclick="undoCanvas()"><i class="fas fa-undo"></i></button>
 		<button class="tool-btn" onclick="redoCanvas()"><i class="fas fa-redo"></i></button>
 		<button class="tool-btn" onclick="saveAnnotations()" style="color:var(--green);"><i class="fas fa-save"></i></button>
+	</div>
+</div>
+
+<!-- 교재 상세 편집 페이지 -->
+<div id="page-key-detail" style="display:none;">
+	<div class="top-bar">
+		<button class="top-bar-btn" onclick="showPage('main')"><i class="fas fa-arrow-left"></i></button>
+		<h1 id="key-detail-title">교재 상세</h1>
+		<button class="btn btn-sm btn-primary" onclick="saveKeyDetail()"><i class="fas fa-save" style="margin-right:4px;"></i>저장</button>
+	</div>
+
+	<div style="padding:12px 12px 40px;">
+		<!-- 교재 기본 정보 -->
+		<div class="card">
+			<div style="display:flex;gap:8px;">
+				<div class="form-group" style="flex:2;margin-bottom:0;">
+					<label class="form-label">교재명</label>
+					<input class="input" id="kd-title" placeholder="교재명" oninput="markKdDirty()">
+				</div>
+				<div class="form-group" style="flex:1;margin-bottom:0;">
+					<label class="form-label">과목</label>
+					<input class="input" id="kd-subject" placeholder="과목" oninput="markKdDirty()">
+				</div>
+			</div>
+		</div>
+
+		<!-- 2단 레이아웃: 왼쪽 미리보기 / 오른쪽 문제목록 -->
+		<div class="kd-split">
+			<!-- 왼쪽: 페이지 이미지 미리보기 -->
+			<div class="kd-split-left">
+				<div class="card" id="kd-pages-section" style="margin-bottom:0;">
+					<div class="card-title" style="justify-content:space-between;">
+						<span><i class="fas fa-images"></i> 페이지 미리보기</span>
+						<button class="btn btn-sm btn-outline" onclick="refreshKeyPageImages()" title="새로고침" style="padding:4px 10px;font-size:12px;">
+							<i class="fas fa-sync-alt"></i>
+						</button>
+					</div>
+					<div class="kd-pages-wrap" id="kd-pages-wrap">
+						<div id="kd-pages-container">
+							<div class="empty-state" style="padding:20px;"><i class="fas fa-file-image"></i><p>파싱된 페이지 이미지가 없습니다</p></div>
+						</div>
+					</div>
+					<div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-top:6px;" id="kd-zoom-bar">
+						<button class="math-nav-btn" onclick="kdZoom(-0.1)" title="축소"><i class="fas fa-minus"></i></button>
+						<span id="kd-zoom-label" style="font-size:11px;color:var(--text-sec);min-width:42px;text-align:center;">100%</span>
+						<button class="math-nav-btn" onclick="kdZoom(0.1)" title="확대"><i class="fas fa-plus"></i></button>
+						<button class="math-nav-btn" onclick="kdZoomReset()" title="초기화" style="margin-left:4px;">초기화</button>
+					</div>
+					<div class="image-nav" id="kd-page-nav" style="display:none;">
+						<button onclick="kdPrevPage()" id="kd-btn-prev" disabled><i class="fas fa-chevron-left"></i></button>
+						<span class="page-indicator" id="kd-page-indicator" onclick="kdStartPageJump()">1 / 1</span>
+						<button onclick="kdNextPage()" id="kd-btn-next" disabled><i class="fas fa-chevron-right"></i></button>
+					</div>
+					<div class="kd-bookmarks" id="kd-bookmarks"></div>
+					<div id="kd-pages-hint" style="display:none;font-size:11px;color:var(--text-sec);text-align:center;margin-top:6px;"></div>
+				</div>
+			</div>
+
+			<!-- 오른쪽: 문제 목록 -->
+			<div class="kd-split-right">
+				<div class="card" style="margin-bottom:0;">
+					<div class="card-title" style="justify-content:space-between;">
+						<span><i class="fas fa-list-ol"></i> 문제 목록</span>
+						<span style="font-size:12px;color:var(--text-sec);font-weight:400;" id="kd-question-count">0문제</span>
+					</div>
+
+					<div class="kd-table-header">
+						<span class="kd-col-num">번호</span>
+						<span class="kd-col-type">유형</span>
+						<span class="kd-col-answer">정답</span>
+						<span class="kd-col-del"></span>
+					</div>
+
+					<div id="kd-questions-list"></div>
+
+					<button class="btn btn-sm btn-outline" style="width:100%;margin-top:10px;" onclick="addQuestion()">
+						<i class="fas fa-plus" style="margin-right:4px;"></i> 문제 추가
+					</button>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+
+<!-- 수식 편집기 (MathLive) -->
+<div class="math-editor-overlay" id="math-editor-overlay" onclick="if(event.target===this)closeMathEditor(false)">
+	<div class="math-editor">
+		<div class="math-editor-header">
+			<h3><i class="fas fa-square-root-alt" style="margin-right:6px;"></i>수식 편집기 <span id="math-editor-qnum" style="font-weight:400;color:var(--text-sec);font-size:12px;"></span></h3>
+			<div style="display:flex;gap:6px;">
+				<button class="btn btn-primary btn-sm" onclick="closeMathEditor(true)" style="padding:5px 14px;font-size:12px;"><i class="fas fa-check"></i> 확인</button>
+				<button class="btn btn-outline btn-sm" onclick="closeMathEditor(false)" style="padding:5px 14px;font-size:12px;">취소</button>
+			</div>
+		</div>
+		<div class="math-editor-body">
+			<math-field id="math-editor-field" virtual-keyboard-mode="onfocus"></math-field>
+			<div class="math-nav-bar">
+				<div class="math-nav-btns">
+					<button type="button" class="math-nav-btn" onclick="mathCmd('moveToPreviousPlaceholder')" title="이전 빈칸으로"><i class="fas fa-angle-double-left"></i></button>
+					<button type="button" class="math-nav-btn" onclick="mathCmd('moveToPreviousChar')" title="← 이전"><i class="fas fa-angle-left"></i></button>
+					<button type="button" class="math-nav-btn" onclick="mathCmd('moveToNextChar')" title="다음 →"><i class="fas fa-angle-right"></i></button>
+					<button type="button" class="math-nav-btn" onclick="mathCmd('moveToNextPlaceholder')" title="다음 빈칸으로"><i class="fas fa-angle-double-right"></i></button>
+					<span style="width:1px;height:16px;background:var(--border);margin:0 4px;"></span>
+					<button type="button" class="math-nav-btn" onclick="mathCmd('moveToMathfieldEnd')" title="맨 끝으로">끝⇥</button>
+					<button type="button" class="math-nav-btn" onclick="mathCmd('deleteBackward')" title="지우기"><i class="fas fa-backspace"></i></button>
+				</div>
+				<label style="font-size:11px;color:var(--text-sec);cursor:pointer;display:flex;align-items:center;gap:4px;">
+					<input type="checkbox" id="math-editor-raw" onchange="toggleMathRaw()" style="width:14px;height:14px;">LaTeX
+				</label>
+			</div>
+			<div style="margin-top:4px;font-size:10px;color:var(--text-sec);line-height:1.5;">
+				수식 구조를 추가한 뒤 <kbd style="padding:1px 4px;border:1px solid var(--border);border-radius:3px;font-size:9px;">→</kbd> 또는 <strong>다음 →</strong> 버튼으로 커서를 빈칸 밖으로 이동한 후 다음 수식을 추가하세요
+			</div>
+			<textarea id="math-editor-raw-input" style="display:none;width:100%;box-sizing:border-box;padding:8px 12px;margin-top:6px;font-size:13px;font-family:monospace;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);resize:vertical;min-height:40px;outline:none;" placeholder="LaTeX 직접 입력 (예: \int_0^1 x^2 dx)"></textarea>
+		</div>
 	</div>
 </div>
 
@@ -419,8 +668,17 @@
 		<div class="form-group">
 			<label class="form-label">교재 선택</label>
 			<select class="input" id="assign-key">
-				<option value="">자동 검색 모드</option>
+				<option value="">교재를 선택해주세요</option>
 			</select>
+		</div>
+		<div class="form-group">
+			<label class="form-label">학생 선택</label>
+			<div style="position:relative;">
+				<input class="input" id="assign-student-search" placeholder="이름 검색..." autocomplete="off"
+					oninput="filterStudentDropdown()" onfocus="showStudentDropdown()">
+				<div id="assign-student-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:10;background:var(--bg-elevated);border:1px solid var(--border);border-radius:0 0 10px 10px;max-height:160px;overflow-y:auto;"></div>
+			</div>
+			<div id="assign-selected-students" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;"></div>
 		</div>
 		<div class="form-group">
 			<label class="form-label">페이지 범위</label>
@@ -467,8 +725,14 @@
 		</div>
 		<div class="form-group">
 			<label class="form-label">교재 파일</label>
-			<input class="input" id="key-pdf" type="file" accept=".pdf,.hml">
-			<span style="font-size:11px;color:var(--text-sec);margin-top:4px;display:block;">PDF 또는 한글(HML) 파일 지원</span>
+			<input type="file" id="key-pdf" accept=".pdf,.hml" style="display:none;" onchange="onKeyFileSelected(this)">
+			<div class="file-drop-zone" id="key-file-drop" onclick="document.getElementById('key-pdf').click()">
+				<div id="key-file-drop-content">
+					<i class="fas fa-cloud-upload-alt" style="font-size:28px;color:var(--primary);margin-bottom:8px;"></i>
+					<p style="margin:0;font-size:13px;font-weight:600;">파일을 여기에 드래그하거나 클릭하여 선택</p>
+					<p style="margin:4px 0 0;font-size:11px;color:var(--text-sec);">PDF 또는 한글(HML) 파일 지원</p>
+				</div>
+			</div>
 		</div>
 
 		<!-- 프린트 안내 (기본 표시) -->
@@ -545,6 +809,8 @@ let isDrawing = false;
 // Split View / 단축키 관련
 let selectedItemIdx = -1;  // 현재 선택된 문항 인덱스
 let imageZoom = 1;          // 이미지 줌 레벨
+let currentImageUrls = [];  // 채점 이미지 URL 목록
+let currentImageIdx = 0;    // 현재 표시 중인 이미지 인덱스
 
 // ============================================================
 // 인증 (선생님 선택 + 비밀번호)
@@ -645,12 +911,16 @@ async function handleLogin() {
 	}
 
 	currentTeacher = teacher;
+	sessionStorage.setItem('grading_teacher', JSON.stringify(teacher));
 	document.getElementById('login-error').style.display = 'none';
 	showPage('main');
 	loadAllData();
 }
 
 function handleLogout() {
+	kdDirty = false;
+	sessionStorage.removeItem('grading_teacher');
+	sessionStorage.removeItem('grading_nav');
 	currentTeacher = null;
 	currentResults = [];
 	currentItems = [];
@@ -662,22 +932,68 @@ function handleLogout() {
 // ============================================================
 // 페이지/탭 전환
 // ============================================================
+let currentPage = 'login';
 function showPage(page) {
+	if (currentPage === 'key-detail' && page !== 'key-detail' && kdDirty) {
+		if (!confirm('저장하지 않은 변경사항이 있습니다. 페이지를 떠나시겠습니까?')) return;
+		kdDirty = false;
+	}
+	currentPage = page;
 	document.getElementById('page-login').style.display = page === 'login' ? 'flex' : 'none';
 	document.getElementById('page-main').style.display = page === 'main' ? 'block' : 'none';
 	document.getElementById('page-detail').style.display = page === 'detail' ? 'block' : 'none';
-	// detail 페이지를 떠나면 키보드 리스너 해제
+	document.getElementById('page-key-detail').style.display = page === 'key-detail' ? 'block' : 'none';
 	if (page !== 'detail') {
 		document.removeEventListener('keydown', handleDetailKeydown);
+		_stopDetailPoll();
 	}
+	if (page !== 'login') saveNavState();
 }
 
+window.addEventListener('beforeunload', (e) => {
+	if (kdDirty) {
+		e.preventDefault();
+		e.returnValue = '';
+	}
+});
+
+let currentMainTab = 'results';
 function switchMainTab(tab, e) {
+	currentMainTab = tab;
 	document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
 	document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
 	document.getElementById('tab-' + tab).style.display = 'block';
 	const btn = e ? (e.target.closest('.tab-btn') || e.target) : null;
 	if (btn) btn.classList.add('active');
+	saveNavState();
+}
+
+let kdDirty = false;
+function markKdDirty() { kdDirty = true; }
+
+function saveNavState() {
+	const state = { page: currentPage, tab: currentMainTab };
+	if (currentPage === 'detail' && currentResultId) state.resultId = currentResultId;
+	if (currentPage === 'key-detail' && currentKeyDetail) state.keyId = currentKeyDetail.id;
+	sessionStorage.setItem('grading_nav', JSON.stringify(state));
+}
+
+async function restoreNavState() {
+	const raw = sessionStorage.getItem('grading_nav');
+	if (!raw) return;
+	try {
+		const state = JSON.parse(raw);
+		if (state.tab) {
+			currentMainTab = state.tab;
+			const tabBtn = document.querySelector(`.tab-btn[onclick*="'${state.tab}'"]`);
+			if (tabBtn) switchMainTab(state.tab, { target: tabBtn });
+		}
+		if (state.page === 'detail' && state.resultId) {
+			await openDetail(state.resultId);
+		} else if (state.page === 'key-detail' && state.keyId) {
+			await openKeyDetail(state.keyId);
+		}
+	} catch(e) {}
 }
 
 function closeModal(id) {
@@ -788,10 +1104,12 @@ async function loadResults() {
 		const params = new URLSearchParams({ teacher_id: currentTeacher.owner_user_id });
 		if (currentFilter !== 'all') params.append('status', currentFilter);
 		const res = await fetch(`${GRADING_SERVER_URL}/api/results?${params}`);
+		if (!res.ok) throw new Error(`서버 응답 오류 (${res.status})`);
 		const result = await res.json();
 		currentResults = result.data || [];
 	} catch (e) {
 		console.warn('채점 결과 로드 실패:', e);
+		showToast('채점 결과 로드 실패: ' + e.message, 'error');
 		currentResults = [];
 	}
 	renderResults();
@@ -812,10 +1130,14 @@ function renderResults() {
 	}
 	el.innerHTML = currentResults.map(r => {
 		const student = r.students || {};
-		const statusCls = r.status === 'confirmed' ? 'badge-confirmed' : r.status === 'review_needed' ? 'badge-review' : 'badge-grading';
-		const statusText = r.status === 'confirmed' ? '확정' : r.status === 'review_needed' ? '검토 필요' : '채점 중';
-		const iconBg = r.status === 'confirmed' ? 'rgba(34,197,94,0.15)' : r.status === 'review_needed' ? 'rgba(234,179,8,0.15)' : 'rgba(129,140,248,0.15)';
-		const icon = r.status === 'confirmed' ? '✅' : r.status === 'review_needed' ? '⚠️' : '⏳';
+		const statusMap = {
+			confirmed: { cls:'badge-confirmed', text:'확정', bg:'rgba(34,197,94,0.15)', icon:'✅' },
+			review_needed: { cls:'badge-review', text:'검토 필요', bg:'rgba(234,179,8,0.15)', icon:'⚠️' },
+			failed: { cls:'badge-failed', text:'채점 실패', bg:'rgba(239,68,68,0.15)', icon:'❌' },
+			regrading: { cls:'badge-regrading', text:'재채점 중', bg:'rgba(129,140,248,0.15)', icon:'🔄' },
+		};
+		const sm = statusMap[r.status] || { cls:'badge-grading', text:'채점 중', bg:'rgba(129,140,248,0.15)', icon:'⏳' };
+		const statusCls = sm.cls, statusText = sm.text, iconBg = sm.bg, icon = sm.icon;
 		const date = new Date(r.created_at).toLocaleDateString('ko-KR');
 		const unanswered = r.unanswered_count || 0;
 		const unansweredTag = unanswered > 0 ? ` 📝${unanswered}` : '';
@@ -842,23 +1164,97 @@ function renderResults() {
 // ============================================================
 // 채점 상세
 // ============================================================
+let _detailPollTimer = null;
+
+function _stopDetailPoll() {
+	if (_detailPollTimer) { clearInterval(_detailPollTimer); _detailPollTimer = null; }
+}
+
+function _renderDetailStatusBanner(result) {
+	const banner = document.getElementById('detail-status-banner');
+	if (!banner) return;
+	const st = result.status;
+	const errMsg = result.error_message || '';
+
+	if (st === 'confirmed') {
+		banner.style.display = 'none';
+		return;
+	}
+
+	banner.style.display = 'flex';
+	if (st === 'grading' || st === 'regrading') {
+		const label = st === 'regrading' ? '재채점 중' : '채점 진행 중';
+		banner.className = 'detail-status-banner status-grading';
+		banner.innerHTML = `<span class="status-icon status-pulse">⏳</span>
+			<div class="status-text"><strong>${label}...</strong>잠시 후 자동으로 갱신됩니다.
+			<div class="detail-progress-bar"><div class="detail-progress-fill" id="detail-progress-fill" style="width:0%"></div></div></div>`;
+	} else if (st === 'failed') {
+		banner.className = 'detail-status-banner status-failed';
+		banner.innerHTML = `<span class="status-icon">❌</span>
+			<div class="status-text"><strong>채점 실패</strong>${errMsg ? escapeHtml(errMsg) : '알 수 없는 오류가 발생했습니다.'}</div>`;
+	} else if (st === 'review_needed') {
+		banner.className = 'detail-status-banner status-review';
+		banner.innerHTML = `<span class="status-icon">⚠️</span>
+			<div class="status-text"><strong>검토 필요</strong>${errMsg ? escapeHtml(errMsg) : '채점 결과를 확인해주세요.'}</div>`;
+	} else {
+		banner.style.display = 'none';
+	}
+}
+
+async function _pollDetailResult() {
+	if (!currentResultId) return;
+	try {
+		const res = await fetch(`${GRADING_SERVER_URL}/api/grading-progress?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`);
+		if (!res.ok) return;
+		const progressData = await res.json();
+		const myProgress = (progressData.data || []).find(p => p.result_id === currentResultId);
+		if (myProgress) {
+			const fill = document.getElementById('detail-progress-fill');
+			if (fill) fill.style.width = (myProgress.percent || 0) + '%';
+		}
+	} catch(e) {}
+
+	try {
+		const res = await fetch(`${GRADING_SERVER_URL}/api/results?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`);
+		if (!res.ok) return;
+		const result = await res.json();
+		const updated = (result.data || []).find(r => r.id === currentResultId);
+		if (updated && updated.status !== 'grading' && updated.status !== 'regrading') {
+			_stopDetailPoll();
+			const idx = currentResults.findIndex(r => r.id === currentResultId);
+			if (idx >= 0) currentResults[idx] = updated;
+			await openDetail(currentResultId);
+			showToast('채점이 완료되었습니다', 'success');
+		}
+	} catch(e) {}
+}
+
 async function openDetail(resultId) {
 	currentResultId = resultId;
+	_stopDetailPoll();
+
 	const result = currentResults.find(r => r.id === resultId);
-	if (!result) return;
+	if (!result) {
+		showToast('채점 결과를 찾을 수 없습니다. 목록을 다시 불러옵니다.', 'error');
+		await loadResults();
+		const retryResult = currentResults.find(r => r.id === resultId);
+		if (!retryResult) {
+			showToast('해당 채점 결과가 존재하지 않습니다.', 'error');
+			showPage('main');
+			return;
+		}
+		return openDetail(resultId);
+	}
 
 	const detailTitle = (result.students?.name || '?') + ' 채점 상세';
-	const pageLabel = result.page_info ? ` (${result.page_info})` : '';
 	document.getElementById('detail-title').textContent = detailTitle;
 	document.getElementById('detail-score').textContent = result.total_score + '/' + result.max_score;
 	document.getElementById('detail-correct').textContent = result.correct_count;
 	document.getElementById('detail-wrong').textContent = result.wrong_count;
 	document.getElementById('detail-uncertain').textContent = result.uncertain_count;
 	document.getElementById('detail-total').textContent = result.total_questions;
-	// 미풀이 표시
 	const unansweredEl = document.getElementById('detail-unanswered');
 	if (unansweredEl) unansweredEl.textContent = result.unanswered_count || 0;
-	// 페이지 정보 표시
 	const pageInfoEl = document.getElementById('detail-page-info');
 	if (pageInfoEl) {
 		pageInfoEl.textContent = result.page_info || '';
@@ -867,19 +1263,43 @@ async function openDetail(resultId) {
 	document.getElementById('detail-memo').value = result.teacher_memo || '';
 	document.getElementById('detail-confirm-btn').style.display = result.status === 'confirmed' ? 'none' : 'inline-flex';
 
-	// 채점 이미지
-	const imgUrls = result.teacher_graded_image_urls || result.central_graded_image_urls || [];
-	if (imgUrls.length > 0) {
-		document.getElementById('graded-image').src = imgUrls[0];
+	_renderDetailStatusBanner(result);
+
+	if (result.status === 'grading' || result.status === 'regrading') {
+		_detailPollTimer = setInterval(_pollDetailResult, 3000);
 	}
+
+	// 교재 드롭다운 구성
+	const keySelect = document.getElementById('detail-key-select');
+	keySelect.innerHTML = '<option value="">교재 없음</option>';
+	try {
+		const keysRes = await fetch(`${GRADING_SERVER_URL}/api/answer-keys?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`);
+		if (!keysRes.ok) throw new Error(`HTTP ${keysRes.status}`);
+		const keysData = await keysRes.json();
+		const keys = keysData.data || [];
+		for (const k of keys) {
+			const opt = document.createElement('option');
+			opt.value = k.id;
+			opt.textContent = `${k.title}${k.subject ? ' (' + k.subject + ')' : ''}`;
+			keySelect.appendChild(opt);
+		}
+	} catch(e) { console.warn('교재 목록 로드 실패:', e); }
+	if (result.answer_key_id) keySelect.value = String(result.answer_key_id);
+
+	// 채점 이미지 (중앙 드라이브 우선)
+	currentImageUrls = result.central_graded_image_urls || result.teacher_graded_image_urls || [];
+	currentImageIdx = 0;
+	loadCurrentImage();
 
 	// 문항별 로드
 	try {
 		const itemsRes = await fetch(`${GRADING_SERVER_URL}/api/results/${resultId}/items`);
+		if (!itemsRes.ok) throw new Error(`HTTP ${itemsRes.status}`);
 		const itemsResult = await itemsRes.json();
 		currentItems = itemsResult.data || [];
 	} catch (e) {
 		console.warn('문항 로드 실패:', e);
+		showToast('문항 데이터 로드 실패: ' + e.message, 'error');
 		currentItems = [];
 	}
 	// Split View 초기화
@@ -988,6 +1408,48 @@ async function confirmResult() {
 	loadResults();
 }
 
+async function regradeWithKey() {
+	if (!currentResultId) return;
+	const keySelect = document.getElementById('detail-key-select');
+	const selectedKeyId = keySelect.value;
+
+	if (!selectedKeyId) {
+		showToast('교재를 선택하세요', 'error');
+		return;
+	}
+
+	const result = currentResults.find(r => r.id === currentResultId);
+	const changed = result && String(result.answer_key_id) !== selectedKeyId;
+	const msg = changed
+		? '선택한 교재로 변경하고 재채점하시겠습니까?'
+		: '현재 교재로 재채점하시겠습니까?\n(정답을 수정한 경우 최신 정답이 반영됩니다)';
+	if (!confirm(msg)) return;
+
+	const btn = document.getElementById('detail-regrade-btn');
+	btn.disabled = true;
+	btn.innerHTML = '<i class="fas fa-spinner fa-spin" style="margin-right:4px;"></i>재채점 중...';
+
+	try {
+		const body = changed ? { answer_key_id: parseInt(selectedKeyId) } : {};
+		const res = await fetch(`${GRADING_SERVER_URL}/api/results/${currentResultId}/regrade`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(body),
+		});
+		const data = await res.json();
+		if (!res.ok) throw new Error(data.detail || '재채점 실패');
+
+		showToast(`재채점 완료: ${data.correct_count}맞 / ${data.wrong_count}틀 / ${data.uncertain_count}확인필요`, 'success');
+		await loadResults();
+		await openDetail(currentResultId);
+	} catch (e) {
+		showToast('재채점 실패: ' + e.message, 'error');
+	} finally {
+		btn.disabled = false;
+		btn.innerHTML = '<i class="fas fa-sync-alt" style="margin-right:4px;"></i>재채점';
+	}
+}
+
 async function deleteResult(resultId, studentName) {
 	if (!confirm(`"${studentName}" 채점 결과를 삭제하시겠습니까?\n\n이 작업은 되돌릴 수 없습니다.`)) return;
 	try {
@@ -1035,17 +1497,84 @@ async function loadAssignments() {
 	}).join('');
 }
 
+let assignStudentList = [];
+let assignSelectedStudents = [];
+
 async function showAssignModal() {
-	// 교재 목록 로드 (서버 API)
 	let keys = [];
+	assignSelectedStudents = [];
 	try {
-		const res = await fetch(`${GRADING_SERVER_URL}/api/answer-keys?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`);
-		const result = await res.json();
-		keys = result.data || [];
+		const keysRes = await fetch(`${GRADING_SERVER_URL}/api/answer-keys?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`);
+		keys = (await keysRes.json()).data || [];
 	} catch (e) {}
+
+	try {
+		// owner_user_id 또는 teacher_id로 연결된 학생 모두 조회
+		const { data: d1 } = await db.from('students').select('id, name, grade, school').eq('owner_user_id', currentTeacher.owner_user_id).order('name');
+		const { data: d2 } = await db.from('students').select('id, name, grade, school').eq('teacher_id', currentTeacher.id).order('name');
+		const merged = new Map();
+		[...(d1 || []), ...(d2 || [])].forEach(s => merged.set(s.id, s));
+		assignStudentList = [...merged.values()].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+	} catch (e) {
+		console.warn('학생 목록 로드 실패:', e);
+	}
+
 	const sel = document.getElementById('assign-key');
-	sel.innerHTML = '<option value="">자동 검색 모드</option>' + keys.map(k => `<option value="${k.id}">${k.title} (${k.subject || ''})</option>`).join('');
+	sel.innerHTML = '<option value="">교재를 선택해주세요</option>' + keys.map(k => `<option value="${k.id}">${k.title} (${k.subject || ''})</option>`).join('');
+	document.getElementById('assign-student-search').value = '';
+	renderSelectedStudents();
+	document.getElementById('assign-student-dropdown').style.display = 'none';
 	document.getElementById('assign-modal').classList.add('show');
+}
+
+function showStudentDropdown() {
+	filterStudentDropdown();
+}
+
+function filterStudentDropdown() {
+	const query = document.getElementById('assign-student-search').value.trim().toLowerCase();
+	const dropdown = document.getElementById('assign-student-dropdown');
+	const selectedIds = assignSelectedStudents.map(s => s.id);
+	const filtered = assignStudentList.filter(s =>
+		!selectedIds.includes(s.id) && (
+			!query || s.name.toLowerCase().includes(query) ||
+			(s.grade && s.grade.toLowerCase().includes(query))
+		)
+	);
+
+	if (!filtered.length) {
+		dropdown.innerHTML = '<div style="padding:10px 14px;font-size:12px;color:var(--text-sec);">검색 결과 없음</div>';
+	} else {
+		dropdown.innerHTML = filtered.map(s =>
+			`<div class="stu-drop-item" onmousedown="addStudent(${s.id})">${escapeHtml(s.name)}<span class="stu-grade">${s.grade || ''}</span></div>`
+		).join('');
+	}
+	dropdown.style.display = 'block';
+}
+
+function addStudent(id) {
+	const stu = assignStudentList.find(s => s.id === id);
+	if (!stu || assignSelectedStudents.find(s => s.id === id)) return;
+	assignSelectedStudents.push(stu);
+	document.getElementById('assign-student-search').value = '';
+	document.getElementById('assign-student-dropdown').style.display = 'none';
+	renderSelectedStudents();
+}
+
+function removeStudent(id) {
+	assignSelectedStudents = assignSelectedStudents.filter(s => s.id !== id);
+	renderSelectedStudents();
+}
+
+function renderSelectedStudents() {
+	const el = document.getElementById('assign-selected-students');
+	if (!assignSelectedStudents.length) {
+		el.innerHTML = '<span style="font-size:11px;color:var(--text-sec);">선택된 학생이 없습니다</span>';
+		return;
+	}
+	el.innerHTML = assignSelectedStudents.map(s =>
+		`<span class="stu-tag">${escapeHtml(s.name)}<button onclick="removeStudent(${s.id})">&times;</button></span>`
+	).join('');
 }
 
 async function createAssignment() {
@@ -1053,15 +1582,21 @@ async function createAssignment() {
 	if (!title) return showToast('과제 제목을 입력하세요', 'error');
 
 	const keyId = document.getElementById('assign-key').value;
+	if (!keyId) return showToast('교재를 선택해주세요', 'error');
+
+	const selectedStudents = assignSelectedStudents.map(s => s.id);
+	if (!selectedStudents.length) return showToast('학생을 1명 이상 선택해주세요', 'error');
+
 	try {
 		const formData = new FormData();
 		formData.append('teacher_id', currentTeacher.owner_user_id);
 		formData.append('title', title);
-		if (keyId) formData.append('answer_key_id', keyId);
+		formData.append('answer_key_id', keyId);
 		formData.append('page_range', document.getElementById('assign-pages').value);
+		formData.append('assigned_students', JSON.stringify(selectedStudents));
 		const due = document.getElementById('assign-due').value;
 		if (due) formData.append('due_date', due);
-		formData.append('mode', keyId ? 'assigned' : 'auto_search');
+		formData.append('mode', 'assigned');
 		const res = await fetch(`${GRADING_SERVER_URL}/api/assignments`, { method: 'POST', body: formData });
 		if (!res.ok) return showToast('배정 실패', 'error');
 	} catch (e) {
@@ -1091,12 +1626,14 @@ async function loadAnswerKeys() {
 		return;
 	}
 	el.innerHTML = data.map(k => `<div class="list-item" style="position:relative;">
-		<div class="list-item-icon" style="background:rgba(20,184,166,0.15);">📚</div>
-		<div class="list-item-info" style="flex:1;">
-			<div class="list-item-title">${escapeHtml(k.title)}</div>
-			<div class="list-item-sub">${k.subject || '과목 미정'} · ${k.total_questions}문제 · ${k.parsed ? '✅ 파싱완료' : '⏳ 파싱중'}</div>
+		<div style="display:flex;align-items:center;gap:12px;flex:1;cursor:pointer;" onclick="openKeyDetail(${k.id})">
+			<div class="list-item-icon" style="background:rgba(20,184,166,0.15);">📚</div>
+			<div class="list-item-info" style="flex:1;">
+				<div class="list-item-title">${escapeHtml(k.title)}</div>
+				<div class="list-item-sub">${k.subject || '과목 미정'} · ${k.total_questions}문제 · ${k.parsed ? '✅ 파싱완료' : '⏳ 파싱중'}</div>
+			</div>
 		</div>
-		<button onclick="deleteAnswerKey(${k.id}, '${escapeHtml(k.title)}')" title="삭제"
+		<button onclick="event.stopPropagation();deleteAnswerKey(${k.id}, '${escapeHtml(k.title)}')" title="삭제"
 			style="background:none;border:none;color:var(--red,#ef4444);cursor:pointer;padding:8px;font-size:16px;opacity:0.6;transition:opacity 0.2s;"
 			onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.6'">
 			<i class="fas fa-trash-alt"></i>
@@ -1106,12 +1643,12 @@ async function loadAnswerKeys() {
 	// 과제 배정용 셀렉트 업데이트
 	const sel = document.getElementById('assign-key');
 	if (sel) {
-		sel.innerHTML = '<option value="">자동 검색 모드</option>' + data.map(k => `<option value="${k.id}">${k.title} (${k.subject || ''})</option>`).join('');
+		sel.innerHTML = '<option value="">교재를 선택해주세요</option>' + data.map(k => `<option value="${k.id}">${k.title} (${k.subject || ''})</option>`).join('');
 	}
 }
 
 async function deleteAnswerKey(id, title) {
-	if (!confirm(`"${title}" 교재를 삭제하시겠습니까?\n\n이 교재의 정답 데이터가 모두 삭제됩니다.`)) return;
+	if (!confirm(`"${title}" 교재를 삭제하시겠습니까?\n\n정답 데이터 및 드라이브 페이지 이미지가 함께 삭제됩니다.`)) return;
 
 	try {
 		const res = await fetch(`${GRADING_SERVER_URL}/api/answer-keys/${id}?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`, {
@@ -1170,8 +1707,72 @@ function showAddKeyModal() {
 	const pe = document.getElementById('key-page-end');
 	if (ps) ps.value = '';
 	if (pe) pe.value = '';
+	resetFileDropZone();
 	document.getElementById('key-modal').classList.add('show');
 }
+
+function onKeyFileSelected(input) {
+	if (input.files.length > 0) showFileInDropZone(input.files[0]);
+}
+
+function showFileInDropZone(file) {
+	const zone = document.getElementById('key-file-drop');
+	const content = document.getElementById('key-file-drop-content');
+	const ext = file.name.split('.').pop().toUpperCase();
+	const icon = ext === 'PDF' ? 'fa-file-pdf' : 'fa-file-alt';
+	const size = file.size < 1024*1024
+		? (file.size / 1024).toFixed(1) + ' KB'
+		: (file.size / (1024*1024)).toFixed(1) + ' MB';
+	content.innerHTML = `
+		<i class="fas ${icon}" style="font-size:24px;color:var(--primary);margin-bottom:6px;"></i>
+		<p style="margin:0;font-size:13px;font-weight:600;word-break:break-all;">${escapeHtml(file.name)}</p>
+		<p style="margin:3px 0 0;font-size:11px;color:var(--text-sec);">${ext} · ${size}</p>
+		<p style="margin:6px 0 0;font-size:10px;color:var(--primary);cursor:pointer;" onclick="event.stopPropagation();resetFileDropZone();"><i class="fas fa-times"></i> 파일 제거</p>
+	`;
+	zone.classList.add('has-file');
+}
+
+function resetFileDropZone() {
+	const zone = document.getElementById('key-file-drop');
+	const content = document.getElementById('key-file-drop-content');
+	const input = document.getElementById('key-pdf');
+	if (input) input.value = '';
+	if (zone) zone.classList.remove('has-file');
+	if (content) content.innerHTML = `
+		<i class="fas fa-cloud-upload-alt" style="font-size:28px;color:var(--primary);margin-bottom:8px;"></i>
+		<p style="margin:0;font-size:13px;font-weight:600;">파일을 여기에 드래그하거나 클릭하여 선택</p>
+		<p style="margin:4px 0 0;font-size:11px;color:var(--text-sec);">PDF 또는 한글(HML) 파일 지원</p>
+	`;
+}
+
+(function initFileDrop() {
+	document.addEventListener('DOMContentLoaded', () => {
+		const zone = document.getElementById('key-file-drop');
+		if (!zone) return;
+		['dragenter','dragover'].forEach(ev =>
+			zone.addEventListener(ev, (e) => { e.preventDefault(); zone.classList.add('drag-over'); })
+		);
+		['dragleave','drop'].forEach(ev =>
+			zone.addEventListener(ev, () => zone.classList.remove('drag-over'))
+		);
+		zone.addEventListener('drop', (e) => {
+			e.preventDefault();
+			const files = e.dataTransfer.files;
+			if (!files.length) return;
+			const file = files[0];
+			const ext = file.name.split('.').pop().toLowerCase();
+			if (ext !== 'pdf' && ext !== 'hml') {
+				showToast('PDF 또는 HML 파일만 업로드 가능합니다', 'error');
+				return;
+			}
+			const input = document.getElementById('key-pdf');
+			const dt = new DataTransfer();
+			dt.items.add(file);
+			input.files = dt.files;
+			showFileInDropZone(file);
+		});
+	});
+})();
 
 let isRegistering = false;
 async function registerAnswerKey() {
@@ -1216,7 +1817,12 @@ async function registerAnswerKey() {
 			const result = await res.json();
 
 			if (result.data) {
-				showToast(`교재 등록 완료! ${result.parsed_result?.total || 0}문제 추출`, 'success');
+				const cnt = result.parsed_result?.total || 0;
+				if (isHml) {
+					showToast(`교재 등록 완료! ${cnt}문제 추출 (HML은 페이지 미리보기 미지원)`, 'success');
+				} else {
+					showToast(`교재 등록 완료! ${cnt}문제 추출 — 페이지 이미지 백그라운드 업로드 중`, 'success');
+				}
 				closeModal('key-modal');
 				loadAnswerKeys();
 			} else {
@@ -1255,6 +1861,524 @@ async function scanDrivePDFs() {
 	} catch (e) {
 		showToast('스캔 실패: ' + e.message, 'error');
 	}
+}
+
+// ============================================================
+// 교재 상세 편집
+// ============================================================
+let currentKeyDetail = null;
+let kdQuestions = [];
+let kdPageImages = [];
+let kdCurrentPage = 0;
+let kdBookmarks = [];
+let kdZoomLevel = 1;
+let kdPanX = 0, kdPanY = 0;
+
+function kdZoom(delta) {
+	const oldZoom = kdZoomLevel;
+	kdZoomLevel = Math.max(0.2, Math.min(5, kdZoomLevel + delta));
+	const wrap = document.getElementById('kd-pages-wrap');
+	if (wrap) {
+		const cx = wrap.clientWidth / 2, cy = wrap.clientHeight / 2;
+		kdPanX = cx - (cx - kdPanX) * (kdZoomLevel / oldZoom);
+		kdPanY = cy - (cy - kdPanY) * (kdZoomLevel / oldZoom);
+	}
+	applyKdZoom();
+}
+function kdZoomReset() {
+	kdZoomLevel = 1; kdPanX = 0; kdPanY = 0;
+	applyKdZoom();
+}
+function applyKdZoom() {
+	const img = document.querySelector('#kd-pages-container .kd-page-img');
+	if (img) img.style.transform = `translate(${kdPanX}px,${kdPanY}px) scale(${kdZoomLevel})`;
+	const label = document.getElementById('kd-zoom-label');
+	if (label) label.textContent = `${Math.round(kdZoomLevel * 100)}%`;
+}
+
+(function initKdZoom() {
+	document.addEventListener('DOMContentLoaded', () => {
+		const wrap = document.getElementById('kd-pages-wrap');
+		if (!wrap) return;
+
+		wrap.addEventListener('wheel', (e) => {
+			if (!e.ctrlKey && !e.metaKey) return;
+			e.preventDefault();
+			const rect = wrap.getBoundingClientRect();
+			const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+			const oldZoom = kdZoomLevel;
+			const delta = e.deltaY > 0 ? -0.08 : 0.08;
+			kdZoomLevel = Math.max(0.2, Math.min(5, kdZoomLevel + delta));
+			kdPanX = mx - (mx - kdPanX) * (kdZoomLevel / oldZoom);
+			kdPanY = my - (my - kdPanY) * (kdZoomLevel / oldZoom);
+			applyKdZoom();
+		}, { passive: false });
+
+		let drag = null;
+		wrap.addEventListener('mousedown', (e) => {
+			if (e.button !== 0) return;
+			drag = { sx: e.clientX - kdPanX, sy: e.clientY - kdPanY };
+			wrap.style.cursor = 'grabbing';
+			e.preventDefault();
+		});
+		window.addEventListener('mousemove', (e) => {
+			if (!drag) return;
+			kdPanX = e.clientX - drag.sx;
+			kdPanY = e.clientY - drag.sy;
+			applyKdZoom();
+		});
+		window.addEventListener('mouseup', () => {
+			if (drag) { drag = null; const w = document.getElementById('kd-pages-wrap'); if(w) w.style.cursor = 'grab'; }
+		});
+
+		let lastTouchDist = 0;
+		wrap.addEventListener('touchstart', (e) => {
+			if (e.touches.length === 2) {
+				lastTouchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+			} else if (e.touches.length === 1) {
+				drag = { sx: e.touches[0].clientX - kdPanX, sy: e.touches[0].clientY - kdPanY };
+			}
+		}, { passive: true });
+		wrap.addEventListener('touchmove', (e) => {
+			if (e.touches.length === 2) {
+				e.preventDefault();
+				const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+				const scale = dist / lastTouchDist;
+				kdZoomLevel = Math.max(0.2, Math.min(5, kdZoomLevel * scale));
+				lastTouchDist = dist;
+				applyKdZoom();
+			} else if (e.touches.length === 1 && drag) {
+				kdPanX = e.touches[0].clientX - drag.sx;
+				kdPanY = e.touches[0].clientY - drag.sy;
+				applyKdZoom();
+			}
+		}, { passive: false });
+		wrap.addEventListener('touchend', () => { drag = null; lastTouchDist = 0; });
+	});
+})();
+
+async function openKeyDetail(keyId) {
+	let allKeys = [];
+	try {
+		const res = await fetch(`${GRADING_SERVER_URL}/api/answer-keys?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`);
+		const result = await res.json();
+		allKeys = result.data || [];
+	} catch (e) {
+		showToast('교재 로드 실패', 'error');
+		return;
+	}
+
+	currentKeyDetail = allKeys.find(k => k.id === keyId);
+	if (!currentKeyDetail) { showToast('교재를 찾을 수 없습니다', 'error'); return; }
+
+	document.getElementById('key-detail-title').textContent = currentKeyDetail.title || '교재 상세';
+	document.getElementById('kd-title').value = currentKeyDetail.title || '';
+	document.getElementById('kd-subject').value = currentKeyDetail.subject || '';
+
+	// 페이지 이미지 + 북마크
+	kdPageImages = currentKeyDetail.page_images_json || [];
+	kdBookmarks = currentKeyDetail.bookmarks_json || [];
+	kdCurrentPage = 0;
+	renderKdPageImages();
+	renderKdBookmarks();
+
+	// 문제 목록 구성
+	const answers = currentKeyDetail.answers_json || {};
+	const types = currentKeyDetail.question_types_json || {};
+	kdQuestions = Object.keys(answers).map(qnum => ({
+		number: qnum,
+		answer: answers[qnum] || '',
+		type: types[qnum] || 'mc',
+	}));
+
+	// 숫자 기준 정렬 (1, 2, 3, ..., 4(1), 4(2), ...)
+	kdQuestions.sort((a, b) => {
+		const na = parseFloat(a.number) || 0;
+		const nb = parseFloat(b.number) || 0;
+		return na - nb || a.number.localeCompare(b.number);
+	});
+
+	renderKeyQuestions();
+	kdDirty = false;
+	showPage('key-detail');
+}
+
+function renderKdPageImages(keepScroll) {
+	const container = document.getElementById('kd-pages-container');
+	const nav = document.getElementById('kd-page-nav');
+	const hint = document.getElementById('kd-pages-hint');
+	const section = document.getElementById('kd-pages-section');
+
+	if (!kdPageImages.length) {
+		container.style.minHeight = '';
+		container.innerHTML = '<div class="empty-state" style="padding:20px;"><i class="fas fa-file-image"></i><p>파싱된 페이지 이미지가 없습니다</p></div>';
+		nav.style.display = 'none';
+		if (hint) {
+			hint.style.display = 'block';
+			hint.textContent = 'HML 파일은 페이지 미리보기를 지원하지 않습니다. PDF 파일로 등록하면 페이지 이미지를 확인할 수 있습니다.';
+		}
+		return;
+	}
+
+	if (hint) hint.style.display = 'none';
+
+	// 이미지 교체 중 높이 유지 → 스크롤 점프 방지
+	const prevH = container.offsetHeight;
+	if (prevH > 0) container.style.minHeight = prevH + 'px';
+
+	const img = kdPageImages[kdCurrentPage];
+	const imgUrl = fixDriveUrl(img.url);
+	container.innerHTML = `<img class="kd-page-img" src="${imgUrl}" alt="페이지 ${img.page || kdCurrentPage + 1}"
+		style="transform:translate(${kdPanX}px,${kdPanY}px) scale(${kdZoomLevel})"
+		onload="this.parentElement.style.minHeight=''"
+		onerror="this.onerror=null;this.parentElement.style.minHeight='';this.parentElement.innerHTML='<div class=\\'empty-state\\' style=\\'padding:20px;\\'><i class=\\'fas fa-exclamation-triangle\\'></i><p>이미지 로드 실패 — PDF를 다시 등록해주세요</p></div>';">`;
+
+	if (kdPageImages.length > 1) {
+		nav.style.display = 'flex';
+		document.getElementById('kd-page-indicator').textContent = `${kdCurrentPage + 1} / ${kdPageImages.length}`;
+		document.getElementById('kd-btn-prev').disabled = kdCurrentPage === 0;
+		document.getElementById('kd-btn-next').disabled = kdCurrentPage >= kdPageImages.length - 1;
+	} else {
+		nav.style.display = 'none';
+	}
+
+	if (keepScroll && section) {
+		requestAnimationFrame(() => section.scrollIntoView({ block: 'nearest', behavior: 'instant' }));
+	}
+}
+
+async function refreshKeyPageImages() {
+	if (!currentKeyDetail) return;
+	const keyId = currentKeyDetail.id;
+	try {
+		const res = await fetch(`${GRADING_SERVER_URL}/api/answer-keys?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`);
+		const result = await res.json();
+		const keys = result.data || [];
+		const updated = keys.find(k => k.id === keyId);
+		if (updated) {
+			currentKeyDetail.page_images_json = updated.page_images_json || [];
+			kdPageImages = currentKeyDetail.page_images_json;
+			kdCurrentPage = 0;
+			renderKdPageImages();
+			if (kdPageImages.length) showToast(`${kdPageImages.length}페이지 이미지 로드됨`, 'success');
+			else showToast('아직 이미지가 없습니다. 잠시 후 다시 시도해주세요.', 'info');
+		}
+	} catch (e) {
+		showToast('새로고침 실패', 'error');
+	}
+}
+
+function kdPrevPage() { if (kdCurrentPage > 0) { kdCurrentPage--; renderKdPageImages(true); renderKdBookmarks(); } }
+function kdNextPage() { if (kdCurrentPage < kdPageImages.length - 1) { kdCurrentPage++; renderKdPageImages(true); renderKdBookmarks(); } }
+
+function kdGoToPage(pageIdx) {
+	if (pageIdx < 0) pageIdx = 0;
+	if (pageIdx >= kdPageImages.length) pageIdx = kdPageImages.length - 1;
+	kdCurrentPage = pageIdx;
+	renderKdPageImages(true);
+	renderKdBookmarks();
+}
+
+function kdStartPageJump() {
+	const el = document.getElementById('kd-page-indicator');
+	const total = kdPageImages.length;
+	const cur = kdCurrentPage + 1;
+	el.innerHTML = `<input type="text" class="page-jump-input" value="${cur}" id="kd-page-jump">
+		<span style="font-size:11px;color:var(--text-sec);margin-left:2px;">/ ${total}</span>`;
+	const input = document.getElementById('kd-page-jump');
+	input.focus();
+	input.select();
+	input.addEventListener('keydown', (e) => {
+		if (e.key === 'Enter') {
+			const val = parseInt(input.value);
+			if (val >= 1 && val <= total) kdGoToPage(val - 1);
+			else showToast(`1~${total} 사이 페이지를 입력하세요`, 'error');
+		}
+		if (e.key === 'Escape') renderKdPageImages(true);
+	});
+	input.addEventListener('blur', () => {
+		const val = parseInt(input.value);
+		if (val >= 1 && val <= total && val !== cur) kdGoToPage(val - 1);
+		else renderKdPageImages(true);
+	});
+}
+
+// ── 북마크 ──
+function renderKdBookmarks() {
+	const container = document.getElementById('kd-bookmarks');
+	if (!kdPageImages.length) { container.innerHTML = ''; return; }
+
+	let html = kdBookmarks.map((bm, i) => {
+		const isActive = kdCurrentPage === bm.page - 1;
+		return `<button class="kd-bookmark-btn${isActive ? ' active' : ''}" onclick="kdGoToPage(${bm.page - 1})" title="${bm.label} (${bm.page}p)">
+			<i class="fas fa-bookmark"></i> ${escapeHtml(bm.label)} <span style="opacity:0.7;">${bm.page}p</span>
+		</button>`;
+	}).join('');
+
+	html += `<button class="kd-bookmark-btn kd-bookmark-add" onclick="kdAddBookmark()" title="현재 페이지를 북마크에 추가">
+		<i class="fas fa-plus"></i> 북마크 추가
+	</button>`;
+	container.innerHTML = html;
+}
+
+function kdAddBookmark() {
+	const pageNum = kdCurrentPage + 1;
+	const existing = kdBookmarks.find(b => b.page === pageNum);
+	if (existing) {
+		if (confirm(`${pageNum}p에 이미 "${existing.label}" 북마크가 있습니다.\n삭제하시겠습니까?`)) {
+			kdBookmarks = kdBookmarks.filter(b => b.page !== pageNum);
+			markKdDirty();
+			renderKdBookmarks();
+			saveKdBookmarks();
+		}
+		return;
+	}
+	const label = prompt(`${pageNum}페이지 북마크 이름을 입력하세요:`, `정답 ${pageNum}p`);
+	if (!label || !label.trim()) return;
+	kdBookmarks.push({ page: pageNum, label: label.trim() });
+	kdBookmarks.sort((a, b) => a.page - b.page);
+	markKdDirty();
+	renderKdBookmarks();
+	saveKdBookmarks();
+}
+
+async function saveKdBookmarks() {
+	if (!currentKeyDetail || !currentTeacher) return;
+	const payload = { bookmarks_json: kdBookmarks };
+	try {
+		const url = `${GRADING_SERVER_URL}/api/answer-keys/${currentKeyDetail.id}`;
+		console.log('[북마크 저장]', url, payload);
+		const res = await fetch(url, {
+			method: 'PUT',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(payload),
+		});
+		const result = await res.json();
+		console.log('[북마크 응답]', res.status, result);
+		if (!res.ok) throw new Error(result.detail || result.message || '저장 실패');
+		if (currentKeyDetail) currentKeyDetail.bookmarks_json = [...kdBookmarks];
+		showToast('북마크 저장됨', 'success');
+	} catch (e) {
+		console.error('[북마크 저장 실패]', e);
+		showToast('북마크 저장 실패: ' + e.message, 'error');
+	}
+}
+
+function formatAnswerHtml(answer, isEssay) {
+	if (!answer) {
+		if (isEssay) return '<span style="opacity:0.4">서술형 (풀이 평가)</span>';
+		return '<span style="opacity:0.4">정답 입력 (클릭)</span>';
+	}
+	if (mathLiveReady && (answer.includes('\\') || answer.includes('^{') || answer.includes('_{'))) {
+		return `<math-field read-only class="kd-math-ro">${escapeHtml(answer)}</math-field>`;
+	}
+	return escapeHtml(answer);
+}
+
+const TYPE_CYCLE = ['mc', 'short', 'essay'];
+const TYPE_LABELS = { mc: '객관', short: '단답', essay: '서술' };
+
+function renderKeyQuestions() {
+	const list = document.getElementById('kd-questions-list');
+	document.getElementById('kd-question-count').textContent = `${kdQuestions.length}문제`;
+
+	if (!kdQuestions.length) {
+		list.innerHTML = '<div style="text-align:center;color:var(--text-sec);font-size:13px;padding:16px;">문제가 없습니다. 아래 버튼으로 추가하세요.</div>';
+		return;
+	}
+
+	list.innerHTML = kdQuestions.map((q, idx) => {
+		const t = q.type || 'mc';
+		const rowCls = t !== 'mc' ? ` kd-type-${t}` : '';
+		return `<div class="kd-row${rowCls}" id="kd-row-${idx}">
+			<input type="text" class="kd-num-input" value="${escapeHtml(q.number)}" onchange="updateQuestion(${idx},'number',this.value)" placeholder="#">
+			<div style="display:flex;align-items:center;justify-content:center;">
+				<span class="kd-type-badge type-${t}" onclick="cycleType(${idx})" title="클릭하여 유형 변경">${TYPE_LABELS[t]}</span>
+			</div>
+			<div class="kd-answer-input kd-answer-display" onclick="openMathEditor(${idx})" title="클릭하여 수식 편집기 열기">
+				${formatAnswerHtml(q.answer, t === 'essay')}
+			</div>
+			<button class="kd-del-btn" onclick="removeQuestion(${idx})" title="삭제"><i class="fas fa-trash-alt"></i></button>
+		</div>`;
+	}).join('');
+}
+
+function updateQuestion(idx, field, value) {
+	if (idx < 0 || idx >= kdQuestions.length) return;
+	kdQuestions[idx][field] = value;
+	markKdDirty();
+}
+
+// ── 수식 편집기 (MathLive) ──
+let mathEditorIdx = -1;
+let mathLiveReady = false;
+
+customElements.whenDefined('math-field').then(() => {
+	mathLiveReady = true;
+	if (kdQuestions.length) renderKeyQuestions();
+});
+
+function openMathEditor(idx) {
+	mathEditorIdx = idx;
+	const q = kdQuestions[idx];
+	const overlay = document.getElementById('math-editor-overlay');
+	const mf = document.getElementById('math-editor-field');
+	const rawCheck = document.getElementById('math-editor-raw');
+	const rawInput = document.getElementById('math-editor-raw-input');
+
+	document.getElementById('math-editor-qnum').textContent = `${q.number}번`;
+	rawCheck.checked = false;
+	rawInput.style.display = 'none';
+	mf.style.display = '';
+
+	mf.value = q.answer || '';
+
+	overlay.style.display = 'flex';
+	requestAnimationFrame(() => {
+		overlay.classList.add('show');
+		if (window.mathVirtualKeyboard) {
+			window.mathVirtualKeyboard.container = document.body;
+		}
+		mf.focus();
+	});
+}
+
+function closeMathEditor(save) {
+	const overlay = document.getElementById('math-editor-overlay');
+	overlay.classList.remove('show');
+	setTimeout(() => { overlay.style.display = 'none'; }, 150);
+
+	if (save && mathEditorIdx >= 0 && mathEditorIdx < kdQuestions.length) {
+		const rawCheck = document.getElementById('math-editor-raw');
+		let val;
+		if (rawCheck.checked) {
+			val = document.getElementById('math-editor-raw-input').value.trim();
+		} else {
+			val = document.getElementById('math-editor-field').value;
+		}
+		kdQuestions[mathEditorIdx].answer = val;
+		markKdDirty();
+		const row = document.getElementById(`kd-row-${mathEditorIdx}`);
+		if (row) {
+			const display = row.querySelector('.kd-answer-display');
+			if (display) display.innerHTML = formatAnswerHtml(val, (kdQuestions[mathEditorIdx].type || 'mc') === 'essay');
+		}
+	}
+	mathEditorIdx = -1;
+}
+
+function mathCmd(cmd) {
+	const mf = document.getElementById('math-editor-field');
+	if (!mf) return;
+	mf.executeCommand(cmd);
+	mf.focus();
+}
+
+function toggleMathRaw() {
+	const rawCheck = document.getElementById('math-editor-raw');
+	const mf = document.getElementById('math-editor-field');
+	const rawInput = document.getElementById('math-editor-raw-input');
+	if (rawCheck.checked) {
+		rawInput.value = mf.value;
+		mf.style.display = 'none';
+		rawInput.style.display = 'block';
+		rawInput.focus();
+	} else {
+		mf.value = rawInput.value;
+		rawInput.style.display = 'none';
+		mf.style.display = '';
+		mf.focus();
+	}
+}
+
+function cycleType(idx) {
+	if (idx < 0 || idx >= kdQuestions.length) return;
+	const cur = kdQuestions[idx].type || 'mc';
+	const next = TYPE_CYCLE[(TYPE_CYCLE.indexOf(cur) + 1) % TYPE_CYCLE.length];
+	kdQuestions[idx].type = next;
+	markKdDirty();
+	const row = document.getElementById(`kd-row-${idx}`);
+	if (row) {
+		row.className = 'kd-row' + (next !== 'mc' ? ` kd-type-${next}` : '');
+		const badge = row.querySelector('.kd-type-badge');
+		if (badge) {
+			badge.className = `kd-type-badge type-${next}`;
+			badge.textContent = TYPE_LABELS[next];
+		}
+		const display = row.querySelector('.kd-answer-display');
+		if (display) display.innerHTML = formatAnswerHtml(kdQuestions[idx].answer, next === 'essay');
+	}
+}
+
+function addQuestion() {
+	const lastNum = kdQuestions.length > 0 ? kdQuestions[kdQuestions.length - 1].number : '0';
+	let nextNum = String((parseInt(lastNum) || 0) + 1);
+	kdQuestions.push({ number: nextNum, answer: '', type: 'mc' });
+	markKdDirty();
+	renderKeyQuestions();
+	// 새 행으로 스크롤 + 포커스
+	setTimeout(() => {
+		const rows = document.querySelectorAll('.kd-row');
+		const last = rows[rows.length - 1];
+		if (last) {
+			last.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+			const numInput = last.querySelector('.kd-num-input');
+			if (numInput) numInput.focus();
+		}
+	}, 50);
+}
+
+function removeQuestion(idx) {
+	if (idx < 0 || idx >= kdQuestions.length) return;
+	const q = kdQuestions[idx];
+	if (!confirm(`${q.number}번 문제를 삭제하시겠습니까?`)) return;
+	kdQuestions.splice(idx, 1);
+	markKdDirty();
+	renderKeyQuestions();
+}
+
+async function saveKeyDetail() {
+	if (!currentKeyDetail) return;
+
+	// answers_json + question_types_json 재구성
+	const answersJson = {};
+	const typesJson = {};
+	for (const q of kdQuestions) {
+		const num = q.number.trim();
+		if (!num) continue;
+		answersJson[num] = q.answer;
+		typesJson[num] = q.type || 'mc';
+	}
+
+	const title = document.getElementById('kd-title').value.trim();
+	const subject = document.getElementById('kd-subject').value.trim();
+
+	if (!title) { showToast('교재명을 입력하세요', 'error'); return; }
+
+	try {
+		const res = await fetch(`${GRADING_SERVER_URL}/api/answer-keys/${currentKeyDetail.id}`, {
+			method: 'PUT',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				teacher_id: currentTeacher.owner_user_id,
+				title,
+				subject,
+				answers_json: answersJson,
+				question_types_json: typesJson,
+				total_questions: Object.keys(answersJson).length,
+				bookmarks_json: kdBookmarks,
+			}),
+		});
+		if (!res.ok) { showToast('저장 실패', 'error'); return; }
+	} catch (e) {
+		showToast('서버 연결 실패: ' + e.message, 'error');
+		return;
+	}
+
+	kdDirty = false;
+	showToast('교재가 저장되었습니다', 'success');
+	document.getElementById('key-detail-title').textContent = title;
+	loadAnswerKeys();
 }
 
 // ============================================================
@@ -1432,6 +2556,12 @@ function handleDetailKeydown(e) {
 			if (selectedItemIdx < 0) selectItem(0);
 			else selectItem(Math.min(currentItems.length - 1, selectedItemIdx + 1));
 			break;
+		case 'ArrowLeft':
+			if (currentImageUrls.length > 1) { e.preventDefault(); prevImage(); }
+			break;
+		case 'ArrowRight':
+			if (currentImageUrls.length > 1) { e.preventDefault(); nextImage(); }
+			break;
 		case '1':
 			e.preventDefault();
 			if (selectedItemIdx >= 0) quickGrade(selectedItemIdx, 'correct');
@@ -1465,6 +2595,47 @@ function handleDetailKeydown(e) {
 			e.preventDefault();
 			zoomImage(0, true);
 			break;
+	}
+}
+
+// 이미지 로드/네비게이션
+function loadCurrentImage() {
+	const img = document.getElementById('graded-image');
+	const emptyState = document.getElementById('image-empty-state');
+	const nav = document.getElementById('image-nav');
+
+	if (!currentImageUrls.length) {
+		img.style.display = 'none';
+		emptyState.style.display = 'flex';
+		nav.style.display = 'none';
+		return;
+	}
+
+	emptyState.style.display = 'none';
+	img.style.display = 'block';
+	img.src = currentImageUrls[currentImageIdx];
+
+	if (currentImageUrls.length > 1) {
+		nav.style.display = 'flex';
+		document.getElementById('image-page-indicator').textContent = `${currentImageIdx + 1} / ${currentImageUrls.length}`;
+		document.getElementById('btn-prev-img').disabled = currentImageIdx === 0;
+		document.getElementById('btn-next-img').disabled = currentImageIdx >= currentImageUrls.length - 1;
+	} else {
+		nav.style.display = 'none';
+	}
+}
+
+function prevImage() {
+	if (currentImageIdx > 0) {
+		currentImageIdx--;
+		loadCurrentImage();
+	}
+}
+
+function nextImage() {
+	if (currentImageIdx < currentImageUrls.length - 1) {
+		currentImageIdx++;
+		loadCurrentImage();
 	}
 }
 
@@ -1705,11 +2876,55 @@ function escapeHtml(str) {
 	return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
+function fixDriveUrl(url) {
+	if (!url) return '';
+	if (url.startsWith('data:')) return url;
+	const m = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+	if (m) return `https://lh3.googleusercontent.com/d/${m[1]}=w1000`;
+	const m2 = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+	if (m2) return `https://lh3.googleusercontent.com/d/${m2[1]}=w1000`;
+	return url;
+}
+
 // ============================================================
 // 초기화
 // ============================================================
 document.addEventListener('DOMContentLoaded', async () => {
+	const saved = sessionStorage.getItem('grading_teacher');
+	const hasSession = !!saved;
+
+	if (!hasSession) {
+		document.getElementById('page-login').style.display = 'flex';
+	}
+
 	await loadTeacherList();
+
+	if (hasSession) {
+		try {
+			const teacher = JSON.parse(saved);
+			const match = teacherList.find(t => t.id === teacher.id);
+			if (match) {
+				currentTeacher = match;
+				showPage('main');
+				await loadAllData();
+				await restoreNavState();
+			} else {
+				sessionStorage.removeItem('grading_teacher');
+				document.getElementById('page-login').style.display = 'flex';
+			}
+		} catch(e) {
+			sessionStorage.removeItem('grading_teacher');
+			document.getElementById('page-login').style.display = 'flex';
+		}
+	}
+
+	document.addEventListener('click', (e) => {
+		const dropdown = document.getElementById('assign-student-dropdown');
+		const search = document.getElementById('assign-student-search');
+		if (dropdown && search && !search.contains(e.target) && !dropdown.contains(e.target)) {
+			dropdown.style.display = 'none';
+		}
+	});
 });
 </script>
 </body>
