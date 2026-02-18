@@ -28,6 +28,7 @@ from ocr.preprocessor import preprocess_batch
 from grading.grader import grade_submission
 from grading.image_marker import create_graded_image
 from grading.pdf_parser import extract_answers_from_pdf
+from grading.hml_parser import extract_answers_from_hml
 from integrations.supabase_client import (
     get_central_admin_token, get_teacher_drive_token,
     get_answer_key, get_all_answer_keys, get_answer_keys_by_teacher, upsert_answer_key,
@@ -414,32 +415,46 @@ async def parse_answer_key(
     answer_page_range: str = Form(""),
     total_hint: int = Form(None),
 ):
-    """정답 PDF 파싱 및 교재 등록
-    PDF는 중앙 드라이브의 '숙제 채점 자료' 폴더에서 가져옴
-    answer_page_range: "45-48" 형식으로 정답 페이지 범위 지정 가능
+    """정답 파일 파싱 및 교재 등록
+
+    지원 형식:
+    - PDF: Gemini Vision으로 정답 추출 (기존)
+    - HML: 수학비서 XML에서 미주/꼬릿말 정답 직접 추출 (100% 정확)
+
+    answer_page_range: PDF 전용, "45-48" 형식 정답 페이지 범위
     페이지 이미지는 백그라운드에서 Drive에 업로드 (응답 지연 방지)
     """
-    pdf_bytes = None
+    file_bytes = None
+    file_ext = ""
     central_token = await get_central_admin_token()
 
     if pdf_file:
-        pdf_bytes = await pdf_file.read()
+        file_bytes = await pdf_file.read()
+        fname = (pdf_file.filename or "").lower()
+        if fname.endswith(".hml"):
+            file_ext = "hml"
+        else:
+            file_ext = "pdf"
     elif drive_file_id and central_token:
-        pdf_bytes = download_file_central(central_token, drive_file_id)
+        file_bytes = download_file_central(central_token, drive_file_id)
+        file_ext = "pdf"
     else:
-        raise HTTPException(400, "PDF 파일 또는 드라이브 파일 ID가 필요합니다")
+        raise HTTPException(400, "PDF 또는 HML 파일이 필요합니다")
 
-    # 페이지 범위 파싱 (예: "45-48" → (45, 48))
-    page_range = None
-    if answer_page_range.strip():
-        page_range = _parse_page_range(answer_page_range.strip())
+    # ── 파서 분기: HML vs PDF ──
+    raw_page_images = []
 
-    result = await extract_answers_from_pdf(pdf_bytes, total_hint=total_hint, page_range=page_range)
+    if file_ext == "hml":
+        logger.info(f"[Parse] HML 파일 파싱: '{title}'")
+        result = await extract_answers_from_hml(file_bytes)
+    else:
+        page_range = None
+        if answer_page_range.strip():
+            page_range = _parse_page_range(answer_page_range.strip())
 
-    # page_images는 응답에서 제거 (바이트 데이터라 JSON 직렬화 불가)
-    raw_page_images = result.pop("page_images", [])
+        result = await extract_answers_from_pdf(file_bytes, total_hint=total_hint, page_range=page_range)
+        raw_page_images = result.pop("page_images", [])
 
-    # 먼저 정답 데이터만 DB에 저장 (빠르게 응답)
     key_data = {
         "teacher_id": teacher_id,
         "title": title,
@@ -452,7 +467,6 @@ async def parse_answer_key(
     }
     saved = await upsert_answer_key(key_data)
 
-    # 페이지 이미지는 백그라운드에서 Drive 업로드 + DB 업데이트
     saved_id = saved.get("id")
     if raw_page_images and central_token and saved_id:
         background_tasks.add_task(
@@ -461,6 +475,9 @@ async def parse_answer_key(
         )
         logger.info(f"[Parse] '{title}' 정답 {result.get('total', 0)}문제 저장 완료. "
                      f"페이지 이미지 {len(raw_page_images)}장은 백그라운드 업로드 예약됨")
+    else:
+        logger.info(f"[Parse] '{title}' 정답 {result.get('total', 0)}문제 저장 완료 "
+                     f"(파서: {'HML' if file_ext == 'hml' else 'PDF'})")
 
     return {"data": saved, "parsed_result": result}
 
@@ -585,11 +602,17 @@ async def delete_result(result_id: int):
 
 @app.put("/api/results/{result_id}/annotations")
 async def save_annotations(result_id: int, request: Request):
-    """선생님 메모/수정사항 저장"""
+    """선생님 메모/필기 저장 (허용 필드만 업데이트)"""
+    ALLOWED_FIELDS = {"teacher_annotations", "teacher_memo", "updated_at"}
     try:
         body = await request.json()
+        safe_body = {k: v for k, v in body.items() if k in ALLOWED_FIELDS}
+        if not safe_body:
+            return {"data": None, "message": "허용되지 않는 필드입니다"}
+        from datetime import datetime, timezone
+        safe_body["updated_at"] = datetime.now(timezone.utc).isoformat()
         sb = get_supabase()
-        res = sb.table("grading_results").update(body).eq("id", result_id).execute()
+        res = sb.table("grading_results").update(safe_body).eq("id", result_id).execute()
         return {"data": res.data}
     except Exception as e:
         logger.error(f"메모 저장 실패: {e}")
@@ -628,7 +651,12 @@ async def update_item(item_id: int, request: Request):
 
 
 async def _recalculate_result_totals(result_id: int):
-    """채점 결과의 문항별 데이터를 기반으로 총점/정답수 재계산"""
+    """채점 결과의 문항별 데이터를 기반으로 총점/정답수 재계산
+
+    점수 계산 방식은 grade_submission과 동일:
+    - 서술형: ai_score / ai_max_score
+    - MC/단답형: (100 - 서술형 총배점) / MC문항수 를 문항당 배점으로 사용
+    """
     try:
         sb = get_supabase()
         items_res = sb.table("grading_items").select("*").eq("result_id", result_id).execute()
@@ -641,30 +669,62 @@ async def _recalculate_result_totals(result_id: int):
         wrong = 0
         uncertain = 0
         unanswered = 0
-        total_score = 0.0
-        max_score = 0.0
+
+        # 1단계: 서술형 배점 합계 + MC/단답형 문항 수 집계
+        essay_total = 0.0
+        essay_earned = 0.0
+        mc_questions = 0
 
         for item in items:
-            q_type = item.get("question_type", "mc")
+            q_type = item.get("question_type", "multiple_choice")
+            if q_type == "essay":
+                ai_max = float(item.get("ai_max_score") or 0)
+                essay_total += ai_max if ai_max > 0 else 10
+            else:
+                mc_questions += 1
+
+        mc_per_score = (100 - essay_total) / mc_questions if mc_questions > 0 else 0
+
+        # 2단계: 각 문항 채점
+        for item in items:
+            q_type = item.get("question_type", "multiple_choice")
             is_correct = item.get("is_correct")
+            student_answer = item.get("student_answer", "")
+            is_unanswered = student_answer == "(미풀이)" or (
+                is_correct is None and item.get("ai_feedback") == "학생이 풀지 않은 문제"
+            )
 
             if q_type == "essay":
                 ai_score = float(item.get("ai_score") or 0)
                 ai_max = float(item.get("ai_max_score") or 0)
-                total_score += ai_score
-                max_score += ai_max if ai_max > 0 else 10
-            else:
-                max_score += (100.0 / max(len(items), 1))
+                essay_earned += ai_score
+
                 if is_correct is True:
                     correct += 1
-                    total_score += (100.0 / max(len(items), 1))
                 elif is_correct is False:
-                    if not item.get("student_answer"):
+                    wrong += 1
+                elif is_correct is None:
+                    if is_unanswered:
                         unanswered += 1
                     else:
-                        wrong += 1
+                        uncertain += 1
+            else:
+                if is_unanswered:
+                    unanswered += 1
+                elif is_correct is True:
+                    correct += 1
+                elif is_correct is False:
+                    wrong += 1
                 elif is_correct is None:
                     uncertain += 1
+
+        mc_earned = sum(
+            mc_per_score for item in items
+            if item.get("question_type", "multiple_choice") != "essay"
+            and item.get("is_correct") is True
+        )
+        total_score = round(mc_earned + essay_earned, 1)
+        max_score = 100.0
 
         status = "confirmed" if uncertain == 0 else "review_needed"
 
@@ -674,13 +734,13 @@ async def _recalculate_result_totals(result_id: int):
             "uncertain_count": uncertain,
             "unanswered_count": unanswered,
             "total_questions": len(items),
-            "total_score": round(total_score, 1),
-            "max_score": round(max_score, 1),
+            "total_score": total_score,
+            "max_score": max_score,
             "status": status,
         })
         logger.info(f"[Recalc] result #{result_id} 재계산 완료: "
-                     f"{correct}맞/{wrong}틀/{uncertain}보류, "
-                     f"점수 {round(total_score, 1)}/{round(max_score, 1)}")
+                     f"{correct}맞/{wrong}틀/{uncertain}보류/{unanswered}미풀이, "
+                     f"점수 {total_score}/{max_score}")
     except Exception as e:
         logger.error(f"[Recalc] result #{result_id} 재계산 실패: {e}")
 
@@ -1266,7 +1326,7 @@ async def _execute_grading(
 
         # 문항별 데이터 (DB 컬럼에 맞는 필드만 전달)
         db_fields = {
-            "result_id", "question_number", "question_type",
+            "result_id", "question_number", "question_label", "question_type",
             "student_answer", "correct_answer", "is_correct",
             "confidence", "ocr1_answer", "ocr2_answer",
             "ai_score", "ai_max_score", "ai_feedback",
@@ -1403,9 +1463,24 @@ async def regrade_result(result_id: int):
         wrong = 0
         uncertain = 0
         unanswered = 0
-        total_score = 0.0
-        max_score_total = 0.0
         regraded_count = 0
+
+        from grading.grader import compare_answers
+
+        # 서술형 배점 합계 + MC/단답형 문항 수 사전 집계
+        essay_total = 0.0
+        essay_earned = 0.0
+        mc_questions = 0
+        for item in old_items:
+            q_label = item.get("question_label") or str(item.get("question_number", ""))
+            q_type = types_json.get(q_label, item.get("question_type", "mc"))
+            if q_type == "essay":
+                ai_max = float(item.get("ai_max_score") or 10)
+                essay_total += ai_max
+            else:
+                mc_questions += 1
+
+        mc_per_score = (100 - essay_total) / mc_questions if mc_questions > 0 else 0
 
         for item in old_items:
             q_label = item.get("question_label") or str(item.get("question_number", ""))
@@ -1414,11 +1489,12 @@ async def regrade_result(result_id: int):
             q_type = types_json.get(q_label, item.get("question_type", "mc"))
 
             update_data = {"correct_answer": correct_answer}
+            is_unanswered = student_answer == "(미풀이)" or not student_answer
 
             if q_type in ("mc", "short"):
-                from grading.grader import compare_answers
-                if not student_answer:
-                    update_data["is_correct"] = False
+                if is_unanswered:
+                    update_data["is_correct"] = None
+                    update_data["student_answer"] = "(미풀이)" if not student_answer else student_answer
                     unanswered += 1
                 else:
                     match_result = compare_answers(student_answer, correct_answer, q_type)
@@ -1432,20 +1508,16 @@ async def regrade_result(result_id: int):
                         update_data["is_correct"] = None
                         uncertain += 1
 
-                per_q_score = 100.0 / max(len(old_items), 1)
-                max_score_total += per_q_score
-                if update_data.get("is_correct") is True:
-                    total_score += per_q_score
-
             elif q_type == "essay":
-                # 서술형은 기존 AI 채점 점수 유지 (재채점 시 선택적으로 다시 할 수 있음)
                 ai_score = float(item.get("ai_score") or 0)
                 ai_max = float(item.get("ai_max_score") or 10)
-                total_score += ai_score
-                max_score_total += ai_max
+                essay_earned += ai_score
 
             sb.table("grading_items").update(update_data).eq("id", item["id"]).execute()
             regraded_count += 1
+
+        mc_earned = correct * mc_per_score
+        total_score = round(mc_earned + essay_earned, 1)
 
         status = "confirmed" if uncertain == 0 else "review_needed"
         await update_grading_result(result_id, {
@@ -1454,13 +1526,13 @@ async def regrade_result(result_id: int):
             "uncertain_count": uncertain,
             "unanswered_count": unanswered,
             "total_questions": len(old_items),
-            "total_score": round(total_score, 1),
-            "max_score": round(max_score_total, 1),
+            "total_score": total_score,
+            "max_score": 100.0,
             "status": status,
         })
 
         logger.info(f"[Regrade] result #{result_id}: {regraded_count}문항 재채점 완료 "
-                     f"→ {correct}맞/{wrong}틀/{uncertain}보류")
+                     f"→ {correct}맞/{wrong}틀/{uncertain}보류/{unanswered}미풀이")
 
         return {
             "result_id": result_id,
@@ -1468,8 +1540,9 @@ async def regrade_result(result_id: int):
             "correct_count": correct,
             "wrong_count": wrong,
             "uncertain_count": uncertain,
-            "total_score": round(total_score, 1),
-            "max_score": round(max_score_total, 1),
+            "unanswered_count": unanswered,
+            "total_score": total_score,
+            "max_score": 100.0,
             "status": status,
         }
     except HTTPException:

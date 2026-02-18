@@ -84,24 +84,36 @@ async def grade_submission(
     # fuzzy 매칭용: 정답지 키 → 가능한 변형 매핑 생성
     answer_key_set = set(answers_json.keys())
 
+    def _has_sub_question(key: str) -> bool:
+        """소문제 형식인지 판별 (예: "3(1)", "3-1", "3.1")"""
+        return bool(re.match(r'^\d+\s*[(-.]', key))
+
     def _fuzzy_find_answer_key(q_num: str) -> str | None:
-        """OCR 문제번호가 정답지에 없을 때 fuzzy 매칭 시도"""
-        # 이미 있으면 바로 반환
+        """OCR 문제번호가 정답지에 없을 때 fuzzy 매칭 시도
+
+        안전한 매칭만 수행 (소문제 구조를 보존하여 오매칭 방지):
+        - "3-1" ↔ "3(1)" (구분자 차이만 있을 때)
+        - "03" ↔ "3" (선행 0 차이만 있을 때)
+        - "12"와 "1(2)"는 구조가 다르므로 매칭하지 않음
+        """
         if q_num in answer_key_set:
             return q_num
-        # 숫자만 추출해서 비교
-        q_digits = re.sub(r'[^\d]', '', q_num)
+
+        # 정규화된 키로 비교 (normalize_question_key가 구조를 보존함)
+        q_normalized = normalize_question_key(q_num)
         for ak in answer_key_set:
-            ak_digits = re.sub(r'[^\d]', '', ak)
-            if q_digits and ak_digits and q_digits == ak_digits:
+            if normalize_question_key(ak) == q_normalized:
                 return ak
-        # 메인 번호만 비교 (소문제가 없는 경우)
-        q_main = re.match(r'(\d+)', q_num)
-        if q_main:
-            q_main_str = q_main.group(1)
-            for ak in answer_key_set:
-                if ak == q_main_str:
-                    return ak
+
+        # 소문제가 아닌 순수 번호일 때만 메인 번호 매칭
+        if not _has_sub_question(q_num):
+            q_main = re.match(r'(\d+)', q_num)
+            if q_main:
+                q_main_str = str(int(q_main.group(1)))
+                for ak in answer_key_set:
+                    if ak == q_main_str:
+                        return ak
+
         return None
 
     ocr_question_nums = set(student_answers.keys())
@@ -292,7 +304,15 @@ def compare_answers(student: str, correct: str, q_type: str = "mc") -> str:
     if expr_result is not None:
         return "correct" if expr_result else "wrong"
 
-    return "wrong"
+    # 5단계: 짧은 단답형이 명백히 다른 경우 (예: "5" vs "7")
+    # 양쪽 모두 순수 숫자이고 길이가 짧으면 확실한 오답
+    if q_type == "short" and ns.replace("-", "").replace(".", "").isdigit() \
+            and nc.replace("-", "").replace(".", "").isdigit() and len(ns) <= 6 and len(nc) <= 6:
+        return "wrong"
+
+    # 모든 비교 레이어에서 확정 판단 불가 → 선생님 검토 필요
+    # (예: OCR 변환 차이, 특수 수식 표기 등)
+    return "uncertain"
 
 
 def _normalize_mc(answer: str) -> str | None:

@@ -144,20 +144,29 @@ async def _extract_with_gemini_vision(
 
 문제번호 규칙:
 - "001", "002" 같은 번호 → "1", "2"로 변환
-- 소문제가 있으면 → "1-1", "1-2" 또는 "1(1)", "1(2)" 형태로
+- 소문제가 있으면 → "1(1)", "1(2)" 형태로 (하이픈: "1-1" → "1(1)")
 - 단원별로 번호가 초기화되더라도 그대로 유지
 
-추출 형식:
-- 객관식: ①②③④⑤ 또는 1,2,3,4,5
-- 단답형: 숫자, 수식, 단어 (예: "12", "-3", "2√3")
-- 서술형: 핵심 답만 간결하게
+★★★ 유형 판별 기준 (매우 중요 - 반드시 따르세요) ★★★
+판별 핵심: "문제에 보기(①②③④⑤)가 있고, 그 중 하나를 고르는 문제인가?"
+
+mc (객관식):
+- 보기 ①②③④⑤가 있고 하나를 고르는 문제
+- 정답을 반드시 원형 숫자로 기록: "①", "②", "③", "④", "⑤"
+- 절대 "3"이라고 쓰지 마세요 → 반드시 "③"
+
+short (단답형):
+- 숫자, 수식, 단어를 직접 써넣는 문제 (빈칸, "구하시오", "값은?" 등)
+- 정답을 있는 그대로 기록: "3", "-5", "2√3", "14", "(1) 14 (2) -3"
+- ★ 정답이 1~5 사이 숫자여도, 보기 선택이 아니면 short!
+- 프린트/워크시트의 빈칸 채우기, 답 구하기는 모두 short
+
+essay (서술형): 풀이 과정을 서술하는 문제
 
 {hint_text}
 
 반드시 아래 JSON 형식으로만 응답 (다른 텍스트 없이):
-{{"answers": {{"1": "③", "2": "12", "3": "-3"}}, "types": {{"1": "mc", "2": "short", "3": "short"}}, "total": 문제수}}
-
-mc=객관식, short=단답형, essay=서술형""")
+{{"answers": {{"1": "③", "2": "12", "3": "-3", "4(1)": "14", "4(2)": "2√3"}}, "types": {{"1": "mc", "2": "short", "3": "short", "4(1)": "short", "4(2)": "short"}}, "total": 문제수}}""")
 
         for i, img_bytes in enumerate(page_images):
             b64 = base64.b64encode(img_bytes).decode("utf-8")
@@ -184,12 +193,58 @@ mc=객관식, short=단답형, essay=서술형""")
         all_types.update(chunk_types)
         logger.info(f"[{chunk_label}] {len(chunk_answers)}문제 추출 (누적: {len(all_answers)}문제)")
 
+    all_answers, all_types = _validate_answer_types(all_answers, all_types)
+
     result = {
         "answers": all_answers,
         "types": all_types,
         "total": len(all_answers),
     }
     return result
+
+
+def _validate_answer_types(answers: dict, types: dict) -> tuple[dict, dict]:
+    """AI가 분류한 문제 유형을 검증·보정
+
+    규칙:
+    - 정답이 ①②③④⑤ → mc 확정
+    - type=mc인데 정답이 "1"~"5" → mc 유지 + 원형 숫자로 변환
+    - type=mc인데 정답이 6 이상 / 음수 / 수식 → short로 보정
+    - type=short인데 정답이 ①②③④⑤ → mc로 보정
+    """
+    CIRCLE_NUMS = {"①", "②", "③", "④", "⑤"}
+    NUM_TO_CIRCLE = {"1": "①", "2": "②", "3": "③", "4": "④", "5": "⑤"}
+
+    fixed_answers = dict(answers)
+    fixed_types = dict(types)
+    fix_count = 0
+
+    for q, ans in answers.items():
+        raw = str(ans).strip()
+        qtype = fixed_types.get(q, "mc")
+
+        if qtype == "essay":
+            continue
+
+        has_circle = any(c in raw for c in CIRCLE_NUMS)
+
+        if qtype == "mc":
+            if has_circle:
+                pass
+            elif raw in NUM_TO_CIRCLE:
+                fixed_answers[q] = NUM_TO_CIRCLE[raw]
+            else:
+                fixed_types[q] = "short"
+                fix_count += 1
+
+        elif qtype == "short" and has_circle and len(raw) <= 2:
+            fixed_types[q] = "mc"
+            fix_count += 1
+
+    if fix_count:
+        logger.info(f"[TypeFix] {fix_count}건 유형 보정 완료")
+
+    return fixed_answers, fixed_types
 
 
 # ────────────────────────────────────────

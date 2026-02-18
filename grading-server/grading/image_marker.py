@@ -1,4 +1,12 @@
-"""채점 이미지 생성: 원본 사진 + 오른쪽 채점표 패널"""
+"""채점 이미지 생성: 원본 사진 + 오른쪽 채점표 패널 (v2)
+
+v2 개선:
+- 패널 폭 확대 (45%, min 400px) → 긴 수식/소문제 정답 잘림 방지
+- 픽셀 기반 스마트 텍스트 줄임 (하드코딩 글자 수 제한 제거)
+- 점수 헤더에 퍼센트 + 진행 바 + O/X/?/- 통계
+- 동적 행 높이: 긴 답안은 2줄로 자동 표시
+- 한글 컬럼 헤더 (번호 / 학생답 / 정답 / 결과)
+"""
 import io
 import logging
 import os
@@ -6,15 +14,19 @@ from PIL import Image, ImageDraw, ImageFont
 
 logger = logging.getLogger(__name__)
 
-COLOR_CORRECT = (34, 197, 94)       # 초록
-COLOR_WRONG = (239, 68, 68)         # 빨강
-COLOR_UNCERTAIN = (234, 179, 8)     # 노랑
-COLOR_UNANSWERED = (148, 163, 184)  # 회색
-COLOR_TEXT = (30, 41, 59)           # 텍스트
-COLOR_SUBTEXT = (100, 116, 139)    # 보조 텍스트
-COLOR_BG = (248, 250, 252)         # 패널 배경
-COLOR_HEADER = (30, 58, 138)       # 헤더 배경
-COLOR_DIVIDER = (226, 232, 240)    # 구분선
+# ── 색상 팔레트 (Tailwind Slate 기반) ──
+COLOR_CORRECT = (22, 163, 74)
+COLOR_WRONG = (220, 38, 38)
+COLOR_UNCERTAIN = (217, 119, 6)
+COLOR_UNANSWERED = (148, 163, 184)
+
+COLOR_TEXT = (15, 23, 42)           # slate-900
+COLOR_SUBTEXT = (100, 116, 139)    # slate-500
+COLOR_LIGHT = (241, 245, 249)      # slate-100
+COLOR_BG = (248, 250, 252)         # slate-50
+COLOR_WHITE = (255, 255, 255)
+COLOR_HEADER_BG = (15, 23, 42)     # slate-900
+COLOR_DIVIDER = (226, 232, 240)    # slate-200
 
 _font_cache: dict = {}
 
@@ -25,19 +37,44 @@ def create_graded_image(image_bytes: bytes, items: list[dict],
     original = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     orig_w, orig_h = original.size
 
-    ft = _get_font(28)
-    fm = _get_font(18)
-    fs = _get_font(15)
+    f_title = _get_font(38)
+    f_sub = _get_font(22)
+    f_stat = _get_font(17)
+    f_hdr = _get_font(17)
+    f_body = _get_font(20)
+    f_tag = _get_font(16)
 
-    # 패널 크기 계산
-    panel_w = max(300, int(orig_w * 0.38))
-    row_h = 38
-    header_h = 56
-    table_header_h = 32
-    table_h = table_header_h + len(items) * row_h + 4
+    # ── 패널 크기 계산 ──
+    panel_w = max(400, int(orig_w * 0.45))
+    pad = int(panel_w * 0.025)
+
+    # 컬럼 경계 (픽셀)
+    c_num_x = pad
+    c_ans_x = int(panel_w * 0.11)
+    c_cor_x = int(panel_w * 0.46)
+    c_res_x = int(panel_w * 0.82)
+
+    ans_col_w = c_cor_x - c_ans_x - 6
+    cor_col_w = c_res_x - c_cor_x - 6
+
+    # ── 동적 행 높이 계산 ──
+    BASE_ROW_H = 42
+    LINE_H = 22
+    header_h = 108
+    table_header_h = 34
+
+    row_heights: list[int] = []
+    for item in items:
+        s_ans = item.get("student_answer", "") or ""
+        c_ans = item.get("correct_answer", "") or ""
+        s_lines = _count_lines(s_ans, f_body, ans_col_w)
+        c_lines = _count_lines(c_ans, f_body, cor_col_w)
+        max_lines = max(s_lines, c_lines, 1)
+        row_heights.append(BASE_ROW_H if max_lines <= 1 else BASE_ROW_H + (max_lines - 1) * LINE_H)
+
+    table_h = table_header_h + sum(row_heights) + 4
     panel_h = max(orig_h, header_h + table_h + 10)
 
-    # 최종 이미지: 원본 + 패널
     canvas_w = orig_w + panel_w
     canvas_h = max(orig_h, panel_h)
     result = Image.new("RGB", (canvas_w, canvas_h), COLOR_BG)
@@ -46,109 +83,195 @@ def create_graded_image(image_bytes: bytes, items: list[dict],
     draw = ImageDraw.Draw(result)
     px = orig_w
 
-    # ── 컬럼 위치 (비율 기반) ──
-    c_num = px + int(panel_w * 0.02)           # 번호
-    c_ans = px + int(panel_w * 0.14)           # 학생답
-    c_cor = px + int(panel_w * 0.48)           # 정답
-    c_res_start = px + int(panel_w * 0.78)     # 결과 시작
-    c_res_end = px + panel_w - 6               # 결과 끝
-    c_res_center = (c_res_start + c_res_end) // 2  # 결과 중앙
+    # ── 통계 ──
+    correct = sum(1 for it in items if it.get("is_correct") is True)
+    wrong = sum(1 for it in items if it.get("is_correct") is False)
+    unanswered = sum(
+        1 for it in items
+        if it.get("student_answer") == "(미풀이)"
+        or (it.get("is_correct") is None and it.get("ai_feedback") == "학생이 풀지 않은 문제")
+    )
+    uncertain = sum(
+        1 for it in items
+        if it.get("is_correct") is None
+        and it.get("student_answer") != "(미풀이)"
+        and it.get("ai_feedback") != "학생이 풀지 않은 문제"
+    )
+    pct = (total_score / max_score * 100) if max_score > 0 else 0
 
-    # ── 헤더: 점수만 표시 ──
-    draw.rectangle([px, 0, px + panel_w, header_h], fill=COLOR_HEADER)
-    score_text = f"{total_score:.0f} / {max_score:.0f}"
-    draw.text((px + 14, 14), score_text, fill="white", font=ft)
+    # ═══════════════════════════════════════
+    # 헤더: 점수 + 퍼센트 + 진행 바 + 통계
+    # ═══════════════════════════════════════
+    draw.rectangle([px, 0, px + panel_w, header_h], fill=COLOR_HEADER_BG)
 
-    # ── 테이블 헤더 ──
+    score_text = f"{total_score:.0f}"
+    draw.text((px + pad, 10), score_text, fill=COLOR_WHITE, font=f_title)
+    sw = f_title.getbbox(score_text)[2] - f_title.getbbox(score_text)[0]
+    draw.text((px + pad + sw + 4, 20), f"/ {max_score:.0f}", fill=COLOR_SUBTEXT, font=f_sub)
+
+    pct_text = f"{pct:.0f}%"
+    pw = f_title.getbbox(pct_text)[2] - f_title.getbbox(pct_text)[0]
+    pct_color = COLOR_CORRECT if pct >= 80 else COLOR_UNCERTAIN if pct >= 50 else COLOR_WRONG
+    draw.text((px + panel_w - pad - pw, 10), pct_text, fill=pct_color, font=f_title)
+
+    bar_y = 58
+    bar_h = 8
+    bar_x1, bar_x2 = px + pad, px + panel_w - pad
+    draw.rounded_rectangle([bar_x1, bar_y, bar_x2, bar_y + bar_h], radius=4, fill=(51, 65, 85))
+    fill_w = int((bar_x2 - bar_x1) * min(pct / 100, 1.0))
+    if fill_w > 0:
+        draw.rounded_rectangle([bar_x1, bar_y, bar_x1 + fill_w, bar_y + bar_h], radius=4, fill=pct_color)
+
+    stat_y = 78
+    stat_x = px + pad
+    for label, count, color in [
+        ("O", correct, COLOR_CORRECT),
+        ("X", wrong, COLOR_WRONG),
+        ("?", uncertain, COLOR_UNCERTAIN),
+        ("-", unanswered, COLOR_UNANSWERED),
+    ]:
+        draw.ellipse([stat_x, stat_y + 3, stat_x + 10, stat_y + 13], fill=color)
+        txt = f"{label} {count}"
+        draw.text((stat_x + 14, stat_y), txt, fill=COLOR_LIGHT, font=f_stat)
+        stat_x += _text_px_width(txt, f_stat) + 14 + 20
+
+    # ═══════════════════════════════════════
+    # 테이블 헤더
+    # ═══════════════════════════════════════
     ty = header_h
-    draw.rectangle([px, ty, px + panel_w, ty + table_header_h], fill=(241, 245, 249))
+    draw.rectangle([px, ty, px + panel_w, ty + table_header_h], fill=COLOR_LIGHT)
+    draw.line([px, ty, px + panel_w, ty], fill=COLOR_DIVIDER, width=1)
 
-    draw.text((c_num + 2, ty + 7), "#", fill=COLOR_SUBTEXT, font=fs)
-    draw.text((c_ans, ty + 7), "Student", fill=COLOR_SUBTEXT, font=fs)
-    draw.text((c_cor, ty + 7), "Answer", fill=COLOR_SUBTEXT, font=fs)
-    _draw_text_centered(draw, c_res_center, ty + 7, "Result", COLOR_SUBTEXT, fs)
+    hy = ty + (table_header_h - 17) // 2
+    draw.text((px + c_num_x, hy), "#", fill=COLOR_SUBTEXT, font=f_hdr)
+    draw.text((px + c_ans_x, hy), "학생답", fill=COLOR_SUBTEXT, font=f_hdr)
+    draw.text((px + c_cor_x, hy), "정답", fill=COLOR_SUBTEXT, font=f_hdr)
+    _draw_text_centered(draw, px + c_res_x + (panel_w - c_res_x) // 2, hy, "결과", COLOR_SUBTEXT, f_hdr)
 
-    # ── 테이블 본문 ──
+    # ═══════════════════════════════════════
+    # 테이블 본문
+    # ═══════════════════════════════════════
     ty += table_header_h
+    cur_y = ty
 
     for idx, item in enumerate(items):
-        row_y = ty + idx * row_h
-        text_y = row_y + (row_h - 18) // 2
+        rh = row_heights[idx]
+        text_y = cur_y + 10
 
-        # 줄무늬 배경
-        bg = "white" if idx % 2 == 0 else (248, 250, 252)
-        draw.rectangle([px, row_y, px + panel_w, row_y + row_h], fill=bg)
-        draw.line([px, row_y, px + panel_w, row_y], fill=COLOR_DIVIDER, width=1)
+        bg = COLOR_WHITE if idx % 2 == 0 else (248, 250, 252)
+        draw.rectangle([px, cur_y, px + panel_w, cur_y + rh], fill=bg)
+        draw.line([px, cur_y, px + panel_w, cur_y], fill=COLOR_DIVIDER, width=1)
 
-        q_num = item.get("question_label") or item.get("question_number", idx + 1)
+        q_label = str(item.get("question_label") or item.get("question_number", idx + 1))
         student_ans = item.get("student_answer", "") or ""
         correct_ans = item.get("correct_answer", "") or ""
         is_correct = item.get("is_correct")
 
-        # 번호
-        draw.text((c_num + 2, text_y), str(q_num), fill=COLOR_TEXT, font=fm)
+        draw.text((px + c_num_x, text_y), q_label, fill=COLOR_TEXT, font=f_body)
 
-        # 학생 답 (최대 10자)
-        display_ans = _truncate(student_ans, 10)
-        draw.text((c_ans, text_y), display_ans, fill=COLOR_TEXT, font=fm)
+        ans_color = COLOR_UNANSWERED if student_ans == "(미풀이)" else COLOR_TEXT
+        _draw_wrapped_text(draw, px + c_ans_x, text_y, student_ans, f_body, ans_col_w, ans_color, LINE_H)
 
-        # 정답 (최대 10자)
-        display_correct = _truncate(correct_ans, 10)
-
-        # 결과 분류 및 표시
         if student_ans == "(미풀이)":
-            draw.text((c_cor, text_y), display_correct, fill=COLOR_UNANSWERED, font=fm)
-            _draw_result_tag(draw, c_res_center, row_y, row_h, " - ", COLOR_UNANSWERED, fs)
+            cor_color = COLOR_UNANSWERED
+            tag_text, tag_color = " - ", COLOR_UNANSWERED
         elif is_correct is True:
-            draw.text((c_cor, text_y), display_correct, fill=COLOR_CORRECT, font=fm)
-            _draw_result_tag(draw, c_res_center, row_y, row_h, " O ", COLOR_CORRECT, fs)
+            cor_color = COLOR_CORRECT
+            tag_text, tag_color = " O ", COLOR_CORRECT
         elif is_correct is False:
-            draw.text((c_cor, text_y), display_correct, fill=COLOR_WRONG, font=fm)
-            _draw_result_tag(draw, c_res_center, row_y, row_h, " X ", COLOR_WRONG, fs)
+            cor_color = COLOR_WRONG
+            tag_text, tag_color = " X ", COLOR_WRONG
         else:
-            draw.text((c_cor, text_y), display_correct, fill=COLOR_UNCERTAIN, font=fm)
-            _draw_result_tag(draw, c_res_center, row_y, row_h, " ? ", COLOR_UNCERTAIN, fs)
+            cor_color = COLOR_UNCERTAIN
+            tag_text, tag_color = " ? ", COLOR_UNCERTAIN
 
-    # 하단 구분선
-    bottom_y = ty + len(items) * row_h
-    draw.line([px, bottom_y, px + panel_w, bottom_y], fill=COLOR_DIVIDER, width=2)
+        _draw_wrapped_text(draw, px + c_cor_x, text_y, correct_ans, f_body, cor_col_w, cor_color, LINE_H)
 
-    # JPEG 출력
+        res_cx = px + c_res_x + (panel_w - c_res_x) // 2
+        _draw_result_tag(draw, res_cx, cur_y, rh, tag_text, tag_color, f_tag)
+
+        cur_y += rh
+
+    draw.line([px, cur_y, px + panel_w, cur_y], fill=COLOR_DIVIDER, width=2)
+
     buffer = io.BytesIO()
-    result.save(buffer, format="JPEG", quality=85, optimize=True)
+    result.save(buffer, format="JPEG", quality=88, optimize=True)
     return buffer.getvalue()
 
 
+# ════════════════════════════════════════
+# 내부 헬퍼
+# ════════════════════════════════════════
+
+def _text_px_width(text: str, font) -> int:
+    bbox = font.getbbox(text)
+    return bbox[2] - bbox[0]
+
+
+def _count_lines(text: str, font, max_px: int) -> int:
+    """텍스트가 max_px 폭에서 몇 줄인지 계산"""
+    if not text or max_px <= 0:
+        return 1
+    w = _text_px_width(text, font)
+    if w <= max_px:
+        return 1
+    return min((w // max_px) + 1, 3)
+
+
+def _draw_wrapped_text(draw, x: int, y: int, text: str, font, max_px: int,
+                       color, line_h: int, max_lines: int = 3):
+    """텍스트를 max_px 폭에 맞춰 줄바꿈하여 그리기 (최대 max_lines줄)"""
+    if not text:
+        return
+    w = _text_px_width(text, font)
+    if w <= max_px:
+        draw.text((x, y), text, fill=color, font=font)
+        return
+
+    chars_per_line = max(1, int(len(text) * max_px / w))
+    lines = []
+    remaining = text
+    for _ in range(max_lines):
+        if not remaining:
+            break
+        if _text_px_width(remaining, font) <= max_px:
+            lines.append(remaining)
+            remaining = ""
+            break
+        cut = chars_per_line
+        while cut > 0 and _text_px_width(remaining[:cut], font) > max_px:
+            cut -= 1
+        cut = max(1, cut)
+        lines.append(remaining[:cut])
+        remaining = remaining[cut:]
+
+    if remaining:
+        last = lines[-1] if lines else ""
+        lines[-1] = last[: max(1, len(last) - 1)] + "…"
+
+    for i, line in enumerate(lines):
+        draw.text((x, y + i * line_h), line, fill=color, font=font)
+
+
 def _draw_result_tag(draw, center_x, row_y, row_h, text, color, font):
-    """결과 태그를 셀 중앙에 그리기"""
     bbox = font.getbbox(text)
     tw = bbox[2] - bbox[0]
     th = bbox[3] - bbox[1]
-    pad = 4
-    tag_w = tw + pad * 2
-    tag_h = th + pad * 2
-
+    p = 4
+    tag_w = tw + p * 2
+    tag_h = th + p * 2
     tx = center_x - tag_w // 2
     tag_y = row_y + (row_h - tag_h) // 2
-
     light = tuple(min(255, c + 180) for c in color[:3])
-    draw.rounded_rectangle(
-        [tx, tag_y, tx + tag_w, tag_y + tag_h],
-        radius=4, fill=light, outline=color, width=1,
-    )
-    draw.text((tx + pad, tag_y + pad - 1), text, fill=color, font=font)
+    draw.rounded_rectangle([tx, tag_y, tx + tag_w, tag_y + tag_h], radius=4,
+                           fill=light, outline=color, width=1)
+    draw.text((tx + p, tag_y + p - 1), text, fill=color, font=font)
 
 
 def _draw_text_centered(draw, center_x, y, text, color, font):
-    """텍스트를 중앙 정렬로 그리기"""
     bbox = font.getbbox(text)
     tw = bbox[2] - bbox[0]
     draw.text((center_x - tw // 2, y), text, fill=color, font=font)
-
-
-def _truncate(text: str, max_len: int) -> str:
-    """텍스트 길이 제한"""
-    return text[:max_len] + ".." if len(text) > max_len else text
 
 
 def _get_font(size: int):
@@ -157,43 +280,28 @@ def _get_font(size: int):
         return _font_cache[size]
 
     font_paths = [
-        # === 프로젝트 로컬 폰트 (최우선) ===
         os.path.join(os.path.dirname(__file__), "fonts", "NotoSansKR-Regular.otf"),
         os.path.join(os.path.dirname(__file__), "..", "fonts", "NotoSansKR-Regular.otf"),
 
-        # === Railway / Docker (fonts-noto-cjk) ===
         "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
         "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
         "/usr/share/fonts/truetype/noto/NotoSansKR-Regular.otf",
         "/usr/share/fonts/opentype/noto/NotoSansCJKkr-Regular.otf",
         "/usr/share/fonts/truetype/noto/NotoSansCJKkr-Regular.otf",
-
-        # === Ubuntu / Debian ===
         "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
         "/usr/share/fonts/truetype/nanum/NanumBarunGothic.ttf",
         "/usr/share/fonts/truetype/unfonts-core/UnDotum.ttf",
-
-        # === CentOS / RHEL / Fedora ===
         "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc",
         "/usr/share/fonts/nhn-nanum/NanumGothic.ttf",
-
-        # === Alpine Linux ===
         "/usr/share/fonts/noto/NotoSansCJK-Regular.ttc",
-
-        # === 일반 Noto Sans (한글 지원 안 되지만 fallback) ===
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-
-        # === Windows ===
         "C:/Windows/Fonts/malgun.ttf",
         "C:/Windows/Fonts/NanumGothic.ttf",
         "C:/Windows/Fonts/gulim.ttc",
-
-        # === macOS ===
         "/System/Library/Fonts/AppleSDGothicNeo.ttc",
         "/Library/Fonts/NanumGothic.ttf",
     ]
 
-    # fonts-noto-cjk 패키지가 설치하는 경로 자동 탐색
     noto_dirs = [
         "/usr/share/fonts/opentype/noto",
         "/usr/share/fonts/truetype/noto",
@@ -212,15 +320,13 @@ def _get_font(size: int):
         try:
             font = ImageFont.truetype(path, size)
             _font_cache[size] = font
-            if size == 28:
+            if size == 38:
                 logger.info(f"[Font] 한글 폰트 로드 성공: {path}")
             return font
         except (OSError, IOError):
             continue
 
-    logger.warning("[Font] 한글 폰트를 찾지 못했습니다. 기본 폰트를 사용합니다. "
-                   "채점 이미지에 한글이 깨질 수 있습니다. "
-                   "fonts-noto-cjk 또는 fonts-nanum 패키지를 설치해주세요.")
+    logger.warning("[Font] 한글 폰트를 찾지 못했습니다. 기본 폰트를 사용합니다.")
     font = ImageFont.load_default()
     _font_cache[size] = font
     return font

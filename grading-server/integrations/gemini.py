@@ -158,25 +158,31 @@ async def grade_essay_independent(
   "feedback": "채점 근거 (한국어, 1~2문장)"
 }}"""
 
-    # 두 채점을 독립적으로 실행
+    # 두 채점을 병렬로 독립 실행 (속도 ~2배 향상)
     result_a = {"score": 0, "max_score": max_score, "feedback": "AI 채점 실패"}
     result_b = {"score": 0, "max_score": max_score, "feedback": "AI 채점 실패"}
 
-    try:
-        res_a = await _gemini_call_with_retry(prompt_a, label=f"Essay#{question_num}-A")
-        parsed = _parse_ai_json(res_a.text)
-        if parsed:
-            result_a = parsed
-    except Exception as e:
-        logger.error(f"서술형 1차 채점 실패 (문제 {question_num}): {e}")
+    async def _grade_a():
+        res = await _gemini_call_with_retry(prompt_a, label=f"Essay#{question_num}-A")
+        parsed = _parse_ai_json(res.text)
+        return parsed if parsed else None
 
-    try:
-        res_b = await _gemini_call_with_retry(prompt_b, label=f"Essay#{question_num}-B")
-        parsed = _parse_ai_json(res_b.text)
-        if parsed:
-            result_b = parsed
-    except Exception as e:
-        logger.error(f"서술형 2차 채점 실패 (문제 {question_num}): {e}")
+    async def _grade_b():
+        res = await _gemini_call_with_retry(prompt_b, label=f"Essay#{question_num}-B")
+        parsed = _parse_ai_json(res.text)
+        return parsed if parsed else None
+
+    results = await asyncio.gather(_grade_a(), _grade_b(), return_exceptions=True)
+
+    if not isinstance(results[0], Exception) and results[0]:
+        result_a = results[0]
+    elif isinstance(results[0], Exception):
+        logger.error(f"서술형 1차 채점 실패 (문제 {question_num}): {results[0]}")
+
+    if not isinstance(results[1], Exception) and results[1]:
+        result_b = results[1]
+    elif isinstance(results[1], Exception):
+        logger.error(f"서술형 2차 채점 실패 (문제 {question_num}): {results[1]}")
 
     score_a = float(result_a.get("score", 0))
     score_b = float(result_b.get("score", 0))

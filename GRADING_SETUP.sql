@@ -17,7 +17,7 @@ ALTER TABLE homework_submissions ADD COLUMN IF NOT EXISTS central_drive_file_url
 ALTER TABLE homework_submissions ADD COLUMN IF NOT EXISTS teacher_drive_file_id TEXT;
 ALTER TABLE homework_submissions ADD COLUMN IF NOT EXISTS teacher_drive_file_url TEXT;
 ALTER TABLE homework_submissions ADD COLUMN IF NOT EXISTS grading_status TEXT DEFAULT 'pending'
-    CHECK (grading_status IN ('pending', 'grading', 'graded', 'confirmed'));
+    CHECK (grading_status IN ('pending', 'grading', 'graded', 'confirmed', 'grading_failed'));
 
 -- 1) 교재/정답 관리 (중앙 드라이브에 저장)
 CREATE TABLE IF NOT EXISTS answer_keys (
@@ -69,7 +69,7 @@ CREATE TABLE IF NOT EXISTS grading_results (
     unanswered_count INTEGER DEFAULT 0,             -- 미풀이 문제 수
     total_questions INTEGER DEFAULT 0,
     page_info TEXT DEFAULT '',                       -- 채점 페이지 정보 (예: "쎈 공통수학1 p.45-47")
-    status TEXT DEFAULT 'grading' CHECK (status IN ('grading', 'review_needed', 'confirmed')),
+    status TEXT DEFAULT 'grading' CHECK (status IN ('grading', 'review_needed', 'confirmed', 'failed', 'regrading')),
     -- 중앙 드라이브(jjyown) 원본 파일
     central_original_drive_ids JSONB DEFAULT '[]',
     -- 중앙 드라이브(jjyown) 채점 결과 이미지
@@ -89,6 +89,7 @@ CREATE TABLE IF NOT EXISTS grading_items (
     id BIGSERIAL PRIMARY KEY,
     result_id BIGINT NOT NULL REFERENCES grading_results(id) ON DELETE CASCADE,
     question_number INTEGER NOT NULL,
+    question_label TEXT DEFAULT '',                    -- 소문제 포함 원본 라벨 (예: "3(1)", "3(2)")
     question_type TEXT DEFAULT 'multiple_choice' CHECK (question_type IN ('multiple_choice', 'short_answer', 'essay')),
     student_answer TEXT DEFAULT '',
     correct_answer TEXT DEFAULT '',
@@ -165,32 +166,79 @@ DO $$ BEGIN
 END $$;
 
 -- answer_keys: 인증된 사용자만 조회 + 본인만 수정
-CREATE POLICY answer_keys_read ON answer_keys FOR SELECT USING (auth.role() = 'authenticated');
-CREATE POLICY answer_keys_write ON answer_keys FOR ALL USING (auth.uid() = teacher_id);
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'answer_keys_read' AND tablename = 'answer_keys') THEN
+    EXECUTE 'CREATE POLICY answer_keys_read ON answer_keys FOR SELECT USING (auth.role() = ''authenticated'')';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'answer_keys_write' AND tablename = 'answer_keys') THEN
+    EXECUTE 'CREATE POLICY answer_keys_write ON answer_keys FOR ALL USING (auth.uid() = teacher_id)';
+  END IF;
+END $$;
 
 -- grading_assignments: 본인 데이터만
-CREATE POLICY grading_assignments_teacher_all ON grading_assignments FOR ALL USING (auth.uid() = teacher_id);
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'grading_assignments_teacher_all' AND tablename = 'grading_assignments') THEN
+    EXECUTE 'CREATE POLICY grading_assignments_teacher_all ON grading_assignments FOR ALL USING (auth.uid() = teacher_id)';
+  END IF;
+END $$;
 
 -- grading_results: 선생님은 본인 것, 인증된 사용자는 조회만
-CREATE POLICY grading_results_teacher_all ON grading_results FOR ALL USING (auth.uid() = teacher_id);
-CREATE POLICY grading_results_authenticated_read ON grading_results FOR SELECT USING (auth.role() = 'authenticated');
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'grading_results_teacher_all' AND tablename = 'grading_results') THEN
+    EXECUTE 'CREATE POLICY grading_results_teacher_all ON grading_results FOR ALL USING (auth.uid() = teacher_id)';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'grading_results_authenticated_read' AND tablename = 'grading_results') THEN
+    EXECUTE 'CREATE POLICY grading_results_authenticated_read ON grading_results FOR SELECT USING (auth.role() = ''authenticated'')';
+  END IF;
+END $$;
 
 -- grading_items: 인증된 사용자만 조회 + 선생님만 수정
-CREATE POLICY grading_items_authenticated_read ON grading_items FOR SELECT USING (auth.role() = 'authenticated');
-CREATE POLICY grading_items_teacher_all ON grading_items FOR ALL USING (
-    EXISTS (SELECT 1 FROM grading_results gr WHERE gr.id = grading_items.result_id AND gr.teacher_id = auth.uid())
-);
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'grading_items_authenticated_read' AND tablename = 'grading_items') THEN
+    EXECUTE 'CREATE POLICY grading_items_authenticated_read ON grading_items FOR SELECT USING (auth.role() = ''authenticated'')';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'grading_items_teacher_all' AND tablename = 'grading_items') THEN
+    EXECUTE 'CREATE POLICY grading_items_teacher_all ON grading_items FOR ALL USING (EXISTS (SELECT 1 FROM grading_results gr WHERE gr.id = grading_items.result_id AND gr.teacher_id = auth.uid()))';
+  END IF;
+END $$;
 
 -- grading_stats: 선생님만
-CREATE POLICY grading_stats_teacher_all ON grading_stats FOR ALL USING (auth.uid() = teacher_id);
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'grading_stats_teacher_all' AND tablename = 'grading_stats') THEN
+    EXECUTE 'CREATE POLICY grading_stats_teacher_all ON grading_stats FOR ALL USING (auth.uid() = teacher_id)';
+  END IF;
+END $$;
 
 -- evaluations: RLS 활성화 + 정책
 ALTER TABLE evaluations ENABLE ROW LEVEL SECURITY;
-CREATE POLICY evaluations_teacher_all ON evaluations FOR ALL USING (auth.uid() = teacher_id);
-CREATE POLICY evaluations_authenticated_read ON evaluations FOR SELECT USING (auth.role() = 'authenticated');
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'evaluations_teacher_all' AND tablename = 'evaluations') THEN
+    EXECUTE 'CREATE POLICY evaluations_teacher_all ON evaluations FOR ALL USING (auth.uid() = teacher_id)';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'evaluations_authenticated_read' AND tablename = 'evaluations') THEN
+    EXECUTE 'CREATE POLICY evaluations_authenticated_read ON evaluations FOR SELECT USING (auth.role() = ''authenticated'')';
+  END IF;
+END $$;
 
 -- ============================================================
 -- 마이그레이션: Smart Grading 컬럼 추가
 -- ============================================================
 ALTER TABLE grading_results ADD COLUMN IF NOT EXISTS unanswered_count INTEGER DEFAULT 0;
 ALTER TABLE grading_results ADD COLUMN IF NOT EXISTS page_info TEXT DEFAULT '';
+ALTER TABLE grading_results ADD COLUMN IF NOT EXISTS error_message TEXT DEFAULT '';
+
+-- ============================================================
+-- 마이그레이션: CHECK 제약조건 확장 (기존 DB에서 실행)
+-- ============================================================
+-- grading_results.status: 'failed', 'regrading' 추가
+ALTER TABLE grading_results DROP CONSTRAINT IF EXISTS grading_results_status_check;
+ALTER TABLE grading_results ADD CONSTRAINT grading_results_status_check
+    CHECK (status IN ('grading', 'review_needed', 'confirmed', 'failed', 'regrading'));
+
+-- homework_submissions.grading_status: 'grading_failed' 추가
+ALTER TABLE homework_submissions DROP CONSTRAINT IF EXISTS homework_submissions_grading_status_check;
+ALTER TABLE homework_submissions ADD CONSTRAINT homework_submissions_grading_status_check
+    CHECK (grading_status IN ('pending', 'grading', 'graded', 'confirmed', 'grading_failed'));
+
+-- grading_items.question_label: 소문제 구분용 라벨 컬럼 추가
+ALTER TABLE grading_items ADD COLUMN IF NOT EXISTS question_label TEXT DEFAULT '';

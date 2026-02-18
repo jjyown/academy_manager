@@ -55,8 +55,8 @@ def preprocess_image(image_bytes: bytes) -> bytes:
         # 4) 자동 대비 향상
         img = _auto_enhance(img)
 
-        # 5) 샤프닝
-        img = img.filter(ImageFilter.SHARPEN)
+        # 5) 조건부 샤프닝 (흐릿한 이미지만 - Laplacian variance 기반)
+        img = _conditional_sharpen(img)
 
         # JPEG 출력
         buf = io.BytesIO()
@@ -233,5 +233,35 @@ def _auto_enhance(img: Image.Image) -> Image.Image:
     # 대비 약간 향상 (항상 적용)
     contrast_factor = 1.15 if mean_brightness < 140 else 1.05
     img = ImageEnhance.Contrast(img).enhance(contrast_factor)
+
+    return img
+
+
+BLUR_THRESHOLD = 100.0  # Laplacian variance 임계값 (낮을수록 흐릿함)
+
+
+def _conditional_sharpen(img: Image.Image) -> Image.Image:
+    """선명도를 측정하여 흐릿한 이미지만 샤프닝 적용
+
+    Laplacian variance가 BLUR_THRESHOLD 미만이면 흐릿한 것으로 판단.
+    이미 선명한 이미지에 샤프닝하면 노이즈가 증가하여 OCR 정확도가 떨어짐.
+    """
+    if not HAS_CV2:
+        img = img.filter(ImageFilter.SHARPEN)
+        return img
+
+    import numpy as np
+    try:
+        gray = np.array(img.convert("L"), dtype=np.float64)
+        variance = cv2.Laplacian(gray, cv2.CV_64F).var()
+
+        if variance < BLUR_THRESHOLD:
+            img = img.filter(ImageFilter.SHARPEN)
+            logger.debug(f"[Sharpen] 흐릿함 감지 (variance={variance:.1f}) → 샤프닝 적용")
+        else:
+            logger.debug(f"[Sharpen] 충분히 선명 (variance={variance:.1f}) → 샤프닝 건너뜀")
+    except Exception as e:
+        logger.debug(f"[Sharpen] 선명도 측정 실패, 기본 샤프닝: {e}")
+        img = img.filter(ImageFilter.SHARPEN)
 
     return img
