@@ -46,7 +46,7 @@ from integrations.supabase_client import (
     create_notification, get_notifications, mark_notifications_read,
 )
 from integrations.drive import (
-    download_file_central, upload_to_central,
+    download_file_central, upload_to_central, upload_page_images_to_central,
     search_answer_pdfs_central, cleanup_old_originals, delete_file,
     delete_page_images_folder,
 )
@@ -337,16 +337,24 @@ async def parse_answer_key(
         result = await extract_answers_from_pdf(file_bytes, total_hint=total_hint, page_range=page_range)
         raw_page_images = result.pop("page_images", [])
 
-    # base64 data URL로 페이지 이미지 즉시 저장 (Drive 업로드 불필요)
     page_images_json = []
     if raw_page_images:
-        for img in raw_page_images:
-            b64 = base64.b64encode(img["image_bytes"]).decode("utf-8")
-            page_images_json.append({
-                "page": img["page"],
-                "url": f"data:image/jpeg;base64,{b64}",
-            })
-        logger.info(f"[Parse] '{title}' 페이지 이미지 {len(page_images_json)}장 base64 변환 완료")
+        if central_token:
+            try:
+                page_images_json = upload_page_images_to_central(central_token, title, raw_page_images)
+                logger.info(f"[Parse] '{title}' 페이지 이미지 {len(page_images_json)}장 Drive 업로드 완료")
+            except Exception as e:
+                logger.warning(f"[Parse] Drive 업로드 실패, base64 fallback: {e}")
+                page_images_json = []
+
+        if not page_images_json:
+            for img in raw_page_images:
+                b64 = base64.b64encode(img["image_bytes"]).decode("utf-8")
+                page_images_json.append({
+                    "page": img["page"],
+                    "url": f"data:image/jpeg;base64,{b64}",
+                })
+            logger.info(f"[Parse] '{title}' 페이지 이미지 {len(page_images_json)}장 base64 fallback 저장")
 
     key_data = {
         "teacher_id": teacher_id,

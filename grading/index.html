@@ -219,7 +219,7 @@
 	.stu-tag button:hover { color:var(--red); }
 
 	/* 달력 */
-	.cal-container { display:grid; grid-template-columns:1fr 340px; gap:12px; padding:8px 12px; min-height:0; }
+	.cal-container { display:flex; flex-direction:column; gap:12px; padding:8px 12px; min-height:0; }
 	.cal-left { background:var(--bg-card); border-radius:var(--radius); padding:16px; border:1px solid var(--border); }
 	.cal-header { display:flex; align-items:center; gap:8px; margin-bottom:14px; }
 	.cal-title { font-size:16px; font-weight:800; flex-shrink:0; }
@@ -246,7 +246,7 @@
 	.cal-dot.dot-grading { background:#818cf8; opacity:0.6; }
 	.cal-count { font-size:9px; color:var(--text-sec); margin-top:2px; }
 
-	.cal-side { background:var(--bg-card); border-radius:var(--radius); padding:0; border:1px solid var(--border); display:flex; flex-direction:column; max-height:calc(100vh - 160px); overflow:hidden; }
+	.cal-side { background:var(--bg-card); border-radius:var(--radius); padding:0; border:1px solid var(--border); display:flex; flex-direction:column; overflow:hidden; }
 	.cal-side-header { padding:14px 16px 8px; font-size:15px; font-weight:700; border-bottom:1px solid var(--border); flex-shrink:0; }
 	.cal-side-tabs { display:flex; gap:4px; padding:8px 12px; flex-shrink:0; }
 	.cal-side-tab { flex:1; padding:7px 0; border:none; border-radius:8px; background:transparent; color:var(--text-sec); font-size:12px; font-weight:700; cursor:pointer; transition:all 0.15s; }
@@ -279,10 +279,6 @@
 	.cal-side-filter button { padding:4px 10px; border:1px solid var(--border); border-radius:14px; background:transparent; color:var(--text-sec); font-size:11px; font-weight:600; cursor:pointer; transition:all 0.15s; }
 	.cal-side-filter button.active { background:rgba(129,140,248,0.15); color:var(--primary); border-color:rgba(129,140,248,0.3); }
 
-	@media (max-width:768px) {
-		.cal-container { grid-template-columns:1fr; }
-		.cal-side { max-height:50vh; }
-	}
 	@media (max-width:480px) {
 		.cal-cell { min-height:48px; padding:4px 2px; }
 		.cal-date { font-size:11px; }
@@ -1880,13 +1876,14 @@ function renderStudentList() {
 		grouped[g].push(s);
 	});
 
-	const gradeOrder = Object.keys(grouped).sort((a, b) => {
-		const na = parseInt(a), nb = parseInt(b);
-		if (!isNaN(na) && !isNaN(nb)) return na - nb;
-		if (a === '미지정') return 1;
-		if (b === '미지정') return -1;
-		return a.localeCompare(b);
-	});
+	const _gradeRank = g => {
+		if (g === '미지정') return 9999;
+		const m = g.match(/(초|중|고)(\d+)/);
+		if (!m) return 9000;
+		const level = { '초': 0, '중': 100, '고': 200 }[m[1]] || 0;
+		return level + parseInt(m[2]);
+	};
+	const gradeOrder = Object.keys(grouped).sort((a, b) => _gradeRank(a) - _gradeRank(b));
 
 	let html = '';
 	gradeOrder.forEach(grade => {
