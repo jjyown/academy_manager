@@ -110,6 +110,9 @@ app = FastAPI(title="자동 채점 서버", version="2.0.0", lifespan=lifespan)
 
 # CORS 설정: 환경변수 CORS_ORIGINS에 쉼표 구분으로 도메인 지정
 _allowed_origins = [o.strip() for o in CORS_ORIGINS.split(",") if o.strip()] if CORS_ORIGINS else ["*"]
+for _local in ["http://127.0.0.1:5500", "http://localhost:5500", "http://127.0.0.1:5501", "http://localhost:5501"]:
+    if _local not in _allowed_origins and "*" not in _allowed_origins:
+        _allowed_origins.append(_local)
 
 app.add_middleware(
     CORSMiddleware,
@@ -527,9 +530,26 @@ async def confirm_result(result_id: int):
 
 @app.delete("/api/results/{result_id}")
 async def delete_result(result_id: int):
-    """채점 결과 삭제 (관련 grading_items도 함께 삭제)"""
+    """채점 결과 삭제 (Drive 파일 + grading_items 함께 삭제)"""
     try:
         sb = get_supabase()
+        row = sb.table("grading_results").select(
+            "central_graded_drive_ids, central_original_drive_ids"
+        ).eq("id", result_id).limit(1).execute()
+
+        if row.data:
+            central_token = await get_central_admin_token()
+            if central_token:
+                drive_ids = []
+                drive_ids.extend(row.data[0].get("central_graded_drive_ids") or [])
+                drive_ids.extend(row.data[0].get("central_original_drive_ids") or [])
+                deleted = 0
+                for fid in drive_ids:
+                    if fid and delete_file(central_token, fid):
+                        deleted += 1
+                if deleted:
+                    logger.info(f"[Delete] result #{result_id}: Drive 파일 {deleted}개 삭제")
+
         sb.table("grading_items").delete().eq("result_id", result_id).execute()
         res = sb.table("grading_results").delete().eq("id", result_id).execute()
         if res.data:

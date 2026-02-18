@@ -2693,6 +2693,9 @@ function formatAnswerHtml(answer, isEssay) {
 		if (isEssay) return '<span style="opacity:0.4">서술형 (풀이 평가)</span>';
 		return '<span style="opacity:0.4">정답 입력 (클릭)</span>';
 	}
+	if (_circledNums.includes(answer)) {
+		return `<span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:var(--primary);color:#fff;font-weight:800;font-size:15px;">${_fromCircled(answer)}</span>`;
+	}
 	if (mathLiveReady && (answer.includes('\\') || answer.includes('^{') || answer.includes('_{'))) {
 		return `<math-field read-only class="kd-math-ro">${escapeHtml(answer)}</math-field>`;
 	}
@@ -2755,7 +2758,9 @@ function openMathEditor(idx) {
 	rawInput.style.display = 'none';
 	mf.style.display = '';
 
-	mf.value = q.answer || '';
+	let editVal = q.answer || '';
+	if ((q.type || 'mc') === 'mc') editVal = _fromCircled(editVal);
+	mf.value = editVal;
 
 	overlay.style.display = 'flex';
 	requestAnimationFrame(() => {
@@ -2765,6 +2770,18 @@ function openMathEditor(idx) {
 		}
 		mf.focus();
 	});
+}
+
+const _circledNums = ['①','②','③','④','⑤','⑥','⑦','⑧','⑨','⑩'];
+function _toCircled(val) {
+	const s = (val || '').trim();
+	const n = parseInt(s);
+	if (s === String(n) && n >= 1 && n <= 10) return _circledNums[n - 1];
+	return s;
+}
+function _fromCircled(val) {
+	const idx = _circledNums.indexOf((val || '').trim());
+	return idx >= 0 ? String(idx + 1) : (val || '').trim();
 }
 
 function closeMathEditor(save) {
@@ -2780,12 +2797,14 @@ function closeMathEditor(save) {
 		} else {
 			val = document.getElementById('math-editor-field').value;
 		}
+		const qType = kdQuestions[mathEditorIdx].type || 'mc';
+		if (qType === 'mc') val = _toCircled(val);
 		kdQuestions[mathEditorIdx].answer = val;
 		markKdDirty();
 		const row = document.getElementById(`kd-row-${mathEditorIdx}`);
 		if (row) {
 			const display = row.querySelector('.kd-answer-display');
-			if (display) display.innerHTML = formatAnswerHtml(val, (kdQuestions[mathEditorIdx].type || 'mc') === 'essay');
+			if (display) display.innerHTML = formatAnswerHtml(val, qType === 'essay');
 		}
 	}
 	mathEditorIdx = -1;
@@ -3137,7 +3156,10 @@ function loadCurrentImage() {
 
 	emptyState.style.display = 'none';
 	img.style.display = 'block';
-	img.src = currentImageUrls[currentImageIdx];
+	let imgUrl = currentImageUrls[currentImageIdx];
+	const ucMatch = imgUrl && imgUrl.match(/drive\.google\.com\/uc\?id=([^&]+)/);
+	if (ucMatch) imgUrl = 'https://lh3.googleusercontent.com/d/' + ucMatch[1];
+	img.src = imgUrl;
 
 	if (currentImageUrls.length > 1) {
 		nav.style.display = 'flex';

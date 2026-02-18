@@ -143,7 +143,7 @@ def _upload_file(service, folder_id: str, filename: str, file_bytes: bytes, mime
         logger.warning(f"공유 설정 실패: {e}")
     return {
         "id": file["id"],
-        "url": f"https://drive.google.com/uc?id={file['id']}",
+        "url": f"https://lh3.googleusercontent.com/d/{file['id']}",
         "web_url": file.get("webViewLink", ""),
     }
 
