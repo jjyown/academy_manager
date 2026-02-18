@@ -3,6 +3,7 @@ import re
 import logging
 from fractions import Fraction
 from integrations.gemini import grade_essay_independent, grade_essay_mediate
+from ocr.engines import normalize_question_key, normalize_answer_keys
 
 logger = logging.getLogger(__name__)
 
@@ -32,12 +33,17 @@ async def grade_submission(
         from ocr.engines import ocr_gemini
         ocr_result = await ocr_gemini(image_bytes)
 
-    student_answers = ocr_result.get("answers", {})
+    student_answers_raw = ocr_result.get("answers", {})
     textbook_info = ocr_result.get("textbook_info", {})
+
+    # 문제번호 키 정규화 (OCR 결과, 정답지, 유형 모두 통일)
+    student_answers_keyed = normalize_answer_keys(student_answers_raw)
+    answers_json = normalize_answer_keys(answers_json)
+    types_json = normalize_answer_keys(types_json)
 
     # OCR 결과 형태 통일 (str → dict)
     normalized_answers = {}
-    for k, v in student_answers.items():
+    for k, v in student_answers_keyed.items():
         if isinstance(v, dict):
             normalized_answers[k] = v
         else:
@@ -45,10 +51,12 @@ async def grade_submission(
     student_answers = normalized_answers
 
     # 중복 문제번호 제거 (이전 이미지에서 이미 채점된 문제)
+    # skip_questions의 키도 정규화하여 비교
+    normalized_skip = {normalize_question_key(q) for q in skip_questions} if skip_questions else set()
     skipped_dupes = []
-    if skip_questions:
+    if normalized_skip:
         for q in list(student_answers.keys()):
-            if q in skip_questions:
+            if q in normalized_skip:
                 skipped_dupes.append(q)
                 del student_answers[q]
         if skipped_dupes:
@@ -73,12 +81,46 @@ async def grade_submission(
     essay_total = 0
     essay_earned = 0
 
+    # fuzzy 매칭용: 정답지 키 → 가능한 변형 매핑 생성
+    answer_key_set = set(answers_json.keys())
+
+    def _fuzzy_find_answer_key(q_num: str) -> str | None:
+        """OCR 문제번호가 정답지에 없을 때 fuzzy 매칭 시도"""
+        # 이미 있으면 바로 반환
+        if q_num in answer_key_set:
+            return q_num
+        # 숫자만 추출해서 비교
+        q_digits = re.sub(r'[^\d]', '', q_num)
+        for ak in answer_key_set:
+            ak_digits = re.sub(r'[^\d]', '', ak)
+            if q_digits and ak_digits and q_digits == ak_digits:
+                return ak
+        # 메인 번호만 비교 (소문제가 없는 경우)
+        q_main = re.match(r'(\d+)', q_num)
+        if q_main:
+            q_main_str = q_main.group(1)
+            for ak in answer_key_set:
+                if ak == q_main_str:
+                    return ak
+        return None
+
     ocr_question_nums = set(student_answers.keys())
     all_questions = sorted(ocr_question_nums, key=lambda x: _sort_key(x))
 
     for q_num in all_questions:
         correct_answer = answers_json.get(q_num)
         q_type = types_json.get(q_num, "mc")
+
+        # 정답지에 매칭 안 되면 fuzzy 매칭 시도
+        matched_key = q_num
+        if not correct_answer:
+            fuzzy_key = _fuzzy_find_answer_key(q_num)
+            if fuzzy_key and fuzzy_key != q_num:
+                logger.info(f"[FuzzyMatch] '{q_num}' → '{fuzzy_key}'로 매칭")
+                correct_answer = answers_json.get(fuzzy_key)
+                q_type = types_json.get(fuzzy_key, q_type)
+                matched_key = fuzzy_key
+
         student_data = student_answers.get(q_num, {})
         raw_answer = student_data.get("answer", "") if isinstance(student_data, dict) else str(student_data) if student_data else ""
 
@@ -97,7 +139,12 @@ async def grade_submission(
 
         is_unanswered = raw_answer == "unanswered"
 
+        # 정답지에 없는 문제: 건너뛰지 않고 "미매칭" 상태로 기록
         if not correct_answer:
+            item["is_correct"] = None
+            item["ai_feedback"] = "정답지에 해당 문제가 없음 (확인 필요)"
+            uncertain_count += 1
+            items.append(item)
             continue
 
         if is_unanswered:
@@ -167,10 +214,11 @@ async def grade_submission(
 
         items.append(item)
 
-    # 점수 계산
+    # 점수 계산 (정답지에 매칭된 문제만 점수 계산에 포함)
     total_questions = len(items)
-    mc_questions = sum(1 for it in items if it["question_type"] in ("multiple_choice", "short_answer"))
-    mc_correct = sum(1 for it in items if it["question_type"] in ("multiple_choice", "short_answer") and it.get("is_correct") is True)
+    gradable_items = [it for it in items if it.get("correct_answer")]
+    mc_questions = sum(1 for it in gradable_items if it["question_type"] in ("multiple_choice", "short_answer"))
+    mc_correct = sum(1 for it in gradable_items if it["question_type"] in ("multiple_choice", "short_answer") and it.get("is_correct") is True)
     mc_per_score = (100 - essay_total) / mc_questions if mc_questions > 0 else 0
     mc_earned = mc_correct * mc_per_score if mc_questions > 0 else 0
     total_score = round(mc_earned + essay_earned, 1)

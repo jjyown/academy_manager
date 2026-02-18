@@ -1,6 +1,7 @@
 """이미지 전처리: OCR 정확도 향상을 위한 자동 보정
 
 - 자동 회전 보정 (EXIF 기반)
+- 기울기 자동 보정 (Deskew - OpenCV 기반)
 - 대비/밝기 자동 조정
 - 샤프닝 (흐릿한 사진 보정)
 - 해상도 정규화
@@ -13,15 +14,24 @@ logger = logging.getLogger(__name__)
 
 TARGET_MAX_DIM = 2048
 JPEG_QUALITY = 88
+DESKEW_MAX_ANGLE = 15  # 이 각도 이하만 보정 (과도한 회전 방지)
+
+try:
+    import cv2
+    HAS_CV2 = True
+except ImportError:
+    HAS_CV2 = False
+    logger.warning("[Preprocess] OpenCV 미설치 → Deskew 비활성화. pip install opencv-python-headless")
 
 
 def preprocess_image(image_bytes: bytes) -> bytes:
     """학생 숙제 사진 전처리 → OCR 정확도 향상
 
     1) EXIF 회전 보정 (폰카 세로/가로 자동 감지)
-    2) 해상도 정규화 (너무 크면 축소, 너무 작으면 유지)
-    3) 자동 대비 향상 (어두운 사진 보정)
-    4) 샤프닝 (흐릿한 사진 보정)
+    2) 기울기 자동 보정 (Deskew - 비뚤게 찍힌 사진 수평 맞추기)
+    3) 해상도 정규화 (너무 크면 축소, 너무 작으면 유지)
+    4) 자동 대비 향상 (어두운 사진 보정)
+    5) 샤프닝 (흐릿한 사진 보정)
 
     Returns:
         전처리된 JPEG 바이트
@@ -36,13 +46,16 @@ def preprocess_image(image_bytes: bytes) -> bytes:
         if img.mode != "RGB":
             img = img.convert("RGB")
 
-        # 2) 해상도 정규화 (너무 큰 이미지 축소)
+        # 2) 기울기 자동 보정 (Deskew)
+        img = _deskew(img)
+
+        # 3) 해상도 정규화 (너무 큰 이미지 축소)
         img = _normalize_resolution(img)
 
-        # 3) 자동 대비 향상
+        # 4) 자동 대비 향상
         img = _auto_enhance(img)
 
-        # 4) 샤프닝
+        # 5) 샤프닝
         img = img.filter(ImageFilter.SHARPEN)
 
         # JPEG 출력
@@ -95,6 +108,99 @@ def _fix_exif_rotation(img: Image.Image) -> Image.Image:
     except Exception:
         pass
     return img
+
+
+def _deskew(img: Image.Image) -> Image.Image:
+    """OpenCV 기반 기울기 자동 보정 (Deskew)
+
+    알고리즘:
+    1. 그레이스케일 변환 → Canny 에지 검출
+    2. HoughLinesP로 직선 검출 (문제집의 인쇄 줄, 텍스트 줄)
+    3. 검출된 직선들의 각도 중앙값(median) 계산
+    4. 각도가 DESKEW_MAX_ANGLE 이내일 때만 보정
+    5. INTER_CUBIC 보간으로 글자 뭉개짐 방지
+    """
+    if not HAS_CV2:
+        return img
+
+    import numpy as np
+
+    try:
+        cv_img = np.array(img)
+        gray = cv2.cvtColor(cv_img, cv2.COLOR_RGB2GRAY)
+
+        # Canny 에지 검출 (문서의 텍스트 줄/인쇄선 감지)
+        edges = cv2.Canny(gray, 50, 150, apertureSize=3)
+
+        # HoughLinesP: 확률적 허프 변환으로 직선 검출
+        lines = cv2.HoughLinesP(
+            edges,
+            rho=1,
+            theta=np.pi / 180,
+            threshold=100,
+            minLineLength=gray.shape[1] // 8,  # 이미지 너비의 1/8 이상인 선만
+            maxLineGap=10,
+        )
+
+        if lines is None or len(lines) < 3:
+            logger.debug("[Deskew] 직선 부족 → 보정 건너뜀")
+            return img
+
+        # 각 직선의 각도 계산 (수평선 기준 편차)
+        angles = []
+        for line in lines:
+            x1, y1, x2, y2 = line[0]
+            dx = x2 - x1
+            dy = y2 - y1
+            if abs(dx) < 1:
+                continue
+            angle = np.degrees(np.arctan2(dy, dx))
+            # 수평에 가까운 선만 사용 (-45° ~ 45°)
+            if abs(angle) < 45:
+                angles.append(angle)
+
+        if len(angles) < 3:
+            logger.debug("[Deskew] 유효 각도 부족 → 보정 건너뜀")
+            return img
+
+        # 중앙값으로 기울기 각도 결정 (이상값에 강건)
+        median_angle = float(np.median(angles))
+
+        # 너무 작은 기울기는 무시 (0.3° 미만)
+        if abs(median_angle) < 0.3:
+            logger.debug(f"[Deskew] 기울기 {median_angle:.2f}° → 거의 수평, 보정 불필요")
+            return img
+
+        # 과도한 기울기는 보정하지 않음 (원본이 의도적 회전일 수 있음)
+        if abs(median_angle) > DESKEW_MAX_ANGLE:
+            logger.debug(f"[Deskew] 기울기 {median_angle:.2f}° → 과도함, 보정 건너뜀")
+            return img
+
+        # 이미지 중심 기준 회전 (INTER_CUBIC: 고품질 보간, 글자 뭉개짐 방지)
+        h, w = cv_img.shape[:2]
+        center = (w // 2, h // 2)
+        rotation_matrix = cv2.getRotationMatrix2D(center, median_angle, 1.0)
+
+        # 회전 후 이미지 잘림 방지: 새 크기 계산
+        cos_a = abs(rotation_matrix[0, 0])
+        sin_a = abs(rotation_matrix[0, 1])
+        new_w = int(h * sin_a + w * cos_a)
+        new_h = int(h * cos_a + w * sin_a)
+        rotation_matrix[0, 2] += (new_w - w) / 2
+        rotation_matrix[1, 2] += (new_h - h) / 2
+
+        rotated = cv2.warpAffine(
+            cv_img, rotation_matrix, (new_w, new_h),
+            flags=cv2.INTER_CUBIC,
+            borderMode=cv2.BORDER_REPLICATE,  # 가장자리를 복제하여 검은 테두리 방지
+        )
+
+        logger.info(f"[Deskew] 기울기 보정: {median_angle:.2f}° (직선 {len(angles)}개 감지)")
+        return Image.fromarray(rotated)
+
+    except Exception as e:
+        logger.warning(f"[Deskew] 보정 실패, 원본 유지: {e}")
+        return img
 
 
 def _normalize_resolution(img: Image.Image) -> Image.Image:

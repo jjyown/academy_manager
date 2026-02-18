@@ -118,9 +118,65 @@
 		@keyframes fadeSlide { from { opacity:0; transform:translateX(-50%) translateY(-10px); } to { opacity:1; transform:translateX(-50%) translateY(0); } }
 
 		/* 이미지 뷰어 */
-		.image-viewer { position:relative; width:100%; overflow:auto; background:#000; border-radius:var(--radius); min-height:300px; }
-		.image-viewer img { width:100%; display:block; }
-		.image-viewer canvas { position:absolute; top:0; left:0; width:100%; height:100%; cursor:crosshair; }
+		.image-viewer { position:relative; width:100%; overflow:auto; background:#000; border-radius:var(--radius); min-height:200px; max-height:70vh; }
+		.image-viewer img { display:block; transform-origin:0 0; transition:transform 0.15s ease; }
+		.image-viewer canvas { position:absolute; top:0; left:0; transform-origin:0 0; cursor:crosshair; }
+
+		/* Split View (이미지 + 정답 패널) */
+		.split-view { display:flex; gap:8px; margin:8px 12px; }
+		.split-left { flex:2; min-width:0; }
+		.split-right { flex:1; min-width:260px; max-width:360px; }
+		@media (max-width:768px) {
+			.split-view { flex-direction:column; }
+			.split-right { max-width:100%; }
+		}
+
+		/* 정답 패널 */
+		.answer-panel { background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:14px; max-height:70vh; overflow-y:auto; }
+		.answer-panel .ap-title { font-size:14px; font-weight:700; margin-bottom:10px; display:flex; align-items:center; gap:6px; }
+		.answer-panel .ap-title i { color:var(--teal); }
+		.ap-item { padding:10px; border-radius:10px; margin-bottom:6px; border:2px solid transparent; cursor:pointer; transition:all 0.15s; background:var(--bg-elevated); }
+		.ap-item:hover { border-color:var(--primary); }
+		.ap-item.ap-selected { border-color:var(--primary); background:rgba(129,140,248,0.1); box-shadow:0 0 0 1px var(--primary); }
+		.ap-item .ap-num { font-weight:700; font-size:13px; }
+		.ap-item .ap-row { display:flex; justify-content:space-between; align-items:center; font-size:12px; margin-top:4px; }
+		.ap-item .ap-label { color:var(--text-sec); }
+		.ap-item .ap-val { font-weight:600; }
+
+		/* 빠른 채점 버튼 (정답 패널 내) */
+		.quick-grade { display:flex; gap:4px; margin-top:6px; }
+		.quick-grade button { flex:1; padding:6px; border:none; border-radius:8px; font-size:12px; font-weight:700; cursor:pointer; transition:all 0.15s; }
+		.qg-correct { background:rgba(34,197,94,0.2); color:var(--green); }
+		.qg-correct:hover,.qg-correct.active { background:var(--green); color:#fff; }
+		.qg-wrong { background:rgba(239,68,68,0.2); color:var(--red); }
+		.qg-wrong:hover,.qg-wrong.active { background:var(--red); color:#fff; }
+		.qg-uncertain { background:rgba(234,179,8,0.2); color:var(--yellow); }
+		.qg-uncertain:hover,.qg-uncertain.active { background:var(--yellow); color:#fff; }
+
+		/* 문항 선택 하이라이트 */
+		.q-cell.q-selected { box-shadow:0 0 0 3px var(--primary); transform:scale(1.1); z-index:2; position:relative; }
+
+		/* 단축키 힌트 바 */
+		.shortcut-bar { display:flex; gap:8px; padding:6px 12px; background:rgba(129,140,248,0.08); border-radius:10px; margin:8px 12px; align-items:center; flex-wrap:wrap; }
+		.shortcut-bar .sk { display:inline-flex; align-items:center; gap:3px; font-size:11px; color:var(--text-sec); }
+		.shortcut-bar .sk kbd { padding:2px 6px; border-radius:4px; background:var(--bg-elevated); border:1px solid var(--border); font-size:10px; font-weight:700; color:var(--text); font-family:monospace; }
+
+		/* 줌 컨트롤 */
+		.zoom-controls { display:flex; gap:4px; align-items:center; margin-top:6px; }
+		.zoom-controls button { width:32px; height:32px; border-radius:8px; border:1px solid var(--border); background:var(--bg-elevated); color:var(--text-sec); cursor:pointer; font-size:14px; display:flex; align-items:center; justify-content:center; }
+		.zoom-controls button:hover { border-color:var(--primary); color:var(--primary); }
+		.zoom-controls .zoom-level { font-size:11px; color:var(--text-sec); min-width:40px; text-align:center; }
+
+		/* 진행률 바 */
+		.progress-card { background:var(--bg-card); border:1px solid var(--primary); border-radius:var(--radius); padding:12px 14px; margin-bottom:8px; animation:progressPulse 2s ease-in-out infinite; }
+		.progress-card .pc-header { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+		.progress-card .pc-header .pc-icon { font-size:18px; }
+		.progress-card .pc-header .pc-title { font-size:13px; font-weight:700; flex:1; }
+		.progress-card .pc-header .pc-percent { font-size:14px; font-weight:800; color:var(--primary); }
+		.progress-track { width:100%; height:8px; background:var(--bg-elevated); border-radius:4px; overflow:hidden; }
+		.progress-fill { height:100%; background:linear-gradient(90deg, var(--primary), var(--teal)); border-radius:4px; transition:width 0.5s ease; }
+		.progress-card .pc-detail { font-size:11px; color:var(--text-sec); margin-top:6px; }
+		@keyframes progressPulse { 0%,100%{border-color:rgba(129,140,248,0.4)} 50%{border-color:var(--primary)} }
 	</style>
 </head>
 <body>
@@ -169,6 +225,9 @@
 
 	<!-- 채점 결과 탭 -->
 	<div id="tab-results" class="tab-content">
+		<!-- 실시간 채점 진행률 -->
+		<div id="grading-progress-container" style="display:none;padding:8px 12px;">
+		</div>
 		<div style="padding:8px 12px;display:flex;gap:6px;">
 			<button class="btn btn-sm btn-outline" onclick="filterResults('all')" id="filter-all">전체</button>
 			<button class="btn btn-sm btn-outline" onclick="filterResults('review_needed')" id="filter-review">⚠️ 검토 필요</button>
@@ -246,16 +305,46 @@
 
 		<!-- 문항 그리드 -->
 		<div class="card">
-			<div class="card-title"><i class="fas fa-th"></i> 문항별 결과</div>
+			<div class="card-title"><i class="fas fa-th"></i> 문항별 결과 <span style="font-size:11px;color:var(--text-sec);font-weight:400;margin-left:auto;">클릭 또는 W/S키로 이동</span></div>
 			<div class="question-grid" id="detail-grid"></div>
 		</div>
 
-		<!-- 채점 이미지 + 필기 -->
-		<div class="card">
-			<div class="card-title"><i class="fas fa-image"></i> 채점 이미지</div>
-			<div class="image-viewer" id="image-viewer">
-				<img id="graded-image" src="" alt="채점 이미지" onload="initCanvas()">
-				<canvas id="annotation-canvas"></canvas>
+		<!-- 단축키 힌트 -->
+		<div class="shortcut-bar" id="shortcut-bar">
+			<span class="sk"><kbd>W</kbd><kbd>S</kbd> 문항이동</span>
+			<span class="sk"><kbd>1</kbd> 정답</span>
+			<span class="sk"><kbd>2</kbd> 오답</span>
+			<span class="sk"><kbd>3</kbd> 확인필요</span>
+			<span class="sk"><kbd>Enter</kbd> 저장</span>
+			<span class="sk"><kbd>+</kbd><kbd>-</kbd> 줌</span>
+		</div>
+
+		<!-- Split View: 이미지(좌) + 정답 패널(우) -->
+		<div class="split-view">
+			<div class="split-left">
+				<div class="card" style="margin:0;">
+					<div class="card-title" style="margin-bottom:8px;">
+						<i class="fas fa-image"></i> 채점 이미지
+						<div class="zoom-controls" style="margin-left:auto;">
+							<button onclick="zoomImage(-0.25)" title="축소"><i class="fas fa-minus"></i></button>
+							<span class="zoom-level" id="zoom-level">100%</span>
+							<button onclick="zoomImage(0.25)" title="확대"><i class="fas fa-plus"></i></button>
+							<button onclick="zoomImage(0, true)" title="원본"><i class="fas fa-expand"></i></button>
+						</div>
+					</div>
+					<div class="image-viewer" id="image-viewer">
+						<img id="graded-image" src="" alt="채점 이미지" onload="initCanvas()">
+						<canvas id="annotation-canvas"></canvas>
+					</div>
+				</div>
+			</div>
+			<div class="split-right">
+				<div class="answer-panel" id="answer-panel">
+					<div class="ap-title"><i class="fas fa-list-check"></i> 문항 정답 비교</div>
+					<div id="answer-panel-list">
+						<div style="text-align:center;color:var(--text-sec);font-size:13px;padding:20px;">문항을 선택하면 정답 정보가 표시됩니다</div>
+					</div>
+				</div>
 			</div>
 		</div>
 
@@ -449,6 +538,10 @@ let canvasHistory = [];
 let canvasRedoStack = [];
 let isDrawing = false;
 
+// Split View / 단축키 관련
+let selectedItemIdx = -1;  // 현재 선택된 문항 인덱스
+let imageZoom = 1;          // 이미지 줌 레벨
+
 // ============================================================
 // 인증 (선생님 선택 + 비밀번호)
 // ============================================================
@@ -558,6 +651,7 @@ function handleLogout() {
 	currentResults = [];
 	currentItems = [];
 	currentResultId = null;
+	stopProgressPolling();
 	showPage('login');
 }
 
@@ -568,6 +662,10 @@ function showPage(page) {
 	document.getElementById('page-login').style.display = page === 'login' ? 'flex' : 'none';
 	document.getElementById('page-main').style.display = page === 'main' ? 'block' : 'none';
 	document.getElementById('page-detail').style.display = page === 'detail' ? 'block' : 'none';
+	// detail 페이지를 떠나면 키보드 리스너 해제
+	if (page !== 'detail') {
+		document.removeEventListener('keydown', handleDetailKeydown);
+	}
 }
 
 function switchMainTab(tab, e) {
@@ -595,6 +693,89 @@ function showToast(msg, type = 'info') {
 // ============================================================
 async function loadAllData() {
 	await Promise.all([loadResults(), loadAssignments(), loadAnswerKeys(), loadStats()]);
+	startProgressPolling();
+}
+
+// ============================================================
+// 실시간 채점 진행률 폴링
+// ============================================================
+let progressPollTimer = null;
+
+function startProgressPolling() {
+	stopProgressPolling();
+	pollGradingProgress();
+	progressPollTimer = setInterval(pollGradingProgress, 3000);
+}
+
+function stopProgressPolling() {
+	if (progressPollTimer) {
+		clearInterval(progressPollTimer);
+		progressPollTimer = null;
+	}
+}
+
+async function pollGradingProgress() {
+	const container = document.getElementById('grading-progress-container');
+	if (!container || !currentTeacher) return;
+
+	try {
+		const res = await fetch(`${GRADING_SERVER_URL}/api/grading-progress?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`);
+		if (!res.ok) return;
+		const result = await res.json();
+		const active = (result.data || []).filter(p => p.stage !== 'done' && p.stage !== 'failed' && p.stage !== 'unknown');
+
+		if (active.length === 0) {
+			container.style.display = 'none';
+			container.innerHTML = '';
+			return;
+		}
+
+		container.style.display = 'block';
+		container.innerHTML = active.map(p => {
+			const stageLabels = {
+				preprocess: '이미지 전처리',
+				ocr: 'AI 답안 인식 (OCR)',
+				cross_validate: '크로스 검증',
+				matching: '교재 매칭',
+				grading: '채점 진행',
+				saving: '결과 저장',
+			};
+			const stageLabel = stageLabels[p.stage] || p.stage;
+			const pct = Math.min(100, Math.max(0, p.percent || 0));
+			// 단계별 전체 진행률 보정
+			let totalPct = 0;
+			if (p.stage === 'preprocess') totalPct = 5;
+			else if (p.stage === 'ocr') totalPct = 15 + pct * 0.2;
+			else if (p.stage === 'cross_validate') totalPct = 35 + pct * 0.1;
+			else if (p.stage === 'matching') totalPct = 45;
+			else if (p.stage === 'grading') totalPct = 50 + pct * 0.4;
+			else if (p.stage === 'saving') totalPct = 95;
+			totalPct = Math.round(Math.min(99, totalPct));
+
+			return `<div class="progress-card">
+				<div class="pc-header">
+					<span class="pc-icon"><div class="spinner" style="width:18px;height:18px;margin:0;border-width:2px;"></div></span>
+					<span class="pc-title">채점 진행 중</span>
+					<span class="pc-percent">${totalPct}%</span>
+				</div>
+				<div class="progress-track">
+					<div class="progress-fill" style="width:${totalPct}%"></div>
+				</div>
+				<div class="pc-detail">${stageLabel}${p.detail ? ' · ' + p.detail : ''}</div>
+			</div>`;
+		}).join('');
+
+		// 채점 진행 중이면 결과 목록도 주기적으로 새로고침
+		if (active.length > 0 && !container._reloadScheduled) {
+			container._reloadScheduled = true;
+			setTimeout(() => {
+				loadResults();
+				container._reloadScheduled = false;
+			}, 10000);
+		}
+	} catch (e) {
+		// 폴링 실패는 무시
+	}
 }
 
 async function loadResults() {
@@ -697,14 +878,21 @@ async function openDetail(resultId) {
 		console.warn('문항 로드 실패:', e);
 		currentItems = [];
 	}
+	// Split View 초기화
+	selectedItemIdx = -1;
+	imageZoom = 1;
 	renderQuestionGrid();
+	renderAnswerPanel();
+
+	// 키보드 단축키 활성화
+	document.addEventListener('keydown', handleDetailKeydown);
 
 	showPage('detail');
 }
 
 function renderQuestionGrid() {
 	const grid = document.getElementById('detail-grid');
-	grid.innerHTML = currentItems.map(item => {
+	grid.innerHTML = currentItems.map((item, idx) => {
 		const isUnanswered = item.student_answer === '(미풀이)' || item.ai_feedback === '학생이 풀지 않은 문제';
 		let cls, titleText;
 		if (isUnanswered) {
@@ -720,8 +908,10 @@ function renderQuestionGrid() {
 			cls = 'q-uncertain';
 			titleText = `문제 ${item.question_number} (확인필요)`;
 		}
-		return `<div class="q-cell ${cls}" onclick="openItemEdit(${item.id})" title="${titleText}">${item.question_number}</div>`;
+		const selCls = idx === selectedItemIdx ? ' q-selected' : '';
+		return `<div class="q-cell ${cls}${selCls}" onclick="selectItem(${idx})" title="${titleText}">${item.question_number}</div>`;
 	}).join('');
+	renderAnswerPanel();
 }
 
 function openItemEdit(itemId) {
@@ -1117,6 +1307,204 @@ async function loadStats() {
 			</div>`).join('')}
 		</div>
 	`;
+}
+
+// ============================================================
+// Split View: 문항 선택 + 정답 패널 + 키보드 단축키 + 줌
+// ============================================================
+
+function selectItem(idx) {
+	if (idx < 0 || idx >= currentItems.length) return;
+	selectedItemIdx = idx;
+	// 그리드 하이라이트 업데이트
+	document.querySelectorAll('#detail-grid .q-cell').forEach((el, i) => {
+		el.classList.toggle('q-selected', i === idx);
+	});
+	renderAnswerPanel();
+	scrollImageToQuestion(idx);
+}
+
+function renderAnswerPanel() {
+	const panel = document.getElementById('answer-panel-list');
+	if (!currentItems.length) {
+		panel.innerHTML = '<div style="text-align:center;color:var(--text-sec);font-size:13px;padding:20px;">문항 데이터 없음</div>';
+		return;
+	}
+	panel.innerHTML = currentItems.map((item, idx) => {
+		const sel = idx === selectedItemIdx ? ' ap-selected' : '';
+		const isUnanswered = item.student_answer === '(미풀이)' || item.ai_feedback === '학생이 풀지 않은 문제';
+		let statusIcon = '❓';
+		if (isUnanswered) statusIcon = '📝';
+		else if (item.is_correct === true) statusIcon = '⭕';
+		else if (item.is_correct === false) statusIcon = '✘';
+
+		const typeLabel = item.question_type === 'essay' ? '서술' : item.question_type === 'short_answer' ? '단답' : '객관';
+		const conf = item.confidence || 0;
+		const confColor = conf >= 85 ? 'var(--green)' : conf >= 60 ? 'var(--yellow)' : 'var(--red)';
+
+		let quickBtns = '';
+		if (idx === selectedItemIdx) {
+			const isC = item.is_correct === true;
+			const isW = item.is_correct === false;
+			const isU = item.is_correct === null;
+			quickBtns = `<div class="quick-grade">
+				<button class="qg-correct${isC ? ' active' : ''}" onclick="event.stopPropagation();quickGrade(${idx},'correct')">⭕ 정답<kbd style="font-size:9px;margin-left:2px;opacity:0.6">1</kbd></button>
+				<button class="qg-wrong${isW ? ' active' : ''}" onclick="event.stopPropagation();quickGrade(${idx},'wrong')">✘ 오답<kbd style="font-size:9px;margin-left:2px;opacity:0.6">2</kbd></button>
+				<button class="qg-uncertain${isU ? ' active' : ''}" onclick="event.stopPropagation();quickGrade(${idx},'uncertain')">❓ 확인<kbd style="font-size:9px;margin-left:2px;opacity:0.6">3</kbd></button>
+			</div>`;
+		}
+
+		return `<div class="ap-item${sel}" onclick="selectItem(${idx})" id="ap-item-${idx}">
+			<div style="display:flex;align-items:center;gap:6px;">
+				<span class="ap-num">${statusIcon} ${item.question_label || item.question_number}번</span>
+				<span style="font-size:10px;padding:2px 6px;border-radius:4px;background:var(--bg);color:var(--text-sec);">${typeLabel}</span>
+				<span style="font-size:10px;color:${confColor};margin-left:auto;">${conf}%</span>
+			</div>
+			<div class="ap-row"><span class="ap-label">학생 답</span><span class="ap-val" style="color:var(--text);">${escapeHtml(item.student_answer || '(없음)')}</span></div>
+			<div class="ap-row"><span class="ap-label">정답</span><span class="ap-val" style="color:var(--green);">${escapeHtml(item.correct_answer || '-')}</span></div>
+			${item.ai_feedback ? `<div style="font-size:11px;color:var(--text-sec);margin-top:4px;"><i class="fas fa-robot" style="margin-right:3px;"></i>${escapeHtml(item.ai_feedback)}</div>` : ''}
+			${quickBtns}
+		</div>`;
+	}).join('');
+
+	// 선택된 항목으로 패널 스크롤
+	if (selectedItemIdx >= 0) {
+		const selEl = document.getElementById(`ap-item-${selectedItemIdx}`);
+		if (selEl) selEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+	}
+}
+
+async function quickGrade(idx, grade) {
+	const item = currentItems[idx];
+	if (!item) return;
+
+	let updates = {};
+	if (grade === 'correct') {
+		updates.teacher_score = 1;
+		updates.teacher_feedback = '선생님 확인: 정답';
+	} else if (grade === 'wrong') {
+		updates.teacher_score = 0;
+		updates.teacher_feedback = '선생님 확인: 오답';
+	} else {
+		updates.teacher_score = -1;  // -1 = 확인필요 상태 유지
+		updates.teacher_feedback = '선생님 확인 필요';
+	}
+
+	try {
+		const res = await fetch(`${GRADING_SERVER_URL}/api/items/${item.id}`, {
+			method: 'PUT',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(updates),
+		});
+		if (!res.ok) { showToast('저장 실패', 'error'); return; }
+	} catch (e) {
+		showToast('서버 연결 실패', 'error'); return;
+	}
+
+	// 로컬 상태 즉시 반영 (서버 재요청 없이 빠른 UX)
+	if (grade === 'correct') item.is_correct = true;
+	else if (grade === 'wrong') item.is_correct = false;
+	else item.is_correct = null;
+
+	renderQuestionGrid();
+	showToast(`${item.question_number}번: ${grade === 'correct' ? '정답' : grade === 'wrong' ? '오답' : '확인필요'}`, 'success');
+}
+
+function handleDetailKeydown(e) {
+	// 입력 필드에서는 단축키 비활성화
+	const tag = e.target.tagName;
+	if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+	// 모달이 열려 있으면 비활성화
+	if (document.querySelector('.modal-overlay.show')) return;
+
+	switch (e.key) {
+		case 'w': case 'W': case 'ArrowUp':
+			e.preventDefault();
+			selectItem(Math.max(0, selectedItemIdx - 1));
+			break;
+		case 's': case 'S': case 'ArrowDown':
+			e.preventDefault();
+			if (selectedItemIdx < 0) selectItem(0);
+			else selectItem(Math.min(currentItems.length - 1, selectedItemIdx + 1));
+			break;
+		case '1':
+			e.preventDefault();
+			if (selectedItemIdx >= 0) quickGrade(selectedItemIdx, 'correct');
+			break;
+		case '2':
+			e.preventDefault();
+			if (selectedItemIdx >= 0) quickGrade(selectedItemIdx, 'wrong');
+			break;
+		case '3':
+			e.preventDefault();
+			if (selectedItemIdx >= 0) quickGrade(selectedItemIdx, 'uncertain');
+			break;
+		case 'Enter':
+			e.preventDefault();
+			if (selectedItemIdx >= 0) openItemEdit(currentItems[selectedItemIdx].id);
+			break;
+		case 'Escape':
+			if (document.querySelector('.modal-overlay.show')) {
+				closeModal('item-modal');
+			}
+			break;
+		case '+': case '=':
+			e.preventDefault();
+			zoomImage(0.25);
+			break;
+		case '-': case '_':
+			e.preventDefault();
+			zoomImage(-0.25);
+			break;
+		case '0':
+			e.preventDefault();
+			zoomImage(0, true);
+			break;
+	}
+}
+
+// 이미지 줌
+function zoomImage(delta, reset = false) {
+	if (reset) {
+		imageZoom = 1;
+	} else {
+		imageZoom = Math.max(0.5, Math.min(4, imageZoom + delta));
+	}
+	const img = document.getElementById('graded-image');
+	const canvas = document.getElementById('annotation-canvas');
+	if (img) {
+		img.style.width = (imageZoom * 100) + '%';
+	}
+	if (canvas) {
+		canvas.style.width = (imageZoom * 100) + '%';
+		canvas.style.height = 'auto';
+	}
+	const label = document.getElementById('zoom-level');
+	if (label) label.textContent = Math.round(imageZoom * 100) + '%';
+}
+
+// 이미지 뷰어에 마우스 휠 줌 연결
+document.addEventListener('DOMContentLoaded', () => {
+	document.addEventListener('wheel', (e) => {
+		const viewer = document.getElementById('image-viewer');
+		if (!viewer || !viewer.contains(e.target)) return;
+		if (document.getElementById('page-detail').style.display === 'none') return;
+		e.preventDefault();
+		const delta = e.deltaY < 0 ? 0.15 : -0.15;
+		zoomImage(delta);
+	}, { passive: false });
+});
+
+// 문항 선택 시 이미지 자동 스크롤 (Smart Scroll)
+function scrollImageToQuestion(idx) {
+	const viewer = document.getElementById('image-viewer');
+	const img = document.getElementById('graded-image');
+	if (!viewer || !img || !currentItems.length) return;
+
+	// 문항 순서 비율로 이미지 내 대략적 위치 추정
+	const ratio = idx / currentItems.length;
+	const scrollTarget = img.naturalHeight * imageZoom * ratio * (img.clientWidth / img.naturalWidth);
+	viewer.scrollTo({ top: Math.max(0, scrollTarget - viewer.clientHeight / 3), behavior: 'smooth' });
 }
 
 // ============================================================

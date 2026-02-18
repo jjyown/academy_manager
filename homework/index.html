@@ -2318,7 +2318,7 @@ function updateFileUI() {
 		let thumbHtml = '';
 		if (isImageFile(file)) {
 			const url = URL.createObjectURL(file);
-			thumbHtml = `<img src="${url}" class="file-item-thumb" onload="URL.revokeObjectURL(this.src)">`;
+			thumbHtml = `<img src="${url}" class="file-item-thumb" onload="window.URL.revokeObjectURL(this.src)">`;
 		}
 
 		item.innerHTML = `

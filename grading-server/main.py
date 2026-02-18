@@ -51,6 +51,30 @@ from scheduler.monthly_eval import run_monthly_evaluation
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
+# ============================================================
+# 채점 진행률 추적 (인메모리)
+# ============================================================
+_grading_progress: dict[int, dict] = {}  # result_id → progress dict
+
+def _update_progress(result_id: int, stage: str, current: int = 0, total: int = 0, detail: str = ""):
+    """채점 진행률 업데이트"""
+    _grading_progress[result_id] = {
+        "result_id": result_id,
+        "stage": stage,
+        "current": current,
+        "total": total,
+        "percent": round(current / total * 100) if total > 0 else 0,
+        "detail": detail,
+        "updated_at": time.time(),
+    }
+
+def _clear_old_progress():
+    """5분 이상 된 진행률 데이터 정리"""
+    cutoff = time.time() - 300
+    stale = [k for k, v in _grading_progress.items() if v.get("updated_at", 0) < cutoff]
+    for k in stale:
+        del _grading_progress[k]
+
 
 def _parse_page_range(range_str: str) -> tuple[int, int] | None:
     """페이지 범위 문자열 파싱 (예: "45-48" → (45, 48), "30" → (30, 30))"""
@@ -481,6 +505,26 @@ async def create_new_assignment(
     result = await create_assignment(data)
     return {"data": result}
 
+
+# ============================================================
+# 채점 진행률 조회 API
+# ============================================================
+
+@app.get("/api/grading-progress/{result_id}")
+async def get_grading_progress(result_id: int):
+    """특정 채점의 실시간 진행률 조회"""
+    _clear_old_progress()
+    progress = _grading_progress.get(result_id)
+    if progress:
+        return {"success": True, "data": progress}
+    return {"success": True, "data": {"result_id": result_id, "stage": "unknown", "percent": 0}}
+
+@app.get("/api/grading-progress")
+async def get_all_grading_progress(teacher_id: str = ""):
+    """현재 진행 중인 모든 채점의 진행률 조회"""
+    _clear_old_progress()
+    active = [v for v in _grading_progress.values() if v.get("stage") != "done"]
+    return {"success": True, "data": active}
 
 # ============================================================
 # 채점 결과 조회/수정 API
@@ -919,6 +963,7 @@ async def grade_homework(
         )
     except Exception as e:
         logger.error(f"[FATAL] 채점 실패 (result #{result_id}): {e}", exc_info=True)
+        _update_progress(result_id, "failed", 0, 0, f"채점 실패: {str(e)[:100]}")
         # 실패 상태로 DB 업데이트
         try:
             error_msg = str(e)[:500]
@@ -974,8 +1019,11 @@ async def _execute_grading(
     total_unanswered = 0
     page_info_parts = []
 
-    # ── #6: 이미지 전처리 (회전 보정, 대비 향상, 샤프닝) ──
-    logger.info(f"[Preprocess] {len(image_bytes_list)}장 이미지 전처리 시작")
+    total_images = len(image_bytes_list)
+
+    # ── #6: 이미지 전처리 (회전 보정, Deskew, 대비 향상, 샤프닝) ──
+    _update_progress(result_id, "preprocess", 0, total_images, "이미지 전처리 중...")
+    logger.info(f"[Preprocess] {total_images}장 이미지 전처리 시작")
     image_bytes_list = preprocess_batch(image_bytes_list)
     logger.info(f"[Preprocess] 전처리 완료")
 
@@ -988,13 +1036,28 @@ async def _execute_grading(
         )
 
     # ── #3: GPT-4o 배치 OCR (5장씩 병렬) ──
-    logger.info(f"[OCR] GPT-4o 배치 OCR 시작: {len(image_bytes_list)}장")
-    gpt4o_results = await ocr_gpt4o_batch(image_bytes_list, expected_questions=expected_questions)
+    # 문제 유형 힌트 준비 (answer_key에 types가 있으면 OCR에 전달)
+    question_types = None
+    if answer_key:
+        question_types = answer_key.get("question_types_json") or None
+    _update_progress(result_id, "ocr", 1, 4, f"GPT-4o OCR 처리 중 ({total_images}장)...")
+    logger.info(f"[OCR] GPT-4o 배치 OCR 시작: {total_images}장"
+                f"{f', 유형 힌트 {len(question_types)}문제' if question_types else ''}")
+    gpt4o_results = await ocr_gpt4o_batch(
+        image_bytes_list,
+        expected_questions=expected_questions,
+        question_types=question_types,
+    )
     logger.info(f"[OCR] GPT-4o 배치 OCR 완료: {len(gpt4o_results)}개 결과")
 
     # ── #1: 크로스 엔진 검증 (GPT-4o + Gemini) ──
+    _update_progress(result_id, "cross_validate", 2, 4, "Gemini 크로스 검증 중...")
     logger.info(f"[CrossVal] Gemini 크로스 검증 시작")
-    ocr_results = await cross_validate_ocr(image_bytes_list, gpt4o_results)
+    ocr_results = await cross_validate_ocr(
+        image_bytes_list, gpt4o_results,
+        expected_questions=expected_questions,
+        question_types=question_types,
+    )
     logger.info(f"[CrossVal] 크로스 검증 완료: {len(ocr_results)}개 결과")
 
     # ── #8: 교재 매칭 - 다중 이미지 집계 (answer_key_id 미지정 시) ──
@@ -1085,12 +1148,16 @@ async def _execute_grading(
     if not answer_key:
         logger.warning(f"정답 데이터를 찾을 수 없습니다 (student: {student_id})")
 
+    _update_progress(result_id, "grading", 0, total_images, "채점 시작...")
     solution_only_count = 0
     graded_questions = set()  # 중복 채점 방지: 이미 채점된 문제번호 추적
 
     for idx, img_bytes in enumerate(image_bytes_list):
+        _update_progress(result_id, "grading", idx + 1, total_images,
+                         f"이미지 {idx+1}/{total_images} 채점 중...")
+
         if not answer_key:
-            logger.warning(f"교재 미매칭 → 이미지 {idx+1}/{len(image_bytes_list)} 건너뜀")
+            logger.warning(f"교재 미매칭 → 이미지 {idx+1}/{total_images} 건너뜀")
             continue
 
         # ── 풀이 노트(solution_only) 판별: 채점 건너뛰고 원본만 저장 ──
@@ -1219,6 +1286,7 @@ async def _execute_grading(
         max_score += grade_result["max_score"]
 
     # 문항별 DB 저장
+    _update_progress(result_id, "saving", total_images, total_images, "결과 저장 중...")
     if all_items:
         await create_grading_items(all_items)
 
@@ -1268,6 +1336,9 @@ async def _execute_grading(
         })
     except Exception as notif_err:
         logger.warning(f"채점 완료 알림 생성 실패 (무시): {notif_err}")
+
+    # 진행률 완료 표시
+    _update_progress(result_id, "done", total_images, total_images, "채점 완료")
 
     return {
         "result_id": result_id,
