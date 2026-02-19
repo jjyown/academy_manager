@@ -6104,7 +6104,7 @@ window.openGradingPage = function() {
 window.openParentPortal = function() {
     const storedUrl = (window.PARENT_PORTAL_URL || localStorage.getItem('parent_portal_url') || '').trim();
     const hasOrigin = window.location.origin && window.location.origin !== 'null';
-    const defaultUrl = hasOrigin ? `${window.location.origin}/parent-portal/` : './parent-portal/';
+    const defaultUrl = hasOrigin ? `${window.location.origin}/parent-portal` : './parent-portal/';
     const targetUrl = storedUrl || defaultUrl;
 
     window.open(targetUrl, '_blank');
