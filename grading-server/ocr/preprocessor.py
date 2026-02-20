@@ -3,6 +3,7 @@
 - 자동 회전 보정 (EXIF 기반)
 - 기울기 자동 보정 (Deskew - OpenCV 기반)
 - 대비/밝기 자동 조정
+- 적응형 이진화 (연필 필기 강화)
 - 샤프닝 (흐릿한 사진 보정)
 - 해상도 정규화
 """
@@ -55,7 +56,10 @@ def preprocess_image(image_bytes: bytes) -> bytes:
         # 4) 자동 대비 향상
         img = _auto_enhance(img)
 
-        # 5) 조건부 샤프닝 (흐릿한 이미지만 - Laplacian variance 기반)
+        # 5) 적응형 이진화 (연필 필기 강화)
+        img = _adaptive_binarize(img)
+
+        # 6) 조건부 샤프닝 (흐릿한 이미지만 - Laplacian variance 기반)
         img = _conditional_sharpen(img)
 
         # JPEG 출력
@@ -235,6 +239,62 @@ def _auto_enhance(img: Image.Image) -> Image.Image:
     img = ImageEnhance.Contrast(img).enhance(contrast_factor)
 
     return img
+
+
+PENCIL_STD_THRESHOLD = 40.0    # 그레이스케일 표준편차 임계값 (연필 필기는 대비가 낮음)
+PENCIL_BRIGHT_THRESHOLD = 150  # 평균 밝기 임계값 (연필 필기는 밝은 배경 위 옅은 글씨)
+COLOR_SATURATION_THRESHOLD = 25.0  # 색상 채도 표준편차 (컬러 마킹/형광펜 감지)
+
+
+def _adaptive_binarize(img: Image.Image) -> Image.Image:
+    """연필 필기 감지 시 적응형 이진화로 글씨 강화
+
+    연필로 쓴 옅은 글씨는 OCR이 놓치기 쉬움. 이미지 특성을 분석하여
+    연필 필기로 판별되면 적응형 이진화를 적용해 글씨 대비를 극대화.
+
+    적용 조건 (모두 충족해야 적용):
+    - 그레이스케일 표준편차가 낮음 (저대비 = 연필 필기 특성)
+    - 평균 밝기가 높음 (밝은 종이 위 옅은 글씨)
+    - 색상 채도가 낮음 (컬러 마킹/형광펜이 아님)
+
+    결과를 RGB로 반환하여 후속 처리와 호환 유지.
+    """
+    if not HAS_CV2:
+        return img
+
+    import numpy as np
+
+    try:
+        gray = np.array(img.convert("L"), dtype=np.float64)
+        mean_brightness = gray.mean()
+        std_dev = gray.std()
+
+        if std_dev >= PENCIL_STD_THRESHOLD or mean_brightness <= PENCIL_BRIGHT_THRESHOLD:
+            logger.debug(f"[Binarize] 연필 필기 아님 (std={std_dev:.1f}, bright={mean_brightness:.0f}) → 건너뜀")
+            return img
+
+        hsv = np.array(img.convert("HSV"), dtype=np.float64)
+        saturation_std = hsv[:, :, 1].std()
+        if saturation_std > COLOR_SATURATION_THRESHOLD:
+            logger.debug(f"[Binarize] 컬러 마킹 감지 (sat_std={saturation_std:.1f}) → 건너뜀")
+            return img
+
+        gray_u8 = np.array(img.convert("L"), dtype=np.uint8)
+        binary = cv2.adaptiveThreshold(
+            gray_u8, 255,
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY,
+            blockSize=15,
+            C=8,
+        )
+
+        result = Image.fromarray(binary).convert("RGB")
+        logger.info(f"[Binarize] 연필 필기 감지 (std={std_dev:.1f}, bright={mean_brightness:.0f}) → 적응형 이진화 적용")
+        return result
+
+    except Exception as e:
+        logger.debug(f"[Binarize] 이진화 실패, 원본 유지: {e}")
+        return img
 
 
 BLUR_THRESHOLD = 100.0  # Laplacian variance 임계값 (낮을수록 흐릿함)

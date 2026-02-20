@@ -656,6 +656,36 @@ async def cross_validate_ocr(
         logger.info(f"[CrossVal] 이미지 {idx}: "
                      f"{len(all_questions)}문제, 일치={match_count}, 불일치={mismatch_count}")
 
+        # 3차 검증 (tiebreak): confidence < 70인 불일치 항목 수집
+        low_conf_items = []
+        for q, data in combined_answers.items():
+            if data.get("confidence", 100) < 70 and not data.get("match"):
+                low_conf_items.append(q)
+
+        if low_conf_items and idx < len(image_bytes_list):
+            logger.info(f"[Tiebreak] 이미지 {idx}: {len(low_conf_items)}개 항목 3차 검증 시작 "
+                        f"({low_conf_items})")
+            q_types = question_types or {}
+            tiebreak_tasks = [
+                _tiebreak_ocr(
+                    image_bytes_list[idx],
+                    q,
+                    combined_answers[q].get("ocr1", ""),
+                    combined_answers[q].get("ocr2", ""),
+                    q_type=q_types.get(q, "short"),
+                )
+                for q in low_conf_items
+            ]
+            tiebreak_results = await asyncio.gather(*tiebreak_tasks, return_exceptions=True)
+
+            for q, tb_result in zip(low_conf_items, tiebreak_results):
+                if isinstance(tb_result, Exception):
+                    logger.warning(f"[Tiebreak] {q}번 실패: {tb_result}")
+                    continue
+                combined_answers[q]["answer"] = tb_result["answer"]
+                combined_answers[q]["confidence"] = tb_result["confidence"]
+                logger.debug(f"[Tiebreak] {q}번 갱신: '{tb_result['answer']}' (conf={tb_result['confidence']})")
+
         validated.append({
             "textbook_info": textbook_info,
             "answers": combined_answers,
@@ -695,6 +725,79 @@ def _quick_normalize(s: str) -> str:
     if s.endswith("."):
         s = s[:-1]
     return s
+
+
+async def _tiebreak_ocr(
+    image_bytes: bytes,
+    question: str,
+    ocr1_answer: str,
+    ocr2_answer: str,
+    q_type: str = "short",
+) -> dict:
+    """GPT-4o로 불일치 항목 중재 — 해당 문제만 집중 분석
+
+    두 OCR 엔진이 서로 다른 결과를 낸 문제에 대해 GPT-4o가 이미지를 다시 보고
+    어느 쪽이 맞는지(또는 둘 다 틀린 경우 정확한 답을) 판별합니다.
+
+    Returns:
+        {"answer": "최종답", "confidence": 85~95}
+    """
+    from openai import AsyncOpenAI
+    from config import OPENAI_API_KEY, AI_API_TIMEOUT
+
+    if not OPENAI_API_KEY:
+        logger.debug(f"[Tiebreak] API 키 없음 → OCR1 채택 ({question}번)")
+        return {"answer": ocr1_answer, "confidence": 60}
+
+    client = AsyncOpenAI(api_key=OPENAI_API_KEY, timeout=AI_API_TIMEOUT)
+    b64 = base64.b64encode(image_bytes).decode("utf-8")
+
+    type_label = {"mc": "객관식(①~⑤)", "short": "단답형", "essay": "서술형"}.get(q_type, "단답형")
+
+    prompt = (
+        f"이 학생 숙제 사진에서 {question}번 문제({type_label})의 학생 최종 답만 다시 확인해주세요.\n\n"
+        f"두 OCR 엔진이 서로 다른 결과를 냈습니다:\n"
+        f"- 엔진A: \"{ocr1_answer}\"\n"
+        f"- 엔진B: \"{ocr2_answer}\"\n\n"
+        "이미지를 주의 깊게 확인하고, 학생이 실제로 적은/표시한 최종 답을 골라주세요.\n"
+        "둘 다 틀렸다면 이미지에서 직접 읽은 정확한 답을 알려주세요.\n\n"
+        "반드시 아래 JSON만 응답 (다른 텍스트 없이):\n"
+        '{"answer": "최종답", "confidence": 85}'
+    )
+
+    try:
+        response = await client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": (
+                    "당신은 학생 숙제 사진에서 특정 문제의 답만 집중적으로 읽는 OCR 전문가입니다. "
+                    "두 OCR 엔진이 불일치한 문제를 중재합니다. "
+                    "이미지를 직접 보고 학생이 적은 최종 답을 정확히 판별하세요."
+                )},
+                {"role": "user", "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {
+                        "url": f"data:image/jpeg;base64,{b64}", "detail": "high"
+                    }},
+                ]},
+            ],
+            max_tokens=256,
+            temperature=0,
+        )
+
+        text = response.choices[0].message.content.strip()
+        parsed = _robust_json_parse(text)
+        if parsed and isinstance(parsed, dict) and "answer" in parsed:
+            confidence = min(95, max(70, parsed.get("confidence", 85)))
+            logger.info(f"[Tiebreak] {question}번: '{ocr1_answer}' vs '{ocr2_answer}' → '{parsed['answer']}' (conf={confidence})")
+            return {"answer": str(parsed["answer"]), "confidence": confidence}
+
+        logger.warning(f"[Tiebreak] {question}번 응답 파싱 실패: {text[:200]}")
+        return {"answer": ocr1_answer, "confidence": 60}
+
+    except Exception as e:
+        logger.warning(f"[Tiebreak] {question}번 실패: {e} → OCR1 채택")
+        return {"answer": ocr1_answer, "confidence": 60}
 
 
 def _to_single_check_format(ocr_result: dict, source: str = "gpt4o") -> dict:

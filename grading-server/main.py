@@ -1433,14 +1433,18 @@ async def regrade_result(result_id: int, request: Request):
                     unanswered += 1
                 else:
                     match_result = compare_answers(student_answer, correct_answer, q_type)
-                    if match_result == "correct":
+                    result = match_result["result"]
+                    update_data["error_type"] = match_result["error_type"]
+
+                    if result == "correct":
                         update_data["is_correct"] = True
                         correct += 1
-                    elif match_result == "wrong":
+                    elif result == "wrong":
                         update_data["is_correct"] = False
                         wrong += 1
                     else:
                         update_data["is_correct"] = None
+                        update_data["error_type"] = None
                         uncertain += 1
 
             elif q_type == "essay":

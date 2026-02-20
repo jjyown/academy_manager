@@ -154,6 +154,7 @@ async def grade_submission(
         # 정답지에 없는 문제: 건너뛰지 않고 "미매칭" 상태로 기록
         if not correct_answer:
             item["is_correct"] = None
+            item["error_type"] = None
             item["ai_feedback"] = "정답지에 해당 문제가 없음 (확인 필요)"
             uncertain_count += 1
             items.append(item)
@@ -161,6 +162,7 @@ async def grade_submission(
 
         if is_unanswered:
             item["is_correct"] = None
+            item["error_type"] = None
             item["student_answer"] = "(미풀이)"
             item["ai_feedback"] = "학생이 풀지 않은 문제"
             unanswered_count += 1
@@ -169,29 +171,36 @@ async def grade_submission(
             if not item["student_answer"]:
                 item["is_correct"] = None
                 item["confidence"] = 0
+                item["error_type"] = None
                 uncertain_count += 1
             else:
-                # 수학적 동치 비교 (#2)
                 match_result = compare_answers(
                     item["student_answer"], correct_answer, q_type
                 )
-                if match_result == "correct":
+                result = match_result["result"]
+                item["error_type"] = match_result["error_type"]
+
+                if result == "correct":
                     item["is_correct"] = True
                     correct_count += 1
-                elif match_result == "wrong":
+                elif result == "wrong":
                     if item["confidence"] < 70:
                         item["is_correct"] = None
                         uncertain_count += 1
                     else:
                         item["is_correct"] = False
                         wrong_count += 1
+                        if item["error_type"]:
+                            logger.debug(f"  [{q_num}번] 오답 원인: {item['error_type']}")
                 else:  # "uncertain"
                     item["is_correct"] = None
+                    item["error_type"] = None
                     uncertain_count += 1
 
         elif q_type == "essay":
             max_score = 10.0
             essay_total += max_score
+            item["error_type"] = None
 
             if item["student_answer"]:
                 q_text = (question_texts or {}).get(q_num, "")
@@ -270,49 +279,100 @@ async def grade_submission(
 # #2: 수학적 동치 비교 레이어
 # ============================================================
 
-def compare_answers(student: str, correct: str, q_type: str = "mc") -> str:
-    """학생 답과 정답을 수학적으로 비교
+def compare_answers(student: str, correct: str, q_type: str = "mc") -> dict:
+    """학생 답과 정답을 수학적으로 비교 + 오답 원인 분류
 
     Returns:
-        "correct" | "wrong" | "uncertain"
+        {"result": "correct"|"wrong"|"uncertain", "error_type": str|None}
+
+    error_type 값:
+        None             - 정답이거나 판별 불가
+        "calculation_error" - 계산 실수 (숫자가 비슷하지만 다름)
+        "sign_error"     - 부호 오류 (절댓값 같고 부호만 다름)
+        "fraction_error" - 분수 오류 (역수/약분 실수)
+        "wrong_choice"   - 객관식 오답 (기본값)
+        "notation_error" - 표기 차이 (수식 형태 유사)
     """
     if not student or not correct:
-        return "uncertain"
+        return {"result": "uncertain", "error_type": None}
 
-    # 1단계: 정규화 후 문자열 비교 (가장 빠름)
     ns = _normalize_answer(student)
     nc = _normalize_answer(correct)
     if ns == nc:
-        return "correct"
+        return {"result": "correct", "error_type": None}
 
-    # 2단계: 객관식 번호 매칭 (①↔1, "2번"↔②)
     if q_type == "mc":
         ns_mc = _normalize_mc(student)
         nc_mc = _normalize_mc(correct)
         if ns_mc and nc_mc and ns_mc == nc_mc:
-            return "correct"
+            return {"result": "correct", "error_type": None}
         if ns_mc and nc_mc and ns_mc != nc_mc:
-            return "wrong"
+            return {"result": "wrong", "error_type": "wrong_choice"}
 
-    # 3단계: 수치 비교 (분수, 소수, 부호 등)
     num_result = _compare_numeric(student, correct)
     if num_result is not None:
-        return "correct" if num_result else "wrong"
+        if num_result:
+            return {"result": "correct", "error_type": None}
+        error_type = _classify_numeric_error(student, correct)
+        return {"result": "wrong", "error_type": error_type}
 
-    # 4단계: 수식 정규화 비교
     expr_result = _compare_expression(ns, nc)
     if expr_result is not None:
-        return "correct" if expr_result else "wrong"
+        if expr_result:
+            return {"result": "correct", "error_type": None}
+        return {"result": "wrong", "error_type": "notation_error"}
 
-    # 5단계: 짧은 단답형이 명백히 다른 경우 (예: "5" vs "7")
-    # 양쪽 모두 순수 숫자이고 길이가 짧으면 확실한 오답
     if q_type == "short" and ns.replace("-", "").replace(".", "").isdigit() \
             and nc.replace("-", "").replace(".", "").isdigit() and len(ns) <= 6 and len(nc) <= 6:
-        return "wrong"
+        error_type = _classify_numeric_error(student, correct)
+        return {"result": "wrong", "error_type": error_type}
 
-    # 모든 비교 레이어에서 확정 판단 불가 → 선생님 검토 필요
-    # (예: OCR 변환 차이, 특수 수식 표기 등)
-    return "uncertain"
+    return {"result": "uncertain", "error_type": None}
+
+
+def _classify_numeric_error(student: str, correct: str) -> str:
+    """두 수치 답안의 오답 원인을 휴리스틱으로 분류 (AI 호출 없음)"""
+    sv = _parse_number(student)
+    cv = _parse_number(correct)
+
+    if sv is None or cv is None:
+        return "calculation_error"
+
+    try:
+        sf = float(sv)
+        cf = float(cv)
+    except (ValueError, OverflowError):
+        return "calculation_error"
+
+    # 부호만 반대인 경우 (절댓값 동일, 부호 상이)
+    if abs(sf + cf) < 0.005 and abs(sf) > 0.001:
+        return "sign_error"
+
+    # 분수 역수인 경우 (2/3 vs 3/2)
+    if sv != 0 and cv != 0:
+        try:
+            product = sv * cv
+            if product == 1:
+                return "fraction_error"
+        except (ValueError, OverflowError):
+            pass
+
+    # 분수 약분/통분 실수 (분모·분자 관계 확인)
+    frac_s = re.match(r'^(-?\d+)\s*/\s*(\d+)$', student.strip().replace(" ", ""))
+    frac_c = re.match(r'^(-?\d+)\s*/\s*(\d+)$', correct.strip().replace(" ", ""))
+    if frac_s and frac_c:
+        s_num, s_den = int(frac_s.group(1)), int(frac_s.group(2))
+        c_num, c_den = int(frac_c.group(1)), int(frac_c.group(2))
+        if (s_num == c_den and s_den == c_num) or (s_num == -c_den and s_den == -c_num):
+            return "fraction_error"
+
+    # 계산 실수 (차이가 작은 경우: 정답의 20% 이내 또는 절대차 5 이내)
+    if cf != 0 and abs(sf - cf) / abs(cf) < 0.2:
+        return "calculation_error"
+    if abs(sf - cf) <= 5:
+        return "calculation_error"
+
+    return "calculation_error"
 
 
 def _normalize_mc(answer: str) -> str | None:
