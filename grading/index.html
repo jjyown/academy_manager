@@ -914,7 +914,7 @@
 // ============================================================
 const SUPABASE_URL = 'https://jzcrpdeomjmytfekcgqu.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_6X3mtsIpdMkLWgo9aUbZTg_ihtAA3cu';
-const GRADING_SERVER_URL = localStorage.getItem('grading_server_url') || 'https://academymanager-production.up.railway.app';
+const GRADING_SERVER_URL = localStorage.getItem('grading_server_url') || '';
 
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 	realtime: { params: { eventsPerSecond: 0 } },
