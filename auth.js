@@ -289,12 +289,12 @@ window.confirmAdminPasswordChange = async function() {
     }
 }
 
-// 관리자 비밀번호 초기화 (123123으로)
+// 관리자 비밀번호 초기화 (이메일 재설정 링크 발송)
 window.resetAdminPassword = async function() {
     const email = (document.getElementById('admin-reset-email')?.value || '').trim();
     if (!email) { showToast('관리자 이메일을 입력해주세요.', 'warning'); return; }
 
-    if (!(await showConfirm(`${email} 계정의 비밀번호를 123123으로 초기화하시겠습니까?\n\n⚠️ Supabase 대시보드에서 초기화해야 합니다.\n이메일로 재설정 링크를 보내드립니다.`, { type: 'danger', title: '비밀번호 초기화', okText: '초기화' }))) return;
+    if (!(await showConfirm(`${email} 계정에 비밀번호 재설정 링크를 보내시겠습니까?\n\n이메일의 링크를 클릭하면 새 비밀번호를 설정할 수 있습니다.`, { type: 'danger', title: '비밀번호 초기화', okText: '전송' }))) return;
 
     try {
         const redirectTo = getPasswordResetRedirectUrl();

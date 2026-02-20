@@ -1,8 +1,9 @@
 // Supabase 설정 파일
-// ⚠️ 환경 변수 사용 (보안을 위해 하드코딩 금지)
+// ⚠️ 환경 변수 사용 권장 (Vercel 또는 .env.local)
 // Vercel: 환경 변수 설정 → https://vercel.com/docs/concepts/projects/environment-variables
+// Note: SUPABASE_URL과 ANON_KEY는 Supabase 공식 문서상 public(publishable) 키이므로
+//       fallback 하드코딩은 허용되나, RLS 정책이 반드시 올바르게 설정되어야 합니다.
 
-// 브라우저 환경에서 환경 변수 접근 (window.env는 index.html에서 로드)
 const SUPABASE_URL = (typeof window !== 'undefined' && window.env?.REACT_APP_SUPABASE_URL) ||
                      'https://jzcrpdeomjmytfekcgqu.supabase.co';
 
@@ -51,9 +52,8 @@ const EDGE_FUNCTION_URL = SUPABASE_URL + '/functions/v1';
 
 // ========== 공공데이터포털 공휴일 API ==========
 // 발급: https://www.data.go.kr/data/15012690/openapi.do (한국천문연구원 특일정보)
-// 발급 후 아래 값을 교체하세요 (Encoding 키 사용)
-const DATA_GO_KR_API_KEY = (typeof window !== 'undefined' && window.env?.DATA_GO_KR_API_KEY) ||
-                           '57001cc8ff9ce6afdd00bccb15a87f3b341ba7646a03f67aa96474e68b8e4c30';
+// ⚠️ API 키는 반드시 환경변수로 관리하세요 (Vercel 또는 .env.local)
+const DATA_GO_KR_API_KEY = (typeof window !== 'undefined' && window.env?.DATA_GO_KR_API_KEY) || '';
 
 window.GOOGLE_CLIENT_ID = GOOGLE_CLIENT_ID;
 window.GOOGLE_SCOPES = GOOGLE_SCOPES;

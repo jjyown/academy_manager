@@ -696,7 +696,7 @@ async function loadGradingResults() {
 	el.innerHTML = '<div style="text-align:center;padding:20px;"><div class="spinner" style="width:20px;height:20px;border:2px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto;"></div></div>';
 
 	try {
-		const { data, error } = await db.from('grading_results')
+		const { data, error } = await supabaseClient.from('grading_results')
 			.select('*, answer_keys(title, subject)')
 			.eq('student_id', currentStudent.id)
 			.eq('status', 'confirmed')
@@ -739,10 +739,10 @@ window.loadGradingResults = loadGradingResults;
 
 async function showGradingDetail(resultId) {
 	try {
-		const { data: result } = await db.from('grading_results').select('*, answer_keys(title, subject)').eq('id', resultId).maybeSingle();
+		const { data: result } = await supabaseClient.from('grading_results').select('*, answer_keys(title, subject)').eq('id', resultId).maybeSingle();
 		if (!result) return;
 
-		const { data: items } = await db.from('grading_items').select('*').eq('result_id', resultId).order('question_number');
+		const { data: items } = await supabaseClient.from('grading_items').select('*').eq('result_id', resultId).order('question_number');
 
 		const imgUrl = (result.central_graded_image_urls || result.teacher_graded_image_urls || [])[0] || '';
 		const key = result.answer_keys;
