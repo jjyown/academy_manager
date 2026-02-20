@@ -231,12 +231,12 @@
 	.cal-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:2px; }
 	.cal-cell { min-height:64px; border-radius:10px; padding:6px; cursor:pointer; transition:all 0.15s; display:flex; flex-direction:column; align-items:center; position:relative; }
 	.cal-cell:hover { background:rgba(129,140,248,0.08); }
-	.cal-cell.cal-today .cal-date { background:var(--primary); color:#fff; border-radius:50%; width:28px; height:28px; display:flex; align-items:center; justify-content:center; }
 	.cal-cell.cal-selected { background:rgba(129,140,248,0.15); border:1px solid rgba(129,140,248,0.4); }
 	.cal-cell.cal-other { opacity:0.3; }
 	.cal-date { font-size:13px; font-weight:600; margin-bottom:4px; }
 	.cal-cell.cal-sun .cal-date { color:var(--red); }
 	.cal-cell.cal-sat .cal-date { color:#6898fa; }
+	.cal-cell.cal-today .cal-date { background:var(--primary); color:#fff; border-radius:50%; width:28px; height:28px; display:flex; align-items:center; justify-content:center; }
 	.cal-dots { display:flex; gap:3px; flex-wrap:wrap; justify-content:center; }
 	.cal-dot { width:6px; height:6px; border-radius:50%; }
 	.cal-dot.dot-assign { background:#818cf8; }
@@ -914,7 +914,8 @@
 // ============================================================
 const SUPABASE_URL = 'https://jzcrpdeomjmytfekcgqu.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_6X3mtsIpdMkLWgo9aUbZTg_ihtAA3cu';
-const GRADING_SERVER_URL = localStorage.getItem('grading_server_url') || '';
+const _isLocal = ['localhost','127.0.0.1'].includes(location.hostname);
+const GRADING_SERVER_URL = localStorage.getItem('grading_server_url') || (_isLocal ? 'https://academymanager-production.up.railway.app' : '');
 
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 	realtime: { params: { eventsPerSecond: 0 } },

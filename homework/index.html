@@ -553,10 +553,11 @@
 			padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
 			background: linear-gradient(transparent, var(--bg) 30%);
 			z-index: 100;
-			display: flex; justify-content: center;
+			display: flex; justify-content: center; gap: 8px;
+			max-width: 800px; margin: 0 auto;
 		}
 		.floating-submit-btn {
-			max-width: 400px; width: 100%;
+			flex: 1; max-width: 400px;
 			padding: 15px;
 			background: linear-gradient(135deg, #6366f1, #7c3aed);
 			color: white; border: none;
@@ -719,7 +720,7 @@
 		<button class="floating-submit-btn" onclick="goToUploadFromStatus()">
 			<i class="fas fa-paper-plane"></i> 숙제 제출하기
 		</button>
-		<button class="floating-submit-btn" onclick="goToInstantGrade()" style="background:linear-gradient(135deg,#8b5cf6,#6366f1);margin-top:8px;">
+		<button class="floating-submit-btn" onclick="goToInstantGrade()" style="background:linear-gradient(135deg,#8b5cf6,#6366f1);">
 			<i class="fas fa-camera"></i> 즉시 채점
 		</button>
 	</div>
@@ -956,7 +957,8 @@ let currentStudent = null;
 let currentTeacher = null;
 let selectedFiles = [];
 let availableTextbooks = [];
-const GRADING_SERVER_URL_HW = localStorage.getItem('grading_server_url') || '';
+const _isLocal = ['localhost','127.0.0.1'].includes(location.hostname);
+const GRADING_SERVER_URL_HW = localStorage.getItem('grading_server_url') || (_isLocal ? 'https://academymanager-production.up.railway.app' : '');
 
 // ============================================================
 // Toast
@@ -1338,7 +1340,7 @@ function goToInstantGrade() {
 		showAlert('채점 중입니다...', 'info');
 
 		try {
-			const GRADING_SERVER_URL = localStorage.getItem('grading_server_url') || '';
+			const GRADING_SERVER_URL = localStorage.getItem('grading_server_url') || (_isLocal ? 'https://academymanager-production.up.railway.app' : '');
 			const formData = new FormData();
 			formData.append('student_id', String(currentStudent.id));
 			formData.append('teacher_id', currentStudent.owner_user_id);
@@ -2239,6 +2241,7 @@ async function handleSubmit() {
 			method: 'POST',
 			headers: {
 				'apikey': SUPABASE_ANON_KEY,
+				'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,
 			},
 			body: formData,
 		});
