@@ -1,0 +1,8 @@
+[functions.upload-homework]
+verify_jwt = false
+
+[functions.send-reset-code]
+verify_jwt = false
+
+[functions.exchange-google-token]
+verify_jwt = false

@@ -2237,28 +2237,18 @@ async function handleSubmit() {
 			formData.append('answer_key_id', selectedTextbook);
 		}
 
-		const response = await fetch(EDGE_FUNCTION_URL + '/upload-homework', {
-			method: 'POST',
-			headers: {
-				'apikey': SUPABASE_ANON_KEY,
-				'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,
-			},
+		const { data: fnData, error: fnError } = await db.functions.invoke('upload-homework', {
 			body: formData,
 		});
 
 		progressBar.style.width = '90%';
 		progressPercent.textContent = '90%';
 
-		let result;
-		try {
-			result = await response.json();
-		} catch {
-			throw new Error('서버 응답을 처리할 수 없습니다.');
+		if (fnError) {
+			throw new Error(fnError.message || '업로드에 실패했습니다.');
 		}
 
-		if (!response.ok && response.status !== 207) {
-			throw new Error(result?.error || '업로드에 실패했습니다.');
-		}
+		const result = fnData;
 
 		// DB 저장 실패 경고 (드라이브 업로드는 성공)
 		if (result?.dbSaved === false) {

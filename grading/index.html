@@ -137,6 +137,9 @@
 	.image-viewer { position:relative; width:100%; overflow:auto; background:#000; border-radius:var(--radius); min-height:200px; max-height:70vh; }
 	.image-viewer img { display:block; transform-origin:0 0; transition:transform 0.15s ease; }
 	.image-viewer canvas { position:absolute; top:0; left:0; transform-origin:0 0; cursor:crosshair; }
+	.image-viewer.pan-mode { cursor:grab; }
+	.image-viewer.pan-mode.panning { cursor:grabbing; }
+	.image-viewer.pan-mode canvas { pointer-events:none; cursor:grab; }
 	.image-viewer .empty-image { display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:200px; color:var(--text-sec); gap:8px; }
 	.image-viewer .empty-image i { font-size:32px; opacity:0.3; }
 	.image-viewer .empty-image p { font-size:13px; }
@@ -571,6 +574,7 @@
 			<span class="sk"><kbd>3</kbd> 확인필요</span>
 			<span class="sk"><kbd>Enter</kbd> 저장</span>
 		<span class="sk"><kbd>+</kbd><kbd>-</kbd> 줌</span>
+		<span class="sk"><kbd>Space</kbd> 이동</span>
 		<span class="sk"><kbd>←</kbd><kbd>→</kbd> 이미지</span>
 	</div>
 
@@ -621,6 +625,7 @@
 
 	<!-- 필기 도구 바 -->
 	<div class="canvas-toolbar" id="canvas-toolbar">
+		<button class="tool-btn" data-tool="hand" onclick="setTool('hand')" title="이동 (드래그)"><i class="fas fa-hand"></i></button>
 		<button class="tool-btn active" data-tool="pen" onclick="setTool('pen')"><i class="fas fa-pen"></i></button>
 		<button class="tool-btn" data-tool="highlighter" onclick="setTool('highlighter')"><i class="fas fa-highlighter"></i></button>
 		<button class="tool-btn" data-tool="text" onclick="setTool('text')"><i class="fas fa-font"></i></button>
@@ -997,7 +1002,6 @@ async function loadTeacherList() {
 			const res = await fetch(`${SUPABASE_URL}/rest/v1/teachers?select=*&order=created_at.asc`, {
 				headers: {
 					'apikey': SUPABASE_ANON_KEY,
-					'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
 					'Content-Type': 'application/json',
 				}
 			});
@@ -3132,14 +3136,30 @@ async function quickGrade(idx, grade) {
 	showToast(`${item.question_number}번: ${grade === 'correct' ? '정답' : grade === 'wrong' ? '오답' : '확인필요'}`, 'success');
 }
 
+let _spaceWasPan = false;
+let _prevToolBeforeSpace = 'pen';
+
+document.addEventListener('keyup', (e) => {
+	if (e.key === ' ' && _spaceWasPan) {
+		_spaceWasPan = false;
+		setTool(_prevToolBeforeSpace);
+	}
+});
+
 function handleDetailKeydown(e) {
-	// 입력 필드에서는 단축키 비활성화
 	const tag = e.target.tagName;
 	if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-	// 모달이 열려 있으면 비활성화
 	if (document.querySelector('.modal-overlay.show')) return;
 
 	switch (e.key) {
+		case ' ':
+			e.preventDefault();
+			if (!_spaceWasPan) {
+				_prevToolBeforeSpace = canvasTool;
+				setTool('hand');
+				_spaceWasPan = true;
+			}
+			return;
 		case 'w': case 'W': case 'ArrowUp':
 			e.preventDefault();
 			selectItem(Math.max(0, selectedItemIdx - 1));
@@ -3299,6 +3319,7 @@ function initCanvas() {
 }
 
 function startDraw(e) {
+	if (canvasTool === 'hand') return;
 	isDrawing = true;
 	const { x, y } = getCanvasPos(e);
 
@@ -3432,7 +3453,43 @@ function redoCanvas() {
 function setTool(tool) {
 	canvasTool = tool;
 	document.querySelectorAll('.tool-btn[data-tool]').forEach(el => el.classList.toggle('active', el.dataset.tool === tool));
+	const viewer = document.getElementById('image-viewer');
+	if (viewer) viewer.classList.toggle('pan-mode', tool === 'hand');
 }
+
+// 이미지 드래그 이동 (hand 도구)
+(function initPanHandler() {
+	let isPanning = false, startX = 0, startY = 0, scrollL = 0, scrollT = 0;
+
+	document.addEventListener('pointerdown', (e) => {
+		if (canvasTool !== 'hand') return;
+		const viewer = document.getElementById('image-viewer');
+		if (!viewer || !viewer.contains(e.target)) return;
+		isPanning = true;
+		startX = e.clientX;
+		startY = e.clientY;
+		scrollL = viewer.scrollLeft;
+		scrollT = viewer.scrollTop;
+		viewer.classList.add('panning');
+		viewer.setPointerCapture(e.pointerId);
+		e.preventDefault();
+	});
+
+	document.addEventListener('pointermove', (e) => {
+		if (!isPanning) return;
+		const viewer = document.getElementById('image-viewer');
+		if (!viewer) return;
+		viewer.scrollLeft = scrollL - (e.clientX - startX);
+		viewer.scrollTop = scrollT - (e.clientY - startY);
+	});
+
+	document.addEventListener('pointerup', (e) => {
+		if (!isPanning) return;
+		isPanning = false;
+		const viewer = document.getElementById('image-viewer');
+		if (viewer) viewer.classList.remove('panning');
+	});
+})();
 
 function setColor(color) {
 	canvasColor = color;
