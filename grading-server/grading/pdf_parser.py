@@ -79,10 +79,10 @@ async def _extract_with_gemini_vision(
 ) -> dict:
     """PDF 페이지를 이미지로 변환 후 Gemini Vision으로 정답 추출"""
     import google.generativeai as genai
-    from config import GEMINI_API_KEY
+    from config import GEMINI_API_KEY, GEMINI_MODEL
 
     genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel("gemini-2.0-flash")
+    model = genai.GenerativeModel(GEMINI_MODEL)
 
     # 페이지 범위 결정
     if page_range:

@@ -16,6 +16,9 @@ GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
+# AI 모델 설정
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+
 PORT = int(os.getenv("PORT", "8000"))
 
 # CORS 허용 도메인 (쉼표 구분, 비어있으면 localhost만 허용)

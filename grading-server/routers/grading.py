@@ -8,7 +8,7 @@ from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Uploa
 from config import CENTRAL_GRADED_RESULT_FOLDER
 from progress import update_progress
 from file_utils import extract_images_from_zip
-from ocr.engines import ocr_gpt4o_batch, cross_validate_ocr
+from ocr.engines import ocr_gemini, cross_validate_ocr
 from ocr.preprocessor import preprocess_batch
 from grading.grader import grade_submission
 from grading.image_marker import create_graded_image
@@ -265,18 +265,24 @@ async def _execute_grading(
     )
     question_types = answer_key.get("question_types_json") or None
 
-    update_progress(result_id, "ocr", 1, 4, f"GPT-4o OCR 처리 중 ({total_images}장)...")
-    logger.info(f"[OCR] GPT-4o 배치 OCR 시작: {total_images}장"
-                f"{f', 유형 힌트 {len(question_types)}문제' if question_types else ''}")
-    gpt4o_results = await ocr_gpt4o_batch(
-        image_bytes_list,
-        expected_questions=expected_questions,
-        question_types=question_types,
-    )
+    import asyncio
 
-    update_progress(result_id, "cross_validate", 2, 4, "Gemini 크로스 검증 중...")
+    update_progress(result_id, "ocr", 1, 4, f"Gemini OCR 1차 처리 중 ({total_images}장)...")
+    logger.info(f"[OCR] Gemini 2.5 Flash 더블체크 시작: {total_images}장"
+                f"{f', 유형 힌트 {len(question_types)}문제' if question_types else ''}")
+    ocr1_tasks = [
+        ocr_gemini(img, expected_questions=expected_questions, question_types=question_types)
+        for img in image_bytes_list
+    ]
+    ocr1_results = await asyncio.gather(*ocr1_tasks, return_exceptions=True)
+    ocr1_results = [
+        r if not isinstance(r, Exception) else {"textbook_info": {}, "answers": {}}
+        for r in ocr1_results
+    ]
+
+    update_progress(result_id, "cross_validate", 2, 4, "Gemini 2차 검증 중...")
     ocr_results = await cross_validate_ocr(
-        image_bytes_list, gpt4o_results,
+        image_bytes_list, ocr1_results,
         expected_questions=expected_questions,
         question_types=question_types,
     )

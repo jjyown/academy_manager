@@ -1,9 +1,9 @@
-"""OCR 엔진: GPT-4o (채점) + Gemini (크로스 검증)
+"""OCR 엔진: Gemini 2.5 Flash 더블체크
 
-하이브리드 엔진:
-- GPT-4o: 학생 숙제 채점 OCR (1차, 배치 처리)
-- Gemini: 크로스 검증 (불일치/저신뢰 문제 재검증)
-- 배치 크기: 5장 (정확도 최적화)
+Gemini 2.5 Flash 2회 독립 OCR → 교차 비교 → 불일치 시 3차 타이브레이크:
+- 1차 OCR: Gemini 2.5 Flash (독립)
+- 2차 OCR: Gemini 2.5 Flash (독립, 병렬 실행)
+- 3차 타이브레이크: Gemini 2.5 Flash (저신뢰 항목만)
 """
 import asyncio
 import logging
@@ -434,10 +434,10 @@ async def ocr_gemini(
 ) -> dict:
     """Gemini Vision으로 이미지에서 교재정보 + 문제번호 + 답안 인식"""
     import google.generativeai as genai
-    from config import GEMINI_API_KEY, AI_API_TIMEOUT
+    from config import GEMINI_API_KEY, AI_API_TIMEOUT, GEMINI_MODEL
 
     genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel("gemini-2.0-flash")
+    model = genai.GenerativeModel(GEMINI_MODEL)
     _request_opts = {"timeout": AI_API_TIMEOUT}
 
     b64 = base64.b64encode(image_bytes).decode("utf-8")
@@ -519,144 +519,132 @@ async def ocr_gemini(
 
 
 # ============================================================
-# 크로스 엔진 검증 (#1: GPT-4o 결과를 Gemini로 교차 검증)
+# Gemini 더블체크 검증 (2회 독립 OCR → 비교 → 타이브레이크)
 # ============================================================
 
 async def cross_validate_ocr(
     image_bytes_list: list[bytes],
-    gpt4o_results: list[dict],
+    ocr1_results: list[dict],
     expected_questions: list[str] | None = None,
     question_types: dict | None = None,
 ) -> list[dict]:
-    """GPT-4o OCR 결과를 Gemini로 교차 검증하여 confidence 강화
+    """Gemini 2.5 Flash 2회 독립 OCR 교차 검증
 
-    - GPT-4o 결과의 각 답안을 Gemini로 재검증
-    - 두 엔진이 일치하면 confidence 95
-    - 불일치하면 confidence 60으로 낮추고 두 결과 모두 보존
-    - 빈 결과(GPT-4o 실패)는 Gemini 결과로 대체
+    ocr1_results는 1차 Gemini OCR 결과. 내부에서 2차 Gemini OCR을 실행하여 비교.
+    - 두 결과 일치 → confidence 95
+    - 불일치 → confidence 60, 1차 결과 우선
+    - confidence < 70 → 3차 Gemini 타이브레이크
 
     Returns:
         검증된 OCR 결과 리스트 (더블체크 형식: answers 값이 dict)
     """
     validated = []
 
-    # solution_only 페이지는 Gemini 호출 건너뛰기 (비용 절약)
-    async def _noop_gemini():
+    async def _noop():
         return None
 
-    gemini_tasks = []
+    # 2차 OCR: solution_only가 아닌 이미지만 실행
+    ocr2_tasks = []
     for i, img in enumerate(image_bytes_list):
-        if i < len(gpt4o_results) and gpt4o_results[i].get("page_type") == "solution_only":
-            gemini_tasks.append(_noop_gemini())
+        if i < len(ocr1_results) and ocr1_results[i].get("page_type") == "solution_only":
+            ocr2_tasks.append(_noop())
         else:
-            gemini_tasks.append(ocr_gemini(img, expected_questions=expected_questions, question_types=question_types))
-    gemini_results = await asyncio.gather(*gemini_tasks, return_exceptions=True)
+            ocr2_tasks.append(ocr_gemini(img, expected_questions=expected_questions, question_types=question_types))
+    ocr2_results = await asyncio.gather(*ocr2_tasks, return_exceptions=True)
 
-    for idx, (gpt_result, gemini_result) in enumerate(zip(gpt4o_results, gemini_results)):
-        # 풀이 노트(solution_only)는 Gemini 검증 건너뜀 → 비용 절약
-        if gpt_result.get("page_type") == "solution_only":
+    for idx, (r1, r2) in enumerate(zip(ocr1_results, ocr2_results)):
+        if r1.get("page_type") == "solution_only":
             logger.info(f"[CrossVal] 이미지 {idx}: 풀이 노트 → 크로스 검증 건너뜀")
-            result = _to_single_check_format(gpt_result)
+            result = _to_single_check_format(r1, source="ocr1")
             result["page_type"] = "solution_only"
             validated.append(result)
             continue
 
-        if isinstance(gemini_result, Exception):
-            logger.warning(f"[CrossVal] 이미지 {idx} Gemini 검증 실패: {gemini_result}")
-            # Gemini 실패 시 GPT-4o 결과를 단일 체크로 사용
-            validated.append(_to_single_check_format(gpt_result))
+        if isinstance(r2, Exception):
+            logger.warning(f"[CrossVal] 이미지 {idx} 2차 OCR 실패: {r2}")
+            validated.append(_to_single_check_format(r1, source="ocr1"))
             continue
 
-        gpt_answers_raw = gpt_result.get("answers", {})
-        gemini_answers_raw = gemini_result.get("answers", {})
+        r1_answers = normalize_answer_keys(r1.get("answers", {}))
+        r2_answers = normalize_answer_keys(r2.get("answers", {}))
 
-        # 키 정규화: GPT-4o와 Gemini의 문제번호 형식 통일
-        gpt_answers = normalize_answer_keys(gpt_answers_raw)
-        gemini_answers = normalize_answer_keys(gemini_answers_raw)
-
-        # GPT-4o 결과가 비어있으면 Gemini 결과 사용
-        if not gpt_answers and gemini_answers:
-            logger.info(f"[CrossVal] 이미지 {idx}: GPT-4o 비어있음 → Gemini 결과 사용")
-            gem_norm = dict(gemini_result)
-            gem_norm["answers"] = gemini_answers
-            validated.append(_to_single_check_format(gem_norm, source="gemini"))
+        # 1차 결과가 비어있으면 2차 결과 사용
+        if not r1_answers and r2_answers:
+            logger.info(f"[CrossVal] 이미지 {idx}: 1차 비어있음 → 2차 결과 사용")
+            r2_norm = dict(r2)
+            r2_norm["answers"] = r2_answers
+            validated.append(_to_single_check_format(r2_norm, source="ocr2"))
             continue
 
-        # 교차 검증: 두 엔진 결과 비교
-        all_questions = set(list(gpt_answers.keys()) + list(gemini_answers.keys()))
+        all_questions = set(list(r1_answers.keys()) + list(r2_answers.keys()))
         combined_answers = {}
         match_count = 0
         mismatch_count = 0
 
         for q in all_questions:
-            g_val = _extract_answer_str(gpt_answers.get(q, ""))
-            m_val = _extract_answer_str(gemini_answers.get(q, ""))
+            v1 = _extract_answer_str(r1_answers.get(q, ""))
+            v2 = _extract_answer_str(r2_answers.get(q, ""))
 
-            # 둘 다 unanswered
-            if g_val == "unanswered" and m_val == "unanswered":
+            if v1 == "unanswered" and v2 == "unanswered":
                 combined_answers[q] = {
                     "answer": "unanswered",
-                    "ocr1": g_val, "ocr2": m_val,
+                    "ocr1": v1, "ocr2": v2,
                     "match": True, "confidence": 95,
                 }
                 match_count += 1
                 continue
 
-            # 한쪽만 unanswered
-            if g_val == "unanswered" and m_val and m_val != "unanswered":
+            if v1 == "unanswered" and v2 and v2 != "unanswered":
                 combined_answers[q] = {
-                    "answer": m_val, "ocr1": g_val, "ocr2": m_val,
+                    "answer": v2, "ocr1": v1, "ocr2": v2,
                     "match": False, "confidence": 55,
                 }
                 mismatch_count += 1
                 continue
-            if m_val == "unanswered" and g_val and g_val != "unanswered":
+            if v2 == "unanswered" and v1 and v1 != "unanswered":
                 combined_answers[q] = {
-                    "answer": g_val, "ocr1": g_val, "ocr2": m_val,
+                    "answer": v1, "ocr1": v1, "ocr2": v2,
                     "match": False, "confidence": 55,
                 }
                 mismatch_count += 1
                 continue
 
-            # 정규화 후 비교
-            match = _fuzzy_ocr_match(g_val, m_val)
+            match = _fuzzy_ocr_match(v1, v2)
             if match:
                 combined_answers[q] = {
-                    "answer": g_val, "ocr1": g_val, "ocr2": m_val,
+                    "answer": v1, "ocr1": v1, "ocr2": v2,
                     "match": True, "confidence": 95,
                 }
                 match_count += 1
-            elif g_val and m_val:
-                # 불일치: GPT-4o를 우선하되 confidence 낮춤
+            elif v1 and v2:
                 combined_answers[q] = {
-                    "answer": g_val, "ocr1": g_val, "ocr2": m_val,
+                    "answer": v1, "ocr1": v1, "ocr2": v2,
                     "match": False, "confidence": 60,
                 }
                 mismatch_count += 1
-            elif g_val:
+            elif v1:
                 combined_answers[q] = {
-                    "answer": g_val, "ocr1": g_val, "ocr2": "",
+                    "answer": v1, "ocr1": v1, "ocr2": "",
                     "match": False, "confidence": 75,
                 }
-            elif m_val:
+            elif v2:
                 combined_answers[q] = {
-                    "answer": m_val, "ocr1": "", "ocr2": m_val,
+                    "answer": v2, "ocr1": "", "ocr2": v2,
                     "match": False, "confidence": 70,
                 }
 
-        # 교재 정보: GPT-4o 우선
-        tb_gpt = gpt_result.get("textbook_info", {})
-        tb_gem = gemini_result.get("textbook_info", {})
+        tb_r1 = r1.get("textbook_info", {})
+        tb_r2 = r2.get("textbook_info", {})
         textbook_info = {
-            "name": tb_gpt.get("name") or tb_gem.get("name", ""),
-            "page": tb_gpt.get("page") or tb_gem.get("page", ""),
-            "section": tb_gpt.get("section") or tb_gem.get("section", ""),
+            "name": tb_r1.get("name") or tb_r2.get("name", ""),
+            "page": tb_r1.get("page") or tb_r2.get("page", ""),
+            "section": tb_r1.get("section") or tb_r2.get("section", ""),
         }
 
         logger.info(f"[CrossVal] 이미지 {idx}: "
                      f"{len(all_questions)}문제, 일치={match_count}, 불일치={mismatch_count}")
 
-        # 3차 검증 (tiebreak): confidence < 70인 불일치 항목 수집
+        # 3차 타이브레이크: confidence < 70인 불일치 항목
         low_conf_items = []
         for q, data in combined_answers.items():
             if data.get("confidence", 100) < 70 and not data.get("match"):
@@ -689,7 +677,7 @@ async def cross_validate_ocr(
         validated.append({
             "textbook_info": textbook_info,
             "answers": combined_answers,
-            "full_text": gemini_result.get("full_text", ""),
+            "full_text": r2.get("full_text", ""),
         })
 
     return validated
@@ -734,31 +722,33 @@ async def _tiebreak_ocr(
     ocr2_answer: str,
     q_type: str = "short",
 ) -> dict:
-    """GPT-4o로 불일치 항목 중재 — 해당 문제만 집중 분석
+    """Gemini 2.5 Flash로 불일치 항목 중재 — 해당 문제만 집중 분석
 
-    두 OCR 엔진이 서로 다른 결과를 낸 문제에 대해 GPT-4o가 이미지를 다시 보고
+    두 OCR 결과가 서로 다른 문제에 대해 이미지를 다시 보고
     어느 쪽이 맞는지(또는 둘 다 틀린 경우 정확한 답을) 판별합니다.
 
     Returns:
         {"answer": "최종답", "confidence": 85~95}
     """
-    from openai import AsyncOpenAI
-    from config import OPENAI_API_KEY, AI_API_TIMEOUT
+    import google.generativeai as genai
+    from config import GEMINI_API_KEY, AI_API_TIMEOUT, GEMINI_MODEL
 
-    if not OPENAI_API_KEY:
+    if not GEMINI_API_KEY:
         logger.debug(f"[Tiebreak] API 키 없음 → OCR1 채택 ({question}번)")
         return {"answer": ocr1_answer, "confidence": 60}
 
-    client = AsyncOpenAI(api_key=OPENAI_API_KEY, timeout=AI_API_TIMEOUT)
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel(GEMINI_MODEL)
+    _request_opts = {"timeout": AI_API_TIMEOUT}
     b64 = base64.b64encode(image_bytes).decode("utf-8")
 
     type_label = {"mc": "객관식(①~⑤)", "short": "단답형", "essay": "서술형"}.get(q_type, "단답형")
 
     prompt = (
         f"이 학생 숙제 사진에서 {question}번 문제({type_label})의 학생 최종 답만 다시 확인해주세요.\n\n"
-        f"두 OCR 엔진이 서로 다른 결과를 냈습니다:\n"
-        f"- 엔진A: \"{ocr1_answer}\"\n"
-        f"- 엔진B: \"{ocr2_answer}\"\n\n"
+        f"두 OCR 결과가 서로 다릅니다:\n"
+        f"- 결과A: \"{ocr1_answer}\"\n"
+        f"- 결과B: \"{ocr2_answer}\"\n\n"
         "이미지를 주의 깊게 확인하고, 학생이 실제로 적은/표시한 최종 답을 골라주세요.\n"
         "둘 다 틀렸다면 이미지에서 직접 읽은 정확한 답을 알려주세요.\n\n"
         "반드시 아래 JSON만 응답 (다른 텍스트 없이):\n"
@@ -766,33 +756,21 @@ async def _tiebreak_ocr(
     )
 
     try:
-        response = await client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": (
-                    "당신은 학생 숙제 사진에서 특정 문제의 답만 집중적으로 읽는 OCR 전문가입니다. "
-                    "두 OCR 엔진이 불일치한 문제를 중재합니다. "
-                    "이미지를 직접 보고 학생이 적은 최종 답을 정확히 판별하세요."
-                )},
-                {"role": "user", "content": [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {
-                        "url": f"data:image/jpeg;base64,{b64}", "detail": "high"
-                    }},
-                ]},
-            ],
-            max_tokens=256,
-            temperature=0,
-        )
+        async def _call():
+            response = model.generate_content(
+                [prompt, {"mime_type": "image/jpeg", "data": b64}],
+                request_options=_request_opts,
+            )
+            return response
 
-        text = response.choices[0].message.content.strip()
-        parsed = _robust_json_parse(text)
+        response = await _retry_async(_call, label=f"Tiebreak-{question}", max_retries=2)
+        parsed = _robust_json_parse(response.text)
         if parsed and isinstance(parsed, dict) and "answer" in parsed:
             confidence = min(95, max(70, parsed.get("confidence", 85)))
             logger.info(f"[Tiebreak] {question}번: '{ocr1_answer}' vs '{ocr2_answer}' → '{parsed['answer']}' (conf={confidence})")
             return {"answer": str(parsed["answer"]), "confidence": confidence}
 
-        logger.warning(f"[Tiebreak] {question}번 응답 파싱 실패: {text[:200]}")
+        logger.warning(f"[Tiebreak] {question}번 응답 파싱 실패: {response.text[:200]}")
         return {"answer": ocr1_answer, "confidence": 60}
 
     except Exception as e:
@@ -800,17 +778,17 @@ async def _tiebreak_ocr(
         return {"answer": ocr1_answer, "confidence": 60}
 
 
-def _to_single_check_format(ocr_result: dict, source: str = "gpt4o") -> dict:
+def _to_single_check_format(ocr_result: dict, source: str = "ocr1") -> dict:
     """단일 OCR 결과를 크로스 검증 형식으로 변환"""
     answers = normalize_answer_keys(ocr_result.get("answers", {}))
     converted = {}
-    base_conf = 90 if source == "gpt4o" else 80
+    base_conf = 85
     for k, v in answers.items():
         val = _extract_answer_str(v)
         converted[k] = {
             "answer": val,
-            "ocr1": val if source == "gpt4o" else "",
-            "ocr2": val if source == "gemini" else "",
+            "ocr1": val if source == "ocr1" else "",
+            "ocr2": val if source == "ocr2" else "",
             "match": False,
             "confidence": base_conf,
         }
@@ -830,7 +808,7 @@ async def ocr_gemini_double_check(image_bytes: bytes) -> dict:
     (기존 호환용 - 새 시스템에서는 cross_validate_ocr 사용)
     """
     import google.generativeai as genai
-    from config import GEMINI_API_KEY, AI_API_TIMEOUT
+    from config import GEMINI_API_KEY, AI_API_TIMEOUT, GEMINI_MODEL
 
     genai.configure(api_key=GEMINI_API_KEY)
     _request_opts = {"timeout": AI_API_TIMEOUT}
@@ -858,7 +836,7 @@ async def ocr_gemini_double_check(image_bytes: bytes) -> dict:
 JSON만 응답:
 {"textbook_info": {"name": "교재명", "page": "45", "section": "단원명"}, "answers": {"1": "③", "2": "unanswered", "3(1)": "12", "3(2)": "-5"}, "full_text": "..."}"""
 
-    model = genai.GenerativeModel("gemini-2.0-flash")
+    model = genai.GenerativeModel(GEMINI_MODEL)
     image_part = {"mime_type": "image/jpeg", "data": b64}
 
     try:
