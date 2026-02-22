@@ -1813,12 +1813,7 @@ function openItemEdit(itemId) {
 	document.getElementById('item-correction-reason').value = 'auto';
 	document.getElementById('item-correction-reason-custom').value = '';
 	document.getElementById('item-correction-reason-custom').style.display = 'none';
-	document.getElementById('item-correction-reason-group').style.display = 'none';
-
-	studentInput.addEventListener('input', function _onInput() {
-		const changed = studentInput.value.trim() !== (item.student_answer || '');
-		document.getElementById('item-correction-reason-group').style.display = changed ? 'block' : 'none';
-	}, { once: false });
+	document.getElementById('item-correction-reason-group').style.display = 'block';
 
 	document.getElementById('item-modal').dataset.itemId = itemId;
 	document.getElementById('item-modal').dataset.originalAnswer = item.student_answer || '';
@@ -1862,14 +1857,15 @@ async function saveItemEdit() {
 		return showToast('서버 연결 실패', 'error');
 	}
 
-	if (studentAnswerChanged && newStudentAnswer && item) {
-		let reason = document.getElementById('item-correction-reason').value;
-		if (reason === 'custom') {
-			reason = document.getElementById('item-correction-reason-custom').value.trim() || null;
-		} else if (reason === 'auto') {
-			reason = null;
-		}
-		_saveFeedback(item, originalAnswer, newStudentAnswer, reason);
+	let reason = document.getElementById('item-correction-reason').value;
+	if (reason === 'custom') {
+		reason = document.getElementById('item-correction-reason-custom').value.trim() || null;
+	} else if (reason === 'auto') {
+		reason = null;
+	}
+	const hasFeedbackReason = reason && reason !== 'auto';
+	if ((studentAnswerChanged || hasFeedbackReason) && item) {
+		_saveFeedback(item, originalAnswer || item.student_answer, newStudentAnswer || item.student_answer, reason);
 	}
 
 	showToast(studentAnswerChanged ? '학생 답 수정 + 피드백 저장 완료' : '저장 완료', 'success');
