@@ -818,7 +818,7 @@
 		</div>
 		<div class="form-group" id="item-correction-reason-group" style="display:none;">
 			<label class="form-label">수정 이유 <span style="font-size:11px;color:var(--text-sec);">(AI 학습에 활용됩니다)</span></label>
-			<select class="input" id="item-correction-reason">
+			<select class="input" id="item-correction-reason" onchange="toggleCustomReason()">
 				<option value="auto">자동 판별</option>
 				<option value="ocr_misread">글씨를 잘못 읽음</option>
 				<option value="false_answered">안 푼 문제를 풀었다고 인식</option>
@@ -826,7 +826,9 @@
 				<option value="mc_position_confusion">객관식 번호 혼동 (②↔⑤ 등)</option>
 				<option value="ambiguous_mark">모호한 표시 (별표, 취소선 등)</option>
 				<option value="wrong_question_area">다른 문제 영역을 읽음</option>
+				<option value="custom">기타 (직접 입력)</option>
 			</select>
+			<input class="input" id="item-correction-reason-custom" type="text" placeholder="수정 이유를 직접 입력하세요" style="display:none;margin-top:6px;">
 		</div>
 		<div class="form-group">
 			<label class="form-label">점수 수정</label>
@@ -1793,6 +1795,8 @@ function openItemEdit(itemId) {
 	}
 
 	document.getElementById('item-correction-reason').value = 'auto';
+	document.getElementById('item-correction-reason-custom').value = '';
+	document.getElementById('item-correction-reason-custom').style.display = 'none';
 	document.getElementById('item-correction-reason-group').style.display = 'none';
 
 	studentInput.addEventListener('input', function _onInput() {
@@ -1843,8 +1847,13 @@ async function saveItemEdit() {
 	}
 
 	if (studentAnswerChanged && newStudentAnswer && item) {
-		const reason = document.getElementById('item-correction-reason').value;
-		_saveFeedback(item, originalAnswer, newStudentAnswer, reason !== 'auto' ? reason : null);
+		let reason = document.getElementById('item-correction-reason').value;
+		if (reason === 'custom') {
+			reason = document.getElementById('item-correction-reason-custom').value.trim() || null;
+		} else if (reason === 'auto') {
+			reason = null;
+		}
+		_saveFeedback(item, originalAnswer, newStudentAnswer, reason);
 	}
 
 	showToast(studentAnswerChanged ? '학생 답 수정 + 피드백 저장 완료' : '저장 완료', 'success');
@@ -1859,6 +1868,13 @@ async function saveItemEdit() {
 		currentItems = [];
 	}
 	renderQuestionGrid();
+}
+
+function toggleCustomReason() {
+	const sel = document.getElementById('item-correction-reason');
+	const customInput = document.getElementById('item-correction-reason-custom');
+	customInput.style.display = sel.value === 'custom' ? 'block' : 'none';
+	if (sel.value === 'custom') customInput.focus();
 }
 
 function _compareAnswers(studentAns, correctAns) {
