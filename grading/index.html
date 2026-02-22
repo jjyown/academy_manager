@@ -1049,7 +1049,7 @@ async function loadTeacherList() {
 	// 1차: 채점 서버에서 선생님 목록 조회 (서버 웨이크업 포함)
 	try {
 		const controller = new AbortController();
-		const timeoutId = setTimeout(() => controller.abort(), 30000);
+		const timeoutId = setTimeout(() => controller.abort(), 8000);
 		const res = await fetch(`${GRADING_SERVER_URL}/api/teachers`, { signal: controller.signal });
 		clearTimeout(timeoutId);
 		if (res.ok) {
@@ -4039,9 +4039,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 	if (!hasSession) {
 		document.getElementById('page-login').style.display = 'flex';
-	}
-
-	if (hasSession) {
+		await loadTeacherList();
+	} else {
 		try {
 			const teacher = JSON.parse(saved);
 			currentTeacher = teacher;
@@ -4049,28 +4048,23 @@ document.addEventListener('DOMContentLoaded', async () => {
 			renderCalendar();
 			await restoreNavState();
 
-			await loadTeacherList();
+			await Promise.allSettled([loadTeacherList(), loadAllData()]);
 
-			const match = teacherList.find(t => t.id === teacher.id);
-			if (match) {
-				currentTeacher = match;
-				try {
-					await loadAllData();
-				} catch (loadErr) {
-					console.warn('[채점관리] 데이터 로드 중 오류 (달력은 표시됨):', loadErr);
+			if (teacherList.length > 0) {
+				const match = teacherList.find(t => t.id === teacher.id);
+				if (match) {
+					currentTeacher = match;
+				} else {
+					sessionStorage.removeItem('grading_teacher');
+					currentTeacher = null;
+					showPage('login');
+					document.getElementById('page-login').style.display = 'flex';
 				}
-			} else {
-				sessionStorage.removeItem('grading_teacher');
-				currentTeacher = null;
-				showPage('login');
-				document.getElementById('page-login').style.display = 'flex';
 			}
 		} catch(e) {
 			sessionStorage.removeItem('grading_teacher');
 			document.getElementById('page-login').style.display = 'flex';
 		}
-	} else {
-		await loadTeacherList();
 	}
 
 	document.addEventListener('click', (e) => {
