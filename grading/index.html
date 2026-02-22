@@ -1884,19 +1884,53 @@ async function saveItemEdit() {
 
 function pickMcAnswer(val) {
 	const input = document.getElementById('item-student-answer');
-	input.value = val;
+	const circleNums = ['①','②','③','④','⑤'];
+
+	if (val === '(미풀이)') {
+		input.value = val;
+		document.querySelectorAll('.mc-pick-btn').forEach(btn => {
+			btn.classList.toggle('active', btn.textContent.trim() === '미풀이');
+		});
+	} else {
+		const current = input.value.trim();
+		const selected = new Set(current.split('').filter(c => circleNums.includes(c)));
+
+		if (selected.has(val)) {
+			selected.delete(val);
+		} else {
+			if (current === '(미풀이)') selected.clear();
+			selected.add(val);
+		}
+
+		const ordered = circleNums.filter(c => selected.has(c));
+		input.value = ordered.length ? ordered.join('') : '';
+
+		document.querySelectorAll('.mc-pick-btn').forEach(btn => {
+			const btnVal = btn.textContent.trim();
+			if (circleNums.includes(btnVal)) {
+				btn.classList.toggle('active', selected.has(btnVal));
+			} else {
+				btn.classList.remove('active');
+			}
+		});
+	}
 	input.dispatchEvent(new Event('input'));
-	document.querySelectorAll('.mc-pick-btn').forEach(btn => {
-		btn.classList.toggle('active', btn.textContent.trim() === val || (val === '(미풀이)' && btn.textContent.trim() === '미풀이'));
-	});
 }
 
 function _highlightMcButton(val) {
-	const norm = {'1':'①','2':'②','3':'③','4':'④','5':'⑤','①':'①','②':'②','③':'③','④':'④','⑤':'⑤'};
-	const target = norm[val] || val;
+	const circleNums = ['①','②','③','④','⑤'];
+	const norm = {'1':'①','2':'②','3':'③','4':'④','5':'⑤'};
+	let normalized = (val || '').split('').map(c => norm[c] || c);
+	const selected = new Set(normalized.filter(c => circleNums.includes(c)));
+	const isUnanswered = val === '(미풀이)';
+
 	document.querySelectorAll('.mc-pick-btn').forEach(btn => {
 		const btnVal = btn.textContent.trim();
-		btn.classList.toggle('active', btnVal === target || (val === '(미풀이)' && btnVal === '미풀이'));
+		if (circleNums.includes(btnVal)) {
+			btn.classList.toggle('active', selected.has(btnVal));
+		} else {
+			btn.classList.toggle('active', isUnanswered && btnVal === '미풀이');
+		}
 	});
 }
 
@@ -1911,8 +1945,9 @@ function _compareAnswers(studentAns, correctAns) {
 	const circleMap = {'①':'1','②':'2','③':'3','④':'4','⑤':'5'};
 	let a = studentAns.trim().toLowerCase().replace(/\s/g, '');
 	let b = correctAns.trim().toLowerCase().replace(/\s/g, '');
-	for (const [k, v] of Object.entries(circleMap)) { a = a.replace(k, v); b = b.replace(k, v); }
-	return a === b;
+	for (const [k, v] of Object.entries(circleMap)) { a = a.replaceAll(k, v); b = b.replaceAll(k, v); }
+	const sortChars = s => s.split('').sort().join('');
+	return sortChars(a) === sortChars(b);
 }
 
 async function _saveFeedback(item, aiAnswer, teacherCorrectedAnswer, manualReason) {
