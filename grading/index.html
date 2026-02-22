@@ -1760,15 +1760,15 @@ function renderQuestionGrid() {
 	grid.innerHTML = currentItems.map((item, idx) => {
 		const isUnanswered = item.student_answer === '(미풀이)' || item.ai_feedback === '학생이 풀지 않은 문제';
 		let cls, titleText;
-		if (isUnanswered) {
-			cls = 'q-unanswered';
-			titleText = `문제 ${item.question_number} (미풀이)`;
-		} else if (item.is_correct === true) {
+		if (item.is_correct === true) {
 			cls = 'q-correct';
 			titleText = `문제 ${item.question_number}`;
 		} else if (item.is_correct === false) {
 			cls = 'q-wrong';
 			titleText = `문제 ${item.question_number}`;
+		} else if (isUnanswered) {
+			cls = 'q-unanswered';
+			titleText = `문제 ${item.question_number} (미풀이)`;
 		} else {
 			cls = 'q-uncertain';
 			titleText = `문제 ${item.question_number} (확인필요)`;
@@ -3419,16 +3419,16 @@ function renderAnswerPanel() {
 		const conf = item.confidence || 0;
 		let statusCell = '';
 		let rowStyle = '';
-		if (isUnanswered) {
+		if (item.is_correct === true) {
+			statusCell = `<span style="color:var(--green);">✅</span>`;
+		} else if (item.is_correct === false) {
+			statusCell = `<span style="color:var(--red);">❌</span>`;
+		} else if (isUnanswered) {
 			statusCell = '<span style="color:var(--gray);">미풀이</span>';
 			rowStyle = 'opacity:0.5;';
 		} else if (isUncertain) {
 			statusCell = '<span style="color:var(--yellow);font-weight:700;">❓</span>';
 			rowStyle = 'background:rgba(234,179,8,0.06);';
-		} else if (item.is_correct === true) {
-			statusCell = `<span style="color:var(--green);">✅</span>`;
-		} else if (item.is_correct === false) {
-			statusCell = `<span style="color:var(--red);">❌</span>`;
 		}
 
 		const warnIcon = isLowConf ? `<i class="fas fa-exclamation-circle warn-icon" title="신뢰도 ${conf}%"></i>` : '';
@@ -3526,13 +3526,15 @@ async function quickGrade(idx, grade) {
 		showToast('서버 연결 실패', 'error'); return;
 	}
 
+	const prevCorrect = item.is_correct;
 	if (grade === 'correct') item.is_correct = true;
 	else if (grade === 'wrong') item.is_correct = false;
 	else item.is_correct = null;
+	item.teacher_score = updates.teacher_score;
 
-	if (grade === 'correct' && item.is_correct !== true && item.student_answer) {
+	if (grade === 'correct' && prevCorrect !== true && item.student_answer) {
 		_saveFeedback(item, item.student_answer, item.student_answer);
-	} else if (grade === 'wrong' && item.is_correct !== false && item.student_answer) {
+	} else if (grade === 'wrong' && prevCorrect !== false && item.student_answer) {
 		_saveFeedback(item, item.student_answer, item.student_answer);
 	}
 
