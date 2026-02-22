@@ -4041,30 +4041,36 @@ document.addEventListener('DOMContentLoaded', async () => {
 		document.getElementById('page-login').style.display = 'flex';
 	}
 
-	await loadTeacherList();
-
 	if (hasSession) {
 		try {
 			const teacher = JSON.parse(saved);
+			currentTeacher = teacher;
+			showPage('main');
+			renderCalendar();
+			await restoreNavState();
+
+			await loadTeacherList();
+
 			const match = teacherList.find(t => t.id === teacher.id);
 			if (match) {
 				currentTeacher = match;
-				showPage('main');
-				renderCalendar();
 				try {
 					await loadAllData();
 				} catch (loadErr) {
 					console.warn('[채점관리] 데이터 로드 중 오류 (달력은 표시됨):', loadErr);
 				}
-				await restoreNavState();
 			} else {
 				sessionStorage.removeItem('grading_teacher');
+				currentTeacher = null;
+				showPage('login');
 				document.getElementById('page-login').style.display = 'flex';
 			}
 		} catch(e) {
 			sessionStorage.removeItem('grading_teacher');
 			document.getElementById('page-login').style.display = 'flex';
 		}
+	} else {
+		await loadTeacherList();
 	}
 
 	document.addEventListener('click', (e) => {
