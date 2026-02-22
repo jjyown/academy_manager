@@ -1033,15 +1033,16 @@ async function hashPin(pin) {
 }
 
 async function loadTeacherList() {
-	// 1차: 채점 서버에서 선생님 목록 조회
+	// 1차: 채점 서버에서 선생님 목록 조회 (서버 웨이크업 포함)
 	try {
 		const controller = new AbortController();
-		const timeoutId = setTimeout(() => controller.abort(), 5000);
+		const timeoutId = setTimeout(() => controller.abort(), 30000);
 		const res = await fetch(`${GRADING_SERVER_URL}/api/teachers`, { signal: controller.signal });
 		clearTimeout(timeoutId);
 		if (res.ok) {
 			const result = await res.json();
 			teacherList = result.data || [];
+			_serverAwake = true;
 			console.log('[채점관리] 채점 서버에서 선생님 목록 로드 성공:', teacherList.length, '명');
 		}
 	} catch (e) {
@@ -1212,23 +1213,42 @@ function closeModal(id) {
 	document.getElementById(id).classList.remove('show');
 }
 
-function showToast(msg, type = 'info') {
+function showToast(msg, type = 'info', duration = 3000) {
 	const el = document.createElement('div');
 	el.className = 'g-toast ' + type;
 	el.textContent = msg;
 	document.body.appendChild(el);
-	setTimeout(() => el.remove(), 3000);
+	if (duration > 0) setTimeout(() => el.remove(), duration);
+	return el;
 }
+function hideToast(el) { if (el && el.parentNode) el.remove(); }
 
 // ============================================================
 // 데이터 로드
 // ============================================================
+let _serverAwake = false;
+let _dataLoadRetries = 0;
+
 async function loadAllData() {
 	const results = await Promise.allSettled([loadResults(), loadAssignments(), loadAnswerKeys(), loadStats(), loadStudentList()]);
 	results.forEach((r, i) => {
 		if (r.status === 'rejected') console.warn(`[loadAllData] task ${i} failed:`, r.reason);
 	});
 	renderCalendar();
+
+	const allEmpty = !currentResults.length && !currentAssignments.length;
+	if (allEmpty && !_serverAwake && _dataLoadRetries < 2) {
+		_dataLoadRetries++;
+		const delay = _dataLoadRetries === 1 ? 8000 : 15000;
+		console.log(`[채점관리] 데이터 비어있음 — ${delay/1000}초 후 자동 재시도 (${_dataLoadRetries}/2)`);
+		showToast(`서버 연결 대기 중... ${delay/1000}초 후 재시도합니다 (${_dataLoadRetries}/2)`, 'info', delay);
+		await new Promise(r => setTimeout(r, delay));
+		const retryResults = await Promise.allSettled([loadResults(), loadAssignments(), loadAnswerKeys(), loadStats(), loadStudentList()]);
+		retryResults.forEach((r, i) => {
+			if (r.status === 'rejected') console.warn(`[loadAllData retry] task ${i} failed:`, r.reason);
+		});
+		renderCalendar();
+	}
 	startProgressPolling();
 }
 
@@ -1318,7 +1338,7 @@ async function loadResults() {
 	if (!currentTeacher) return;
 	try {
 		const controller = new AbortController();
-		const timeoutId = setTimeout(() => controller.abort(), 10000);
+		const timeoutId = setTimeout(() => controller.abort(), 30000);
 		const params = new URLSearchParams({ teacher_id: currentTeacher.owner_user_id });
 		const res = await fetch(`${GRADING_SERVER_URL}/api/results?${params}`, { signal: controller.signal });
 		clearTimeout(timeoutId);
@@ -1977,7 +1997,7 @@ async function loadStudentList() {
 
 	try {
 		const c1 = new AbortController();
-		const t1 = setTimeout(() => c1.abort(), 10000);
+		const t1 = setTimeout(() => c1.abort(), 30000);
 		const keysRes = await fetch(`${GRADING_SERVER_URL}/api/answer-keys?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`, { signal: c1.signal });
 		clearTimeout(t1);
 		stuAllBooks = (await keysRes.json()).data || [];
@@ -1985,7 +2005,7 @@ async function loadStudentList() {
 
 	try {
 		const c2 = new AbortController();
-		const t2 = setTimeout(() => c2.abort(), 10000);
+		const t2 = setTimeout(() => c2.abort(), 30000);
 		const booksRes = await fetch(`${GRADING_SERVER_URL}/api/student-books?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`, { signal: c2.signal });
 		clearTimeout(t2);
 		const allLinks = (await booksRes.json()).data || [];
@@ -2170,7 +2190,7 @@ async function loadAssignments() {
 	if (!currentTeacher) return;
 	try {
 		const controller = new AbortController();
-		const timeoutId = setTimeout(() => controller.abort(), 10000);
+		const timeoutId = setTimeout(() => controller.abort(), 30000);
 		const res = await fetch(`${GRADING_SERVER_URL}/api/assignments?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`, { signal: controller.signal });
 		clearTimeout(timeoutId);
 		const result = await res.json();
@@ -2444,7 +2464,7 @@ async function loadAnswerKeys() {
 	let data = [];
 	try {
 		const controller = new AbortController();
-		const timeoutId = setTimeout(() => controller.abort(), 10000);
+		const timeoutId = setTimeout(() => controller.abort(), 30000);
 		const res = await fetch(`${GRADING_SERVER_URL}/api/answer-keys?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`, { signal: controller.signal });
 		clearTimeout(timeoutId);
 		const result = await res.json();
@@ -3237,7 +3257,7 @@ async function loadStats() {
 	let results = [];
 	try {
 		const controller = new AbortController();
-		const timeoutId = setTimeout(() => controller.abort(), 10000);
+		const timeoutId = setTimeout(() => controller.abort(), 30000);
 		const res = await fetch(`${GRADING_SERVER_URL}/api/stats?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`, { signal: controller.signal });
 		clearTimeout(timeoutId);
 		const result = await res.json();
