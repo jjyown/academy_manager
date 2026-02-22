@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import threading
 from datetime import date
@@ -128,26 +129,25 @@ async def get_student_assigned_key(student_id: int) -> dict | None:
     try:
         sb = get_supabase()
         today = date.today().isoformat()
-        sid_variants = [student_id, str(student_id)]
+        contains_value = json.dumps([student_id])
 
-        for sid in sid_variants:
-            res = await run_query(sb.table("grading_assignments").select(
-                "answer_key_id, due_date, answer_keys(*)"
-            ).contains(
-                "assigned_students", [sid]
-            ).gte("due_date", today).order("due_date", desc=False).limit(1).execute)
+        res = await run_query(sb.table("grading_assignments").select(
+            "answer_key_id, due_date, answer_keys(*)"
+        ).filter(
+            "assigned_students", "cs", contains_value
+        ).gte("due_date", today).order("due_date", desc=False).limit(1).execute)
 
-            if res.data and res.data[0].get("answer_keys"):
-                return res.data[0]["answer_keys"]
+        if res.data and res.data[0].get("answer_keys"):
+            return res.data[0]["answer_keys"]
 
-            res = await run_query(sb.table("grading_assignments").select(
-                "answer_key_id, due_date, answer_keys(*)"
-            ).contains(
-                "assigned_students", [sid]
-            ).order("due_date", desc=True).limit(1).execute)
+        res = await run_query(sb.table("grading_assignments").select(
+            "answer_key_id, due_date, answer_keys(*)"
+        ).filter(
+            "assigned_students", "cs", contains_value
+        ).order("due_date", desc=True).limit(1).execute)
 
-            if res.data and res.data[0].get("answer_keys"):
-                return res.data[0]["answer_keys"]
+        if res.data and res.data[0].get("answer_keys"):
+            return res.data[0]["answer_keys"]
     except Exception as e:
         logger.error(f"학생 배정 교재 조회 실패 (student_id={student_id}): {e}")
     return None
