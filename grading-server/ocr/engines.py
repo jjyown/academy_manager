@@ -313,9 +313,11 @@ async def _ocr_gpt4o_chunk(
 - 인쇄된 텍스트 위에 손글씨가 있으면 → "answer_sheet" (교재에 직접 풀이한 것)
 - 완전히 빈 종이/노트에 손글씨만 있을 때만 → "solution_only"
 - 확실하지 않으면 → "answer_sheet"로 분류 (answer_sheet가 기본값)
-- "solution_only"인 경우 answers는 빈 객체 {{}}로 응답하세요
+- ★★ "solution_only"라도 학생이 문제 번호를 손글씨로 적고 답을 쓴 것이 보이면 answers에 읽어주세요 ★★
+  (예: 백지에 "1. ③  2. 5  3. -2/3" 처럼 번호+답을 나열한 경우 → 그대로 읽기)
+- "solution_only"에서 문제 번호 없이 순수 풀이 과정만 있으면 answers는 빈 객체 {{}}
 
-각 이미지별로 (answer_sheet인 경우만):
+각 이미지별로:
 1. 교재 정보: 페이지 상단/하단에서 교재명, 페이지 번호, 단원명 확인
 2. 이 사진에 보이는 문제 번호 (인쇄된 번호 기준)
 3. 각 문제의 학생 '최종 답'만 읽기 (풀이 과정은 무시!)
@@ -431,8 +433,14 @@ async def ocr_gemini(
     image_bytes: bytes,
     expected_questions: list[str] | None = None,
     question_types: dict | None = None,
+    second_pass: bool = False,
 ) -> dict:
-    """Gemini Vision으로 이미지에서 교재정보 + 문제번호 + 답안 인식"""
+    """Gemini Vision으로 이미지에서 교재정보 + 문제번호 + 답안 인식
+
+    Args:
+        second_pass: True이면 2차 검증용 관점 전환 프롬프트를 추가.
+            1차와 다른 시각으로 보게 하여 동일 편향 반복을 방지.
+    """
     import google.generativeai as genai
     from config import GEMINI_API_KEY, AI_API_TIMEOUT, GEMINI_MODEL
 
@@ -463,8 +471,29 @@ async def ocr_gemini(
 등록된 문제 번호: {', '.join(expected_questions[:30])}
 """
 
+    second_pass_instruction = ""
+    if second_pass:
+        second_pass_instruction = """
+★★ 2차 독립 검증 모드 ★★
+이전 분석 결과는 잊고, 완전히 처음 보는 것처럼 독립적으로 분석하세요.
+특히 아래에 더 집중하세요:
+- 객관식: 동그라미/체크 표시를 다시 한 번 꼼꼼히 확인 (번호를 혼동하기 쉬움)
+- 단답형: 풀이 과정의 중간값이 아닌 최종 답란/결과만 읽기
+- 흐릿하거나 겹친 글씨: 가장 위에 쓴 것(최종)만 읽기
+- 빈 문제: 정말 안 풀었는지 다시 확인 (작게 쓴 답을 놓치기 쉬움)
+"""
+
     prompt = f"""이 학생 숙제 사진을 분석해주세요.
-{hint_section}
+{hint_section}{second_pass_instruction}
+★ 페이지 유형 판별 ★
+- "answer_sheet": 문제집/프린트물 (인쇄된 문제 번호, 교재 레이아웃이 보이는 페이지)
+- "solution_only": 백지/노트 (인쇄 없이 손글씨만 있는 페이지)
+- 확실하지 않으면 → "answer_sheet"
+
+★★ 중요: "solution_only"라도 학생이 문제 번호를 적고 답을 쓴 것이 보이면 answers에 읽어주세요 ★★
+(예: 백지에 "1. ③  2. 5  3(1) -2/3" 처럼 번호+답을 나열한 경우 → 그대로 읽기)
+
+분석 순서:
 1. 교재 정보: 페이지에 보이는 교재명, 페이지 번호, 단원명
 2. 이 사진에 보이는 문제 번호만 나열 (사진에 없는 문제는 포함 금지!)
 3. 각 문제의 학생 '최종 답'만 읽기
@@ -479,6 +508,7 @@ async def ocr_gemini(
 - 선생님 채점 = O/X 기호, 점수(+5,-2) 등 → 이것만 구분해서 무시
 - 두 개 표시 중 취소선 있는 것 제외, 남은 것이 최종
 - 아무 표시 없으면 → "unanswered"
+- ★ 백지에 손글씨로 번호+답만 나열한 경우: "1. ③" → 1번=③, "2) 5" → 2번=5
 
 [단답형]
 - 답란(빈칸/박스)에 적힌 최종값만 (풀이 과정 중간 계산값 ≠ 최종 답!)
@@ -495,7 +525,7 @@ async def ocr_gemini(
 - 수정액/지우개 아래 흔적 (위에 다시 적은 것이 최종)
 
 반드시 아래 JSON 형식으로만 응답하세요 (다른 텍스트 없이):
-{{"textbook_info": {{"name": "교재명", "page": "45", "section": "단원명"}}, "answers": {{"1": "③", "2": "unanswered", "3": "24"}}, "full_text": "전체 인식 텍스트"}}"""
+{{"page_type": "answer_sheet", "textbook_info": {{"name": "교재명", "page": "45", "section": "단원명"}}, "answers": {{"1": "③", "2": "unanswered", "3": "24"}}, "full_text": "전체 인식 텍스트"}}"""
 
     async def _call_gemini():
         response = model.generate_content(
@@ -509,6 +539,7 @@ async def ocr_gemini(
             "textbook_info": result.get("textbook_info", {}),
             "answers": result.get("answers", {}),
             "full_text": result.get("full_text", ""),
+            "page_type": result.get("page_type", "answer_sheet"),
         }
 
     try:
@@ -543,22 +574,34 @@ async def cross_validate_ocr(
     async def _noop():
         return None
 
-    # 2차 OCR: solution_only가 아닌 이미지만 실행
+    # 2차 OCR: solution_only이면서 답도 없는 이미지만 건너뜀
     ocr2_tasks = []
     for i, img in enumerate(image_bytes_list):
-        if i < len(ocr1_results) and ocr1_results[i].get("page_type") == "solution_only":
+        r1 = ocr1_results[i] if i < len(ocr1_results) else {}
+        is_empty_solution = (
+            r1.get("page_type") == "solution_only"
+            and not r1.get("answers")
+        )
+        if is_empty_solution:
             ocr2_tasks.append(_noop())
         else:
-            ocr2_tasks.append(ocr_gemini(img, expected_questions=expected_questions, question_types=question_types))
+            ocr2_tasks.append(ocr_gemini(img, expected_questions=expected_questions, question_types=question_types, second_pass=True))
     ocr2_results = await asyncio.gather(*ocr2_tasks, return_exceptions=True)
 
     for idx, (r1, r2) in enumerate(zip(ocr1_results, ocr2_results)):
-        if r1.get("page_type") == "solution_only":
-            logger.info(f"[CrossVal] 이미지 {idx}: 풀이 노트 → 크로스 검증 건너뜀")
+        is_empty_solution = (
+            r1.get("page_type") == "solution_only"
+            and not r1.get("answers")
+        )
+        if is_empty_solution:
+            logger.info(f"[CrossVal] 이미지 {idx}: 풀이 노트 (답 없음) → 크로스 검증 건너뜀")
             result = _to_single_check_format(r1, source="ocr1")
             result["page_type"] = "solution_only"
             validated.append(result)
             continue
+
+        if r1.get("page_type") == "solution_only" and r1.get("answers"):
+            logger.info(f"[CrossVal] 이미지 {idx}: 풀이 노트지만 답 {len(r1['answers'])}개 → 크로스 검증 진행")
 
         if isinstance(r2, Exception):
             logger.warning(f"[CrossVal] 이미지 {idx} 2차 OCR 실패: {r2}")

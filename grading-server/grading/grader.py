@@ -2,7 +2,7 @@
 import re
 import logging
 from fractions import Fraction
-from integrations.gemini import grade_essay_independent, grade_essay_mediate
+from integrations.gemini import grade_essay_independent, grade_essay_mediate, smart_compare
 from ocr.engines import normalize_question_key, normalize_answer_keys
 
 logger = logging.getLogger(__name__)
@@ -192,10 +192,24 @@ async def grade_submission(
                         wrong_count += 1
                         if item["error_type"]:
                             logger.debug(f"  [{q_num}번] 오답 원인: {item['error_type']}")
-                else:  # "uncertain"
-                    item["is_correct"] = None
-                    item["error_type"] = None
-                    uncertain_count += 1
+                else:  # "uncertain" → AI로 재판정 시도
+                    ai_result = await smart_compare(
+                        item["student_answer"], correct_answer
+                    )
+                    if ai_result["result"] == "correct":
+                        item["is_correct"] = True
+                        item["error_type"] = None
+                        correct_count += 1
+                        logger.debug(f"  [{q_num}번] smart_compare → 정답 확인")
+                    elif ai_result["result"] == "wrong":
+                        item["is_correct"] = False
+                        item["error_type"] = ai_result.get("error_type")
+                        wrong_count += 1
+                        logger.debug(f"  [{q_num}번] smart_compare → 오답 ({item['error_type']})")
+                    else:
+                        item["is_correct"] = None
+                        item["error_type"] = None
+                        uncertain_count += 1
 
         elif q_type == "essay":
             max_score = 10.0
@@ -321,6 +335,17 @@ def compare_answers(student: str, correct: str, q_type: str = "mc") -> dict:
         if expr_result:
             return {"result": "correct", "error_type": None}
         return {"result": "wrong", "error_type": "notation_error"}
+
+    set_result = _compare_set(student, correct)
+    if set_result is not None:
+        if set_result:
+            return {"result": "correct", "error_type": None}
+        return {"result": "wrong", "error_type": "calculation_error"}
+
+    unit_result = _compare_without_units(student, correct)
+    if unit_result is not None:
+        if unit_result:
+            return {"result": "correct", "error_type": None}
 
     if q_type == "short" and ns.replace("-", "").replace(".", "").isdigit() \
             and nc.replace("-", "").replace(".", "").isdigit() and len(ns) <= 6 and len(nc) <= 6:
@@ -481,6 +506,95 @@ def _compare_expression(ns: str, nc: str) -> bool | None:
     nc3 = normalize_mul(nc2)
     if ns3 == nc3:
         return True
+
+    return None
+
+
+def _compare_set(student: str, correct: str) -> bool | None:
+    """집합 비교: {1,2,3} == {3,1,2} (원소 순서 무시)
+
+    Returns: True(같음), False(다름), None(집합 형태가 아님)
+    """
+    s = student.strip().replace(" ", "")
+    c = correct.strip().replace(" ", "")
+
+    s_match = re.match(r'^\{(.+)\}$', s)
+    c_match = re.match(r'^\{(.+)\}$', c)
+    if not s_match or not c_match:
+        return None
+
+    s_elements = sorted(e.strip() for e in s_match.group(1).split(','))
+    c_elements = sorted(e.strip() for e in c_match.group(1).split(','))
+
+    if s_elements == c_elements:
+        return True
+
+    s_nums = []
+    c_nums = []
+    for e in s_elements:
+        n = _parse_number(e)
+        if n is None:
+            return s_elements == c_elements
+        s_nums.append(n)
+    for e in c_elements:
+        n = _parse_number(e)
+        if n is None:
+            return s_elements == c_elements
+        c_nums.append(n)
+
+    return sorted(s_nums) == sorted(c_nums)
+
+
+_MATH_UNITS = [
+    'cm²', 'cm³', 'cm', 'mm²', 'mm', 'km²', 'km', 'm²', 'm³', 'm',
+    'kg', 'g', 'mg', 'L', 'mL', 'l', 'ml',
+    '°C', '°F', '°',
+    '도', '개', '명', '원', '배', '살', '세',
+]
+
+
+def _strip_unit(s: str) -> tuple[str, str]:
+    """문자열 끝의 단위를 분리 → (값, 단위). 단위가 없으면 ("원본", "")"""
+    for u in _MATH_UNITS:
+        if s.endswith(u) and len(s) > len(u):
+            return s[:-len(u)], u
+    return s, ""
+
+
+def _compare_without_units(student: str, correct: str) -> bool | None:
+    """단위 제거 후 비교: '5cm' == '5', '90°' == '90', '3개' == '3'
+
+    Returns: True(같음), False(다름), None(단위 비교 대상 아님)
+    """
+    s = student.strip().replace(" ", "")
+    c = correct.strip().replace(" ", "")
+
+    s_val, s_unit = _strip_unit(s)
+    c_val, c_unit = _strip_unit(c)
+
+    if not s_unit and not c_unit:
+        return None
+
+    if s_unit and c_unit and s_unit != c_unit:
+        return None
+
+    if not s_val or not c_val:
+        return None
+
+    if s_val == c_val:
+        return True
+
+    sv = _parse_number(s_val)
+    cv = _parse_number(c_val)
+    if sv is not None and cv is not None:
+        if sv == cv:
+            return True
+        try:
+            if abs(float(sv) - float(cv)) < 0.005:
+                return True
+        except (ValueError, OverflowError):
+            pass
+        return False
 
     return None
 

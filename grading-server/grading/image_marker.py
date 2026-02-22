@@ -1,11 +1,18 @@
-"""채점 이미지 생성: 원본 사진 + 오른쪽 채점표 패널 (v2)
+"""채점 이미지 생성: 원본 사진 + 오른쪽 채점표 패널 (v3)
 
-v2 개선:
-- 패널 폭 확대 (45%, min 400px) → 긴 수식/소문제 정답 잘림 방지
-- 픽셀 기반 스마트 텍스트 줄임 (하드코딩 글자 수 제한 제거)
+v3 개선:
+- 오답 행 빨간 배경 + 왼쪽 빨간 세로선 강조
+- 확인필요 행 노란 배경 + 왼쪽 노란 세로선
+- 문제번호 색상: 정답=초록, 오답=빨강, 기타=검정
+- 오답 원인 태그 표시 (부호/계산/분수/표기)
+- 확인필요 문항 '확인중' 태그
+- 하단 안내문: 확인필요 문항 수 안내
+
+v2:
+- 패널 폭 확대 (45%, min 400px)
+- 픽셀 기반 스마트 텍스트 줄임
 - 점수 헤더에 퍼센트 + 진행 바 + O/X/?/- 통계
 - 동적 행 높이: 긴 답안은 2줄로 자동 표시
-- 한글 컬럼 헤더 (번호 / 학생답 / 정답 / 결과)
 """
 import io
 import logging
@@ -43,6 +50,7 @@ def create_graded_image(image_bytes: bytes, items: list[dict],
     f_hdr = _get_font(17)
     f_body = _get_font(20)
     f_tag = _get_font(16)
+    f_err = _get_font(13)
 
     # ── 패널 크기 계산 ──
     panel_w = max(400, int(orig_w * 0.45))
@@ -70,7 +78,15 @@ def create_graded_image(image_bytes: bytes, items: list[dict],
         s_lines = _count_lines(s_ans, f_body, ans_col_w)
         c_lines = _count_lines(c_ans, f_body, cor_col_w)
         max_lines = max(s_lines, c_lines, 1)
-        row_heights.append(BASE_ROW_H if max_lines <= 1 else BASE_ROW_H + (max_lines - 1) * LINE_H)
+        rh = BASE_ROW_H if max_lines <= 1 else BASE_ROW_H + (max_lines - 1) * LINE_H
+        has_sub_tag = (
+            (item.get("is_correct") is False and item.get("error_type") and item.get("error_type") != "wrong_choice")
+            or (item.get("is_correct") is None and item.get("student_answer") != "(미풀이)"
+                and item.get("ai_feedback") != "학생이 풀지 않은 문제")
+        )
+        if has_sub_tag:
+            rh = max(rh, BASE_ROW_H + 14)
+        row_heights.append(rh)
 
     table_h = table_header_h + sum(row_heights) + 4
     panel_h = max(orig_h, header_h + table_h + 10)
@@ -158,21 +174,41 @@ def create_graded_image(image_bytes: bytes, items: list[dict],
         rh = row_heights[idx]
         text_y = cur_y + 10
 
-        bg = COLOR_WHITE if idx % 2 == 0 else (248, 250, 252)
-        draw.rectangle([px, cur_y, px + panel_w, cur_y + rh], fill=bg)
-        draw.line([px, cur_y, px + panel_w, cur_y], fill=COLOR_DIVIDER, width=1)
-
         q_label = str(item.get("question_label") or item.get("question_number", idx + 1))
         student_ans = item.get("student_answer", "") or ""
         correct_ans = item.get("correct_answer", "") or ""
         is_correct = item.get("is_correct")
+        is_unanswered = student_ans == "(미풀이)"
+        error_type = item.get("error_type") or ""
 
-        draw.text((px + c_num_x, text_y), q_label, fill=COLOR_TEXT, font=f_body)
+        # 행 배경: 오답은 빨간 틴트, 확인필요는 노란 틴트, 나머지는 흰/회색
+        if is_unanswered:
+            bg = (245, 245, 250) if idx % 2 == 0 else (240, 240, 248)
+        elif is_correct is False:
+            bg = (255, 240, 240) if idx % 2 == 0 else (252, 233, 233)
+        elif is_correct is None:
+            bg = (255, 250, 235) if idx % 2 == 0 else (252, 247, 228)
+        else:
+            bg = COLOR_WHITE if idx % 2 == 0 else (248, 250, 252)
 
-        ans_color = COLOR_UNANSWERED if student_ans == "(미풀이)" else COLOR_TEXT
+        draw.rectangle([px, cur_y, px + panel_w, cur_y + rh], fill=bg)
+
+        # 오답 행: 왼쪽에 빨간 세로 강조선
+        if is_correct is False:
+            draw.rectangle([px, cur_y, px + 4, cur_y + rh], fill=COLOR_WRONG)
+        elif is_correct is None and not is_unanswered:
+            draw.rectangle([px, cur_y, px + 4, cur_y + rh], fill=COLOR_UNCERTAIN)
+
+        draw.line([px, cur_y, px + panel_w, cur_y], fill=COLOR_DIVIDER, width=1)
+
+        # 문제번호: 오답은 빨간색, 정답은 초록
+        num_color = COLOR_WRONG if is_correct is False else COLOR_CORRECT if is_correct is True else COLOR_TEXT
+        draw.text((px + c_num_x, text_y), q_label, fill=num_color, font=f_body)
+
+        ans_color = COLOR_UNANSWERED if is_unanswered else COLOR_TEXT
         _draw_wrapped_text(draw, px + c_ans_x, text_y, student_ans, f_body, ans_col_w, ans_color, LINE_H)
 
-        if student_ans == "(미풀이)":
+        if is_unanswered:
             cor_color = COLOR_UNANSWERED
             tag_text, tag_color = " - ", COLOR_UNANSWERED
         elif is_correct is True:
@@ -190,9 +226,32 @@ def create_graded_image(image_bytes: bytes, items: list[dict],
         res_cx = px + c_res_x + (panel_w - c_res_x) // 2
         _draw_result_tag(draw, res_cx, cur_y, rh, tag_text, tag_color, f_tag)
 
+        # 오답 원인 태그 (결과 태그 아래)
+        if is_correct is False and error_type:
+            err_labels = {
+                "sign_error": "부호",
+                "calculation_error": "계산",
+                "fraction_error": "분수",
+                "notation_error": "표기",
+                "wrong_choice": "",
+            }
+            err_label = err_labels.get(error_type, "")
+            if err_label:
+                _draw_text_centered(draw, res_cx, cur_y + rh - 16, err_label, COLOR_WRONG, f_err)
+
+        # 확인필요 문항: "확인 중" 안내
+        if is_correct is None and not is_unanswered:
+            _draw_text_centered(draw, res_cx, cur_y + rh - 16, "확인중", COLOR_UNCERTAIN, f_err)
+
         cur_y += rh
 
     draw.line([px, cur_y, px + panel_w, cur_y], fill=COLOR_DIVIDER, width=2)
+
+    # 하단 안내: 확인필요 문항이 있으면 안내 문구
+    if uncertain > 0:
+        notice_y = cur_y + 6
+        notice_text = f"❓ 표시된 {uncertain}문항은 선생님 확인 후 확정됩니다"
+        _draw_text_centered(draw, px + panel_w // 2, notice_y, notice_text, COLOR_UNCERTAIN, f_err)
 
     buffer = io.BytesIO()
     result.save(buffer, format="JPEG", quality=88, optimize=True)

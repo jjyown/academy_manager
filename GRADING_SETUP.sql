@@ -328,3 +328,6 @@ ALTER TABLE homework_submissions ADD CONSTRAINT homework_submissions_grading_sta
 
 -- grading_items.question_label: 소문제 구분용 라벨 컬럼 추가
 ALTER TABLE grading_items ADD COLUMN IF NOT EXISTS question_label TEXT DEFAULT '';
+
+-- answer_keys.grade_level: 학년별 교재 분류용 컬럼 추가
+ALTER TABLE answer_keys ADD COLUMN IF NOT EXISTS grade_level TEXT DEFAULT '';

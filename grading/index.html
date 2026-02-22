@@ -337,6 +337,25 @@
 		/* 문항 선택 하이라이트 */
 		.q-cell.q-selected { box-shadow:0 0 0 3px var(--primary); transform:scale(1.1); z-index:2; position:relative; }
 
+		/* 리뷰 요약 테이블 */
+		.review-section-title { font-size:12px; font-weight:700; padding:8px 0 6px; display:flex; align-items:center; gap:6px; }
+		.review-section-title .count-badge { font-size:11px; padding:2px 8px; border-radius:10px; font-weight:700; }
+		.summary-table { width:100%; border-collapse:collapse; font-size:12px; }
+		.summary-table th { text-align:left; padding:6px 8px; color:var(--text-sec); font-weight:600; font-size:11px; border-bottom:1px solid var(--border); }
+		.summary-table td { padding:5px 8px; border-bottom:1px solid rgba(51,65,85,0.4); }
+		.summary-table tr { cursor:pointer; transition:background 0.15s; }
+		.summary-table tr:hover { background:rgba(129,140,248,0.08); }
+		.summary-table tr.row-selected { background:rgba(129,140,248,0.15); }
+		.summary-table .warn-icon { color:var(--yellow); font-size:10px; margin-left:3px; }
+		.summary-table .student-ans { font-weight:600; }
+		.summary-table .correct-ans { color:var(--green); font-weight:600; }
+		.conf-bar { display:inline-block; width:30px; height:4px; border-radius:2px; background:var(--bg); position:relative; overflow:hidden; vertical-align:middle; margin-left:4px; }
+		.conf-fill { height:100%; border-radius:2px; }
+		.review-all-done { text-align:center; padding:16px; background:rgba(34,197,94,0.1); border-radius:10px; border:1px solid rgba(34,197,94,0.3); margin-top:8px; }
+		.review-all-done .done-icon { font-size:24px; margin-bottom:4px; }
+		.review-all-done .done-text { font-size:13px; color:var(--green); font-weight:700; }
+		.review-all-done .done-sub { font-size:11px; color:var(--text-sec); margin-top:4px; }
+
 		/* 단축키 힌트 바 */
 		.shortcut-bar { display:flex; gap:8px; padding:6px 12px; background:rgba(129,140,248,0.08); border-radius:10px; margin:8px 12px; align-items:center; flex-wrap:wrap; }
 		.shortcut-bar .sk { display:inline-flex; align-items:center; gap:3px; font-size:11px; color:var(--text-sec); }
@@ -497,9 +516,11 @@
 
 	<!-- 교재 관리 탭 -->
 	<div id="tab-keys" class="tab-content" style="display:none;">
-		<div style="padding:8px 12px;display:flex;gap:6px;">
+		<div style="padding:8px 12px;display:flex;gap:6px;flex-wrap:wrap;">
 			<button class="btn btn-primary btn-sm" onclick="showAddKeyModal()"><i class="fas fa-plus"></i> 교재 등록</button>
 			<button class="btn btn-sm btn-outline" onclick="scanDrivePDFs()"><i class="fas fa-cloud"></i> 드라이브 스캔</button>
+			<div style="flex:1;"></div>
+			<div id="keys-grade-filter" style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;"></div>
 		</div>
 		<div id="keys-list"></div>
 	</div>
@@ -569,10 +590,11 @@
 		<!-- 단축키 힌트 -->
 		<div class="shortcut-bar" id="shortcut-bar">
 			<span class="sk"><kbd>W</kbd><kbd>S</kbd> 문항이동</span>
+			<span class="sk"><kbd>Shift+W</kbd><kbd>Shift+S</kbd> 확인필요 점프</span>
 			<span class="sk"><kbd>1</kbd> 정답</span>
 			<span class="sk"><kbd>2</kbd> 오답</span>
 			<span class="sk"><kbd>3</kbd> 확인필요</span>
-			<span class="sk"><kbd>Enter</kbd> 저장</span>
+			<span class="sk"><kbd>Enter</kbd> 상세편집</span>
 		<span class="sk"><kbd>+</kbd><kbd>-</kbd> 줌</span>
 		<span class="sk"><kbd>Space</kbd> 이동</span>
 		<span class="sk"><kbd>←</kbd><kbd>→</kbd> 이미지</span>
@@ -657,12 +679,26 @@
 	<div style="padding:12px 12px 40px;">
 		<!-- 교재 기본 정보 -->
 		<div class="card">
-			<div style="display:flex;gap:8px;">
-				<div class="form-group" style="flex:2;margin-bottom:0;">
+			<div style="display:flex;gap:8px;flex-wrap:wrap;">
+				<div class="form-group" style="flex:2;margin-bottom:0;min-width:120px;">
 					<label class="form-label">교재명</label>
 					<input class="input" id="kd-title" placeholder="교재명" oninput="markKdDirty()">
 				</div>
-				<div class="form-group" style="flex:1;margin-bottom:0;">
+				<div class="form-group" style="flex:0.7;margin-bottom:0;min-width:80px;">
+					<label class="form-label">학년</label>
+					<select class="input" id="kd-grade-level" onchange="markKdDirty()">
+						<option value="">미지정</option>
+						<option value="중1">중1</option>
+						<option value="중2">중2</option>
+						<option value="중3">중3</option>
+						<option value="고1">고1</option>
+						<option value="고2">고2</option>
+						<option value="고3">고3</option>
+						<option value="초등">초등</option>
+						<option value="기타">기타</option>
+					</select>
+				</div>
+				<div class="form-group" style="flex:0.7;margin-bottom:0;min-width:80px;">
 					<label class="form-label">과목</label>
 					<input class="input" id="kd-subject" placeholder="과목" oninput="markKdDirty()">
 				</div>
@@ -854,9 +890,25 @@
 			<label class="form-label">교재명</label>
 			<input class="input" id="key-title" placeholder="예: 수학 문제집 A">
 		</div>
-		<div class="form-group">
-			<label class="form-label">과목</label>
-			<input class="input" id="key-subject" placeholder="예: 수학">
+		<div style="display:flex;gap:8px;">
+			<div class="form-group" style="flex:1;">
+				<label class="form-label">학년</label>
+				<select class="input" id="key-grade-level">
+					<option value="">선택 안함</option>
+					<option value="중1">중1</option>
+					<option value="중2">중2</option>
+					<option value="중3">중3</option>
+					<option value="고1">고1</option>
+					<option value="고2">고2</option>
+					<option value="고3">고3</option>
+					<option value="초등">초등</option>
+					<option value="기타">기타</option>
+				</select>
+			</div>
+			<div class="form-group" style="flex:1;">
+				<label class="form-label">과목</label>
+				<input class="input" id="key-subject" placeholder="예: 수학">
+			</div>
 		</div>
 		<div class="form-group">
 			<label class="form-label">교재 파일</label>
@@ -1434,10 +1486,16 @@ function renderSidePanel() {
 			content.innerHTML = addBtn + '<div class="empty-state" style="padding:20px 10px;"><i class="fas fa-clipboard-list" style="font-size:28px;margin-bottom:8px;opacity:0.3;"></i><p style="font-size:12px;">이 날짜에 배정된 과제가 없습니다</p></div>';
 			return;
 		}
+		const _stuNameMap = {};
+		(stuAllStudents || []).forEach(s => { _stuNameMap[s.id] = s.name || '?'; });
+
 		content.innerHTML = addBtn + items.map(a => {
 			const key = a.answer_keys;
 			const students = a.assigned_students || [];
-			const stuTags = students.length ? `<div class="cal-assign-students">${students.slice(0, 5).map(sid => `<span class="cal-assign-tag">${sid}</span>`).join('')}${students.length > 5 ? `<span class="cal-assign-tag">+${students.length - 5}</span>` : ''}</div>` : '';
+			const stuNames = students.map(sid => _stuNameMap[sid] || sid);
+			const stuTags = stuNames.length
+				? `<div class="cal-assign-students">${stuNames.slice(0, 5).map(n => `<span class="cal-assign-tag">${escapeHtml(String(n))}</span>`).join('')}${stuNames.length > 5 ? `<span class="cal-assign-tag">+${stuNames.length - 5}</span>` : ''}</div>`
+				: '<div style="font-size:11px;color:var(--text-sec);margin-top:4px;">학생 미지정</div>';
 			return `<div class="cal-assign-item" style="cursor:pointer;" onclick="editAssignment(${a.id})">
 				<div class="cal-assign-title">${escapeHtml(a.title)}</div>
 				<div class="cal-assign-sub">${key ? escapeHtml(key.title) + (key.subject ? ' · ' + escapeHtml(key.subject) : '') : '자동 검색'}${a.page_range ? ' · p.' + escapeHtml(a.page_range) : ''}</div>
@@ -1628,9 +1686,10 @@ async function openDetail(resultId) {
 		showToast('문항 데이터 로드 실패: ' + e.message, 'error');
 		currentItems = [];
 	}
-	// Split View 초기화
-	selectedItemIdx = -1;
+	// Split View 초기화 — 첫 번째 확인필요 문항을 자동 선택
 	imageZoom = 1;
+	const firstUncertain = _findNextUncertainIdx(0);
+	selectedItemIdx = firstUncertain >= 0 ? firstUncertain : -1;
 	renderQuestionGrid();
 	renderAnswerPanel();
 
@@ -1722,6 +1781,12 @@ async function saveItemEdit() {
 
 async function confirmResult() {
 	if (!currentResultId) return;
+
+	const remainCount = _countUncertain();
+	if (remainCount > 0) {
+		if (!confirm(`아직 확인필요 문항이 ${remainCount}개 남아있습니다.\n그래도 확정하시겠습니까?`)) return;
+	}
+
 	try {
 		const res = await fetch(`${GRADING_SERVER_URL}/api/results/${currentResultId}/confirm`, { method: 'PUT' });
 		const result = await res.json();
@@ -1729,9 +1794,18 @@ async function confirmResult() {
 	} catch (e) {
 		return showToast('서버 연결 실패', 'error');
 	}
-	showToast('채점 결과가 확정되었습니다', 'success');
+
+	await loadResults();
 	document.getElementById('detail-confirm-btn').style.display = 'none';
-	loadResults();
+
+	const nextReview = currentResults.find(r => r.id !== currentResultId && r.status === 'review_needed');
+	if (nextReview) {
+		showToast(`확정 완료 → 다음 학생: ${nextReview.students?.name || '?'}`, 'success');
+		await openDetail(nextReview.id);
+	} else {
+		showToast('확정 완료! 검토 대기 학생이 없습니다', 'success');
+		showPage('main');
+	}
 }
 
 async function regradeWithKey() {
@@ -2188,6 +2262,83 @@ async function deleteAssignment(id) {
 // ============================================================
 // 교재 관리
 // ============================================================
+let allAnswerKeys = [];
+let keysGradeFilter = '';
+
+function _renderKeyItem(k) {
+	const gradeTag = k.grade_level ? `<span style="display:inline-block;font-size:10px;font-weight:700;background:var(--primary);color:#fff;border-radius:4px;padding:1px 5px;margin-right:4px;">${escapeHtml(k.grade_level)}</span>` : '';
+	return `<div class="list-item" style="position:relative;">
+		<div style="display:flex;align-items:center;gap:12px;flex:1;cursor:pointer;" onclick="openKeyDetail(${k.id})">
+			<div class="list-item-icon" style="background:rgba(20,184,166,0.15);">📚</div>
+			<div class="list-item-info" style="flex:1;">
+				<div class="list-item-title">${gradeTag}${escapeHtml(k.title)}</div>
+				<div class="list-item-sub">${k.subject || '과목 미정'} · ${k.total_questions}문제 · ${k.parsed ? '✅ 파싱완료' : '⏳ 파싱중'}</div>
+			</div>
+		</div>
+		<button onclick="event.stopPropagation();deleteAnswerKey(${k.id}, '${escapeHtml(k.title)}')" title="삭제"
+			style="background:none;border:none;color:var(--red,#ef4444);cursor:pointer;padding:8px;font-size:16px;opacity:0.6;transition:opacity 0.2s;"
+			onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.6'">
+			<i class="fas fa-trash-alt"></i>
+		</button>
+	</div>`;
+}
+
+function renderKeysFiltered() {
+	const el = document.getElementById('keys-list');
+	const filtered = keysGradeFilter
+		? allAnswerKeys.filter(k => (k.grade_level || '') === keysGradeFilter)
+		: allAnswerKeys;
+
+	if (!filtered.length) {
+		el.innerHTML = `<div class="empty-state"><i class="fas fa-book-open"></i><p>${keysGradeFilter ? keysGradeFilter + ' 교재가 없습니다' : '등록된 교재가 없습니다'}</p></div>`;
+		return;
+	}
+
+	if (!keysGradeFilter) {
+		const grades = [...new Set(allAnswerKeys.map(k => k.grade_level || ''))];
+		const GRADE_ORDER = ['초등','중1','중2','중3','고1','고2','고3','기타',''];
+		grades.sort((a, b) => GRADE_ORDER.indexOf(a) - GRADE_ORDER.indexOf(b));
+
+		let html = '';
+		for (const g of grades) {
+			const items = allAnswerKeys.filter(k => (k.grade_level || '') === g);
+			const label = g || '학년 미지정';
+			html += `<div style="padding:10px 14px 4px;font-size:13px;font-weight:700;color:var(--text-sec);display:flex;align-items:center;gap:6px;">
+				<span style="display:inline-block;width:4px;height:14px;border-radius:2px;background:${g ? 'var(--primary)' : 'var(--border)'};"></span>
+				${escapeHtml(label)} <span style="font-weight:400;font-size:11px;color:var(--text-sec);">(${items.length})</span>
+			</div>`;
+			html += items.map(k => _renderKeyItem(k)).join('');
+		}
+		el.innerHTML = html;
+	} else {
+		el.innerHTML = filtered.map(k => _renderKeyItem(k)).join('');
+	}
+}
+
+function setKeysGradeFilter(grade) {
+	keysGradeFilter = keysGradeFilter === grade ? '' : grade;
+	const btns = document.querySelectorAll('#keys-grade-filter .grade-filter-btn');
+	btns.forEach(b => {
+		b.style.background = b.dataset.grade === keysGradeFilter ? 'var(--primary)' : 'var(--card)';
+		b.style.color = b.dataset.grade === keysGradeFilter ? '#fff' : 'var(--text-sec)';
+		b.style.borderColor = b.dataset.grade === keysGradeFilter ? 'var(--primary)' : 'var(--border)';
+	});
+	renderKeysFiltered();
+}
+
+function renderKeysGradeFilters() {
+	const filterEl = document.getElementById('keys-grade-filter');
+	const grades = [...new Set(allAnswerKeys.map(k => k.grade_level).filter(Boolean))];
+	const GRADE_ORDER = ['초등','중1','중2','중3','고1','고2','고3','기타'];
+	grades.sort((a, b) => GRADE_ORDER.indexOf(a) - GRADE_ORDER.indexOf(b));
+
+	if (grades.length < 2) { filterEl.innerHTML = ''; return; }
+	filterEl.innerHTML = grades.map(g =>
+		`<button class="grade-filter-btn" data-grade="${g}" onclick="setKeysGradeFilter('${g}')"
+			style="font-size:11px;padding:3px 8px;border-radius:12px;border:1px solid var(--border);background:var(--card);color:var(--text-sec);cursor:pointer;font-weight:600;transition:all .15s;">${g}</button>`
+	).join('');
+}
+
 async function loadAnswerKeys() {
 	if (!currentTeacher) return;
 	let data = [];
@@ -2198,25 +2349,15 @@ async function loadAnswerKeys() {
 	} catch (e) {
 		console.warn('교재 목록 로드 실패:', e);
 	}
-	const el = document.getElementById('keys-list');
+	allAnswerKeys = data;
+
 	if (!data?.length) {
-		el.innerHTML = '<div class="empty-state"><i class="fas fa-book-open"></i><p>등록된 교재가 없습니다</p></div>';
-		return;
+		document.getElementById('keys-list').innerHTML = '<div class="empty-state"><i class="fas fa-book-open"></i><p>등록된 교재가 없습니다</p></div>';
+		document.getElementById('keys-grade-filter').innerHTML = '';
+	} else {
+		renderKeysGradeFilters();
+		renderKeysFiltered();
 	}
-	el.innerHTML = data.map(k => `<div class="list-item" style="position:relative;">
-		<div style="display:flex;align-items:center;gap:12px;flex:1;cursor:pointer;" onclick="openKeyDetail(${k.id})">
-			<div class="list-item-icon" style="background:rgba(20,184,166,0.15);">📚</div>
-			<div class="list-item-info" style="flex:1;">
-				<div class="list-item-title">${escapeHtml(k.title)}</div>
-				<div class="list-item-sub">${k.subject || '과목 미정'} · ${k.total_questions}문제 · ${k.parsed ? '✅ 파싱완료' : '⏳ 파싱중'}</div>
-			</div>
-		</div>
-		<button onclick="event.stopPropagation();deleteAnswerKey(${k.id}, '${escapeHtml(k.title)}')" title="삭제"
-			style="background:none;border:none;color:var(--red,#ef4444);cursor:pointer;padding:8px;font-size:16px;opacity:0.6;transition:opacity 0.2s;"
-			onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.6'">
-			<i class="fas fa-trash-alt"></i>
-		</button>
-	</div>`).join('');
 
 	// 과제 배정용 셀렉트 업데이트
 	const sel = document.getElementById('assign-key');
@@ -2279,6 +2420,7 @@ function showAddKeyModal() {
 	selectKeyType('print');
 	document.getElementById('key-title').value = '';
 	document.getElementById('key-subject').value = '';
+	document.getElementById('key-grade-level').value = '';
 	document.getElementById('key-pdf').value = '';
 	document.getElementById('key-total-hint').value = '';
 	const ps = document.getElementById('key-page-start');
@@ -2357,6 +2499,7 @@ async function registerAnswerKey() {
 	if (isRegistering) return;
 	const title = document.getElementById('key-title').value.trim();
 	const subject = document.getElementById('key-subject').value.trim();
+	const gradeLevel = document.getElementById('key-grade-level').value;
 	const pdfInput = document.getElementById('key-pdf');
 	const totalHint = document.getElementById('key-total-hint').value.trim();
 
@@ -2379,6 +2522,7 @@ async function registerAnswerKey() {
 		formData.append('teacher_id', currentTeacher.owner_user_id);
 		formData.append('title', title);
 		formData.append('subject', subject);
+		if (gradeLevel) formData.append('grade_level', gradeLevel);
 		formData.append('pdf_file', pdfInput.files[0]);
 		if (pageRange) formData.append('answer_page_range', pageRange);
 		if (totalHint) formData.append('total_hint', totalHint);
@@ -2552,6 +2696,7 @@ async function openKeyDetail(keyId) {
 	document.getElementById('key-detail-title').textContent = currentKeyDetail.title || '교재 상세';
 	document.getElementById('kd-title').value = currentKeyDetail.title || '';
 	document.getElementById('kd-subject').value = currentKeyDetail.subject || '';
+	document.getElementById('kd-grade-level').value = currentKeyDetail.grade_level || '';
 
 	// 페이지 이미지 + 북마크
 	kdPageImages = currentKeyDetail.page_images_json || [];
@@ -2949,6 +3094,7 @@ async function saveKeyDetail() {
 
 	const title = document.getElementById('kd-title').value.trim();
 	const subject = document.getElementById('kd-subject').value.trim();
+	const gradeLevel = document.getElementById('kd-grade-level').value;
 
 	if (!title) { showToast('교재명을 입력하세요', 'error'); return; }
 
@@ -2960,6 +3106,7 @@ async function saveKeyDetail() {
 				teacher_id: currentTeacher.owner_user_id,
 				title,
 				subject,
+				grade_level: gradeLevel,
 				answers_json: answersJson,
 				question_types_json: typesJson,
 				total_questions: Object.keys(answersJson).length,
@@ -3056,48 +3203,121 @@ function renderAnswerPanel() {
 		panel.innerHTML = '<div style="text-align:center;color:var(--text-sec);font-size:13px;padding:20px;">문항 데이터 없음</div>';
 		return;
 	}
-	panel.innerHTML = currentItems.map((item, idx) => {
-		const sel = idx === selectedItemIdx ? ' ap-selected' : '';
+
+	const uncertainItems = [];
+	const lowConfItems = [];
+	const allItems = [];
+
+	currentItems.forEach((item, idx) => {
 		const isUnanswered = item.student_answer === '(미풀이)' || item.ai_feedback === '학생이 풀지 않은 문제';
-		let statusIcon = '❓';
-		if (isUnanswered) statusIcon = '📝';
-		else if (item.is_correct === true) statusIcon = '⭕';
-		else if (item.is_correct === false) statusIcon = '✘';
-
-		const typeLabel = item.question_type === 'essay' ? '서술' : item.question_type === 'short_answer' ? '단답' : '객관';
 		const conf = item.confidence || 0;
-		const confColor = conf >= 85 ? 'var(--green)' : conf >= 60 ? 'var(--yellow)' : 'var(--red)';
+		const isUncertain = item.is_correct === null && !isUnanswered;
+		const isLowConf = !isUncertain && !isUnanswered && conf > 0 && conf < 80;
+		if (isUncertain) uncertainItems.push({ item, idx });
+		if (isLowConf) lowConfItems.push({ item, idx });
+		allItems.push({ item, idx, isUnanswered, isUncertain, isLowConf });
+	});
 
-		let quickBtns = '';
-		if (idx === selectedItemIdx) {
-			const isC = item.is_correct === true;
-			const isW = item.is_correct === false;
-			const isU = item.is_correct === null;
-			quickBtns = `<div class="quick-grade">
-				<button class="qg-correct${isC ? ' active' : ''}" onclick="event.stopPropagation();quickGrade(${idx},'correct')">⭕ 정답<kbd style="font-size:9px;margin-left:2px;opacity:0.6">1</kbd></button>
-				<button class="qg-wrong${isW ? ' active' : ''}" onclick="event.stopPropagation();quickGrade(${idx},'wrong')">✘ 오답<kbd style="font-size:9px;margin-left:2px;opacity:0.6">2</kbd></button>
-				<button class="qg-uncertain${isU ? ' active' : ''}" onclick="event.stopPropagation();quickGrade(${idx},'uncertain')">❓ 확인<kbd style="font-size:9px;margin-left:2px;opacity:0.6">3</kbd></button>
-			</div>`;
+	let html = '';
+
+	// --- Section 1: 확인 필요 문항 (펼쳐서 상세 표시) ---
+	if (uncertainItems.length > 0) {
+		html += `<div class="review-section-title" style="color:var(--yellow);">
+			<i class="fas fa-exclamation-triangle"></i> 확인 필요
+			<span class="count-badge" style="background:rgba(234,179,8,0.15);color:var(--yellow);">${uncertainItems.length}문항</span>
+		</div>`;
+		uncertainItems.forEach(({ item, idx }) => {
+			html += _renderDetailItem(item, idx);
+		});
+	}
+
+	// --- Section 2: 전체 문항 요약 테이블 ---
+	html += `<div class="review-section-title" style="color:var(--text-sec);margin-top:${uncertainItems.length ? '12px' : '0'};">
+		<i class="fas fa-table"></i> 전체 문항 (학생답 vs 정답)
+	</div>`;
+	html += `<table class="summary-table"><thead><tr>
+		<th style="width:36px;">번호</th><th>학생 답</th><th>정답</th><th style="width:50px;">판정</th>
+	</tr></thead><tbody>`;
+
+	allItems.forEach(({ item, idx, isUnanswered, isUncertain, isLowConf }) => {
+		const conf = item.confidence || 0;
+		let statusCell = '';
+		let rowStyle = '';
+		if (isUnanswered) {
+			statusCell = '<span style="color:var(--gray);">미풀이</span>';
+			rowStyle = 'opacity:0.5;';
+		} else if (isUncertain) {
+			statusCell = '<span style="color:var(--yellow);font-weight:700;">❓</span>';
+			rowStyle = 'background:rgba(234,179,8,0.06);';
+		} else if (item.is_correct === true) {
+			statusCell = `<span style="color:var(--green);">✅</span>`;
+		} else if (item.is_correct === false) {
+			statusCell = `<span style="color:var(--red);">❌</span>`;
 		}
 
-		return `<div class="ap-item${sel}" onclick="selectItem(${idx})" id="ap-item-${idx}">
-			<div style="display:flex;align-items:center;gap:6px;">
-				<span class="ap-num">${statusIcon} ${item.question_label || item.question_number}번</span>
-				<span style="font-size:10px;padding:2px 6px;border-radius:4px;background:var(--bg);color:var(--text-sec);">${typeLabel}</span>
-				<span style="font-size:10px;color:${confColor};margin-left:auto;">${conf}%</span>
-			</div>
-			<div class="ap-row"><span class="ap-label">학생 답</span><span class="ap-val" style="color:var(--text);">${escapeHtml(item.student_answer || '(없음)')}</span></div>
-			<div class="ap-row"><span class="ap-label">정답</span><span class="ap-val" style="color:var(--green);">${escapeHtml(item.correct_answer || '-')}</span></div>
-			${item.ai_feedback ? `<div style="font-size:11px;color:var(--text-sec);margin-top:4px;"><i class="fas fa-robot" style="margin-right:3px;"></i>${escapeHtml(item.ai_feedback)}</div>` : ''}
-			${quickBtns}
-		</div>`;
-	}).join('');
+		const warnIcon = isLowConf ? `<i class="fas fa-exclamation-circle warn-icon" title="신뢰도 ${conf}%"></i>` : '';
+		const confBar = conf > 0 ? `<span class="conf-bar"><span class="conf-fill" style="width:${conf}%;background:${conf >= 80 ? 'var(--green)' : conf >= 60 ? 'var(--yellow)' : 'var(--red)'};"></span></span>` : '';
+		const selClass = idx === selectedItemIdx ? ' row-selected' : '';
 
-	// 선택된 항목으로 패널 스크롤
-	if (selectedItemIdx >= 0) {
-		const selEl = document.getElementById(`ap-item-${selectedItemIdx}`);
-		if (selEl) selEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+		const studentAns = escapeHtml(item.student_answer || '(없음)');
+		const correctAns = escapeHtml(item.correct_answer || '-');
+		const mismatch = !isUnanswered && item.is_correct !== null && item.student_answer && item.correct_answer
+			&& item.student_answer.trim() !== item.correct_answer.trim() && item.is_correct === true;
+
+		html += `<tr class="${selClass}" style="${rowStyle}" onclick="selectItem(${idx})" id="summary-row-${idx}">
+			<td style="font-weight:700;font-size:11px;">${item.question_label || item.question_number}</td>
+			<td class="student-ans">${studentAns}${warnIcon}</td>
+			<td class="correct-ans">${correctAns}</td>
+			<td style="text-align:center;">${statusCell}${confBar}</td>
+		</tr>`;
+	});
+	html += '</tbody></table>';
+
+	// --- 확인 필요 없으면 완료 메시지 ---
+	if (uncertainItems.length === 0) {
+		html += `<div class="review-all-done">
+			<div class="done-icon">✅</div>
+			<div class="done-text">AI가 모든 문항을 판정했습니다</div>
+			<div class="done-sub">위 표에서 학생답과 정답을 한번 훑어보시고, 이상 없으면 확정하세요</div>
+		</div>`;
 	}
+
+	panel.innerHTML = html;
+
+	if (selectedItemIdx >= 0) {
+		const selRow = document.getElementById(`summary-row-${selectedItemIdx}`);
+		const selItem = document.getElementById(`ap-item-${selectedItemIdx}`);
+		const target = selItem || selRow;
+		if (target) target.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+	}
+}
+
+function _renderDetailItem(item, idx) {
+	const sel = idx === selectedItemIdx ? ' ap-selected' : '';
+	const conf = item.confidence || 0;
+	const confColor = conf >= 85 ? 'var(--green)' : conf >= 60 ? 'var(--yellow)' : 'var(--red)';
+	const typeLabel = item.question_type === 'essay' ? '서술' : item.question_type === 'short_answer' ? '단답' : '객관';
+
+	const isC = item.is_correct === true;
+	const isW = item.is_correct === false;
+	const isU = item.is_correct === null;
+	const quickBtns = `<div class="quick-grade">
+		<button class="qg-correct${isC ? ' active' : ''}" onclick="event.stopPropagation();quickGrade(${idx},'correct')">⭕ 정답<kbd style="font-size:9px;margin-left:2px;opacity:0.6">1</kbd></button>
+		<button class="qg-wrong${isW ? ' active' : ''}" onclick="event.stopPropagation();quickGrade(${idx},'wrong')">✘ 오답<kbd style="font-size:9px;margin-left:2px;opacity:0.6">2</kbd></button>
+		<button class="qg-uncertain${isU ? ' active' : ''}" onclick="event.stopPropagation();quickGrade(${idx},'uncertain')">❓ 확인<kbd style="font-size:9px;margin-left:2px;opacity:0.6">3</kbd></button>
+	</div>`;
+
+	return `<div class="ap-item${sel}" onclick="selectItem(${idx})" id="ap-item-${idx}">
+		<div style="display:flex;align-items:center;gap:6px;">
+			<span class="ap-num">❓ ${item.question_label || item.question_number}번</span>
+			<span style="font-size:10px;padding:2px 6px;border-radius:4px;background:var(--bg);color:var(--text-sec);">${typeLabel}</span>
+			<span style="font-size:10px;color:${confColor};margin-left:auto;">신뢰도 ${conf}%</span>
+		</div>
+		<div class="ap-row"><span class="ap-label">학생 답</span><span class="ap-val" style="color:var(--text);">${escapeHtml(item.student_answer || '(없음)')}</span></div>
+		<div class="ap-row"><span class="ap-label">정답</span><span class="ap-val" style="color:var(--green);">${escapeHtml(item.correct_answer || '-')}</span></div>
+		${item.ai_feedback ? `<div style="font-size:11px;color:var(--text-sec);margin-top:4px;"><i class="fas fa-robot" style="margin-right:3px;"></i>${escapeHtml(item.ai_feedback)}</div>` : ''}
+		${quickBtns}
+	</div>`;
 }
 
 async function quickGrade(idx, grade) {
@@ -3106,13 +3326,16 @@ async function quickGrade(idx, grade) {
 
 	let updates = {};
 	if (grade === 'correct') {
+		updates.is_correct = true;
 		updates.teacher_score = 1;
 		updates.teacher_feedback = '선생님 확인: 정답';
 	} else if (grade === 'wrong') {
+		updates.is_correct = false;
 		updates.teacher_score = 0;
 		updates.teacher_feedback = '선생님 확인: 오답';
 	} else {
-		updates.teacher_score = -1;  // -1 = 확인필요 상태 유지
+		updates.is_correct = null;
+		updates.teacher_score = -1;
 		updates.teacher_feedback = '선생님 확인 필요';
 	}
 
@@ -3127,13 +3350,51 @@ async function quickGrade(idx, grade) {
 		showToast('서버 연결 실패', 'error'); return;
 	}
 
-	// 로컬 상태 즉시 반영 (서버 재요청 없이 빠른 UX)
 	if (grade === 'correct') item.is_correct = true;
 	else if (grade === 'wrong') item.is_correct = false;
 	else item.is_correct = null;
 
 	renderQuestionGrid();
-	showToast(`${item.question_number}번: ${grade === 'correct' ? '정답' : grade === 'wrong' ? '오답' : '확인필요'}`, 'success');
+
+	// 처리 후 다음 확인필요 문항으로 자동 이동
+	if (grade !== 'uncertain') {
+		const nextUncertain = _findNextUncertainIdx(idx + 1);
+		if (nextUncertain >= 0) {
+			selectItem(nextUncertain);
+			showToast(`${item.question_number}번 처리 → 다음 확인필요: ${currentItems[nextUncertain].question_number}번`, 'success');
+		} else {
+			const remainCount = _countUncertain();
+			if (remainCount === 0) {
+				renderAnswerPanel();
+				showToast(`${item.question_number}번 처리 완료! 모든 문항 확인됨 — 확정 가능`, 'success');
+			} else {
+				showToast(`${item.question_number}번: ${grade === 'correct' ? '정답' : '오답'}`, 'success');
+			}
+		}
+	} else {
+		showToast(`${item.question_number}번: 확인필요 유지`, 'success');
+	}
+}
+
+function _findNextUncertainIdx(startFrom) {
+	for (let i = startFrom; i < currentItems.length; i++) {
+		const it = currentItems[i];
+		const isUnanswered = it.student_answer === '(미풀이)' || it.ai_feedback === '학생이 풀지 않은 문제';
+		if (it.is_correct === null && !isUnanswered) return i;
+	}
+	for (let i = 0; i < startFrom && i < currentItems.length; i++) {
+		const it = currentItems[i];
+		const isUnanswered = it.student_answer === '(미풀이)' || it.ai_feedback === '학생이 풀지 않은 문제';
+		if (it.is_correct === null && !isUnanswered) return i;
+	}
+	return -1;
+}
+
+function _countUncertain() {
+	return currentItems.filter(it => {
+		const isUnanswered = it.student_answer === '(미풀이)' || it.ai_feedback === '학생이 풀지 않은 문제';
+		return it.is_correct === null && !isUnanswered;
+	}).length;
 }
 
 let _spaceWasPan = false;
@@ -3162,12 +3423,27 @@ function handleDetailKeydown(e) {
 			return;
 		case 'w': case 'W': case 'ArrowUp':
 			e.preventDefault();
-			selectItem(Math.max(0, selectedItemIdx - 1));
+			if (e.shiftKey) {
+				// Shift+W: 이전 확인필요 문항으로 점프
+				for (let i = selectedItemIdx - 1; i >= 0; i--) {
+					const it = currentItems[i];
+					const isUn = it.student_answer === '(미풀이)' || it.ai_feedback === '학생이 풀지 않은 문제';
+					if (it.is_correct === null && !isUn) { selectItem(i); break; }
+				}
+			} else {
+				selectItem(Math.max(0, selectedItemIdx - 1));
+			}
 			break;
 		case 's': case 'S': case 'ArrowDown':
 			e.preventDefault();
-			if (selectedItemIdx < 0) selectItem(0);
-			else selectItem(Math.min(currentItems.length - 1, selectedItemIdx + 1));
+			if (e.shiftKey) {
+				// Shift+S: 다음 확인필요 문항으로 점프
+				const next = _findNextUncertainIdx((selectedItemIdx < 0 ? 0 : selectedItemIdx + 1));
+				if (next >= 0) selectItem(next);
+			} else {
+				if (selectedItemIdx < 0) selectItem(0);
+				else selectItem(Math.min(currentItems.length - 1, selectedItemIdx + 1));
+			}
 			break;
 		case 'ArrowLeft':
 			if (currentImageUrls.length > 1) { e.preventDefault(); prevImage(); }

@@ -4,7 +4,7 @@ import logging
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload, MediaIoBaseDownload
 from google.oauth2.credentials import Credentials
-from config import GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
+from config import GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, CENTRAL_ROOT_FOLDER
 
 logger = logging.getLogger(__name__)
 
@@ -46,45 +46,65 @@ def _find_or_create_folder(service, name: str, parent_id: str | None = None) -> 
 # ──────────────────────────────────────────────
 
 def get_central_grading_material_folder(central_token: str, folder_name: str) -> str:
-    """중앙 드라이브에서 '숙제 채점 자료' 폴더 ID 반환"""
+    """중앙 드라이브에서 교재 폴더 ID 반환: 과제 관리 / {folder_name}"""
     service = _build_service(central_token)
-    return _find_or_create_folder(service, folder_name)
+    root = _find_or_create_folder(service, CENTRAL_ROOT_FOLDER)
+    return _find_or_create_folder(service, folder_name, root)
 
 
 def search_answer_pdfs_central(central_token: str, material_folder_name: str) -> list[dict]:
-    """중앙 드라이브의 '숙제 채점 자료' 폴더에서 PDF 검색"""
+    """중앙 드라이브의 교재 폴더에서 PDF 검색: 과제 관리 / {material_folder_name}"""
     service = _build_service(central_token)
-    folder_id = _find_or_create_folder(service, material_folder_name)
+    root = _find_or_create_folder(service, CENTRAL_ROOT_FOLDER)
+    folder_id = _find_or_create_folder(service, material_folder_name, root)
 
     all_pdfs = []
     _search_pdfs_recursive(service, folder_id, "", all_pdfs)
     return all_pdfs
 
 
-def download_file_central(central_token: str, file_id: str) -> bytes:
-    """중앙 드라이브에서 파일 다운로드"""
-    service = _build_service(central_token)
-    request = service.files().get_media(fileId=file_id)
-    buffer = io.BytesIO()
-    downloader = MediaIoBaseDownload(buffer, request)
-    done = False
-    while not done:
-        _, done = downloader.next_chunk()
-    return buffer.getvalue()
+def download_file_central(central_token: str, file_id: str, retries: int = 2) -> bytes:
+    """중앙 드라이브에서 파일 다운로드 (재시도 포함)"""
+    last_err = None
+    for attempt in range(1, retries + 1):
+        try:
+            service = _build_service(central_token)
+            request = service.files().get_media(fileId=file_id)
+            buffer = io.BytesIO()
+            downloader = MediaIoBaseDownload(buffer, request)
+            done = False
+            while not done:
+                _, done = downloader.next_chunk()
+            return buffer.getvalue()
+        except Exception as e:
+            last_err = e
+            logger.warning(f"[Drive] 다운로드 실패 (시도 {attempt}/{retries}, file={file_id}): {e}")
+            if attempt < retries:
+                import time
+                time.sleep(1.5 * attempt)
+    raise RuntimeError(f"드라이브 파일 다운로드 실패 ({file_id}): {last_err}")
 
 
 def upload_to_central(central_token: str, folder_name: str, sub_path: list[str],
-                      filename: str, image_bytes: bytes, mime_type: str = "image/jpeg") -> dict:
-    """중앙 드라이브에 채점 결과 업로드
-    folder_name: '채점 결과'
-    sub_path: ['수학', '문제집A', '김민철']
-    """
-    service = _build_service(central_token)
-    parent = _find_or_create_folder(service, folder_name)
-    for folder in sub_path:
-        parent = _find_or_create_folder(service, folder, parent)
-
-    return _upload_file(service, parent, filename, image_bytes, mime_type)
+                      filename: str, image_bytes: bytes, mime_type: str = "image/jpeg",
+                      retries: int = 2) -> dict:
+    """중앙 드라이브에 업로드: 과제 관리 / {folder_name} / {sub_path...} / {filename}"""
+    last_err = None
+    for attempt in range(1, retries + 1):
+        try:
+            service = _build_service(central_token)
+            root = _find_or_create_folder(service, CENTRAL_ROOT_FOLDER)
+            parent = _find_or_create_folder(service, folder_name, root)
+            for folder in sub_path:
+                parent = _find_or_create_folder(service, folder, parent)
+            return _upload_file(service, parent, filename, image_bytes, mime_type)
+        except Exception as e:
+            last_err = e
+            logger.warning(f"[Drive] 업로드 실패 (시도 {attempt}/{retries}, file={filename}): {e}")
+            if attempt < retries:
+                import time
+                time.sleep(1.5 * attempt)
+    raise RuntimeError(f"드라이브 업로드 실패 ({filename}): {last_err}")
 
 
 def upload_page_images_to_central(
@@ -93,19 +113,11 @@ def upload_page_images_to_central(
     page_images: list[dict],
     root_folder_name: str = "교재 페이지 이미지",
 ) -> list[dict]:
-    """교재 페이지 이미지를 중앙 드라이브에 업로드
-
-    Args:
-        central_token: 중앙 관리자 refresh_token
-        title: 교재 제목 (폴더명으로 사용)
-        page_images: [{"page": 1, "image_bytes": bytes}, ...]
-        root_folder_name: 루트 폴더명
-
-    Returns:
-        [{"page": 1, "drive_file_id": "abc", "url": "https://..."}, ...]
-    """
+    """교재 페이지 이미지 업로드: 과제 관리 / 교재 / {root_folder_name} / {title}"""
     service = _build_service(central_token)
-    root_id = _find_or_create_folder(service, root_folder_name)
+    central_root = _find_or_create_folder(service, CENTRAL_ROOT_FOLDER)
+    material_root = _find_or_create_folder(service, "교재", central_root)
+    root_id = _find_or_create_folder(service, root_folder_name, material_root)
     book_id = _find_or_create_folder(service, title, root_id)
 
     results = []

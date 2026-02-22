@@ -25,9 +25,11 @@ PORT = int(os.getenv("PORT", "8000"))
 # 예: "https://your-app.vercel.app,https://your-domain.com"
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "")
 
-# 중앙 드라이브(jjyown@gmail.com) 폴더 이름
-CENTRAL_GRADING_MATERIAL_FOLDER = os.getenv("CENTRAL_GRADING_MATERIAL_FOLDER", "숙제 채점 자료")
+# 중앙 드라이브 폴더 구조: 과제 관리 / {교재, 제출 과제, 채점 결과}
+CENTRAL_ROOT_FOLDER = os.getenv("CENTRAL_ROOT_FOLDER", "과제 관리")
+CENTRAL_GRADING_MATERIAL_FOLDER = os.getenv("CENTRAL_GRADING_MATERIAL_FOLDER", "교재")
 CENTRAL_GRADED_RESULT_FOLDER = os.getenv("CENTRAL_GRADED_RESULT_FOLDER", "채점 결과")
+CENTRAL_SUBMIT_FOLDER = os.getenv("CENTRAL_SUBMIT_FOLDER", "제출 과제")
 
 # Rate Limiting (채점 API: 분당 최대 요청 수)
 RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "30"))

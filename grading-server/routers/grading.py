@@ -221,16 +221,17 @@ async def _execute_grading(
     page_info_parts = []
     total_images = len(image_bytes_list)
 
+    # 공통 폴더 경로: 채점 결과 / {년}년 / {월}월 / {일}일-{학생이름}
+    now = datetime.now()
+    student_name = student.get("name", "학생")
+    result_sub_path = [f"{now.year}년", f"{now.month}월", f"{now.day}일-{student_name}"]
+
     if not answer_key:
         logger.warning(f"배정된 교재 없음 (student: {student_id}) → 확인 요청 상태로 전환")
-        now = datetime.now()
-        date_label = f"{now.year}년 {now.month}월 {now.day}일"
-        folder_date = f"{date_label} {student['name']}"
         for idx, img_bytes in enumerate(image_bytes_list):
-            filename = f"{date_label} {student['name']} 원본_{idx+1}.jpg"
-            sub_path = [folder_date]
+            filename = f"원본_{idx+1}.jpg"
             uploaded = upload_to_central(
-                central_token, CENTRAL_GRADED_RESULT_FOLDER, sub_path, filename, img_bytes
+                central_token, CENTRAL_GRADED_RESULT_FOLDER, result_sub_path, filename, img_bytes
             )
             central_graded_urls.append(uploaded["url"])
             central_graded_ids.append(uploaded["id"])
@@ -287,102 +288,199 @@ async def _execute_grading(
         question_types=question_types,
     )
 
+    # ── OCR 기반 교재 재검증 (여러 교재 배정 시 오매칭 방지) ──
+    # 조건: 학생에게 교재가 2개 이상 + OCR에서 교재 정보 감지된 경우만
+    try:
+        book_keys = await get_student_book_keys(student_id)
+        if book_keys and len(book_keys) > 1:
+            ocr_textbook_names = []
+            for r in (ocr1_results or []):
+                tb_name = (r.get("textbook_info") or {}).get("name", "")
+                if tb_name:
+                    ocr_textbook_names.append(tb_name)
+
+            if ocr_textbook_names:
+                detected_name = ocr_textbook_names[0].lower().strip()
+                current_title = (answer_key.get("title") or "").lower().strip()
+
+                # 현재 선택된 교재와 OCR 감지 교재명이 다르면 재매칭 시도
+                if detected_name and current_title and detected_name not in current_title and current_title not in detected_name:
+                    # 1차: 간단한 제목 포함 매칭 (AI 호출 없음, 비용 0)
+                    title_matched = None
+                    for bk in book_keys:
+                        bk_title = (bk.get("title") or "").lower().strip()
+                        if detected_name in bk_title or bk_title in detected_name:
+                            title_matched = bk
+                            break
+
+                    if title_matched and title_matched.get("id") != answer_key_id:
+                        better_key = await get_answer_key(title_matched["id"])
+                        if better_key:
+                            logger.info(
+                                f"[AutoMatch] 교재 재매칭: '{answer_key.get('title')}' → "
+                                f"'{better_key.get('title')}' (OCR 감지: '{ocr_textbook_names[0]}')"
+                            )
+                            answer_key = better_key
+                            answer_key_id = better_key["id"]
+                            expected_questions = sorted(
+                                (answer_key.get("answers_json") or {}).keys(),
+                                key=lambda x: (int(re.match(r"(\d+)", x).group(1)) if re.match(r"(\d+)", x) else 9999)
+                            )
+                            question_types = answer_key.get("question_types_json") or None
+                    elif not title_matched:
+                        # 2차: AI 매칭 (제목 매칭 실패 시 — Gemini Flash 1회 호출)
+                        from integrations.gemini import match_answer_key
+                        combined_text = " ".join(ocr_textbook_names)
+                        better_id = await match_answer_key(combined_text, book_keys)
+                        if better_id and better_id != answer_key_id:
+                            better_key = await get_answer_key(better_id)
+                            if better_key:
+                                logger.info(
+                                    f"[AutoMatch-AI] 교재 재매칭: '{answer_key.get('title')}' → "
+                                    f"'{better_key.get('title')}' (AI 매칭)"
+                                )
+                                answer_key = better_key
+                                answer_key_id = better_key["id"]
+                                expected_questions = sorted(
+                                    (answer_key.get("answers_json") or {}).keys(),
+                                    key=lambda x: (int(re.match(r"(\d+)", x).group(1)) if re.match(r"(\d+)", x) else 9999)
+                                )
+                                question_types = answer_key.get("question_types_json") or None
+    except Exception as e:
+        logger.warning(f"[AutoMatch] 교재 재검증 실패 (무시): {e}")
+
     update_progress(result_id, "grading", 0, total_images, "채점 시작...")
     solution_only_count = 0
     graded_questions = set()
 
-    for idx, img_bytes in enumerate(image_bytes_list):
-        update_progress(result_id, "grading", idx + 1, total_images,
-                        f"이미지 {idx+1}/{total_images} 채점 중...")
+    # answer_sheet(교재/프린트)를 먼저, solution_only(풀이 노트)를 나중에 처리
+    # → 교재에서 정확한 답을 먼저 채점하고, 풀이 노트는 참고/보충용으로 처리
+    grading_order = sorted(
+        range(len(image_bytes_list)),
+        key=lambda i: 0 if (ocr_results[i] or {}).get("page_type") != "solution_only" else 1,
+    )
+    if grading_order != list(range(len(image_bytes_list))):
+        logger.info(f"[Grade] 이미지 순서 재정렬: {grading_order} (answer_sheet 우선)")
 
-        ocr_data = ocr_results[idx] if idx < len(ocr_results) else None
-        is_solution_only = (ocr_data or {}).get("page_type") == "solution_only"
-        ocr_answers = (ocr_data or {}).get("answers", {})
-        logger.info(f"[Grade] 이미지 {idx+1}/{total_images}: page_type={ocr_data.get('page_type', '?') if ocr_data else 'None'}, "
-                    f"인식문제={len(ocr_answers)}개, 문제번호={list(ocr_answers.keys())[:10]}")
+    failed_images = []
 
-        if is_solution_only:
-            solution_only_count += 1
-            logger.info(f"[Grade] 이미지 {idx+1}: 풀이 노트 → 원본 저장")
-            page_info_parts.append(f"풀이노트 {solution_only_count}")
+    for step, idx in enumerate(grading_order):
+        img_bytes = image_bytes_list[idx]
+        update_progress(result_id, "grading", step + 1, total_images,
+                        f"이미지 {step+1}/{total_images} 채점 중...")
 
-            now = datetime.now()
-            date_label = f"{now.year}년 {now.month}월 {now.day}일"
-            filename = f"{date_label} {student['name']} 풀이_{idx+1}.jpg"
-            sub_path = [f"{date_label} {student['name']}"]
+        try:
+            ocr_data = ocr_results[idx] if idx < len(ocr_results) else None
+            is_solution_only = (ocr_data or {}).get("page_type") == "solution_only"
+            ocr_answers = (ocr_data or {}).get("answers", {})
+            logger.info(f"[Grade] 이미지 {idx+1}/{total_images}: page_type={ocr_data.get('page_type', '?') if ocr_data else 'None'}, "
+                        f"인식문제={len(ocr_answers)}개, 문제번호={list(ocr_answers.keys())[:10]}")
+
+            if is_solution_only and not ocr_answers:
+                solution_only_count += 1
+                logger.info(f"[Grade] 이미지 {idx+1}: 풀이 노트 (답 미인식) → 원본 저장")
+                page_info_parts.append(f"풀이노트 {solution_only_count}")
+
+                filename = f"풀이_{idx+1}.jpg"
+                central_uploaded = upload_to_central(
+                    central_token, CENTRAL_GRADED_RESULT_FOLDER, result_sub_path, filename, img_bytes
+                )
+                central_graded_urls.append(central_uploaded["url"])
+                central_graded_ids.append(central_uploaded["id"])
+                continue
+
+            if is_solution_only and ocr_answers:
+                logger.info(f"[Grade] 이미지 {idx+1}: 풀이 노트지만 답 {len(ocr_answers)}개 인식 → 채점 진행")
+
+            answers_json = answer_key.get("answers_json", {})
+            types_json = answer_key.get("question_types_json", {})
+
+            grade_result = await grade_submission(
+                img_bytes, answers_json, types_json,
+                ocr_result=ocr_data,
+                skip_questions=graded_questions if graded_questions else None,
+            )
+
+            newly_graded = grade_result.get("graded_questions", set())
+            if newly_graded:
+                graded_questions.update(newly_graded)
+
+            ak_title = answer_key.get("title", "")
+            ocr_page = grade_result.get("textbook_info", {}).get("page", "")
+            if ak_title:
+                pi = ak_title
+                if ocr_page:
+                    pi += f" p.{ocr_page}"
+                page_info_parts.append(pi)
+            elif grade_result.get("page_info"):
+                page_info_parts.append(grade_result["page_info"])
+
+            graded_img = create_graded_image(
+                img_bytes, grade_result["items"],
+                grade_result["total_score"], grade_result["max_score"]
+            )
+
+            filename = f"채점_{idx+1}.jpg"
             central_uploaded = upload_to_central(
-                central_token, CENTRAL_GRADED_RESULT_FOLDER, sub_path, filename, img_bytes
+                central_token, CENTRAL_GRADED_RESULT_FOLDER, result_sub_path, filename, graded_img
             )
             central_graded_urls.append(central_uploaded["url"])
             central_graded_ids.append(central_uploaded["id"])
-            continue
 
-        answers_json = answer_key.get("answers_json", {})
-        types_json = answer_key.get("question_types_json", {})
+            db_fields = {
+                "result_id", "question_number", "question_label", "question_type",
+                "student_answer", "correct_answer", "is_correct",
+                "confidence", "ocr1_answer", "ocr2_answer",
+                "ai_score", "ai_max_score", "ai_feedback",
+                "position_x", "position_y",
+            }
+            for item in grade_result["items"]:
+                item["result_id"] = result_id
+                db_item = {k: v for k, v in item.items() if k in db_fields}
+                all_items.append(db_item)
 
-        grade_result = await grade_submission(
-            img_bytes, answers_json, types_json,
-            ocr_result=ocr_data,
-            skip_questions=graded_questions if graded_questions else None,
-        )
+            total_correct += grade_result["correct_count"]
+            total_wrong += grade_result["wrong_count"]
+            total_uncertain += grade_result["uncertain_count"]
+            total_unanswered += grade_result.get("unanswered_count", 0)
+            total_questions += grade_result["total_questions"]
+            total_score += grade_result["total_score"]
+            max_score += grade_result["max_score"]
 
-        newly_graded = grade_result.get("graded_questions", set())
-        if newly_graded:
-            graded_questions.update(newly_graded)
+        except Exception as img_err:
+            failed_images.append(idx + 1)
+            logger.error(f"[Grade] 이미지 {idx+1}/{total_images} 채점 실패 (계속 진행): {img_err}", exc_info=True)
+            page_info_parts.append(f"이미지{idx+1} 실패")
+            # 실패한 이미지의 원본이라도 저장 시도
+            try:
+                filename = f"실패_{idx+1}.jpg"
+                fallback = upload_to_central(
+                    central_token, CENTRAL_GRADED_RESULT_FOLDER, result_sub_path, filename, img_bytes
+                )
+                central_graded_urls.append(fallback["url"])
+                central_graded_ids.append(fallback["id"])
+            except Exception:
+                logger.warning(f"[Grade] 실패 이미지 {idx+1} 원본 저장도 실패")
 
-        ak_title = answer_key.get("title", "")
-        ocr_page = grade_result.get("textbook_info", {}).get("page", "")
-        if ak_title:
-            pi = ak_title
-            if ocr_page:
-                pi += f" p.{ocr_page}"
-            page_info_parts.append(pi)
-        elif grade_result.get("page_info"):
-            page_info_parts.append(grade_result["page_info"])
-
-        graded_img = create_graded_image(
-            img_bytes, grade_result["items"],
-            grade_result["total_score"], grade_result["max_score"]
-        )
-
-        now = datetime.now()
-        date_label = f"{now.year}년 {now.month}월 {now.day}일"
-        filename = f"{date_label} {student['name']} 채점_{idx+1}.jpg"
-        sub_path = [f"{date_label} {student['name']}"]
-
-        central_uploaded = upload_to_central(
-            central_token, CENTRAL_GRADED_RESULT_FOLDER, sub_path, filename, graded_img
-        )
-        central_graded_urls.append(central_uploaded["url"])
-        central_graded_ids.append(central_uploaded["id"])
-
-        db_fields = {
-            "result_id", "question_number", "question_label", "question_type",
-            "student_answer", "correct_answer", "is_correct",
-            "confidence", "ocr1_answer", "ocr2_answer",
-            "ai_score", "ai_max_score", "ai_feedback",
-            "position_x", "position_y",
-        }
-        for item in grade_result["items"]:
-            item["result_id"] = result_id
-            db_item = {k: v for k, v in item.items() if k in db_fields}
-            all_items.append(db_item)
-
-        total_correct += grade_result["correct_count"]
-        total_wrong += grade_result["wrong_count"]
-        total_uncertain += grade_result["uncertain_count"]
-        total_unanswered += grade_result.get("unanswered_count", 0)
-        total_questions += grade_result["total_questions"]
-        total_score += grade_result["total_score"]
-        max_score += grade_result["max_score"]
+    if failed_images:
+        logger.warning(f"[Grade] 총 {len(failed_images)}장 실패: {failed_images}")
 
     update_progress(result_id, "saving", total_images, total_images, "결과 저장 중...")
     if all_items:
         await create_grading_items(all_items)
 
     combined_page_info = " / ".join(page_info_parts) if page_info_parts else ""
-    status = "confirmed" if total_uncertain == 0 else "review_needed"
-    await update_grading_result(result_id, {
+    # 실패 이미지가 있으면 무조건 review_needed + 에러 메시지 기록
+    if failed_images:
+        status = "review_needed"
+    else:
+        status = "confirmed" if total_uncertain == 0 else "review_needed"
+
+    error_message = ""
+    if failed_images:
+        error_message = f"이미지 {len(failed_images)}장 채점 실패 (이미지 번호: {failed_images}). 나머지는 정상 채점되었습니다."
+
+    update_data = {
         "answer_key_id": answer_key_id,
         "correct_count": total_correct,
         "wrong_count": total_wrong,
@@ -395,7 +493,10 @@ async def _execute_grading(
         "page_info": combined_page_info,
         "central_graded_drive_ids": central_graded_ids,
         "central_graded_image_urls": central_graded_urls,
-    })
+    }
+    if error_message:
+        update_data["error_message"] = error_message
+    await update_grading_result(result_id, update_data)
 
     if homework_submission_id:
         await update_submission_grading_status(homework_submission_id, "graded")
@@ -408,15 +509,21 @@ async def _execute_grading(
             notif_message += f" ({combined_page_info})"
         if score_text:
             notif_message += f" - {score_text}"
-        if status == "review_needed":
+        if failed_images:
+            notif_message += f" [이미지 {len(failed_images)}장 실패]"
+        elif status == "review_needed":
             notif_message += " [검토 필요]"
+
+        notif_type = "grading_failed" if failed_images else "grading_complete"
+        notif_title = "채점 완료 (일부 실패)" if failed_images else "채점 완료"
 
         await create_notification({
             "teacher_id": teacher_id,
-            "type": "grading_complete",
-            "title": "채점 완료",
+            "type": notif_type,
+            "title": notif_title,
             "message": notif_message,
-            "data": {"result_id": result_id, "student_id": student_id, "status": status},
+            "data": {"result_id": result_id, "student_id": student_id, "status": status,
+                     "failed_images": failed_images if failed_images else None},
             "read": False,
         })
     except Exception as notif_err:

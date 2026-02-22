@@ -14,6 +14,7 @@ from PIL import Image, ImageEnhance, ImageFilter, ExifTags
 logger = logging.getLogger(__name__)
 
 TARGET_MAX_DIM = 2048
+TARGET_MIN_DIM = 1200   # 이보다 작으면 확대 (손글씨 인식률 향상)
 JPEG_QUALITY = 88
 DESKEW_MAX_ANGLE = 15  # 이 각도 이하만 보정 (과도한 회전 방지)
 
@@ -30,9 +31,11 @@ def preprocess_image(image_bytes: bytes) -> bytes:
 
     1) EXIF 회전 보정 (폰카 세로/가로 자동 감지)
     2) 기울기 자동 보정 (Deskew - 비뚤게 찍힌 사진 수평 맞추기)
-    3) 해상도 정규화 (너무 크면 축소, 너무 작으면 유지)
-    4) 자동 대비 향상 (어두운 사진 보정)
-    5) 샤프닝 (흐릿한 사진 보정)
+    3) 해상도 정규화 (너무 크면 축소, 너무 작으면 확대)
+    4) 노이즈 제거 (노트 줄, 지우개 흔적, 종이 얼룩)
+    5) 자동 대비 향상 (어두운 사진 보정)
+    6) 적응형 이진화 (연필 필기 강화)
+    7) 조건부 샤프닝 (UnsharpMask - 흐릿한 사진만)
 
     Returns:
         전처리된 JPEG 바이트
@@ -50,16 +53,19 @@ def preprocess_image(image_bytes: bytes) -> bytes:
         # 2) 기울기 자동 보정 (Deskew)
         img = _deskew(img)
 
-        # 3) 해상도 정규화 (너무 큰 이미지 축소)
+        # 3) 해상도 정규화 (너무 큰 이미지 축소 + 너무 작은 이미지 확대)
         img = _normalize_resolution(img)
 
-        # 4) 자동 대비 향상
+        # 4) 노이즈 제거 (노트 줄, 지우개 흔적, 종이 얼룩 — 대비 향상 전에 실행)
+        img = _denoise(img)
+
+        # 5) 자동 대비 향상
         img = _auto_enhance(img)
 
-        # 5) 적응형 이진화 (연필 필기 강화)
+        # 6) 적응형 이진화 (연필 필기 강화)
         img = _adaptive_binarize(img)
 
-        # 6) 조건부 샤프닝 (흐릿한 이미지만 - Laplacian variance 기반)
+        # 7) 조건부 샤프닝 (흐릿한 이미지만 - UnsharpMask 적용)
         img = _conditional_sharpen(img)
 
         # JPEG 출력
@@ -208,7 +214,11 @@ def _deskew(img: Image.Image) -> Image.Image:
 
 
 def _normalize_resolution(img: Image.Image) -> Image.Image:
-    """너무 큰 이미지 축소 (OCR 최적 해상도 유지)"""
+    """해상도 정규화: 너무 크면 축소, 너무 작으면 확대
+
+    작은 이미지를 그대로 보내면 손글씨가 AI에게 너무 작아 보여
+    획을 구분하지 못함. 특히 중학생 악필은 해상도가 클수록 인식률이 올라감.
+    """
     w, h = img.size
     max_dim = max(w, h)
 
@@ -217,8 +227,43 @@ def _normalize_resolution(img: Image.Image) -> Image.Image:
         new_w = int(w * ratio)
         new_h = int(h * ratio)
         img = img.resize((new_w, new_h), Image.LANCZOS)
+        logger.debug(f"[Resolution] 축소: {w}x{h} → {new_w}x{new_h}")
+    elif max_dim < TARGET_MIN_DIM:
+        ratio = TARGET_MIN_DIM / max_dim
+        new_w = int(w * ratio)
+        new_h = int(h * ratio)
+        img = img.resize((new_w, new_h), Image.LANCZOS)
+        logger.debug(f"[Resolution] 확대: {w}x{h} → {new_w}x{new_h}")
 
     return img
+
+
+def _denoise(img: Image.Image) -> Image.Image:
+    """노이즈 제거: 노트 줄, 지우개 흔적, 종이 얼룩 등 배경 잡음 축소
+
+    OpenCV의 Non-local Means Denoising을 사용. 글씨의 획은 유지하면서
+    배경의 미세한 점, 줄, 얼룩만 제거하는 필터.
+    h 파라미터를 보수적(7)으로 설정하여 글씨가 뭉개지지 않게 함.
+    """
+    if not HAS_CV2:
+        return img
+
+    import numpy as np
+    try:
+        cv_img = np.array(img)
+        denoised = cv2.fastNlMeansDenoisingColored(
+            cv_img,
+            None,
+            h=7,              # 밝기 노이즈 필터 강도 (낮을수록 보수적)
+            hForColorComponents=7,
+            templateWindowSize=7,
+            searchWindowSize=21,
+        )
+        logger.debug("[Denoise] 노이즈 제거 적용")
+        return Image.fromarray(denoised)
+    except Exception as e:
+        logger.debug(f"[Denoise] 노이즈 제거 실패, 원본 유지: {e}")
+        return img
 
 
 def _auto_enhance(img: Image.Image) -> Image.Image:
@@ -305,9 +350,12 @@ def _conditional_sharpen(img: Image.Image) -> Image.Image:
 
     Laplacian variance가 BLUR_THRESHOLD 미만이면 흐릿한 것으로 판단.
     이미 선명한 이미지에 샤프닝하면 노이즈가 증가하여 OCR 정확도가 떨어짐.
+
+    UnsharpMask를 사용: 글씨 획의 경계만 선택적으로 강화하여
+    기본 SHARPEN보다 손글씨 인식에 효과적.
     """
     if not HAS_CV2:
-        img = img.filter(ImageFilter.SHARPEN)
+        img = img.filter(ImageFilter.UnsharpMask(radius=2, percent=120, threshold=3))
         return img
 
     import numpy as np
@@ -316,12 +364,16 @@ def _conditional_sharpen(img: Image.Image) -> Image.Image:
         variance = cv2.Laplacian(gray, cv2.CV_64F).var()
 
         if variance < BLUR_THRESHOLD:
-            img = img.filter(ImageFilter.SHARPEN)
-            logger.debug(f"[Sharpen] 흐릿함 감지 (variance={variance:.1f}) → 샤프닝 적용")
+            img = img.filter(ImageFilter.UnsharpMask(
+                radius=2.5,     # 블러 반경 (큰 값 = 넓은 영역의 경계 강화)
+                percent=150,    # 강도 (높을수록 경계 대비 증가)
+                threshold=3,    # 이 차이 이상인 경계만 강화 (노이즈 무시)
+            ))
+            logger.debug(f"[Sharpen] 흐릿함 감지 (variance={variance:.1f}) → UnsharpMask 적용")
         else:
             logger.debug(f"[Sharpen] 충분히 선명 (variance={variance:.1f}) → 샤프닝 건너뜀")
     except Exception as e:
         logger.debug(f"[Sharpen] 선명도 측정 실패, 기본 샤프닝: {e}")
-        img = img.filter(ImageFilter.SHARPEN)
+        img = img.filter(ImageFilter.UnsharpMask(radius=2, percent=120, threshold=3))
 
     return img

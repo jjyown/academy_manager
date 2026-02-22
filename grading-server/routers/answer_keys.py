@@ -61,6 +61,8 @@ async def update_answer_key(key_id: int, request: Request):
             update_data["question_types_json"] = merged_types
         if "bookmarks_json" in body:
             update_data["bookmarks_json"] = body["bookmarks_json"]
+        if "grade_level" in body:
+            update_data["grade_level"] = body["grade_level"]
 
         if not update_data:
             return {"success": False, "message": "수정할 내용이 없습니다"}
@@ -111,6 +113,7 @@ async def parse_answer_key(
     teacher_id: str = Form(...),
     title: str = Form(...),
     subject: str = Form(""),
+    grade_level: str = Form(""),
     drive_file_id: str = Form(""),
     pdf_file: UploadFile = File(None),
     answer_page_range: str = Form(""),
@@ -164,6 +167,7 @@ async def parse_answer_key(
         "teacher_id": teacher_id,
         "title": title,
         "subject": subject,
+        "grade_level": grade_level or "",
         "drive_file_id": drive_file_id,
         "total_questions": result.get("total", 0),
         "answers_json": result.get("answers", {}),

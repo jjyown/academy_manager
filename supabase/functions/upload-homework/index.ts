@@ -13,7 +13,8 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-const DRIVE_FOLDER_NAME = "숙제 제출";
+const DRIVE_ROOT_FOLDER = "과제 관리";
+const DRIVE_SUBMIT_FOLDER = "제출 과제";
 
 async function getAccessToken(refreshToken: string): Promise<string> {
   const response = await fetch("https://oauth2.googleapis.com/token", {
@@ -99,11 +100,11 @@ async function getOrCreateFolderPath(
   day: string,
   studentName: string
 ): Promise<string> {
-  const rootId = await getOrCreateSubFolder(accessToken, DRIVE_FOLDER_NAME, null);
-  const yearId = await getOrCreateSubFolder(accessToken, `${year}년`, rootId);
+  const centralRoot = await getOrCreateSubFolder(accessToken, DRIVE_ROOT_FOLDER, null);
+  const submitRoot = await getOrCreateSubFolder(accessToken, DRIVE_SUBMIT_FOLDER, centralRoot);
+  const yearId = await getOrCreateSubFolder(accessToken, `${year}년`, submitRoot);
   const monthId = await getOrCreateSubFolder(accessToken, `${month}월`, yearId);
-  const dayId = await getOrCreateSubFolder(accessToken, `${day}일`, monthId);
-  const studentId = await getOrCreateSubFolder(accessToken, studentName, dayId);
+  const studentId = await getOrCreateSubFolder(accessToken, `${day}일-${studentName}`, monthId);
   return studentId;
 }
 
