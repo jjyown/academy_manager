@@ -368,10 +368,14 @@ async def save_feedback(request: Request):
         if not teacher_answer or ai_answer == teacher_answer:
             return {"saved": False, "reason": "no_change"}
 
-        error_type = _classify_error(
-            ai_answer, teacher_answer,
-            body.get("question_type", "multiple_choice"),
-        )
+        manual_type = body.get("manual_error_type")
+        if manual_type:
+            error_type = manual_type
+        else:
+            error_type = _classify_error(
+                ai_answer, teacher_answer,
+                body.get("question_type", "multiple_choice"),
+            )
 
         teacher_id = body.get("teacher_id")
         if not teacher_id:

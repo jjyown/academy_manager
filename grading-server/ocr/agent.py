@@ -343,6 +343,12 @@ async def _load_feedback_hint() -> str:
             lines.append(f"⚠ 객관식 번호 오인식 {error_counts['mc_wrong_number']}회 → 보기 위치 대조 필수!")
         if error_counts.get("ocr_misread", 0) > 0:
             lines.append(f"⚠ 단답형/서술형 오인식 {error_counts['ocr_misread']}회 → 최종 답란만 읽기!")
+        if error_counts.get("ambiguous_mark", 0) > 0:
+            lines.append(f"⚠ 모호한 표시(별표/취소선) 오인 {error_counts['ambiguous_mark']}회 → 별표·취소선·낙서는 답이 아님!")
+        if error_counts.get("wrong_question_area", 0) > 0:
+            lines.append(f"⚠ 다른 문제 영역 읽음 {error_counts['wrong_question_area']}회 → 해당 문제 번호 영역만 확인!")
+        if error_counts.get("mc_position_confusion", 0) > 0:
+            lines.append(f"⚠ 객관식 위치 혼동 {error_counts['mc_position_confusion']}회 → 보기 배치 위치 기반 판별 필수!")
 
         if examples:
             lines.append("최근 오류 예시:")
