@@ -1124,6 +1124,7 @@ async function handleLogin() {
 	sessionStorage.setItem('grading_teacher', JSON.stringify(teacher));
 	document.getElementById('login-error').style.display = 'none';
 	showPage('main');
+	renderCalendar();
 	loadAllData();
 }
 
@@ -1223,7 +1224,11 @@ function showToast(msg, type = 'info') {
 // 데이터 로드
 // ============================================================
 async function loadAllData() {
-	await Promise.all([loadResults(), loadAssignments(), loadAnswerKeys(), loadStats(), loadStudentList()]);
+	const results = await Promise.allSettled([loadResults(), loadAssignments(), loadAnswerKeys(), loadStats(), loadStudentList()]);
+	results.forEach((r, i) => {
+		if (r.status === 'rejected') console.warn(`[loadAllData] task ${i} failed:`, r.reason);
+	});
+	renderCalendar();
 	startProgressPolling();
 }
 
@@ -1312,14 +1317,17 @@ async function pollGradingProgress() {
 async function loadResults() {
 	if (!currentTeacher) return;
 	try {
+		const controller = new AbortController();
+		const timeoutId = setTimeout(() => controller.abort(), 10000);
 		const params = new URLSearchParams({ teacher_id: currentTeacher.owner_user_id });
-		const res = await fetch(`${GRADING_SERVER_URL}/api/results?${params}`);
+		const res = await fetch(`${GRADING_SERVER_URL}/api/results?${params}`, { signal: controller.signal });
+		clearTimeout(timeoutId);
 		if (!res.ok) throw new Error(`서버 응답 오류 (${res.status})`);
 		const result = await res.json();
 		currentResults = result.data || [];
 	} catch (e) {
 		console.warn('채점 결과 로드 실패:', e);
-		showToast('채점 결과 로드 실패: ' + e.message, 'error');
+		if (e.name !== 'AbortError') showToast('채점 결과 로드 실패: ' + e.message, 'error');
 		currentResults = [];
 	}
 	renderCalendar();
@@ -1968,12 +1976,18 @@ async function loadStudentList() {
 	} catch (e) { stuAllStudents = []; }
 
 	try {
-		const keysRes = await fetch(`${GRADING_SERVER_URL}/api/answer-keys?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`);
+		const c1 = new AbortController();
+		const t1 = setTimeout(() => c1.abort(), 10000);
+		const keysRes = await fetch(`${GRADING_SERVER_URL}/api/answer-keys?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`, { signal: c1.signal });
+		clearTimeout(t1);
 		stuAllBooks = (await keysRes.json()).data || [];
 	} catch (e) { stuAllBooks = []; }
 
 	try {
-		const booksRes = await fetch(`${GRADING_SERVER_URL}/api/student-books?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`);
+		const c2 = new AbortController();
+		const t2 = setTimeout(() => c2.abort(), 10000);
+		const booksRes = await fetch(`${GRADING_SERVER_URL}/api/student-books?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`, { signal: c2.signal });
+		clearTimeout(t2);
 		const allLinks = (await booksRes.json()).data || [];
 		stuBookMap = {};
 		allLinks.forEach(link => {
@@ -2155,7 +2169,10 @@ async function removeStudentBook(bookId, studentId) {
 async function loadAssignments() {
 	if (!currentTeacher) return;
 	try {
-		const res = await fetch(`${GRADING_SERVER_URL}/api/assignments?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`);
+		const controller = new AbortController();
+		const timeoutId = setTimeout(() => controller.abort(), 10000);
+		const res = await fetch(`${GRADING_SERVER_URL}/api/assignments?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`, { signal: controller.signal });
+		clearTimeout(timeoutId);
 		const result = await res.json();
 		currentAssignments = result.data || [];
 	} catch (e) {
@@ -2426,7 +2443,10 @@ async function loadAnswerKeys() {
 	if (!currentTeacher) return;
 	let data = [];
 	try {
-		const res = await fetch(`${GRADING_SERVER_URL}/api/answer-keys?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`);
+		const controller = new AbortController();
+		const timeoutId = setTimeout(() => controller.abort(), 10000);
+		const res = await fetch(`${GRADING_SERVER_URL}/api/answer-keys?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`, { signal: controller.signal });
+		clearTimeout(timeoutId);
 		const result = await res.json();
 		data = result.data || [];
 	} catch (e) {
@@ -3216,7 +3236,10 @@ async function loadStats() {
 	const el = document.getElementById('stats-content');
 	let results = [];
 	try {
-		const res = await fetch(`${GRADING_SERVER_URL}/api/stats?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`);
+		const controller = new AbortController();
+		const timeoutId = setTimeout(() => controller.abort(), 10000);
+		const res = await fetch(`${GRADING_SERVER_URL}/api/stats?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`, { signal: controller.signal });
+		clearTimeout(timeoutId);
 		const result = await res.json();
 		results = result.data || [];
 	} catch (e) {
@@ -3924,7 +3947,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 			if (match) {
 				currentTeacher = match;
 				showPage('main');
-				await loadAllData();
+				renderCalendar();
+				try {
+					await loadAllData();
+				} catch (loadErr) {
+					console.warn('[채점관리] 데이터 로드 중 오류 (달력은 표시됨):', loadErr);
+				}
 				await restoreNavState();
 			} else {
 				sessionStorage.removeItem('grading_teacher');
