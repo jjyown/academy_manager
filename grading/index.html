@@ -127,6 +127,9 @@
 		}
 
 		/* 토스트 */
+		.mc-pick-btn { padding:6px 14px; border-radius:8px; border:2px solid var(--border); background:var(--card); color:var(--text); font-size:16px; font-weight:700; cursor:pointer; transition:all .15s; }
+		.mc-pick-btn:hover { border-color:var(--primary); background:rgba(99,102,241,.1); }
+		.mc-pick-btn.active { border-color:var(--primary); background:var(--primary); color:#fff; }
 		.g-toast { position:fixed; top:20px; left:50%; transform:translateX(-50%); padding:12px 24px; border-radius:12px; font-size:14px; font-weight:600; z-index:9999; animation:fadeSlide 0.3s ease; }
 		.g-toast.success { background:var(--green); color:#fff; }
 		.g-toast.error { background:var(--red); color:#fff; }
@@ -803,6 +806,14 @@
 		<div class="modal-title"><i class="fas fa-edit" style="color:var(--primary);"></i> <span id="item-modal-title">문항 수정</span></div>
 		<div class="form-group">
 			<label class="form-label">학생 답 <span style="font-size:11px;color:var(--text-sec);">(AI 인식 오류 시 직접 수정)</span></label>
+			<div id="item-mc-buttons" style="display:none;margin-bottom:6px;display:flex;gap:6px;flex-wrap:wrap;">
+				<button type="button" class="mc-pick-btn" onclick="pickMcAnswer('①')">①</button>
+				<button type="button" class="mc-pick-btn" onclick="pickMcAnswer('②')">②</button>
+				<button type="button" class="mc-pick-btn" onclick="pickMcAnswer('③')">③</button>
+				<button type="button" class="mc-pick-btn" onclick="pickMcAnswer('④')">④</button>
+				<button type="button" class="mc-pick-btn" onclick="pickMcAnswer('⑤')">⑤</button>
+				<button type="button" class="mc-pick-btn" style="font-size:11px;color:var(--text-sec);" onclick="pickMcAnswer('(미풀이)')">미풀이</button>
+			</div>
 			<input class="input" id="item-student-answer" type="text" placeholder="학생이 실제로 적은 답">
 			<div id="item-original-answer" style="font-size:11px;color:var(--text-sec);margin-top:4px;display:none;">
 				<i class="fas fa-robot" style="margin-right:3px;"></i>AI 인식: <span id="item-ai-original"></span>
@@ -1777,6 +1788,11 @@ function openItemEdit(itemId) {
 	const studentInput = document.getElementById('item-student-answer');
 	studentInput.value = item.student_answer || '';
 
+	const isMc = !item.question_type || item.question_type === 'multiple_choice' || item.question_type === 'mc';
+	const mcBtns = document.getElementById('item-mc-buttons');
+	mcBtns.style.display = isMc ? 'flex' : 'none';
+	if (isMc) _highlightMcButton(item.student_answer || '');
+
 	const origDiv = document.getElementById('item-original-answer');
 	const origSpan = document.getElementById('item-ai-original');
 	origDiv.style.display = 'block';
@@ -1868,6 +1884,24 @@ async function saveItemEdit() {
 		currentItems = [];
 	}
 	renderQuestionGrid();
+}
+
+function pickMcAnswer(val) {
+	const input = document.getElementById('item-student-answer');
+	input.value = val;
+	input.dispatchEvent(new Event('input'));
+	document.querySelectorAll('.mc-pick-btn').forEach(btn => {
+		btn.classList.toggle('active', btn.textContent.trim() === val || (val === '(미풀이)' && btn.textContent.trim() === '미풀이'));
+	});
+}
+
+function _highlightMcButton(val) {
+	const norm = {'1':'①','2':'②','3':'③','4':'④','5':'⑤','①':'①','②':'②','③':'③','④':'④','⑤':'⑤'};
+	const target = norm[val] || val;
+	document.querySelectorAll('.mc-pick-btn').forEach(btn => {
+		const btnVal = btn.textContent.trim();
+		btn.classList.toggle('active', btnVal === target || (val === '(미풀이)' && btnVal === '미풀이'));
+	});
 }
 
 function toggleCustomReason() {
