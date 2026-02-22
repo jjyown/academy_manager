@@ -5,7 +5,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile
 
-from config import CENTRAL_GRADED_RESULT_FOLDER
+from config import CENTRAL_GRADED_RESULT_FOLDER, USE_GRADING_AGENT
 from progress import update_progress
 from file_utils import extract_images_from_zip
 from ocr.engines import ocr_gemini, cross_validate_ocr
@@ -221,10 +221,9 @@ async def _execute_grading(
     page_info_parts = []
     total_images = len(image_bytes_list)
 
-    # 공통 폴더 경로: 채점 결과 / {년}년 / {월}월 / {일}일-{학생이름}
     now = datetime.now()
     student_name = student.get("name", "학생")
-    result_sub_path = [f"{now.year}년", f"{now.month}월", f"{now.day}일-{student_name}"]
+    result_sub_path = [f"{now.year}년", f"{now.month}월", f"{now.day}일", student_name]
 
     if not answer_key:
         logger.warning(f"배정된 교재 없음 (student: {student_id}) → 확인 요청 상태로 전환")
@@ -268,7 +267,8 @@ async def _execute_grading(
 
     import asyncio
 
-    update_progress(result_id, "ocr", 1, 4, f"Gemini OCR 1차 처리 중 ({total_images}장)...")
+    total_ocr_steps = 5 if USE_GRADING_AGENT else 4
+    update_progress(result_id, "ocr", 1, total_ocr_steps, f"Gemini OCR 1차 처리 중 ({total_images}장)...")
     logger.info(f"[OCR] Gemini 2.5 Flash 더블체크 시작: {total_images}장"
                 f"{f', 유형 힌트 {len(question_types)}문제' if question_types else ''}")
     ocr1_tasks = [
@@ -281,12 +281,26 @@ async def _execute_grading(
         for r in ocr1_results
     ]
 
-    update_progress(result_id, "cross_validate", 2, 4, "Gemini 2차 검증 중...")
+    update_progress(result_id, "cross_validate", 2, total_ocr_steps, "Gemini 2차 검증 중...")
     ocr_results = await cross_validate_ocr(
         image_bytes_list, ocr1_results,
         expected_questions=expected_questions,
         question_types=question_types,
     )
+
+    # ── AI 에이전트: 개별 문제 집중 검증 (3단계) ──
+    if USE_GRADING_AGENT:
+        try:
+            from ocr.agent import agent_verify_ocr
+            update_progress(result_id, "agent_verify", 3, 5, "AI 에이전트 개별 문제 검증 중...")
+            ocr_results = await agent_verify_ocr(
+                image_bytes_list, ocr_results,
+                expected_questions=expected_questions,
+                question_types=question_types,
+            )
+            logger.info("[Agent] 에이전트 검증 완료")
+        except Exception as e:
+            logger.warning(f"[Agent] 에이전트 검증 실패, 기존 결과 사용: {e}")
 
     # ── OCR 기반 교재 재검증 (여러 교재 배정 시 오매칭 방지) ──
     # 조건: 학생에게 교재가 2개 이상 + OCR에서 교재 정보 감지된 경우만

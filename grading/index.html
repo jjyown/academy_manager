@@ -802,8 +802,11 @@
 	<div class="modal-box">
 		<div class="modal-title"><i class="fas fa-edit" style="color:var(--primary);"></i> <span id="item-modal-title">문항 수정</span></div>
 		<div class="form-group">
-			<label class="form-label">학생 답</label>
-			<div class="input" id="item-student-answer" style="background:var(--bg);"></div>
+			<label class="form-label">학생 답 <span style="font-size:11px;color:var(--text-sec);">(AI 인식 오류 시 직접 수정)</span></label>
+			<input class="input" id="item-student-answer" type="text" placeholder="학생이 실제로 적은 답">
+			<div id="item-original-answer" style="font-size:11px;color:var(--text-sec);margin-top:4px;display:none;">
+				<i class="fas fa-robot" style="margin-right:3px;"></i>AI 인식: <span id="item-ai-original"></span>
+			</div>
 		</div>
 		<div class="form-group">
 			<label class="form-label">정답</label>
@@ -1728,7 +1731,15 @@ function openItemEdit(itemId) {
 	if (!item) return;
 
 	document.getElementById('item-modal-title').textContent = `${item.question_number}번 문항`;
-	document.getElementById('item-student-answer').textContent = item.student_answer || '(인식 실패)';
+
+	const studentInput = document.getElementById('item-student-answer');
+	studentInput.value = item.student_answer || '';
+
+	const origDiv = document.getElementById('item-original-answer');
+	const origSpan = document.getElementById('item-ai-original');
+	origDiv.style.display = 'block';
+	origSpan.textContent = item.student_answer || '(인식 실패)';
+
 	document.getElementById('item-correct-answer').textContent = item.correct_answer || '-';
 	document.getElementById('item-teacher-score').value = item.teacher_score ?? item.ai_score ?? '';
 	document.getElementById('item-teacher-feedback').value = item.teacher_feedback || '';
@@ -1742,17 +1753,35 @@ function openItemEdit(itemId) {
 	}
 
 	document.getElementById('item-modal').dataset.itemId = itemId;
+	document.getElementById('item-modal').dataset.originalAnswer = item.student_answer || '';
 	document.getElementById('item-modal').classList.add('show');
 }
 
 async function saveItemEdit() {
-	const itemId = parseInt(document.getElementById('item-modal').dataset.itemId);
+	const modal = document.getElementById('item-modal');
+	const itemId = parseInt(modal.dataset.itemId);
+	const item = currentItems.find(i => i.id === itemId);
 	const score = document.getElementById('item-teacher-score').value;
 	const feedback = document.getElementById('item-teacher-feedback').value;
+	const newStudentAnswer = document.getElementById('item-student-answer').value.trim();
+	const originalAnswer = modal.dataset.originalAnswer || '';
 
 	const updates = {};
 	if (score !== '') updates.teacher_score = parseFloat(score);
 	if (feedback) updates.teacher_feedback = feedback;
+
+	const studentAnswerChanged = newStudentAnswer !== originalAnswer;
+	if (studentAnswerChanged && newStudentAnswer) {
+		updates.student_answer = newStudentAnswer;
+		const correctAnswer = (item?.correct_answer || '').trim();
+		if (correctAnswer) {
+			const isNowCorrect = _compareAnswers(newStudentAnswer, correctAnswer);
+			updates.is_correct = isNowCorrect;
+			if (!updates.teacher_score && updates.teacher_score !== 0) {
+				updates.teacher_score = isNowCorrect ? 1 : 0;
+			}
+		}
+	}
 
 	try {
 		const res = await fetch(`${GRADING_SERVER_URL}/api/items/${itemId}`, {
@@ -1765,7 +1794,11 @@ async function saveItemEdit() {
 		return showToast('서버 연결 실패', 'error');
 	}
 
-	showToast('저장 완료', 'success');
+	if (studentAnswerChanged && newStudentAnswer && item) {
+		_saveFeedback(item, originalAnswer, newStudentAnswer);
+	}
+
+	showToast(studentAnswerChanged ? '학생 답 수정 + 피드백 저장 완료' : '저장 완료', 'success');
 	closeModal('item-modal');
 
 	// 새로고침
@@ -1777,6 +1810,34 @@ async function saveItemEdit() {
 		currentItems = [];
 	}
 	renderQuestionGrid();
+}
+
+function _compareAnswers(studentAns, correctAns) {
+	const circleMap = {'①':'1','②':'2','③':'3','④':'4','⑤':'5'};
+	let a = studentAns.trim().toLowerCase().replace(/\s/g, '');
+	let b = correctAns.trim().toLowerCase().replace(/\s/g, '');
+	for (const [k, v] of Object.entries(circleMap)) { a = a.replace(k, v); b = b.replace(k, v); }
+	return a === b;
+}
+
+async function _saveFeedback(item, aiAnswer, teacherCorrectedAnswer) {
+	try {
+		await fetch(`${GRADING_SERVER_URL}/api/feedback`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				result_id: currentResultId,
+				item_id: item.id,
+				question_number: item.question_number,
+				question_type: item.question_type || 'multiple_choice',
+				ai_answer: aiAnswer,
+				correct_answer: item.correct_answer || '',
+				teacher_corrected_answer: teacherCorrectedAnswer,
+			}),
+		});
+	} catch (e) {
+		console.warn('피드백 저장 실패 (무시):', e);
+	}
 }
 
 async function confirmResult() {
@@ -3353,6 +3414,12 @@ async function quickGrade(idx, grade) {
 	if (grade === 'correct') item.is_correct = true;
 	else if (grade === 'wrong') item.is_correct = false;
 	else item.is_correct = null;
+
+	if (grade === 'correct' && item.is_correct !== true && item.student_answer) {
+		_saveFeedback(item, item.student_answer, item.student_answer);
+	} else if (grade === 'wrong' && item.is_correct !== false && item.student_answer) {
+		_saveFeedback(item, item.student_answer, item.student_answer);
+	}
 
 	renderQuestionGrid();
 

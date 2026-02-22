@@ -331,3 +331,30 @@ ALTER TABLE grading_items ADD COLUMN IF NOT EXISTS question_label TEXT DEFAULT '
 
 -- answer_keys.grade_level: 학년별 교재 분류용 컬럼 추가
 ALTER TABLE answer_keys ADD COLUMN IF NOT EXISTS grade_level TEXT DEFAULT '';
+
+-- ============================================================
+-- AI 피드백 학습 테이블: 선생님 수정 → AI 개선
+-- ============================================================
+CREATE TABLE IF NOT EXISTS grading_feedback (
+    id BIGSERIAL PRIMARY KEY,
+    teacher_id UUID REFERENCES auth.users(id),
+    result_id BIGINT REFERENCES grading_results(id) ON DELETE SET NULL,
+    item_id BIGINT REFERENCES grading_items(id) ON DELETE SET NULL,
+    question_number INTEGER,
+    question_type TEXT DEFAULT 'multiple_choice',
+    ai_answer TEXT NOT NULL DEFAULT '',
+    correct_answer TEXT DEFAULT '',
+    teacher_corrected_answer TEXT NOT NULL DEFAULT '',
+    error_type TEXT DEFAULT '',
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_grading_feedback_teacher ON grading_feedback(teacher_id);
+CREATE INDEX IF NOT EXISTS idx_grading_feedback_type ON grading_feedback(error_type);
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'feedback_teacher_all') THEN
+    EXECUTE 'CREATE POLICY feedback_teacher_all ON grading_feedback FOR ALL USING (auth.uid() = teacher_id)';
+  END IF;
+END $$;
+ALTER TABLE grading_feedback ENABLE ROW LEVEL SECURITY;

@@ -353,3 +353,99 @@ async def regrade_result(result_id: int, request: Request):
     except Exception as e:
         logger.error(f"[Regrade] result #{result_id} 재채점 실패: {e}", exc_info=True)
         raise HTTPException(500, f"재채점 실패: {str(e)[:200]}")
+
+
+# ---- AI 피드백 (선생님 수정 → AI 학습) ----
+
+@router.post("/feedback")
+async def save_feedback(request: Request):
+    """선생님이 AI 채점 결과를 수정한 내용을 피드백으로 저장"""
+    try:
+        body = await request.json()
+        ai_answer = body.get("ai_answer", "")
+        teacher_answer = body.get("teacher_corrected_answer", "")
+
+        if not teacher_answer or ai_answer == teacher_answer:
+            return {"saved": False, "reason": "no_change"}
+
+        error_type = _classify_error(
+            ai_answer, teacher_answer,
+            body.get("question_type", "multiple_choice"),
+        )
+
+        teacher_id = body.get("teacher_id")
+        if not teacher_id:
+            teacher_id = request.headers.get("x-teacher-id")
+
+        sb = get_supabase()
+        insert_data = {
+            "result_id": body.get("result_id"),
+            "item_id": body.get("item_id"),
+            "question_number": body.get("question_number"),
+            "question_type": body.get("question_type", "multiple_choice"),
+            "ai_answer": ai_answer,
+            "correct_answer": body.get("correct_answer", ""),
+            "teacher_corrected_answer": teacher_answer,
+            "error_type": error_type,
+        }
+        if teacher_id:
+            insert_data["teacher_id"] = teacher_id
+
+        res = await run_query(sb.table("grading_feedback").insert(insert_data).execute)
+        logger.info(
+            f"[Feedback] 저장: Q{body.get('question_number')} "
+            f"'{ai_answer}' → '{teacher_answer}' (error_type={error_type})"
+        )
+        return {"saved": True, "error_type": error_type, "data": res.data}
+    except Exception as e:
+        logger.warning(f"[Feedback] 저장 실패 (무시): {e}")
+        return {"saved": False, "error": str(e)[:200]}
+
+
+@router.get("/feedback/patterns")
+async def get_feedback_patterns(limit: int = 50):
+    """최근 피드백 패턴 조회 (에이전트 프롬프트용)"""
+    try:
+        sb = get_supabase()
+        res = await run_query(
+            sb.table("grading_feedback")
+            .select("question_type,ai_answer,teacher_corrected_answer,error_type,correct_answer")
+            .order("created_at", desc=True)
+            .limit(limit)
+            .execute
+        )
+        patterns = res.data or []
+
+        summary = {}
+        for p in patterns:
+            et = p.get("error_type", "unknown")
+            summary[et] = summary.get(et, 0) + 1
+
+        return {"patterns": patterns, "summary": summary, "total": len(patterns)}
+    except Exception as e:
+        logger.warning(f"[Feedback] 패턴 조회 실패: {e}")
+        return {"patterns": [], "summary": {}, "total": 0}
+
+
+def _classify_error(ai_answer: str, teacher_answer: str, question_type: str) -> str:
+    """오류 유형 자동 분류"""
+    circle_map = {"①": "1", "②": "2", "③": "3", "④": "4", "⑤": "5"}
+
+    if ai_answer == "unanswered" or ai_answer == "(미풀이)":
+        return "false_unanswered"
+
+    if teacher_answer == "unanswered" or teacher_answer == "(미풀이)":
+        return "false_answered"
+
+    if question_type == "multiple_choice":
+        a = ai_answer
+        t = teacher_answer
+        for k, v in circle_map.items():
+            a = a.replace(k, v)
+            t = t.replace(k, v)
+        pair = tuple(sorted([a.strip(), t.strip()]))
+        if pair == ("2", "5") or pair == ("②", "⑤"):
+            return "mc_2_5_confusion"
+        return "mc_wrong_number"
+
+    return "ocr_misread"

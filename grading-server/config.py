@@ -36,3 +36,6 @@ RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "30"))
 
 # AI API 타임아웃 (초)
 AI_API_TIMEOUT = int(os.getenv("AI_API_TIMEOUT", "120"))
+
+# AI 채점 에이전트 (개별 문제 집중 검증) - "true"이면 활성화
+USE_GRADING_AGENT = os.getenv("USE_GRADING_AGENT", "true").lower() in ("true", "1", "yes")

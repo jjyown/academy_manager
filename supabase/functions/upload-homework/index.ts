@@ -104,8 +104,9 @@ async function getOrCreateFolderPath(
   const submitRoot = await getOrCreateSubFolder(accessToken, DRIVE_SUBMIT_FOLDER, centralRoot);
   const yearId = await getOrCreateSubFolder(accessToken, `${year}년`, submitRoot);
   const monthId = await getOrCreateSubFolder(accessToken, `${month}월`, yearId);
-  const studentId = await getOrCreateSubFolder(accessToken, `${day}일-${studentName}`, monthId);
-  return studentId;
+  const dayId = await getOrCreateSubFolder(accessToken, `${day}일`, monthId);
+  const studentFolderId = await getOrCreateSubFolder(accessToken, studentName, dayId);
+  return studentFolderId;
 }
 
 async function deleteExistingFiles(
