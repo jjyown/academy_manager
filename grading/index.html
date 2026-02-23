@@ -150,7 +150,7 @@
 	/* 교재 상세 - 문제 테이블 (grid로 헤더-행 정렬 보장) */
 	.kd-table-header, .kd-row {
 		display:grid;
-		grid-template-columns: 64px 56px 1fr 36px;
+		grid-template-columns: 72px 56px 1fr 36px;
 		gap:8px;
 		align-items:center;
 		padding:6px 10px;
@@ -208,6 +208,53 @@
 	.kd-pages-wrap { overflow:hidden; max-height:calc(100vh - 220px); border-radius:8px; position:relative; cursor:grab; background:var(--bg); }
 	.kd-pages-wrap:active { cursor:grabbing; }
 	.kd-page-img { width:100%; border-radius:8px; border:1px solid var(--border); display:block; transform-origin:0 0; will-change:transform; user-select:none; -webkit-user-drag:none; }
+
+	/* 영역 마킹 모드 */
+	.kd-pages-wrap.region-mode { cursor:crosshair !important; outline:2px solid var(--primary); outline-offset:-2px; }
+	.kd-pages-wrap.region-mode:active { cursor:crosshair !important; }
+	.kd-region-marker {
+		position:absolute; width:22px; height:22px; border-radius:50%;
+		background:var(--primary); border:2px solid #fff;
+		display:flex; align-items:center; justify-content:center;
+		font-size:9px; font-weight:800; color:#fff;
+		pointer-events:auto; cursor:grab; z-index:10;
+		transform:translate(-50%,-50%);
+		box-shadow:0 2px 8px rgba(0,0,0,0.4);
+		transition:box-shadow 0.15s, transform 0.15s;
+	}
+	.kd-region-marker:hover { transform:translate(-50%,-50%) scale(1.2); box-shadow:0 2px 12px rgba(129,140,248,0.6); }
+	.kd-region-marker.active { background:var(--green); transform:translate(-50%,-50%) scale(1.3); box-shadow:0 0 0 4px rgba(34,197,94,0.3); }
+	.kd-region-marker.dragging { cursor:grabbing; opacity:0.8; }
+	.kd-region-marker .region-del-btn {
+		display:none; position:absolute; top:-8px; right:-8px;
+		width:16px; height:16px; border-radius:50%;
+		background:var(--red); border:1.5px solid #fff; color:#fff;
+		font-size:9px; line-height:1; cursor:pointer;
+		align-items:center; justify-content:center;
+		box-shadow:0 1px 4px rgba(0,0,0,0.3);
+	}
+	.kd-region-marker:hover .region-del-btn { display:flex; }
+	.kd-region-line {
+		position:absolute; left:0; right:0; height:1px;
+		border-top:1.5px dashed rgba(129,140,248,0.5);
+		pointer-events:none; z-index:5;
+	}
+	.kd-region-toolbar {
+		display:flex; align-items:center; gap:6px; padding:6px 10px;
+		background:rgba(129,140,248,0.1); border:1px solid rgba(129,140,248,0.3);
+		border-radius:8px; margin-top:6px; font-size:11px; color:var(--text-sec);
+	}
+	.kd-region-toolbar .active-q {
+		font-weight:700; color:var(--primary); font-size:12px;
+	}
+	.kd-row.region-active { background:rgba(129,140,248,0.12) !important; outline:2px solid var(--primary); outline-offset:-1px; border-radius:4px; }
+	.kd-row .kd-region-dot {
+		width:8px; height:8px; border-radius:50%; display:inline-block;
+		background:var(--green); margin-right:4px; vertical-align:middle;
+		box-shadow:0 0 0 2px rgba(34,197,94,0.25);
+	}
+	.kd-row .kd-region-dot:not(.empty):hover { background:var(--red); box-shadow:0 0 0 2px rgba(239,68,68,0.3); transform:scale(1.3); }
+	.kd-row .kd-region-dot.empty { background:transparent; border:1.5px dashed var(--gray); box-shadow:none; }
 
 	/* 파일 드래그앤드롭 */
 	.file-drop-zone { border:2px dashed var(--border); border-radius:12px; padding:24px 16px; text-align:center; cursor:pointer; transition:all 0.2s; background:var(--bg); }
@@ -715,8 +762,20 @@
 				<div class="card" id="kd-pages-section" style="margin-bottom:0;">
 					<div class="card-title" style="justify-content:space-between;">
 						<span><i class="fas fa-images"></i> 페이지 미리보기</span>
-						<button class="btn btn-sm btn-outline" onclick="refreshKeyPageImages()" title="새로고침" style="padding:4px 10px;font-size:12px;">
-							<i class="fas fa-sync-alt"></i>
+						<div style="display:flex;gap:4px;align-items:center;">
+							<button class="btn btn-sm btn-outline" id="kd-region-toggle" onclick="toggleRegionMode()" style="padding:4px 10px;font-size:11px;display:none;">
+								<i class="fas fa-map-marker-alt" style="margin-right:3px;"></i> <span id="kd-region-toggle-label">영역 표시</span>
+							</button>
+							<button class="btn btn-sm btn-outline" onclick="refreshKeyPageImages()" title="새로고침" style="padding:4px 10px;font-size:12px;">
+								<i class="fas fa-sync-alt"></i>
+							</button>
+						</div>
+					</div>
+					<div id="kd-region-toolbar" class="kd-region-toolbar" style="display:none;">
+						<span id="kd-region-status" style="flex:1;font-size:11px;">오른쪽 문제를 선택 후 이미지를 클릭하세요</span>
+						<span id="kd-region-active-q" class="active-q" style="display:none;"></span>
+						<button class="btn btn-sm btn-outline" onclick="clearPageRegions()" style="padding:3px 8px;font-size:10px;" title="현재 페이지 마커 초기화">
+							<i class="fas fa-eraser"></i>
 						</button>
 					</div>
 					<div class="kd-pages-wrap" id="kd-pages-wrap">
@@ -736,11 +795,11 @@
 						<button onclick="kdNextPage()" id="kd-btn-next" disabled><i class="fas fa-chevron-right"></i></button>
 					</div>
 					<div class="kd-bookmarks" id="kd-bookmarks"></div>
-					<div id="kd-pages-hint" style="display:none;font-size:11px;color:var(--text-sec);text-align:center;margin-top:6px;"></div>
-				</div>
+				<div id="kd-pages-hint" style="display:none;font-size:11px;color:var(--text-sec);text-align:center;margin-top:6px;"></div>
 			</div>
+		</div>
 
-			<!-- 오른쪽: 문제 목록 -->
+		<!-- 오른쪽: 문제 목록 -->
 			<div class="kd-split-right">
 				<div class="card" style="margin-bottom:0;">
 					<div class="card-title" style="justify-content:space-between;">
@@ -1138,7 +1197,7 @@ async function handleLogin() {
 	sessionStorage.setItem('grading_teacher', JSON.stringify(teacher));
 	document.getElementById('login-error').style.display = 'none';
 	showPage('main');
-	renderCalendar();
+	goToday();
 	loadAllData();
 }
 
@@ -1334,13 +1393,21 @@ async function pollGradingProgress() {
 			</div>`;
 		}).join('');
 
-		// 채점 진행 중이면 결과 목록도 주기적으로 새로고침
-		if (active.length > 0 && !container._reloadScheduled) {
-			container._reloadScheduled = true;
-			setTimeout(() => {
-				loadResults();
-				container._reloadScheduled = false;
-			}, 10000);
+		// 채점 진행 중이면 결과 탭으로 전환 + 결과 즉시 새로고침
+		if (active.length > 0) {
+			if (calSideTab !== 'result') {
+				switchSideTab('result');
+			}
+			if (!calSelectedDate) {
+				goToday();
+			}
+			if (!container._reloadScheduled) {
+				container._reloadScheduled = true;
+				setTimeout(() => {
+					loadResults();
+					container._reloadScheduled = false;
+				}, 3000);
+			}
 		}
 	} catch (e) {
 		// 폴링 실패는 무시
@@ -1586,13 +1653,24 @@ function renderSidePanel() {
 		content.innerHTML = filterHtml + results.map(r => {
 			const student = r.students || {};
 			const sm = statusMap[r.status] || { cls:'badge-grading', text:'채점 중', bg:'rgba(129,140,248,0.15)', icon:'⏳' };
+			const isGrading = r.status === 'grading' || r.status === 'regrading';
 			const unanswered = r.unanswered_count || 0;
-			const unansweredTag = unanswered > 0 ? ` · 미풀이 ${unanswered}` : '';
-			return `<div class="cal-result-item" onclick="openDetail(${r.id})">
+			const unansweredTag = !isGrading && unanswered > 0 ? ` · 미풀이 ${unanswered}` : '';
+
+			let titleText, subText;
+			if (isGrading) {
+				titleText = `${escapeHtml(student.name || '?')} · 채점 진행 중...`;
+				subText = `<span style="color:var(--primary);"><i class="fas fa-spinner fa-spin" style="margin-right:4px;"></i>AI가 답안을 분석하고 있습니다</span>`;
+			} else {
+				titleText = `${escapeHtml(student.name || '?')} · ${r.total_score}/${r.max_score}점`;
+				subText = `⭕${r.correct_count} ✘${r.wrong_count} ❓${r.uncertain_count}${unansweredTag}`;
+			}
+
+			return `<div class="cal-result-item" onclick="openDetail(${r.id})" ${isGrading ? 'style="opacity:0.8;"' : ''}>
 				<div class="cal-result-icon" style="background:${sm.bg};">${sm.icon}</div>
 				<div class="cal-result-info">
-					<div class="cal-result-title">${escapeHtml(student.name || '?')} · ${r.total_score}/${r.max_score}점</div>
-					<div class="cal-result-sub">⭕${r.correct_count} ✘${r.wrong_count} ❓${r.uncertain_count}${unansweredTag}</div>
+					<div class="cal-result-title">${titleText}</div>
+					<div class="cal-result-sub">${subText}</div>
 				</div>
 				<span class="cal-result-badge ${sm.cls}">${sm.text}</span>
 				<button class="cal-result-del" onclick="event.stopPropagation();deleteResult(${r.id},'${escapeHtml(student.name || '?')}')" title="삭제"><i class="fas fa-trash-alt"></i></button>
@@ -2820,6 +2898,7 @@ function applyKdZoom() {
 	if (img) img.style.transform = `translate(${kdPanX}px,${kdPanY}px) scale(${kdZoomLevel})`;
 	const label = document.getElementById('kd-zoom-label');
 	if (label) label.textContent = `${Math.round(kdZoomLevel * 100)}%`;
+	renderRegionMarkers();
 }
 
 (function initKdZoom() {
@@ -2841,19 +2920,37 @@ function applyKdZoom() {
 		}, { passive: false });
 
 		let drag = null;
+		let dragMoved = false;
 		wrap.addEventListener('mousedown', (e) => {
 			if (e.button !== 0) return;
+			if (kdRegionMode && !e.target.closest('.kd-region-marker')) {
+				// 영역 모드에서는 panning 대신 마커 배치
+				dragMoved = false;
+				drag = { sx: e.clientX, sy: e.clientY, regionMode: true };
+				e.preventDefault();
+				return;
+			}
 			drag = { sx: e.clientX - kdPanX, sy: e.clientY - kdPanY };
 			wrap.style.cursor = 'grabbing';
 			e.preventDefault();
 		});
 		window.addEventListener('mousemove', (e) => {
 			if (!drag) return;
+			if (drag.regionMode) {
+				if (Math.abs(e.clientX - drag.sx) > 3 || Math.abs(e.clientY - drag.sy) > 3) dragMoved = true;
+				return;
+			}
 			kdPanX = e.clientX - drag.sx;
 			kdPanY = e.clientY - drag.sy;
 			applyKdZoom();
 		});
-		window.addEventListener('mouseup', () => {
+		window.addEventListener('mouseup', (e) => {
+			if (drag && drag.regionMode) {
+				if (!dragMoved) handleRegionClick(e);
+				drag = null;
+				dragMoved = false;
+				return;
+			}
 			if (drag) { drag = null; const w = document.getElementById('kd-pages-wrap'); if(w) w.style.cursor = 'grab'; }
 		});
 
@@ -2902,9 +2999,12 @@ async function openKeyDetail(keyId) {
 	document.getElementById('kd-subject').value = currentKeyDetail.subject || '';
 	document.getElementById('kd-grade-level').value = currentKeyDetail.grade_level || '';
 
-	// 페이지 이미지 + 북마크
+	// 페이지 이미지 + 북마크 + 영역
 	kdPageImages = currentKeyDetail.page_images_json || [];
 	kdBookmarks = currentKeyDetail.bookmarks_json || [];
+	kdRegions = currentKeyDetail.regions_json || {};
+	kdRegionMode = false;
+	kdRegionActiveQ = null;
 	kdCurrentPage = 0;
 	renderKdPageImages();
 	renderKdBookmarks();
@@ -2957,7 +3057,7 @@ function renderKdPageImages(keepScroll) {
 	const imgUrl = fixDriveUrl(img.url);
 	container.innerHTML = `<img class="kd-page-img" src="${imgUrl}" alt="페이지 ${img.page || kdCurrentPage + 1}"
 		style="transform:translate(${kdPanX}px,${kdPanY}px) scale(${kdZoomLevel})"
-		onload="this.parentElement.style.minHeight=''"
+		onload="this.parentElement.style.minHeight='';renderRegionMarkers();"
 		onerror="this.onerror=null;this.parentElement.style.minHeight='';this.parentElement.innerHTML='<div class=\\'empty-state\\' style=\\'padding:20px;\\'><i class=\\'fas fa-exclamation-triangle\\'></i><p>이미지 로드 실패 — PDF를 다시 등록해주세요</p></div>';">`;
 
 	if (kdPageImages.length > 1) {
@@ -3091,6 +3191,269 @@ async function saveKdBookmarks() {
 	}
 }
 
+// ============================================================
+// 영역 마킹 (문제 시작점 클릭)
+// ============================================================
+let kdRegionMode = false;
+let kdRegions = {};          // { "1": {page:1, x:0.12, y:0.25}, "2": ... }  좌표는 0~1 비율
+let kdRegionActiveQ = null;  // 현재 마킹 대상 문제번호
+let kdRegionDrag = null;     // 마커 드래그 상태
+
+function toggleRegionMode() {
+	kdRegionMode = !kdRegionMode;
+	const wrap = document.getElementById('kd-pages-wrap');
+	const label = document.getElementById('kd-region-toggle-label');
+	const toggle = document.getElementById('kd-region-toggle');
+	const toolbar = document.getElementById('kd-region-toolbar');
+	const status = document.getElementById('kd-region-status');
+
+	if (kdRegionMode) {
+		wrap.classList.add('region-mode');
+		label.textContent = '영역 끄기';
+		toggle.classList.add('btn-primary');
+		toggle.classList.remove('btn-outline');
+		if (toolbar) toolbar.style.display = 'flex';
+		if (status) status.textContent = '오른쪽 문제를 선택 후 이미지를 클릭하세요';
+		selectNextUnmarkedQuestion();
+	} else {
+		wrap.classList.remove('region-mode');
+		label.textContent = '영역 표시';
+		toggle.classList.remove('btn-primary');
+		toggle.classList.add('btn-outline');
+		if (toolbar) toolbar.style.display = 'none';
+		kdRegionActiveQ = null;
+		document.querySelectorAll('.kd-row.region-active').forEach(r => r.classList.remove('region-active'));
+	}
+	renderRegionMarkers();
+	renderKeyQuestions();
+}
+
+function selectNextUnmarkedQuestion() {
+	const pageNum = kdCurrentPage + 1;
+	for (const q of kdQuestions) {
+		const r = kdRegions[q.number];
+		if (!r || r.page !== pageNum) {
+			setActiveRegionQuestion(q.number);
+			return;
+		}
+	}
+	if (kdQuestions.length) setActiveRegionQuestion(kdQuestions[0].number);
+}
+
+function setActiveRegionQuestion(qnum) {
+	kdRegionActiveQ = qnum;
+	const aqEl = document.getElementById('kd-region-active-q');
+	if (aqEl) {
+		aqEl.style.display = qnum ? '' : 'none';
+		aqEl.textContent = qnum ? `${qnum}번` : '';
+	}
+	document.querySelectorAll('.kd-row.region-active').forEach(r => r.classList.remove('region-active'));
+	if (qnum) {
+		const idx = kdQuestions.findIndex(q => q.number === qnum);
+		if (idx >= 0) {
+			const row = document.getElementById(`kd-row-${idx}`);
+			if (row) {
+				row.classList.add('region-active');
+				row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+			}
+		}
+	}
+}
+
+function handleRegionClick(e) {
+	if (!kdRegionMode || !kdRegionActiveQ) return;
+	if (kdRegionDrag) return;
+
+	const wrap = document.getElementById('kd-pages-wrap');
+	const img = wrap.querySelector('.kd-page-img');
+	if (!img) return;
+
+	const rect = img.getBoundingClientRect();
+	const clickX = (e.clientX - rect.left) / rect.width;
+	const clickY = (e.clientY - rect.top) / rect.height;
+
+	if (clickX < 0 || clickX > 1 || clickY < 0 || clickY > 1) return;
+
+	const pageNum = kdCurrentPage + 1;
+	kdRegions[kdRegionActiveQ] = { page: pageNum, x: clickX, y: clickY };
+	markKdDirty();
+
+	renderRegionMarkers();
+
+	// 다음 문제로 자동 이동
+	const curIdx = kdQuestions.findIndex(q => q.number === kdRegionActiveQ);
+	if (curIdx >= 0 && curIdx < kdQuestions.length - 1) {
+		setActiveRegionQuestion(kdQuestions[curIdx + 1].number);
+	}
+
+	renderKeyQuestions();
+}
+
+function renderRegionMarkers() {
+	const wrap = document.getElementById('kd-pages-wrap');
+	if (!wrap) return;
+
+	wrap.querySelectorAll('.kd-region-marker, .kd-region-line').forEach(el => el.remove());
+
+	if (!kdPageImages.length) return;
+	const img = wrap.querySelector('.kd-page-img');
+	if (!img || !img.naturalWidth) return;
+
+	const pageNum = kdCurrentPage + 1;
+	const pageMarkers = Object.entries(kdRegions)
+		.filter(([, r]) => r.page === pageNum)
+		.sort((a, b) => a[1].y - b[1].y);
+
+	if (!pageMarkers.length) return;
+
+	const rect = img.getBoundingClientRect();
+	const wrapRect = wrap.getBoundingClientRect();
+	const imgOffsetX = rect.left - wrapRect.left;
+	const imgOffsetY = rect.top - wrapRect.top;
+
+	for (let i = 0; i < pageMarkers.length; i++) {
+		const [qnum, r] = pageMarkers[i];
+		const px = imgOffsetX + r.x * rect.width;
+		const py = imgOffsetY + r.y * rect.height;
+
+		const marker = document.createElement('div');
+		marker.className = 'kd-region-marker' + (kdRegionActiveQ === qnum ? ' active' : '');
+		marker.style.left = px + 'px';
+		marker.style.top = py + 'px';
+		marker.title = `${qnum}번 시작점 (드래그로 이동)`;
+
+		const label = document.createElement('span');
+		label.textContent = qnum;
+		marker.appendChild(label);
+
+		if (kdRegionMode) {
+			const delBtn = document.createElement('button');
+			delBtn.className = 'region-del-btn';
+			delBtn.innerHTML = '✕';
+			delBtn.title = `${qnum}번 마커 삭제`;
+			delBtn.addEventListener('click', (e) => {
+				e.stopPropagation();
+				delete kdRegions[qnum];
+				markKdDirty();
+				renderRegionMarkers();
+				renderKeyQuestions();
+			});
+			marker.appendChild(delBtn);
+		}
+
+		marker.addEventListener('mousedown', (e) => {
+			e.stopPropagation();
+			if (!kdRegionMode) return;
+			if (e.target.closest('.region-del-btn')) return;
+			setActiveRegionQuestion(qnum);
+			renderKeyQuestions();
+			kdRegionDrag = { qnum, startX: e.clientX, startY: e.clientY, origX: r.x, origY: r.y };
+			marker.classList.add('dragging');
+		});
+
+		wrap.appendChild(marker);
+
+		// 영역 구분선
+		const line = document.createElement('div');
+		line.className = 'kd-region-line';
+		line.style.top = py + 'px';
+		wrap.appendChild(line);
+	}
+}
+
+(function initRegionDrag() {
+	document.addEventListener('mousemove', (e) => {
+		if (!kdRegionDrag) return;
+		const wrap = document.getElementById('kd-pages-wrap');
+		const img = wrap?.querySelector('.kd-page-img');
+		if (!wrap || !img) return;
+
+		const rect = img.getBoundingClientRect();
+		const newX = (e.clientX - rect.left) / rect.width;
+		const newY = (e.clientY - rect.top) / rect.height;
+
+		kdRegions[kdRegionDrag.qnum] = {
+			page: kdCurrentPage + 1,
+			x: Math.max(0, Math.min(1, newX)),
+			y: Math.max(0, Math.min(1, newY)),
+		};
+		renderRegionMarkers();
+	});
+
+	document.addEventListener('mouseup', () => {
+		if (kdRegionDrag) {
+			kdRegionDrag = null;
+			markKdDirty();
+			document.querySelectorAll('.kd-region-marker.dragging').forEach(m => m.classList.remove('dragging'));
+		}
+	});
+})();
+
+function clearPageRegions() {
+	const pageNum = kdCurrentPage + 1;
+	const toRemove = Object.entries(kdRegions).filter(([, r]) => r.page === pageNum).map(([q]) => q);
+	if (!toRemove.length) { showToast('이 페이지에 마커가 없습니다', 'info'); return; }
+	if (!confirm(`${pageNum}페이지의 마커 ${toRemove.length}개를 모두 삭제하시겠습니까?`)) return;
+	toRemove.forEach(q => delete kdRegions[q]);
+	markKdDirty();
+	renderRegionMarkers();
+	renderKeyQuestions();
+}
+
+async function saveRegions() {
+	if (!currentKeyDetail || !currentTeacher) return;
+	try {
+		const res = await fetch(`${GRADING_SERVER_URL}/api/answer-keys/${currentKeyDetail.id}`, {
+			method: 'PUT',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ regions_json: kdRegions }),
+		});
+		if (!res.ok) throw new Error('저장 실패');
+		if (currentKeyDetail) currentKeyDetail.regions_json = { ...kdRegions };
+		showToast('영역 마킹 저장됨', 'success');
+	} catch (e) {
+		showToast('영역 저장 실패: ' + e.message, 'error');
+	}
+}
+
+function onRegionQuestionClick(qnum) {
+	if (!kdRegionMode) return;
+
+	const r = kdRegions[qnum];
+	if (r && r.page) {
+		if (kdRegionActiveQ === qnum) {
+			// 이미 선택된 문제를 다시 클릭 → 삭제 확인
+			if (confirm(`${qnum}번 마커를 삭제하시겠습니까?`)) {
+				delete kdRegions[qnum];
+				markKdDirty();
+				renderRegionMarkers();
+				renderKeyQuestions();
+				return;
+			}
+		}
+		// 해당 페이지로 이동
+		const pageIdx = r.page - 1;
+		if (pageIdx !== kdCurrentPage && pageIdx >= 0 && pageIdx < kdPageImages.length) {
+			kdCurrentPage = pageIdx;
+			renderKdPageImages(true);
+			renderKdBookmarks();
+			setTimeout(renderRegionMarkers, 100);
+		}
+	}
+	setActiveRegionQuestion(qnum);
+	renderKeyQuestions();
+}
+
+function deleteRegionFromDot(e, qnum) {
+	e.stopPropagation();
+	if (!kdRegionMode) return;
+	delete kdRegions[qnum];
+	markKdDirty();
+	renderRegionMarkers();
+	renderKeyQuestions();
+	showToast(`${qnum}번 마커 삭제됨`, 'info');
+}
+
 function formatAnswerHtml(answer, isEssay) {
 	if (!answer) {
 		if (isEssay) return '<span style="opacity:0.4">서술형 (풀이 평가)</span>';
@@ -3112,6 +3475,9 @@ function renderKeyQuestions() {
 	const list = document.getElementById('kd-questions-list');
 	document.getElementById('kd-question-count').textContent = `${kdQuestions.length}문제`;
 
+	const regionToggle = document.getElementById('kd-region-toggle');
+	if (regionToggle) regionToggle.style.display = kdPageImages.length ? '' : 'none';
+
 	if (!kdQuestions.length) {
 		list.innerHTML = '<div style="text-align:center;color:var(--text-sec);font-size:13px;padding:16px;">문제가 없습니다. 아래 버튼으로 추가하세요.</div>';
 		return;
@@ -3120,15 +3486,25 @@ function renderKeyQuestions() {
 	list.innerHTML = kdQuestions.map((q, idx) => {
 		const t = q.type || 'mc';
 		const rowCls = t !== 'mc' ? ` kd-type-${t}` : '';
-		return `<div class="kd-row${rowCls}" id="kd-row-${idx}">
-			<input type="text" class="kd-num-input" value="${escapeHtml(q.number)}" onchange="updateQuestion(${idx},'number',this.value)" placeholder="#">
-			<div style="display:flex;align-items:center;justify-content:center;">
-				<span class="kd-type-badge type-${t}" onclick="cycleType(${idx})" title="클릭하여 유형 변경">${TYPE_LABELS[t]}</span>
+		const isActive = kdRegionMode && kdRegionActiveQ === q.number;
+		const hasRegion = !!kdRegions[q.number];
+		const dotHtml = kdRegionMode
+			? (hasRegion
+				? `<span class="kd-region-dot" title="마킹됨 (p${kdRegions[q.number].page}) — 클릭하여 삭제" onclick="deleteRegionFromDot(event,'${escapeHtml(q.number)}')" style="cursor:pointer;"></span>`
+				: `<span class="kd-region-dot empty" title="미마킹"></span>`)
+			: '';
+		const regionClick = kdRegionMode ? `onRegionQuestionClick('${escapeHtml(q.number)}')` : '';
+		return `<div class="kd-row${rowCls}${isActive ? ' region-active' : ''}" id="kd-row-${idx}" ${regionClick ? `onclick="${regionClick}"` : ''}>
+			<div style="display:flex;align-items:center;gap:2px;">
+				${dotHtml}<input type="text" class="kd-num-input" value="${escapeHtml(q.number)}" onchange="updateQuestion(${idx},'number',this.value)" placeholder="#" ${kdRegionMode ? 'onclick="event.stopPropagation()"' : ''}>
 			</div>
-			<div class="kd-answer-input kd-answer-display" onclick="openMathEditor(${idx})" title="클릭하여 수식 편집기 열기">
+			<div style="display:flex;align-items:center;justify-content:center;">
+				<span class="kd-type-badge type-${t}" onclick="${kdRegionMode ? 'event.stopPropagation();' : ''}cycleType(${idx})" title="클릭하여 유형 변경">${TYPE_LABELS[t]}</span>
+			</div>
+			<div class="kd-answer-input kd-answer-display" onclick="${kdRegionMode ? 'event.stopPropagation();' : ''}openMathEditor(${idx})" title="클릭하여 수식 편집기 열기">
 				${formatAnswerHtml(q.answer, t === 'essay')}
 			</div>
-			<button class="kd-del-btn" onclick="removeQuestion(${idx})" title="삭제"><i class="fas fa-trash-alt"></i></button>
+			<button class="kd-del-btn" onclick="${kdRegionMode ? 'event.stopPropagation();' : ''}removeQuestion(${idx})" title="삭제"><i class="fas fa-trash-alt"></i></button>
 		</div>`;
 	}).join('');
 }
@@ -3315,6 +3691,7 @@ async function saveKeyDetail() {
 				question_types_json: typesJson,
 				total_questions: Object.keys(answersJson).length,
 				bookmarks_json: kdBookmarks,
+				regions_json: kdRegions,
 			}),
 		});
 		if (!res.ok) { showToast('저장 실패', 'error'); return; }
@@ -4045,7 +4422,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 			const teacher = JSON.parse(saved);
 			currentTeacher = teacher;
 			showPage('main');
-			renderCalendar();
+			goToday();
 			await restoreNavState();
 
 			await Promise.allSettled([loadTeacherList(), loadAllData()]);

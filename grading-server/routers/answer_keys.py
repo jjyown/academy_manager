@@ -61,6 +61,8 @@ async def update_answer_key(key_id: int, request: Request):
             update_data["question_types_json"] = merged_types
         if "bookmarks_json" in body:
             update_data["bookmarks_json"] = body["bookmarks_json"]
+        if "regions_json" in body:
+            update_data["regions_json"] = body["regions_json"]
         if "grade_level" in body:
             update_data["grade_level"] = body["grade_level"]
 

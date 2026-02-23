@@ -805,26 +805,22 @@ async def _tiebreak_ocr(
     ocr2_answer: str,
     q_type: str = "short",
 ) -> dict:
-    """Gemini 2.5 Flash로 불일치 항목 중재 — 해당 문제만 집중 분석
+    """GPT-4o로 불일치 항목 중재 — Gemini 계열과 다른 모델로 systematic bias 상쇄
 
-    두 OCR 결과가 서로 다른 문제에 대해 이미지를 다시 보고
-    어느 쪽이 맞는지(또는 둘 다 틀린 경우 정확한 답을) 판별합니다.
+    두 OCR 결과(둘 다 Gemini)가 서로 다른 문제에 대해
+    GPT-4o가 이미지를 다시 보고 어느 쪽이 맞는지 판별합니다.
 
     Returns:
         {"answer": "최종답", "confidence": 85~95}
     """
-    import google.generativeai as genai
-    from config import GEMINI_API_KEY, AI_API_TIMEOUT, GEMINI_MODEL
+    from openai import AsyncOpenAI
+    from config import OPENAI_API_KEY, AI_API_TIMEOUT
 
-    if not GEMINI_API_KEY:
-        logger.debug(f"[Tiebreak] API 키 없음 → OCR1 채택 ({question}번)")
+    if not OPENAI_API_KEY:
+        logger.debug(f"[Tiebreak] OpenAI API 키 없음 → OCR1 채택 ({question}번)")
         return {"answer": ocr1_answer, "confidence": 60}
 
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel(GEMINI_MODEL)
-    _request_opts = {"timeout": AI_API_TIMEOUT}
     b64 = base64.b64encode(image_bytes).decode("utf-8")
-
     type_label = {"mc": "객관식(①~⑤)", "short": "단답형", "essay": "서술형"}.get(q_type, "단답형")
 
     unanswered_note = ""
@@ -859,25 +855,41 @@ async def _tiebreak_ocr(
     )
 
     try:
-        async def _call():
-            response = model.generate_content(
-                [prompt, {"mime_type": "image/jpeg", "data": b64}],
-                request_options=_request_opts,
-            )
-            return response
+        client = AsyncOpenAI(api_key=OPENAI_API_KEY, timeout=AI_API_TIMEOUT)
+        messages = [
+            {"role": "user", "content": [
+                {"type": "text", "text": prompt},
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}", "detail": "high"}},
+            ]}
+        ]
 
-        response = await _retry_async(_call, label=f"Tiebreak-{question}", max_retries=2)
-        parsed = _robust_json_parse(response.text)
-        if parsed and isinstance(parsed, dict) and "answer" in parsed:
-            confidence = min(95, max(70, parsed.get("confidence", 85)))
-            logger.info(f"[Tiebreak] {question}번: '{ocr1_answer}' vs '{ocr2_answer}' → '{parsed['answer']}' (conf={confidence})")
-            return {"answer": str(parsed["answer"]), "confidence": confidence}
+        last_err = None
+        for attempt in range(1, 3):
+            try:
+                response = await client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=messages,
+                    max_tokens=256,
+                    temperature=0.1,
+                )
+                text = response.choices[0].message.content.strip()
+                parsed = _robust_json_parse(text)
+                if parsed and isinstance(parsed, dict) and "answer" in parsed:
+                    confidence = min(95, max(70, parsed.get("confidence", 85)))
+                    logger.info(f"[Tiebreak-GPT4o] {question}번: '{ocr1_answer}' vs '{ocr2_answer}' → '{parsed['answer']}' (conf={confidence})")
+                    return {"answer": str(parsed["answer"]), "confidence": confidence}
 
-        logger.warning(f"[Tiebreak] {question}번 응답 파싱 실패: {response.text[:200]}")
-        return {"answer": ocr1_answer, "confidence": 60}
+                logger.warning(f"[Tiebreak-GPT4o] {question}번 응답 파싱 실패: {text[:200]}")
+                return {"answer": ocr1_answer, "confidence": 60}
+            except Exception as e:
+                last_err = e
+                if attempt < 2:
+                    await asyncio.sleep(1)
+                    continue
+        raise last_err
 
     except Exception as e:
-        logger.warning(f"[Tiebreak] {question}번 실패: {e} → OCR1 채택")
+        logger.warning(f"[Tiebreak-GPT4o] {question}번 실패: {e} → OCR1 채택")
         return {"answer": ocr1_answer, "confidence": 60}
 
 
