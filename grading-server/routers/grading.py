@@ -1,4 +1,5 @@
 """채점 실행 라우터 (핵심 API)"""
+import asyncio
 import logging
 import re
 from datetime import datetime
@@ -45,7 +46,7 @@ async def grade_homework(
         sb = get_supabase()
         existing = await run_query(sb.table("grading_results").select("id, status").eq(
             "homework_submission_id", homework_submission_id
-        ).in_("status", ["grading", "confirmed", "review_needed"]).limit(1).execute)
+        ).in_("status", ["confirmed", "review_needed"]).limit(1).execute)
         if existing.data:
             existing_result = existing.data[0]
             logger.info(f"[Dedup] submission #{homework_submission_id} 이미 채점됨 → result #{existing_result['id']}")
@@ -55,6 +56,19 @@ async def grade_homework(
                 "message": "이미 채점된 제출입니다",
                 "duplicate": True,
             }
+
+        stuck = await run_query(sb.table("grading_results").select("id").eq(
+            "homework_submission_id", homework_submission_id
+        ).eq("status", "grading").execute)
+        if stuck.data:
+            stuck_ids = [r["id"] for r in stuck.data]
+            await run_query(
+                sb.table("grading_results")
+                .update({"status": "review_needed", "error_message": "재채점으로 인해 이전 채점이 취소되었습니다"})
+                .in_("id", stuck_ids)
+                .execute
+            )
+            logger.warning(f"[Dedup] 멈춘 채점 {stuck_ids} 정리 후 재채점 진행")
 
     central_token = await get_central_admin_token()
     if not central_token:
@@ -148,6 +162,9 @@ async def grade_homework(
     }
 
 
+GRADING_TIMEOUT_SECONDS = 300  # 5분
+
+
 async def _run_grading_background(
     *,
     result_id: int,
@@ -162,23 +179,48 @@ async def _run_grading_background(
     homework_submission_id: int | None,
 ):
     try:
-        await _execute_grading(
-            result_id=result_id,
-            student=student,
-            student_id=student_id,
-            teacher_id=teacher_id,
-            central_token=central_token,
-            answer_key=answer_key,
-            answer_key_id=answer_key_id,
-            image_bytes_list=image_bytes_list,
-            mode=mode,
-            homework_submission_id=homework_submission_id,
+        await asyncio.wait_for(
+            _execute_grading(
+                result_id=result_id,
+                student=student,
+                student_id=student_id,
+                teacher_id=teacher_id,
+                central_token=central_token,
+                answer_key=answer_key,
+                answer_key_id=answer_key_id,
+                image_bytes_list=image_bytes_list,
+                mode=mode,
+                homework_submission_id=homework_submission_id,
+            ),
+            timeout=GRADING_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        logger.error(f"[TIMEOUT] 채점 시간 초과 (result #{result_id}, {GRADING_TIMEOUT_SECONDS}s)")
+        update_progress(result_id, "failed", 0, 0, "채점 시간 초과")
+        await _fail_grading_result(
+            result_id, homework_submission_id, teacher_id, student, student_id,
+            f"채점 시간이 {GRADING_TIMEOUT_SECONDS // 60}분을 초과했습니다. 이미지 수를 줄이거나 재채점해주세요.",
         )
     except Exception as e:
         logger.error(f"[FATAL] 채점 실패 (result #{result_id}): {e}", exc_info=True)
         update_progress(result_id, "failed", 0, 0, f"채점 실패: {str(e)[:100]}")
+        await _fail_grading_result(
+            result_id, homework_submission_id, teacher_id, student, student_id,
+            str(e)[:500],
+        )
+
+
+async def _fail_grading_result(
+    result_id: int,
+    homework_submission_id: int | None,
+    teacher_id: str,
+    student: dict,
+    student_id: int,
+    error_msg: str,
+):
+    """채점 실패 시 DB 상태를 review_needed로 업데이트 (최대 3회 재시도)"""
+    for attempt in range(3):
         try:
-            error_msg = str(e)[:500]
             await update_grading_result(result_id, {
                 "status": "review_needed",
                 "error_message": error_msg,
@@ -191,12 +233,17 @@ async def _run_grading_background(
                 "teacher_id": teacher_id,
                 "type": "grading_failed",
                 "title": "채점 실패 - 확인 필요",
-                "message": f"{student_name} 숙제 채점 실패: {str(e)[:100]}. 원본 파일을 확인해주세요.",
+                "message": f"{student_name} 숙제 채점 실패: {error_msg[:100]}. 원본 파일을 확인해주세요.",
                 "data": {"result_id": result_id, "student_id": student_id, "error": error_msg[:200]},
                 "read": False,
             })
+            return
         except Exception as db_err:
-            logger.error(f"[FATAL] 실패 상태 DB 업데이트도 실패: {db_err}")
+            logger.error(f"[FATAL] 실패 상태 DB 업데이트 시도 {attempt+1}/3 실패: {db_err}")
+            if attempt < 2:
+                await asyncio.sleep(1)
+
+    logger.critical(f"[FATAL] result #{result_id} DB 업데이트 3회 모두 실패 — 수동 복구 필요")
 
 
 async def _execute_grading(
@@ -264,8 +311,6 @@ async def _execute_grading(
         key=lambda x: (int(re.match(r"(\d+)", x).group(1)) if re.match(r"(\d+)", x) else 9999)
     )
     question_types = answer_key.get("question_types_json") or None
-
-    import asyncio
 
     total_ocr_steps = 5 if USE_GRADING_AGENT else 4
     update_progress(result_id, "ocr", 1, total_ocr_steps, f"Gemini OCR 1차 처리 중 ({total_images}장)...")

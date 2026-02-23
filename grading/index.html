@@ -1355,9 +1355,14 @@ async function pollGradingProgress() {
 		if (active.length === 0) {
 			container.style.display = 'none';
 			container.innerHTML = '';
+			if (container._hadActive) {
+				container._hadActive = false;
+				loadResults();
+			}
 			return;
 		}
 
+		container._hadActive = true;
 		container.style.display = 'block';
 		container.innerHTML = active.map(p => {
 			const stageLabels = {
@@ -1370,7 +1375,6 @@ async function pollGradingProgress() {
 			};
 			const stageLabel = stageLabels[p.stage] || p.stage;
 			const pct = Math.min(100, Math.max(0, p.percent || 0));
-			// 단계별 전체 진행률 보정
 			let totalPct = 0;
 			if (p.stage === 'preprocess') totalPct = 5;
 			else if (p.stage === 'ocr') totalPct = 15 + pct * 0.2;
@@ -1393,29 +1397,29 @@ async function pollGradingProgress() {
 			</div>`;
 		}).join('');
 
-		// 채점 진행 중이면 결과 탭으로 전환 + 결과 즉시 새로고침
-		if (active.length > 0) {
-			if (calSideTab !== 'result') {
-				switchSideTab('result');
-			}
-			if (!calSelectedDate) {
-				goToday();
-			}
-			if (!container._reloadScheduled) {
-				container._reloadScheduled = true;
-				setTimeout(() => {
-					loadResults();
-					container._reloadScheduled = false;
-				}, 3000);
-			}
+		if (calSideTab !== 'results') {
+			switchSideTab('results');
+		}
+		if (!calSelectedDate) {
+			goToday();
+		}
+		if (!container._reloadScheduled) {
+			container._reloadScheduled = true;
+			setTimeout(async () => {
+				await loadResults();
+				container._reloadScheduled = false;
+			}, 3000);
 		}
 	} catch (e) {
 		// 폴링 실패는 무시
 	}
 }
 
+let _loadingResults = false;
 async function loadResults() {
 	if (!currentTeacher) return;
+	if (_loadingResults) return;
+	_loadingResults = true;
 	try {
 		const controller = new AbortController();
 		const timeoutId = setTimeout(() => controller.abort(), 30000);
@@ -1429,6 +1433,8 @@ async function loadResults() {
 		console.warn('채점 결과 로드 실패:', e);
 		if (e.name !== 'AbortError') showToast('채점 결과 로드 실패: ' + e.message, 'error');
 		currentResults = [];
+	} finally {
+		_loadingResults = false;
 	}
 	renderCalendar();
 }

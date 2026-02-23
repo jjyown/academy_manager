@@ -10,7 +10,7 @@ import logging
 import time
 from collections import defaultdict
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -30,8 +30,59 @@ logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler()
 
 
+async def _recover_orphaned_grading():
+    """서버 시작 시 중단된 채점 작업 복구 — 'grading' 상태로 10분 이상 방치된 레코드 정리"""
+    try:
+        from integrations.supabase_client import get_supabase, run_query
+        sb = get_supabase()
+
+        cutoff = (datetime.utcnow().replace(microsecond=0) - timedelta(minutes=10)).isoformat() + "Z"
+
+        stuck = await run_query(
+            sb.table("grading_results")
+            .select("id")
+            .eq("status", "grading")
+            .lt("updated_at", cutoff)
+            .execute
+        )
+        stuck_ids = [r["id"] for r in (stuck.data or [])]
+
+        if stuck_ids:
+            await run_query(
+                sb.table("grading_results")
+                .update({"status": "review_needed", "error_message": "서버 재시작으로 채점이 중단되었습니다. 재채점해주세요."})
+                .in_("id", stuck_ids)
+                .execute
+            )
+            logger.warning(f"[Recovery] 고아 채점 {len(stuck_ids)}건 복구: {stuck_ids}")
+
+        stuck_subs = await run_query(
+            sb.table("homework_submissions")
+            .select("id")
+            .eq("grading_status", "grading")
+            .lt("updated_at", cutoff)
+            .execute
+        )
+        stuck_sub_ids = [r["id"] for r in (stuck_subs.data or [])]
+        if stuck_sub_ids:
+            await run_query(
+                sb.table("homework_submissions")
+                .update({"grading_status": "grading_failed"})
+                .in_("id", stuck_sub_ids)
+                .execute
+            )
+            logger.warning(f"[Recovery] 고아 제출 {len(stuck_sub_ids)}건 복구: {stuck_sub_ids}")
+
+        if not stuck_ids and not stuck_sub_ids:
+            logger.info("[Recovery] 고아 채점 없음 — 정상")
+
+    except Exception as e:
+        logger.error(f"[Recovery] 고아 채점 복구 실패 (무시): {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    await _recover_orphaned_grading()
     scheduler.add_job(run_monthly_evaluation, "cron", day=28, hour=0, minute=0)
     scheduler.start()
     logger.info("스케줄러 시작: 매월 28일 종합평가 자동 생성")
