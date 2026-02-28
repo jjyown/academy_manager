@@ -1,0 +1,28 @@
+---
+description: Always use docs workflow for continuity and quality
+alwaysApply: true
+---
+
+# Document-Driven Workflow
+
+Before coding, read these files in order:
+- `docs/plan.md`
+- `docs/context.md`
+- `docs/checklist.md`
+
+## Mandatory Workflow
+
+1. Restate the current task in one or two sentences.
+2. Propose a short implementation plan aligned with `docs/plan.md`.
+3. Implement in small steps and report changed files clearly.
+4. Update documents before final response:
+   - `docs/plan.md`: status and next step
+   - `docs/context.md`: key decisions and reasons
+   - `docs/checklist.md`: checked and unchecked items
+5. If any checklist item is skipped, explain why.
+
+## Quality Gate
+
+- Run or describe relevant verification after edits.
+- Explicitly mention risks, assumptions, and follow-up work.
+- Avoid changing direction silently; record scope changes in `docs/context.md`.

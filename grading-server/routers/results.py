@@ -1,19 +1,99 @@
 """채점 결과/문항 관리 라우터"""
 import logging
+from typing import Any
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 
 from integrations.supabase_client import (
     get_supabase, run_query, get_central_admin_token, get_answer_key,
     get_grading_results_by_teacher, get_grading_results_by_student,
-    update_grading_result,
+    update_grading_result, get_student, update_submission_grading_status,
 )
 from integrations.drive import delete_file
 from progress import clear_old_progress, get_progress, get_all_active
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["results"])
+
+ALLOWED_ITEM_UPDATE_FIELDS = {
+    "is_correct",
+    "correct_answer",
+    "student_answer",
+    "question_type",
+    "error_type",
+    "ai_feedback",
+    "ai_confidence",
+    "ai_score",
+    "ai_max_score",
+}
+
+ALLOWED_QUESTION_TYPES = {"mc", "short", "essay", "multiple_choice"}
+ALLOWED_FEEDBACK_ERROR_TYPES = {
+    "false_unanswered",
+    "false_answered",
+    "mc_2_5_confusion",
+    "mc_wrong_number",
+    "ocr_misread",
+}
+
+
+def _normalize_item_update_payload(body: dict[str, Any]) -> dict[str, Any]:
+    """문항 수정 API 입력을 허용 필드/타입 기준으로 정제."""
+    safe: dict[str, Any] = {}
+
+    for key, value in body.items():
+        if key not in ALLOWED_ITEM_UPDATE_FIELDS:
+            continue
+
+        if key == "is_correct":
+            if value in (True, False, None):
+                safe[key] = value
+            continue
+
+        if key in {"ai_score", "ai_max_score", "ai_confidence"}:
+            if value is None or value == "":
+                continue
+            try:
+                num = float(value)
+            except (TypeError, ValueError):
+                continue
+            # 점수/신뢰도 음수 입력 방지
+            if num < 0:
+                continue
+            safe[key] = num
+            continue
+
+        if key == "question_type":
+            if isinstance(value, str) and value in ALLOWED_QUESTION_TYPES:
+                safe[key] = value
+            continue
+
+        if isinstance(value, str):
+            safe[key] = value[:2000]
+        elif value is None:
+            safe[key] = value
+
+    return safe
+
+
+def _to_positive_int(value: Any) -> int | None:
+    """양의 정수 변환 실패 시 None 반환."""
+    if value in (None, ""):
+        return None
+    try:
+        iv = int(value)
+    except (TypeError, ValueError):
+        return None
+    return iv if iv > 0 else None
+
+
+def _safe_text(value: Any, max_len: int = 2000) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()[:max_len]
+    return str(value).strip()[:max_len]
 
 
 # ---- 채점 진행률 ----
@@ -142,12 +222,18 @@ async def list_result_items(result_id: int):
 async def update_item(item_id: int, request: Request):
     try:
         body = await request.json()
+        safe_body = _normalize_item_update_payload(body)
+        if not safe_body:
+            raise HTTPException(status_code=400, detail="수정 가능한 필드가 없습니다")
+
         sb = get_supabase()
-        res = await run_query(sb.table("grading_items").update(body).eq("id", item_id).execute)
+        res = await run_query(sb.table("grading_items").update(safe_body).eq("id", item_id).execute)
         updated_item = res.data[0] if res.data else None
         if updated_item and updated_item.get("result_id"):
             await _recalculate_result_totals(updated_item["result_id"])
         return {"data": res.data}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"문항 수정 실패: {e}")
         raise HTTPException(status_code=500, detail=f"문항 수정 실패: {str(e)[:200]}")
@@ -232,10 +318,10 @@ async def _recalculate_result_totals(result_id: int):
 # ---- 재채점 ----
 
 @router.post("/results/{result_id}/regrade")
-async def regrade_result(result_id: int, request: Request):
-    """기존 채점 결과를 정답지 기준으로 재채점"""
+async def regrade_result(result_id: int, request: Request, background_tasks: BackgroundTasks):
+    """기존 채점 결과를 정답지 기준으로 재채점. 문항이 없으면 전체 재채점 실행."""
     try:
-        body = {}
+        body: dict[str, Any] = {}
         if request.headers.get("content-type", "").startswith("application/json"):
             body = await request.json()
 
@@ -245,7 +331,9 @@ async def regrade_result(result_id: int, request: Request):
             raise HTTPException(404, "채점 결과를 찾을 수 없습니다")
         result = res.data[0]
 
-        new_key_id = body.get("answer_key_id")
+        new_key_id = _to_positive_int(body.get("answer_key_id"))
+        if body.get("answer_key_id") not in (None, "") and new_key_id is None:
+            raise HTTPException(400, "answer_key_id는 양의 정수여야 합니다")
         if new_key_id:
             await update_grading_result(result_id, {"answer_key_id": new_key_id})
             answer_key_id = new_key_id
@@ -265,8 +353,11 @@ async def regrade_result(result_id: int, request: Request):
 
         items_res = await run_query(sb.table("grading_items").select("*").eq("result_id", result_id).order("question_number").execute)
         old_items = items_res.data or []
+
         if not old_items:
-            raise HTTPException(400, "재채점할 문항이 없습니다")
+            return await _full_regrade_from_submission(
+                result, result_id, answer_key_id, background_tasks
+            )
 
         await update_grading_result(result_id, {"status": "regrading"})
 
@@ -355,6 +446,90 @@ async def regrade_result(result_id: int, request: Request):
         raise HTTPException(500, f"재채점 실패: {str(e)[:200]}")
 
 
+async def _full_regrade_from_submission(
+    result: dict, result_id: int, answer_key_id: int, background_tasks: BackgroundTasks,
+):
+    """문항 데이터가 없을 때 원본 제출물을 다시 다운로드하여 전체 채점을 재실행"""
+    from integrations.supabase_client import get_central_admin_token
+    from integrations.drive import download_file_central
+    from file_utils import extract_images_from_zip
+    from routers.grading import _run_grading_background
+
+    submission_id = result.get("homework_submission_id")
+    if not submission_id:
+        raise HTTPException(400, "원본 제출 정보가 없어 전체 재채점이 불가합니다. 숙제를 다시 제출해주세요.")
+
+    sb = get_supabase()
+    sub_res = await run_query(
+        sb.table("homework_submissions").select("*").eq("id", submission_id).limit(1).execute
+    )
+    if not sub_res.data:
+        raise HTTPException(404, "원본 숙제 제출을 찾을 수 없습니다. 숙제를 다시 제출해주세요.")
+    submission = sub_res.data[0]
+
+    zip_drive_id = submission.get("zip_drive_id") or submission.get("drive_file_id") or ""
+    if not zip_drive_id:
+        raise HTTPException(400, "원본 파일 정보가 없습니다. 숙제를 다시 제출해주세요.")
+
+    central_token = await get_central_admin_token()
+    if not central_token:
+        raise HTTPException(400, "중앙 관리 드라이브가 연결되지 않았습니다")
+
+    try:
+        zip_data = download_file_central(central_token, zip_drive_id)
+        image_bytes_list = extract_images_from_zip(zip_data)
+    except Exception as e:
+        logger.error(f"[FullRegrade] 원본 다운로드 실패: {e}")
+        raise HTTPException(500, f"원본 파일 다운로드 실패: {str(e)[:200]}")
+
+    if not image_bytes_list:
+        raise HTTPException(400, "원본 파일에서 이미지를 추출할 수 없습니다")
+
+    student_id = result.get("student_id")
+    teacher_id = result.get("teacher_id", "")
+    student = await get_student(student_id) if student_id else {}
+
+    # 기존 결과를 grading 상태로 리셋
+    await update_grading_result(result_id, {
+        "status": "grading",
+        "answer_key_id": answer_key_id,
+        "error_message": None,
+        "correct_count": 0, "wrong_count": 0,
+        "uncertain_count": 0, "unanswered_count": 0,
+        "total_questions": 0, "total_score": 0, "max_score": 0,
+        "central_graded_drive_ids": [], "central_graded_image_urls": [],
+    })
+    # 기존 items 삭제 (혹시 남아있을 수 있음)
+    await run_query(sb.table("grading_items").delete().eq("result_id", result_id).execute)
+
+    if submission_id:
+        await update_submission_grading_status(submission_id, "grading")
+
+    answer_key = await get_answer_key(answer_key_id)
+
+    background_tasks.add_task(
+        _run_grading_background,
+        result_id=result_id,
+        student=student or {},
+        student_id=student_id or 0,
+        teacher_id=teacher_id,
+        central_token=central_token,
+        answer_key=answer_key,
+        answer_key_id=answer_key_id,
+        image_bytes_list=image_bytes_list,
+        mode=result.get("mode", "assigned"),
+        homework_submission_id=submission_id,
+    )
+
+    logger.info(f"[FullRegrade] result #{result_id}: 전체 재채점 시작 (이미지 {len(image_bytes_list)}장)")
+    return {
+        "result_id": result_id,
+        "status": "grading",
+        "message": "문항 데이터가 없어 전체 재채점을 시작합니다. 잠시 후 결과가 업데이트됩니다.",
+        "full_regrade": True,
+    }
+
+
 # ---- AI 피드백 (선생님 수정 → AI 학습) ----
 
 @router.post("/feedback")
@@ -362,33 +537,43 @@ async def save_feedback(request: Request):
     """선생님이 AI 채점 결과를 수정한 내용을 피드백으로 저장"""
     try:
         body = await request.json()
-        ai_answer = body.get("ai_answer", "")
-        teacher_answer = body.get("teacher_corrected_answer", "")
+        result_id = _to_positive_int(body.get("result_id"))
+        item_id = _to_positive_int(body.get("item_id"))
+        question_number = _to_positive_int(body.get("question_number"))
+        question_type = _safe_text(body.get("question_type", "multiple_choice"), 32)
+        if question_type not in ALLOWED_QUESTION_TYPES:
+            question_type = "multiple_choice"
+
+        if not result_id or not item_id or not question_number:
+            raise HTTPException(400, "result_id, item_id, question_number는 양의 정수여야 합니다")
+
+        ai_answer = _safe_text(body.get("ai_answer", ""), 2000)
+        teacher_answer = _safe_text(body.get("teacher_corrected_answer", ""), 2000)
 
         if not teacher_answer or ai_answer == teacher_answer:
             return {"saved": False, "reason": "no_change"}
 
-        manual_type = body.get("manual_error_type")
+        manual_type = _safe_text(body.get("manual_error_type", ""), 64)
         if manual_type:
-            error_type = manual_type
+            error_type = manual_type if manual_type in ALLOWED_FEEDBACK_ERROR_TYPES else "ocr_misread"
         else:
             error_type = _classify_error(
                 ai_answer, teacher_answer,
-                body.get("question_type", "multiple_choice"),
+                question_type,
             )
 
-        teacher_id = body.get("teacher_id")
+        teacher_id = _safe_text(body.get("teacher_id", ""), 128)
         if not teacher_id:
-            teacher_id = request.headers.get("x-teacher-id")
+            teacher_id = _safe_text(request.headers.get("x-teacher-id"), 128)
 
         sb = get_supabase()
         insert_data = {
-            "result_id": body.get("result_id"),
-            "item_id": body.get("item_id"),
-            "question_number": body.get("question_number"),
-            "question_type": body.get("question_type", "multiple_choice"),
+            "result_id": result_id,
+            "item_id": item_id,
+            "question_number": question_number,
+            "question_type": question_type,
             "ai_answer": ai_answer,
-            "correct_answer": body.get("correct_answer", ""),
+            "correct_answer": _safe_text(body.get("correct_answer", ""), 2000),
             "teacher_corrected_answer": teacher_answer,
             "error_type": error_type,
         }
@@ -397,10 +582,12 @@ async def save_feedback(request: Request):
 
         res = await run_query(sb.table("grading_feedback").insert(insert_data).execute)
         logger.info(
-            f"[Feedback] 저장: Q{body.get('question_number')} "
+            f"[Feedback] 저장: Q{question_number} "
             f"'{ai_answer}' → '{teacher_answer}' (error_type={error_type})"
         )
         return {"saved": True, "error_type": error_type, "data": res.data}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.warning(f"[Feedback] 저장 실패 (무시): {e}")
         return {"saved": False, "error": str(e)[:200]}

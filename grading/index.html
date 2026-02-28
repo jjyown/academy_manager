@@ -3,17 +3,20 @@
 <head>
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-	<title>채점 관리</title>
+	<title>하이로드 수학 | 채점 관리</title>
 	<link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.8/dist/web/static/pretendard.css" />
 	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 	<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-	<script defer src="https://unpkg.com/mathlive"></script>
 	<style>
 		:root {
-			--bg: #0f172a; --bg-card: #1e293b; --bg-elevated: #334155;
-			--text: #f1f5f9; --text-sec: #94a3b8; --gray: #64748b;
-			--primary: #818cf8; --green: #22c55e; --red: #ef4444;
-			--yellow: #eab308; --teal: #14b8a6; --border: #334155;
+			--brand-navy-deep: #0a1f47;
+			--brand-navy: #113777;
+			--brand-gold: #c9a74a;
+			--brand-gradient: linear-gradient(135deg, var(--brand-navy-deep) 0%, var(--brand-navy) 62%, #1a4b94 100%);
+			--bg: #09142f; --bg-card: #10213f; --bg-elevated: #1b3057;
+			--text: #f8f9fb; --text-sec: #aeb9cd; --gray: #7082a0;
+			--primary: #c9a74a; --green: #22c55e; --red: #ef4444;
+			--yellow: #f4c860; --teal: #5ec9bc; --border: #28416e;
 			--radius: 14px;
 		}
 		* { margin:0; padding:0; box-sizing:border-box; }
@@ -27,7 +30,7 @@
 		/* 탭 */
 		.tabs { display:flex; padding:8px 12px; gap:6px; background:var(--bg-card); border-bottom:1px solid var(--border); overflow-x:auto; }
 		.tab-btn { padding:8px 16px; border:none; border-radius:20px; background:transparent; color:var(--text-sec); font-size:13px; font-weight:600; cursor:pointer; white-space:nowrap; transition:all 0.2s; }
-		.tab-btn.active { background:var(--primary); color:#fff; }
+		.tab-btn.active { background:var(--primary); color:var(--bg-card); }
 
 		/* 카드 */
 		.card { background:var(--bg-card); border-radius:var(--radius); padding:16px; margin:8px 12px; border:1px solid var(--border); }
@@ -36,7 +39,7 @@
 
 		/* 버튼 */
 		.btn { padding:10px 20px; border:none; border-radius:10px; font-size:14px; font-weight:600; cursor:pointer; transition:all 0.2s; }
-		.btn-primary { background:var(--primary); color:#fff; }
+		.btn-primary { background:var(--primary); color:var(--bg-card); }
 		.btn-primary:hover { opacity:0.9; }
 		.btn-danger { background:var(--red); color:#fff; }
 		.btn-sm { padding:6px 12px; font-size:12px; }
@@ -129,11 +132,12 @@
 		/* 토스트 */
 		.mc-pick-btn { padding:6px 14px; border-radius:8px; border:2px solid var(--border); background:var(--card); color:var(--text); font-size:16px; font-weight:700; cursor:pointer; transition:all .15s; }
 		.mc-pick-btn:hover { border-color:var(--primary); background:rgba(99,102,241,.1); }
-		.mc-pick-btn.active { border-color:var(--primary); background:var(--primary); color:#fff; }
+		.mc-pick-btn.active { border-color:var(--primary); background:var(--primary); color:var(--bg-card); }
 		.g-toast { position:fixed; top:20px; left:50%; transform:translateX(-50%); padding:12px 24px; border-radius:12px; font-size:14px; font-weight:600; z-index:9999; animation:fadeSlide 0.3s ease; }
 		.g-toast.success { background:var(--green); color:#fff; }
 		.g-toast.error { background:var(--red); color:#fff; }
-		.g-toast.info { background:var(--primary); color:#fff; }
+		.g-toast.warning { background:var(--yellow); color:var(--bg-card); }
+		.g-toast.info { background:var(--primary); color:var(--bg-card); }
 		@keyframes fadeSlide { from { opacity:0; transform:translateX(-50%) translateY(-10px); } to { opacity:1; transform:translateX(-50%) translateY(0); } }
 
 	/* 이미지 뷰어 */
@@ -289,7 +293,7 @@
 	.cal-date { font-size:13px; font-weight:600; margin-bottom:4px; }
 	.cal-cell.cal-sun .cal-date { color:var(--red); }
 	.cal-cell.cal-sat .cal-date { color:#6898fa; }
-	.cal-cell.cal-today .cal-date { background:var(--primary); color:#fff; border-radius:50%; width:28px; height:28px; display:flex; align-items:center; justify-content:center; }
+	.cal-cell.cal-today .cal-date { background:var(--primary); color:var(--bg-card); border-radius:50%; width:28px; height:28px; display:flex; align-items:center; justify-content:center; }
 	.cal-dots { display:flex; gap:3px; flex-wrap:wrap; justify-content:center; }
 	.cal-dot { width:6px; height:6px; border-radius:50%; }
 	.cal-dot.dot-assign { background:#818cf8; }
@@ -349,7 +353,7 @@
 	.kd-bookmarks { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; justify-content:center; }
 	.kd-bookmark-btn { display:inline-flex; align-items:center; gap:4px; padding:4px 10px; font-size:11px; border-radius:14px; border:1px solid var(--border); background:var(--bg-elevated); color:var(--text-sec); cursor:pointer; transition:all 0.15s; white-space:nowrap; }
 	.kd-bookmark-btn:hover { border-color:var(--primary); color:var(--primary); background:rgba(129,140,248,0.08); }
-	.kd-bookmark-btn.active { border-color:var(--primary); color:#fff; background:var(--primary); }
+	.kd-bookmark-btn.active { border-color:var(--primary); color:var(--bg-card); background:var(--primary); }
 	.kd-bookmark-btn i { font-size:9px; }
 	.kd-bookmark-add { border-style:dashed; }
 
@@ -479,7 +483,7 @@
 <div id="page-login" style="display:none; min-height:100vh; align-items:center; justify-content:center; padding:20px;">
 	<div style="max-width:380px; width:100%; text-align:center;">
 		<div style="font-size:48px; margin-bottom:16px;">📝</div>
-		<h1 style="font-size:22px; font-weight:800; margin-bottom:4px;">채점 관리</h1>
+		<h1 style="font-size:22px; font-weight:800; margin-bottom:4px;">하이로드 수학 채점 관리</h1>
 		<p style="color:var(--text-sec); font-size:13px; margin-bottom:28px;">선생님을 선택하고 비밀번호를 입력하세요</p>
 		<div style="text-align:left;">
 			<div class="form-group">
@@ -503,7 +507,7 @@
 <!-- 메인 페이지 -->
 <div id="page-main" style="display:none;">
 	<div class="top-bar">
-		<h1><i class="fas fa-pen-to-square" style="color:var(--primary);margin-right:6px;"></i>채점 관리</h1>
+		<h1><i class="fas fa-pen-to-square" style="color:var(--primary);margin-right:6px;"></i>하이로드 수학 채점 관리</h1>
 		<div style="display:flex;gap:8px;">
 			<button class="top-bar-btn" onclick="showPage('main')" title="홈"><i class="fas fa-home"></i></button>
 			<button class="top-bar-btn" onclick="handleLogout()" title="로그아웃"><i class="fas fa-sign-out-alt"></i></button>
@@ -963,7 +967,7 @@
 			<label class="form-label">교재 유형</label>
 			<div style="display:flex;gap:8px;">
 				<button class="btn btn-sm" id="key-type-print" onclick="selectKeyType('print')"
-					style="flex:1;padding:10px;border:2px solid var(--primary);background:var(--primary);color:#fff;border-radius:10px;font-size:13px;">
+					style="flex:1;padding:10px;border:2px solid var(--primary);background:var(--primary);color:var(--bg-card);border-radius:10px;font-size:13px;">
 					<i class="fas fa-print"></i> 프린트 과제
 				</button>
 				<button class="btn btn-sm" id="key-type-book" onclick="selectKeyType('book')"
@@ -1059,7 +1063,9 @@
 const SUPABASE_URL = 'https://jzcrpdeomjmytfekcgqu.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_6X3mtsIpdMkLWgo9aUbZTg_ihtAA3cu';
 const _isLocal = ['localhost','127.0.0.1'].includes(location.hostname);
-const GRADING_SERVER_URL = localStorage.getItem('grading_server_url') || (_isLocal ? 'https://academymanager-production.up.railway.app' : '');
+const userConfiguredServerUrl = localStorage.getItem('grading_server_url');
+const GRADING_SERVER_URL = userConfiguredServerUrl || (_isLocal ? 'https://academymanager-production.up.railway.app' : '');
+const shouldTryRemoteGradingServer = !_isLocal || !!userConfiguredServerUrl;
 
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 	realtime: { params: { eventsPerSecond: 0 } },
@@ -1105,67 +1111,87 @@ async function hashPin(pin) {
 }
 
 async function loadTeacherList() {
-	// 1차: 채점 서버에서 선생님 목록 조회 (서버 웨이크업 포함)
-	try {
-		const controller = new AbortController();
-		const timeoutId = setTimeout(() => controller.abort(), 8000);
-		const res = await fetch(`${GRADING_SERVER_URL}/api/teachers`, { signal: controller.signal });
-		clearTimeout(timeoutId);
-		if (res.ok) {
-			const result = await res.json();
-			teacherList = result.data || [];
-			_serverAwake = true;
-			console.log('[채점관리] 채점 서버에서 선생님 목록 로드 성공:', teacherList.length, '명');
-		}
-	} catch (e) {
-		console.warn('[채점관리] 채점 서버 연결 실패:', e.message);
-	}
+	const sel = document.getElementById('login-teacher-select');
+	sel.innerHTML = '<option value="">선생님 목록 불러오는 중...</option>';
+	sel.disabled = true;
 
-	// 2차 fallback: Supabase JS 클라이언트로 조회
-	if (!teacherList || teacherList.length === 0) {
+	// 로컬 개발 환경에서는 사용자 지정 URL이 없으면 원격 채점 서버 호출(CORS)을 건너뛴다.
+	const serverPromise = (async () => {
+		if (!shouldTryRemoteGradingServer) return null;
+		const controller = new AbortController();
+		const timeoutId = setTimeout(() => controller.abort(), 10000);
+		try {
+			const res = await fetch(`${GRADING_SERVER_URL}/api/teachers`, { signal: controller.signal });
+			clearTimeout(timeoutId);
+			if (res.ok) {
+				const result = await res.json();
+				if (result.data && result.data.length > 0) {
+					_serverAwake = true;
+					return { source: 'server', data: result.data };
+				}
+			}
+		} catch (e) {
+			clearTimeout(timeoutId);
+			console.warn('[채점관리] 채점 서버 연결 실패:', e.message);
+		}
+		return null;
+	})();
+
+	const supabasePromise = (async () => {
 		try {
 			const { data, error } = await db.from('teachers').select('*').order('created_at');
 			if (!error && data && data.length > 0) {
-				teacherList = data;
-				console.log('[채점관리] Supabase 클라이언트에서 선생님 로드 성공:', data.length, '명');
-			} else {
-				console.warn('[채점관리] Supabase 클라이언트 조회 실패 (RLS 가능성):', error?.message);
+				return { source: 'supabase-client', data };
 			}
-		} catch (e2) {
-			console.warn('[채점관리] Supabase 클라이언트 실패:', e2.message);
+		} catch (e) {
+			console.warn('[채점관리] Supabase 클라이언트 실패:', e.message);
 		}
-	}
-
-	// 3차 fallback: Supabase REST API 직접 호출 (RLS 우회 시도)
-	if (!teacherList || teacherList.length === 0) {
 		try {
 			const res = await fetch(`${SUPABASE_URL}/rest/v1/teachers?select=*&order=created_at.asc`, {
-				headers: {
-					'apikey': SUPABASE_ANON_KEY,
-					'Content-Type': 'application/json',
-				}
+				headers: { 'apikey': SUPABASE_ANON_KEY, 'Content-Type': 'application/json' }
 			});
 			if (res.ok) {
 				const data = await res.json();
-				if (data && data.length > 0) {
-					teacherList = data;
-					console.log('[채점관리] Supabase REST API에서 선생님 로드 성공:', data.length, '명');
-				}
+				if (data && data.length > 0) return { source: 'supabase-rest', data };
 			}
-		} catch (e3) {
-			console.warn('[채점관리] Supabase REST API 실패:', e3.message);
+		} catch (e) {
+			console.warn('[채점관리] Supabase REST API 실패:', e.message);
 		}
+		return null;
+	})();
+
+	const updateDropdown = (list) => {
+		teacherList = list;
+		sel.disabled = false;
+		sel.innerHTML = '<option value="">선생님을 선택해주세요</option>' +
+			list.map(t => `<option value="${t.id}">${escapeHtml(t.name)}${t.phone ? ' (' + t.phone.slice(-4) + ')' : ''}</option>`).join('');
+	};
+
+	let resolved = false;
+	// 먼저 도착하는 결과로 즉시 UI 업데이트
+	const race = [serverPromise, supabasePromise].map(p =>
+		p.then(result => {
+			if (result && !resolved) {
+				resolved = true;
+				console.log(`[채점관리] ${result.source}에서 선생님 로드 성공:`, result.data.length, '명');
+				updateDropdown(result.data);
+			}
+		})
+	);
+
+	await Promise.allSettled(race);
+
+	// 병렬 호출 후에도 서버 결과가 있으면 더 신뢰할 수 있으므로 최종 반영
+	const serverResult = await serverPromise;
+	if (serverResult && serverResult.data.length > 0) {
+		updateDropdown(serverResult.data);
 	}
 
-	// 모든 시도 실패 시 안내 메시지
 	if (!teacherList || teacherList.length === 0) {
+		sel.disabled = false;
+		sel.innerHTML = '<option value="">선생님 목록 로드 실패 - 새로고침해주세요</option>';
 		console.error('[채점관리] 선생님 목록 로드 실패 - 채점 서버가 실행 중인지 확인하세요');
-		console.error('[채점관리] 로컬 실행: localStorage.setItem("grading_server_url", "http://localhost:8000")');
 	}
-
-	const sel = document.getElementById('login-teacher-select');
-	sel.innerHTML = '<option value="">선생님을 선택해주세요</option>' +
-		teacherList.map(t => `<option value="${t.id}">${escapeHtml(t.name)}${t.phone ? ' (' + t.phone.slice(-4) + ')' : ''}</option>`).join('');
 }
 
 function onLoginTeacherSelected() {
@@ -1328,6 +1354,20 @@ async function loadAllData() {
 // 실시간 채점 진행률 폴링
 // ============================================================
 let progressPollTimer = null;
+let _progressPollFailCount = 0;
+let _detailPollFailCount = 0;
+
+async function _pollingFetchJson(url, timeoutMs = 8000) {
+	const controller = new AbortController();
+	const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+	try {
+		const res = await fetch(url, { signal: controller.signal });
+		if (!res.ok) throw new Error(`HTTP ${res.status}`);
+		return await res.json();
+	} finally {
+		clearTimeout(timeoutId);
+	}
+}
 
 function startProgressPolling() {
 	stopProgressPolling();
@@ -1347,9 +1387,10 @@ async function pollGradingProgress() {
 	if (!container || !currentTeacher) return;
 
 	try {
-		const res = await fetch(`${GRADING_SERVER_URL}/api/grading-progress?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`);
-		if (!res.ok) return;
-		const result = await res.json();
+		const result = await _pollingFetchJson(
+			`${GRADING_SERVER_URL}/api/grading-progress?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`
+		);
+		_progressPollFailCount = 0;
 		const active = (result.data || []).filter(p => p.stage !== 'done' && p.stage !== 'failed' && p.stage !== 'unknown');
 
 		if (active.length === 0) {
@@ -1357,7 +1398,7 @@ async function pollGradingProgress() {
 			container.innerHTML = '';
 			if (container._hadActive) {
 				container._hadActive = false;
-				loadResults();
+				await loadResults();
 			}
 			return;
 		}
@@ -1411,7 +1452,10 @@ async function pollGradingProgress() {
 			}, 3000);
 		}
 	} catch (e) {
-		// 폴링 실패는 무시
+		_progressPollFailCount++;
+		if (_progressPollFailCount === 3) {
+			showToast('진행률 서버 응답이 지연되고 있습니다. 자동 재시도 중입니다.', 'warning');
+		}
 	}
 }
 
@@ -1689,6 +1733,8 @@ function renderSidePanel() {
 // 채점 상세
 // ============================================================
 let _detailPollTimer = null;
+let _detailCompletionHandledResultId = null;
+let _detailCompletionProcessing = false;
 
 function _stopDetailPoll() {
 	if (_detailPollTimer) { clearInterval(_detailPollTimer); _detailPollTimer = null; }
@@ -1726,31 +1772,57 @@ function _renderDetailStatusBanner(result) {
 }
 
 async function _pollDetailResult() {
-	if (!currentResultId) return;
+	if (!currentResultId || !currentTeacher) return;
+	let progressOk = false;
+	let resultOk = false;
 	try {
-		const res = await fetch(`${GRADING_SERVER_URL}/api/grading-progress?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`);
-		if (!res.ok) return;
-		const progressData = await res.json();
+		const progressData = await _pollingFetchJson(
+			`${GRADING_SERVER_URL}/api/grading-progress?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`
+		);
 		const myProgress = (progressData.data || []).find(p => p.result_id === currentResultId);
 		if (myProgress) {
 			const fill = document.getElementById('detail-progress-fill');
 			if (fill) fill.style.width = (myProgress.percent || 0) + '%';
 		}
-	} catch(e) {}
+		progressOk = true;
+	} catch(e) {
+		// keep fail count handling unified at the end
+	}
 
 	try {
-		const res = await fetch(`${GRADING_SERVER_URL}/api/results?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`);
-		if (!res.ok) return;
-		const result = await res.json();
+		const result = await _pollingFetchJson(
+			`${GRADING_SERVER_URL}/api/results?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`
+		);
 		const updated = (result.data || []).find(r => r.id === currentResultId);
 		if (updated && updated.status !== 'grading' && updated.status !== 'regrading') {
-			_stopDetailPoll();
-			const idx = currentResults.findIndex(r => r.id === currentResultId);
-			if (idx >= 0) currentResults[idx] = updated;
-			await openDetail(currentResultId);
-			showToast('채점이 완료되었습니다', 'success');
+			if (_detailCompletionHandledResultId !== currentResultId && !_detailCompletionProcessing) {
+				_detailCompletionProcessing = true;
+				try {
+					_detailCompletionHandledResultId = currentResultId;
+					_stopDetailPoll();
+					const idx = currentResults.findIndex(r => r.id === currentResultId);
+					if (idx >= 0) currentResults[idx] = updated;
+					await openDetail(currentResultId);
+					showToast('채점이 완료되었습니다', 'success');
+				} finally {
+					_detailCompletionProcessing = false;
+				}
+			}
 		}
-	} catch(e) {}
+		resultOk = true;
+	} catch(e) {
+		// keep fail count handling unified at the end
+	}
+
+	if (progressOk && resultOk) {
+		_detailPollFailCount = 0;
+		return;
+	}
+
+	_detailPollFailCount++;
+	if (_detailPollFailCount === 4) {
+		showToast('상세 상태 갱신이 지연되고 있습니다. 잠시 후 자동 복구됩니다.', 'warning');
+	}
 }
 
 async function openDetail(resultId) {
@@ -1790,6 +1862,8 @@ async function openDetail(resultId) {
 	_renderDetailStatusBanner(result);
 
 	if (result.status === 'grading' || result.status === 'regrading') {
+		_detailCompletionHandledResultId = null;
+		_detailCompletionProcessing = false;
 		_detailPollTimer = setInterval(_pollDetailResult, 3000);
 	}
 
@@ -2115,9 +2189,16 @@ async function regradeWithKey() {
 		const data = await res.json();
 		if (!res.ok) throw new Error(data.detail || '재채점 실패');
 
-		showToast(`재채점 완료: ${data.correct_count}맞 / ${data.wrong_count}틀 / ${data.uncertain_count}확인필요`, 'success');
-		await loadResults();
-		await openDetail(currentResultId);
+		if (data.full_regrade) {
+			showToast('전체 재채점이 시작되었습니다. 잠시 후 자동으로 갱신됩니다.', 'success');
+			startProgressPolling();
+			await loadResults();
+			await openDetail(currentResultId);
+		} else {
+			showToast(`재채점 완료: ${data.correct_count}맞 / ${data.wrong_count}틀 / ${data.uncertain_count}확인필요`, 'success');
+			await loadResults();
+			await openDetail(currentResultId);
+		}
 	} catch (e) {
 		showToast('재채점 실패: ' + e.message, 'error');
 	} finally {
@@ -2551,7 +2632,7 @@ let allAnswerKeys = [];
 let keysGradeFilter = '';
 
 function _renderKeyItem(k) {
-	const gradeTag = k.grade_level ? `<span style="display:inline-block;font-size:10px;font-weight:700;background:var(--primary);color:#fff;border-radius:4px;padding:1px 5px;margin-right:4px;">${escapeHtml(k.grade_level)}</span>` : '';
+	const gradeTag = k.grade_level ? `<span style="display:inline-block;font-size:10px;font-weight:700;background:var(--primary);color:var(--bg-card);border-radius:4px;padding:1px 5px;margin-right:4px;">${escapeHtml(k.grade_level)}</span>` : '';
 	return `<div class="list-item" style="position:relative;">
 		<div style="display:flex;align-items:center;gap:12px;flex:1;cursor:pointer;" onclick="openKeyDetail(${k.id})">
 			<div class="list-item-icon" style="background:rgba(20,184,166,0.15);">📚</div>
@@ -3466,7 +3547,7 @@ function formatAnswerHtml(answer, isEssay) {
 		return '<span style="opacity:0.4">정답 입력 (클릭)</span>';
 	}
 	if (_circledNums.includes(answer)) {
-		return `<span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:var(--primary);color:#fff;font-weight:800;font-size:15px;">${_fromCircled(answer)}</span>`;
+		return `<span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:var(--primary);color:var(--bg-card);font-weight:800;font-size:15px;">${_fromCircled(answer)}</span>`;
 	}
 	if (mathLiveReady && (answer.includes('\\') || answer.includes('^{') || answer.includes('_{'))) {
 		return `<math-field read-only class="kd-math-ro">${escapeHtml(answer)}</math-field>`;
@@ -3524,13 +3605,36 @@ function updateQuestion(idx, field, value) {
 // ── 수식 편집기 (MathLive) ──
 let mathEditorIdx = -1;
 let mathLiveReady = false;
+let mathLiveLoadingPromise = null;
 
-customElements.whenDefined('math-field').then(() => {
-	mathLiveReady = true;
-	if (kdQuestions.length) renderKeyQuestions();
-});
+async function ensureMathLiveLoaded() {
+	if (mathLiveReady || customElements.get('math-field')) {
+		mathLiveReady = true;
+		return true;
+	}
+	if (mathLiveLoadingPromise) return mathLiveLoadingPromise;
+	mathLiveLoadingPromise = new Promise((resolve) => {
+		const s = document.createElement('script');
+		s.src = 'https://cdn.jsdelivr.net/npm/mathlive';
+		s.defer = true;
+		s.onload = () => {
+			customElements.whenDefined('math-field').then(() => {
+				mathLiveReady = true;
+				if (kdQuestions.length) renderKeyQuestions();
+				resolve(true);
+			});
+		};
+		s.onerror = () => {
+			console.warn('[채점관리] MathLive 로딩 실패 - 일반 텍스트 입력 모드로 동작합니다.');
+			resolve(false);
+		};
+		document.head.appendChild(s);
+		setTimeout(() => resolve(false), 8000);
+	}).finally(() => { mathLiveLoadingPromise = null; });
+	return mathLiveLoadingPromise;
+}
 
-function openMathEditor(idx) {
+async function openMathEditor(idx) {
 	mathEditorIdx = idx;
 	const q = kdQuestions[idx];
 	const overlay = document.getElementById('math-editor-overlay');
@@ -3545,7 +3649,14 @@ function openMathEditor(idx) {
 
 	let editVal = q.answer || '';
 	if ((q.type || 'mc') === 'mc') editVal = _fromCircled(editVal);
+	const loaded = await ensureMathLiveLoaded();
 	mf.value = editVal;
+	rawInput.value = editVal;
+	if (!loaded) {
+		rawCheck.checked = true;
+		rawInput.style.display = '';
+		mf.style.display = 'none';
+	}
 
 	overlay.style.display = 'flex';
 	requestAnimationFrame(() => {
