@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>학원 관리 시스템</title>
+    <title>하이로드 수학 출석관리</title>
     <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.8/dist/web/static/pretendard.css" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="style.css">
@@ -56,7 +56,7 @@
     <!-- 초기 로딩 중 표시 -->
     <div id="initial-loader" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #ffffff; display: flex; align-items: center; justify-content: center; z-index: 9999;">
         <div style="text-align: center;">
-            <div style="width: 50px; height: 50px; border: 4px solid #f3f4f6; border-top: 4px solid #4f46e5; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto;"></div>
+            <div style="width: 50px; height: 50px; border: 4px solid #f3f4f6; border-top: 4px solid var(--primary); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto;"></div>
         </div>
     </div>
     <style>
@@ -70,7 +70,7 @@
     <div id="auth-page" class="auth-page" style="display: none; visibility: hidden;">
         <div class="auth-container">
             <div class="auth-box">
-                <h1 class="auth-logo">ACADEMY MANAGER</h1>
+                <h1 class="auth-logo">하이로드 수학</h1>
                 
                 <!-- 로그인 폼 -->
                 <div id="login-form" class="auth-form">
@@ -84,8 +84,8 @@
                         <input type="password" id="login-password" class="auth-input" placeholder="비밀번호를 입력하세요">
                     </div>
                     <div class="form-group" style="display: flex; flex-direction: row; align-items: center; gap: 8px; margin-top: 8px; padding: 10px 12px; background: #f5f7ff; border-radius: 10px; align-self: flex-start;">
-                        <input type="checkbox" id="remember-me" style="width: 18px; height: 18px; margin: 0; cursor: pointer; accent-color: #4f46e5;">
-                        <label for="remember-me" style="margin: 0; cursor: pointer; font-weight: 600; color: #4f46e5;">로그인 유지</label>
+                        <input type="checkbox" id="remember-me" style="width: 18px; height: 18px; margin: 0; cursor: pointer; accent-color: var(--primary);">
+                        <label for="remember-me" style="margin: 0; cursor: pointer; font-weight: 600; color: var(--primary);">로그인 유지</label>
                     </div>
                     <button class="auth-btn" onclick="signIn()">로그인</button>
                     <p class="auth-toggle">계정이 없으신가요? <a href="#" onclick="toggleAuthForm(); return false;">회원가입</a></p>
@@ -138,7 +138,7 @@
         <div class="auth-container">
             <button onclick="backToAdminLogin()" style="align-self: flex-start; background: none; border: none; color: rgba(255,255,255,0.85); font-size: 14px; font-weight: 600; cursor: pointer; padding: 8px 4px; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='rgba(255,255,255,0.85)'"><i class="fas fa-arrow-left"></i> 관리자 로그인으로 돌아가기</button>
             <div class="auth-box" style="position:relative;">
-                <button onclick="showQRPasswordModal()" style="position:absolute;top:18px;right:18px;background:linear-gradient(135deg,#4f46e5,#7c3aed);color:white;border:none;width:42px;height:42px;border-radius:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:17px;box-shadow:0 4px 12px rgba(99,102,241,0.35);transition:all 0.2s;" title="QR코드 스캔" onmouseover="this.style.transform='scale(1.08)';this.style.boxShadow='0 6px 18px rgba(99,102,241,0.45)'" onmouseout="this.style.transform='';this.style.boxShadow='0 4px 12px rgba(99,102,241,0.35)'"><i class="fas fa-qrcode"></i></button>
+                <button onclick="showQRPasswordModal()" style="position:absolute;top:18px;right:18px;background:linear-gradient(135deg,var(--primary),var(--primary-end));color:white;border:none;width:42px;height:42px;border-radius:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:17px;box-shadow:0 4px 12px rgba(17,55,119,0.35);transition:all 0.2s;" title="QR코드 스캔" onmouseover="this.style.transform='scale(1.08)';this.style.boxShadow='0 6px 18px rgba(17,55,119,0.45)'" onmouseout="this.style.transform='';this.style.boxShadow='0 4px 12px rgba(17,55,119,0.35)'"><i class="fas fa-qrcode"></i></button>
                 <h1 class="auth-logo">선생님 선택</h1>
                 
                 <!-- 선생님 선택 폼 -->
@@ -198,7 +198,7 @@
                         <label>주소</label>
                         <div style="display: flex; gap: 8px;">
                             <input type="text" id="new-teacher-address" class="auth-input" placeholder="주소를 검색하세요" readonly style="flex: 1; cursor: pointer;" onclick="searchAddress()">
-                            <button type="button" onclick="searchAddress()" style="padding: 12px 20px; background: #6366f1; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 500;">검색</button>
+                            <button type="button" onclick="searchAddress()" style="padding: 12px 20px; background: var(--primary); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 500;">검색</button>
                         </div>
                     </div>
                     <div class="form-group">
@@ -223,7 +223,7 @@
     <!-- QR 스캔 비밀번호 입력 모달 -->
     <div id="qr-password-modal" style="display:none;position:fixed;inset:0;z-index:20000;background:rgba(0,0,0,0.5);backdrop-filter:blur(4px);justify-content:center;align-items:center;">
         <div style="background:white;border-radius:16px;padding:28px 24px;width:90%;max-width:360px;box-shadow:0 20px 60px rgba(0,0,0,0.3);text-align:center;">
-            <div style="width:56px;height:56px;border-radius:14px;background:linear-gradient(135deg,#4f46e5,#7c3aed);display:flex;align-items:center;justify-content:center;margin:0 auto 16px;"><i class="fas fa-qrcode" style="color:white;font-size:24px;"></i></div>
+            <div style="width:56px;height:56px;border-radius:14px;background:linear-gradient(135deg,var(--primary),var(--primary-end));display:flex;align-items:center;justify-content:center;margin:0 auto 16px;"><i class="fas fa-qrcode" style="color:white;font-size:24px;"></i></div>
             <h3 style="margin:0 0 4px;font-size:18px;font-weight:700;color:#1e293b;">QR 코드 스캔</h3>
             <p style="margin:0 0 20px;font-size:13px;color:#64748b;">선생님 비밀번호를 입력해주세요</p>
             <div style="margin-bottom:12px;">
@@ -234,7 +234,7 @@
             </div>
             <div style="display:flex;gap:8px;">
                 <button onclick="closeQRPasswordModal()" style="flex:1;padding:12px;border:1.5px solid #e2e8f0;border-radius:10px;background:white;color:#64748b;font-size:14px;font-weight:600;cursor:pointer;">취소</button>
-                <button onclick="confirmQRPassword()" style="flex:1;padding:12px;border:none;border-radius:10px;background:linear-gradient(135deg,#4f46e5,#7c3aed);color:white;font-size:14px;font-weight:600;cursor:pointer;">확인</button>
+                <button onclick="confirmQRPassword()" style="flex:1;padding:12px;border:none;border-radius:10px;background:linear-gradient(135deg,var(--primary),var(--primary-end));color:white;font-size:14px;font-weight:600;cursor:pointer;">확인</button>
             </div>
         </div>
     </div>
@@ -348,7 +348,7 @@
                             <p style="font-size: 12px; color: #4338ca; margin: 0 0 8px; font-weight: 600;">
                                 <i class="fas fa-check-circle" style="margin-right: 4px;"></i> 인증번호가 발송되었습니다
                             </p>
-                            <p style="font-size: 11px; color: #6366f1; margin: 0;">5분 이내에 입력해주세요.</p>
+                            <p style="font-size: 11px; color: var(--primary); margin: 0;">5분 이내에 입력해주세요.</p>
                         </div>
                         <div class="form-group" style="margin-bottom: 10px;">
                             <label style="font-size: 13px; font-weight: 600;">인증번호 6자리</label>
@@ -371,7 +371,7 @@
     <div id="main-app" style="display: none !important;">
         <header class="main-header">
         <div class="header-left">
-            <h1 style="font-size: 20px; font-weight: 800; color: var(--primary);">ACADEMY MANAGER</h1>
+            <h1 style="font-size: 20px; font-weight: 800; color: var(--primary);">하이로드 수학</h1>
             <div class="teacher-chip">
                 <span class="teacher-chip-label">현재 선생님</span>
                 <span id="current-teacher-name" class="teacher-chip-name">미선택</span>
@@ -604,7 +604,7 @@
     <div id="schedule-modal" class="modal" style="display: none;">
         <div class="modal-card schedule-modal-card">
             <div class="modal-header">
-                <h2><i class="fas fa-calendar-plus" style="color:#6366f1;font-size:15px;"></i> 일정 생성</h2>
+                <h2><i class="fas fa-calendar-plus" style="color:var(--primary);font-size:15px;"></i> 일정 생성</h2>
                 <button class="btn-close-x" onclick="closeModal('schedule-modal')"><i class="fas fa-times"></i></button>
             </div>
             <div class="modal-body-scrollable custom-scroll" style="padding-bottom:0;">
@@ -819,7 +819,7 @@
                         <button type="button" class="color-btn" onclick="applyMemoColor('#eab308')" style="background:#eab308;" title="노랑"></button>
                         <button type="button" class="color-btn" onclick="applyMemoColor('#22c55e')" style="background:#22c55e;" title="초록"></button>
                         <button type="button" class="color-btn" onclick="applyMemoColor('#0ea5e9')" style="background:#0ea5e9;" title="파랑"></button>
-                        <button type="button" class="color-btn" onclick="applyMemoColor('#7c3aed')" style="background:#7c3aed;" title="보라"></button>
+                        <button type="button" class="color-btn" onclick="applyMemoColor('#c9a74a')" style="background:#c9a74a;" title="골드"></button>
                         <button type="button" class="color-btn" onclick="applyMemoColor('#000000')" style="background:#000000;" title="검정"></button>
                     </div>
                     <div id="att-memo" class="m-input m-textarea memo-editor" contenteditable="true" placeholder="진도 내용, 숙제 등"></div>
@@ -838,7 +838,7 @@
     <div id="day-settings-modal" class="modal" style="display: none;">
         <div class="modal-card day-settings-card">
             <div class="modal-header">
-                <h2 id="day-settings-title"><i class="fas fa-calendar-day" style="color:#6366f1;font-size:14px;"></i> 날짜 설정</h2>
+                <h2 id="day-settings-title"><i class="fas fa-calendar-day" style="color:var(--primary);font-size:14px;"></i> 날짜 설정</h2>
                 <button class="btn-close-x" onclick="closeModal('day-settings-modal')"><i class="fas fa-times"></i></button>
             </div>
             <input type="hidden" id="setting-date-str">
@@ -877,7 +877,7 @@
                     <button type="button" class="dset-color-chip" data-color="#eab308" onclick="setHolidayColor('#eab308')" style="background:#eab308;"></button>
                     <button type="button" class="dset-color-chip" data-color="#0ea5e9" onclick="setHolidayColor('#0ea5e9')" style="background:#0ea5e9;"></button>
                     <button type="button" class="dset-color-chip" data-color="#10b981" onclick="setHolidayColor('#10b981')" style="background:#10b981;"></button>
-                    <button type="button" class="dset-color-chip" data-color="#7c3aed" onclick="setHolidayColor('#7c3aed')" style="background:#7c3aed;"></button>
+                    <button type="button" class="dset-color-chip" data-color="#c9a74a" onclick="setHolidayColor('#c9a74a')" style="background:#c9a74a;"></button>
                 </div>
                 <input type="hidden" id="holiday-color" value="#ef4444">
             </div>
@@ -1036,7 +1036,7 @@
                     <label>주소</label>
                     <div style="display: flex; gap: 8px;">
                         <input type="text" id="detail-teacher-address" class="m-input" placeholder="주소를 검색하세요" readonly style="flex: 1; cursor: pointer;" onclick="searchAddressForDetail()">
-                        <button type="button" onclick="searchAddressForDetail()" style="padding: 12px 20px; background: #6366f1; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 500;">검색</button>
+                        <button type="button" onclick="searchAddressForDetail()" style="padding: 12px 20px; background: var(--primary); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 500;">검색</button>
                     </div>
                 </div>
                 <div class="input-group">
@@ -1158,7 +1158,7 @@
     <div id="qr-attendance-modal" class="modal" style="display: none;">
         <div class="modal-card" style="max-width: 520px;">
             <div class="modal-header">
-                <h2><i class="fas fa-qrcode" style="color:#6366f1;font-size:15px;"></i> QR 출석 관리</h2>
+                <h2><i class="fas fa-qrcode" style="color:var(--primary);font-size:15px;"></i> QR 출석 관리</h2>
                 <button class="btn-close-x" onclick="closeModal('qr-attendance-modal')"><i class="fas fa-times"></i></button>
             </div>
             <div class="modal-body-scrollable custom-scroll">
@@ -1186,7 +1186,7 @@
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                 <h2 style="color: white; margin: 0;">QR 코드 스캔</h2>
                 <div style="display: flex; gap: 10px;">
-                    <button onclick="toggleQRFullscreen()" id="qr-fullscreen-btn" style="background: #8b5cf6; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 16px;">
+                    <button onclick="toggleQRFullscreen()" id="qr-fullscreen-btn" style="background: var(--primary); color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 16px;">
                         <i class="fas fa-expand"></i> 전체화면
                     </button>
                     <button onclick="switchCamera()" style="background: #3b82f6; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 16px;">
@@ -1208,7 +1208,7 @@
     <div id="student-qr-list-modal" class="modal" style="display: none;">
         <div class="modal-card qr-list-card">
             <div class="modal-header">
-                <h2><i class="fas fa-qrcode" style="color:#6366f1;font-size:15px;"></i> 학생 QR 코드</h2>
+                <h2><i class="fas fa-qrcode" style="color:var(--primary);font-size:15px;"></i> 학생 QR 코드</h2>
                 <button class="btn-close-x" onclick="closeModal('student-qr-list-modal')"><i class="fas fa-times"></i></button>
             </div>
             <div class="qr-list-toolbar">
@@ -1248,7 +1248,7 @@
                     <div id="my-info-no-email" style="padding:10px 14px;background:#fef2f2;border:1px solid #fca5a5;border-radius:10px;font-size:13px;color:#991b1b;display:none;">
                         <i class="fas fa-exclamation-circle" style="margin-right:4px;"></i> 이메일 미등록
                     </div>
-                    <button type="button" onclick="startGoogleAuthForMyInfo()" style="margin-top:8px;width:100%;padding:10px 14px;background:white;border:1.5px solid var(--border);border-radius:10px;cursor:pointer;font-size:13px;font-weight:600;color:#334155;display:flex;align-items:center;justify-content:center;gap:8px;transition:all 0.15s;" onmouseover="this.style.borderColor='#6366f1';this.style.color='#4f46e5'" onmouseout="this.style.borderColor='';this.style.color='#334155'">
+                    <button type="button" onclick="startGoogleAuthForMyInfo()" style="margin-top:8px;width:100%;padding:10px 14px;background:white;border:1.5px solid var(--border);border-radius:10px;cursor:pointer;font-size:13px;font-weight:600;color:#334155;display:flex;align-items:center;justify-content:center;gap:8px;transition:all 0.15s;" onmouseover="this.style.borderColor='var(--primary)';this.style.color='var(--primary)'" onmouseout="this.style.borderColor='';this.style.color='#334155'">
                         <svg width="16" height="16" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
                         다른 계정으로 변경
                     </button>
@@ -1331,7 +1331,7 @@
             <div class="modal-body-scrollable custom-scroll" style="padding: 25px;">
                 <div style="margin-bottom: 25px;">
                     <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #475569; font-size: 14px;">조회 기간</label>
-                    <input type="month" id="attendance-history-month" class="m-input" onchange="loadStudentAttendanceHistory()" style="width: 100%; font-size: 15px; padding: 12px 16px; border: 2px solid #e2e8f0; border-radius: 10px; transition: all 0.2s;" onfocus="this.style.borderColor='#4f46e5'" onblur="this.style.borderColor='#e2e8f0'">
+                    <input type="month" id="attendance-history-month" class="m-input" onchange="loadStudentAttendanceHistory()" style="width: 100%; font-size: 15px; padding: 12px 16px; border: 2px solid #e2e8f0; border-radius: 10px; transition: all 0.2s;" onfocus="this.style.borderColor='var(--primary)'" onblur="this.style.borderColor='#e2e8f0'">
                 </div>
                 <div id="attendance-history-content"></div>
             </div>

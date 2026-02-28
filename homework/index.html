@@ -3,7 +3,7 @@
 <head>
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-	<title>숙제 제출</title>
+	<title>하이로드 수학 | 숙제 제출</title>
 	<link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.8/dist/web/static/pretendard.css" />
 	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 	<link rel="stylesheet" href="../css/sub-shared.css">
@@ -21,9 +21,19 @@
 
 		/* ===== Upload Page ===== */
 		.upload-header {
-			background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #6366f1 100%);
+			background: var(--brand-gradient);
 			padding: 20px 20px 72px;
 			position: relative;
+		}
+		.upload-header::after {
+			content: '';
+			position: absolute;
+			left: 20px;
+			right: 20px;
+			bottom: 14px;
+			height: 2px;
+			background: linear-gradient(90deg, rgba(201,167,74,0.15), rgba(201,167,74,0.95), rgba(201,167,74,0.15));
+			border-radius: 999px;
 		}
 
 		.upload-top-bar {
@@ -42,10 +52,10 @@
 		}
 		.upload-back-btn:hover { background: rgba(255,255,255,0.25); }
 
-		.upload-top-label { font-size: 13px; color: rgba(255,255,255,0.7); font-weight: 500; }
+		.upload-top-label { font-size: 13px; color: var(--accent); font-weight: 600; }
 
 		.upload-student-info { text-align: center; }
-		.upload-student-name { font-size: 24px; font-weight: 800; color: white; letter-spacing: -0.5px; }
+		.upload-student-name { font-size: 24px; font-weight: 800; color: white; letter-spacing: -0.5px; text-shadow: 0 1px 8px rgba(201,167,74,0.25); }
 		.upload-student-meta {
 			display: flex; align-items: center; justify-content: center; gap: 8px;
 			margin-top: 6px; font-size: 13px; color: rgba(255,255,255,0.75);
@@ -224,7 +234,7 @@
 		}
 		.progress-bar-fill {
 			height: 100%;
-			background: linear-gradient(90deg, #6366f1, #7c3aed);
+			background: var(--brand-gradient);
 			border-radius: 4px;
 			width: 0%;
 			transition: width 0.3s ease;
@@ -359,7 +369,7 @@
 
 		/* ===== Status Page ===== */
 		.status-header {
-			background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #6366f1 100%);
+			background: var(--brand-gradient);
 			padding: 20px 20px 60px;
 			position: relative;
 		}
@@ -559,16 +569,16 @@
 		.floating-submit-btn {
 			flex: 1; max-width: 400px;
 			padding: 15px;
-			background: linear-gradient(135deg, #6366f1, #7c3aed);
+			background: var(--brand-gradient);
 			color: white; border: none;
 			border-radius: var(--radius);
 			font-size: 15px; font-weight: 700; font-family: inherit;
 			cursor: pointer;
 			transition: all var(--transition);
 			display: flex; align-items: center; justify-content: center; gap: 8px;
-			box-shadow: 0 8px 32px rgba(99,102,241,0.4);
+			box-shadow: 0 8px 32px rgba(17,55,119,0.4);
 		}
-		.floating-submit-btn:hover { transform: translateY(-1px); box-shadow: 0 12px 40px rgba(99,102,241,0.5); }
+		.floating-submit-btn:hover { transform: translateY(-1px); box-shadow: 0 12px 40px rgba(17,55,119,0.5); }
 		.floating-submit-btn:active { transform: scale(0.98); }
 
 		/* ===== Responsive (page-specific) ===== */
@@ -720,7 +730,7 @@
 		<button class="floating-submit-btn" onclick="goToUploadFromStatus()">
 			<i class="fas fa-paper-plane"></i> 숙제 제출하기
 		</button>
-		<button class="floating-submit-btn" onclick="goToInstantGrade()" style="background:linear-gradient(135deg,#8b5cf6,#6366f1);">
+		<button class="floating-submit-btn" onclick="goToInstantGrade()" style="background:var(--brand-gradient);">
 			<i class="fas fa-camera"></i> 즉시 채점
 		</button>
 	</div>
@@ -855,7 +865,7 @@
 		</div>
 	</div>
 
-	<button onclick="resetToLanding()" style="display:inline-flex;align-items:center;gap:8px;padding:12px 28px;background:var(--primary);color:#fff;border:none;border-radius:12px;font-size:14px;font-weight:600;cursor:pointer;margin-top:8px;">
+	<button onclick="resetToLanding()" style="display:inline-flex;align-items:center;gap:8px;padding:12px 28px;background:var(--primary);color:var(--brand-navy-deep);border:none;border-radius:12px;font-size:14px;font-weight:700;cursor:pointer;margin-top:8px;">
 		<i class="fas fa-arrow-left"></i> 처음으로 돌아가기
 	</button>
 </div>
@@ -966,7 +976,7 @@ const GRADING_SERVER_URL_HW = localStorage.getItem('grading_server_url') || (_is
 function showToast(msg, type) {
 	type = type || 'info';
 	const c = document.getElementById('toast-container'); if(!c) return;
-	const colors = {success:'#22c55e',error:'#ef4444',warning:'#f59e0b',info:'#7c3aed'};
+	const colors = {success:'#22c55e',error:'#ef4444',warning:'#f59e0b',info:'#113777'};
 	const icons = {success:'fa-check-circle',error:'fa-xmark-circle',warning:'fa-exclamation-circle',info:'fa-info-circle'};
 	const t = document.createElement('div');
 	t.style.cssText = 'display:flex;align-items:center;gap:10px;padding:13px 16px;border-radius:14px;background:var(--card);box-shadow:0 8px 32px rgba(0,0,0,0.3);pointer-events:auto;cursor:pointer;animation:toastSlide 0.3s ease;border:1px solid var(--border);';

@@ -4,17 +4,21 @@
    ======================================== */
 
 :root {
-	--primary: #818cf8;
-	--primary-hover: #6366f1;
-	--primary-light: rgba(129,140,248,0.12);
-	--accent: #7c3aed;
-	--text: #e2e0ea;
-	--text-sec: #9b97ad;
-	--gray: #6b6880;
+	--brand-navy-deep: #0a1f47;
+	--brand-navy: #113777;
+	--brand-gold: #c9a74a;
+	--brand-gradient: linear-gradient(135deg, var(--brand-navy-deep) 0%, var(--brand-navy) 62%, #1a4b94 100%);
+	--primary: #c9a74a;
+	--primary-hover: #b28f34;
+	--primary-light: rgba(201,167,74,0.16);
+	--accent: #f1e2b0;
+	--text: #e8edf8;
+	--text-sec: #b7c2d8;
+	--gray: #8393b0;
 	--border: rgba(255,255,255,0.08);
-	--card: #2a2740;
-	--card-hover: #312d4a;
-	--bg: #1e1b2e;
+	--card: #10213f;
+	--card-hover: #162c51;
+	--bg: #09142f;
 	--bg-elevated: rgba(255,255,255,0.04);
 	--green: #4ade80;
 	--green-bg: rgba(74,222,128,0.12);
@@ -48,8 +52,8 @@ body {
 #page-landing {
 	display: flex; flex-direction: column; min-height: 100vh; min-height: 100dvh;
 	background: var(--bg);
-	background-image: radial-gradient(circle at 20% 20%, rgba(99,102,241,0.06) 0%, transparent 50%),
-		radial-gradient(circle at 80% 80%, rgba(139,92,246,0.06) 0%, transparent 50%);
+	background-image: radial-gradient(circle at 20% 20%, rgba(201,167,74,0.12) 0%, transparent 50%),
+		radial-gradient(circle at 80% 80%, rgba(17,55,119,0.22) 0%, transparent 50%);
 }
 
 .landing-hero {
@@ -64,12 +68,12 @@ body {
 
 .landing-icon {
 	width: 80px; height: 80px;
-	background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+	background: var(--brand-gradient);
 	border-radius: 24px;
 	display: flex; align-items: center; justify-content: center;
 	font-size: 36px; color: white;
 	margin-bottom: 24px;
-	box-shadow: 0 8px 32px rgba(99,102,241,0.3);
+	box-shadow: 0 8px 32px rgba(17,55,119,0.35);
 	animation: iconFloat 3s ease-in-out infinite;
 }
 @keyframes iconFloat {
@@ -144,7 +148,7 @@ body {
 
 .btn-primary {
 	flex: 1; padding: 14px;
-	background: linear-gradient(135deg, #6366f1, #7c3aed);
+	background: var(--brand-gradient);
 	color: white; border: none;
 	border-radius: var(--radius);
 	font-size: 15px; font-weight: 700; font-family: inherit;
@@ -152,7 +156,7 @@ body {
 	transition: all var(--transition);
 	display: flex; align-items: center; justify-content: center; gap: 8px;
 }
-.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(99,102,241,0.35); }
+.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(17,55,119,0.35); }
 .btn-primary:active { transform: scale(0.98); }
 .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
 
@@ -223,7 +227,7 @@ body {
 .admin-student-avatar {
 	width: 44px; height: 44px;
 	border-radius: 50%;
-	background: linear-gradient(135deg, #6366f1, #7c3aed);
+	background: var(--brand-gradient);
 	display: flex; align-items: center; justify-content: center;
 	font-size: 17px; font-weight: 800; color: white;
 	flex-shrink: 0;

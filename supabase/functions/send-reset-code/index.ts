@@ -46,13 +46,13 @@ serve(async (req: Request) => {
         Authorization: `Bearer ${RESEND_API_KEY}`,
       },
       body: JSON.stringify({
-        from: "Academy Manager <onboarding@resend.dev>",
+        from: "하이로드 수학 <onboarding@resend.dev>",
         to: [teacherEmail],
-        subject: `[학원관리] 비밀번호 초기화 인증번호`,
+        subject: `[하이로드 수학] 비밀번호 초기화 인증번호`,
         html: `
           <div style="font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 24px;">
             <div style="text-align: center; margin-bottom: 32px;">
-              <h1 style="color: #4f46e5; font-size: 24px; margin: 0;">ACADEMY MANAGER</h1>
+              <h1 style="color: #113777; font-size: 24px; margin: 0;">하이로드 수학</h1>
               <p style="color: #64748b; font-size: 14px; margin-top: 8px;">비밀번호 초기화 인증</p>
             </div>
             
@@ -64,8 +64,8 @@ serve(async (req: Request) => {
                 아래 인증번호를 입력해주세요.
               </p>
               
-              <div style="background: white; border: 2px solid #4f46e5; border-radius: 12px; padding: 20px; display: inline-block;">
-                <span style="font-size: 36px; font-weight: 800; letter-spacing: 8px; color: #4f46e5;">${code}</span>
+              <div style="background: white; border: 2px solid #113777; border-radius: 12px; padding: 20px; display: inline-block;">
+                <span style="font-size: 36px; font-weight: 800; letter-spacing: 8px; color: #113777;">${code}</span>
               </div>
               
               <p style="color: #ef4444; font-size: 12px; margin-top: 20px;">
@@ -81,7 +81,7 @@ serve(async (req: Request) => {
             </div>
             
             <p style="color: #94a3b8; font-size: 11px; text-align: center; margin-top: 32px;">
-              이 메일은 학원 관리 시스템에서 자동 발송되었습니다.
+              이 메일은 하이로드 수학에서 자동 발송되었습니다.
             </p>
           </div>
         `,

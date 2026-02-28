@@ -2,24 +2,31 @@
    Design Tokens & Variables
    ============================================ */
 :root {
-    /* Colors */
-    --primary: #4f46e5;
-    --primary-hover: #4338ca;
-    --primary-light: #eef2ff;
-    --primary-dark: #3730a3;
-    --primary-end: #6366f1;
-    --text: #1e293b;
+    /* Highroad Math Brand Colors */
+    --brand-navy-deep: #0a1f47;
+    --brand-navy: #113777;
+    --brand-gold: #c9a74a;
+    --brand-gold-soft: #f1e2b0;
+    --brand-gradient: linear-gradient(135deg, var(--brand-navy-deep) 0%, var(--brand-navy) 62%, #1a4b94 100%);
+
+    /* Core semantic colors */
+    --primary: #113777;
+    --primary-hover: #0d2e64;
+    --primary-light: #eaf0fb;
+    --primary-dark: #0a224c;
+    --primary-end: #1a4b94;
+    --text: #10213f;
     --text-secondary: #475569;
     --gray: #64748b;
     --gray-light: #94a3b8;
     --border: #e2e8f0;
     --border-light: #f1f5f9;
     --white: #ffffff;
-    --bg: #f8fafc;
+    --bg: #f5f7fb;
     --red: #ef4444;
     --orange: #f59e0b;
     --teal: #0d9488;
-    --purple: #7e22ce;
+    --purple: #c9a74a;
     --group-color: #334155;
     --paid-bg: #f0fdf4;
     --unpaid-bg: #fff1f2;
@@ -119,7 +126,7 @@ textarea:focus:not(:focus-visible) {
     justify-content: center !important;
     align-items: center !important;
     min-height: 100vh !important;
-    background: linear-gradient(135deg, var(--primary) 0%, var(--purple) 100%) !important;
+    background: var(--brand-gradient) !important;
     position: fixed !important;
     inset: 0 !important;
     z-index: 10000 !important;
