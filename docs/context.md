@@ -50,6 +50,12 @@
 | 2026-03-01 | 원클릭 검증 재실행에서도 `/health/runtime` 404가 지속됨을 확인 | 일시적 장애가 아닌 미배포 상태일 가능성을 높이고 배포 확인 작업을 우선순위로 고정하기 위함 | `qa-artifacts/verify_runtime_after_deploy.ps1`, `qa-artifacts/runtime-regrade-check-report.json` |
 | 2026-03-01 | 5분 내 실행 가능한 배포 체크리스트를 별도 문서로 제공 | 사용자/작업자가 즉시 따라할 수 있는 최소 절차를 분리해 커뮤니케이션 비용을 줄이기 위함 | `qa-artifacts/deployment-checklist-quick.md` |
 | 2026-03-01 | 배포 사전점검에서 로컬 변경 미커밋/미푸시 상태를 확인 | GitHub 기반 배포가 최신 코드를 반영하지 못하는 근본 원인 후보를 명시하기 위함 | `qa-artifacts/predeploy-readiness.md`, `git status -sb` |
+| 2026-03-01 | 운영 `/health/runtime` 200과 timeout 런타임 값을 확인해 배포 반영을 확정 | 동적 timeout 코드 반영 여부를 추정이 아닌 운영 응답값으로 확정하기 위함 | `https://academymanager-production.up.railway.app/health/runtime`, `qa-artifacts/runtime-regrade-check-report.json` |
+| 2026-03-01 | `trigger_regrade` 포함 통합 점검을 재실행하고 폴링 구간 ReadTimeout을 별도 리스크로 분리 | 재채점 로직 실패와 운영 응답 지연 이슈를 분리해야 후속 조치 우선순위를 정확히 정할 수 있음 | `qa-artifacts/run_runtime_regrade_check.py`, `qa-artifacts/runtime-regrade-check-report.json` |
+| 2026-03-01 | timeout 30초/6회 poll 재검증으로 "진행 신호는 있으나 응답이 간헐 타임아웃" 상태를 확정 | 재채점 로직 자체와 인프라/네트워크 지연을 분리해 추적하기 위함 | `qa-artifacts/runtime-regrade-check-report.json` |
+| 2026-03-01 | Railway 로그 근거를 반영해 timeout 분석을 "외부 호출 지연"보다 "내부 채점 단계 장기 실행" 우선으로 전환 | `result #34`에서 `[TIMEOUT] ... 400s`가 직접 관측되어, 단계별 소요시간 가시화가 우선 과제가 됨 | Railway 운영 로그, `grading-server/routers/grading.py` |
+| 2026-03-01 | 채점 단계 컨텍스트(stage/detail/elapsed)를 타임아웃·치명오류 메시지에 포함 | 재현 시 "어느 단계에서 오래 걸렸는지"를 즉시 식별해 대응 시간을 줄이기 위함 | `grading-server/routers/grading.py` |
+| 2026-03-01 | OCR 타이브레이크에 시간 보호장치(항목 상한/재시도 상한/거부응답 즉시 fallback) 추가 | 거부 응답/저신뢰 대량 케이스에서 타이브레이크가 장시간 누적되는 것을 방지하기 위함 | `grading-server/ocr/engines.py`, `grading-server/config.py` |
 
 ## 변경 방향/범위 변경 기록
 - 2026-03-01 - 임시 채팅 맥락 중심 -> 문서 중심 운영으로 변경, 이유: AI 작업 방향 일탈 방지
@@ -60,11 +66,11 @@
 - [ ] `grading-server/routers/results.py`의 전체 재채점 경로에 대해 대용량 ZIP/Drive 오류 시나리오 실검증 필요 (모킹 검증 완료, 실데이터 1건 부분 검증 완료)
 - [ ] 실데이터 `result_id=34` full regrade 재실행에서 채점 시간 초과로 `failed/review_needed` 종료됨 - 동적 timeout 적용 후 재측정 필요
 - [ ] 실데이터 `result_id=34`의 `error_message`가 여전히 "채점 시간 5분 초과"로 남음 - 동적 timeout 코드가 운영에 반영되었는지(배포 반영/실행 경로) 확인 필요
-- [ ] 운영 `/health/runtime` 404로 최신 코드 미배포 가능성 높음 - 배포 파이프라인/배포 대상 브랜치 확인 필요
+- [ ] Railway 로그에서 `result #34` 내부 timeout(400s)이 관측됨 - 단계별 소요시간 로그가 반영된 최신 코드 배포 후 동일 케이스 재측정 필요
 - [ ] 로컬 변경사항이 아직 원격에 반영되지 않음(미커밋/미푸시) - 배포 전 커밋/푸시 필요
 - [ ] 생성된 픽스처(`no_images.zip`, `empty.zip`, `not_a_zip.bin`)를 실제 제출/재채점 경로에 연결해 400/400/400(또는 502) 계약 검증 필요
 - [ ] 통합 점검 리포트에서 `result_id=34`가 여전히 `review_needed` + `채점 시간 5분 초과`로 확인됨 - 배포 반영 후 동일 스크립트로 재비교 필요
-- [ ] `verify_runtime_after_deploy.ps1` 실행 결과도 동일(`health_runtime=404`, `result34=review_needed`) - 배포 반영 전까지 상태 변화 기대 어려움
+- [ ] timeout 30초 재실행에서도 API poll은 간헐 실패 - 다만 내부 timeout 로그가 확인된 만큼, 우선 최신 패치 배포 후 stage별 병목 지점 확정 필요
 - [x] 전체 재채점 시작 후 진행률 폴링/완료 반영이 프론트와 일치하는지 E2E 확인 필요
 - [x] 리디자인 반영 후 일부 인라인 스타일(구 색상값) 잔존 가능성 확인 필요
 - [x] 다크 톤 화면(`grading/index.html`)에서 골드 포인트 대비(접근성) 수동 점검 필요
@@ -83,18 +89,19 @@
 ## 다음 작업자가 바로 알아야 할 것
 - 현재 브랜치: `main`
 - 진행 중 작업: 1순위 코드 보강 + 모킹 하네스 검증 완료, 실데이터 검증 1건(`result_id=34`) 수행
-- 다음 1순위 작업: ZIP/Drive 오류 유형별 실데이터 케이스를 확보해 full regrade 실패 코드를 직접 재현
+- 다음 1순위 작업: `result_id=34` 재채점 후속 상태를 안정적으로 수집(폴링 timeout 완화)하고, 이후 ZIP/Drive 오류 유형별 실데이터 케이스를 확장 검증
 - 현재 차단 요인: 운영 데이터셋에 오류 유형(다운로드 실패/ZIP 손상/이미지 0건)을 분리 재현할 샘플이 부족함
 - 추가 차단 요인: 동적 timeout 코드와 운영 실행 결과(`5분 초과` 문구) 사이 불일치 가능성
-- 추가 차단 요인(확정 근거): 운영 `/health/runtime` 404 응답
-- 추가 차단 요인(재확인): 원클릭 점검 재실행에서도 `/health/runtime` 404 지속
-- 추가 차단 요인(원인 후보 강화): 로컬 워크트리 dirty 상태로 GitHub 기준 최신 코드 미배포 가능
+- 추가 차단 요인(최신): 내부 timeout(400s) 발생 단계가 아직 운영 로그에서 충분히 세분화되지 않아 병목 지점을 한 번에 특정하기 어려움
 - 재개 체크포인트:
   - 모킹 검증 결과: Drive 다운로드 실패 502, ZIP 형식 오류 400, 이미지 0건 400
   - 실데이터 검증 결과: `POST /api/results/34/regrade`는 시작 200 반환 후 진행률 `failed`, 결과 `review_needed`, `error_message=채점 시간 5분 초과`로 수렴
   - 운영 API 응답성 probe: 5/10/20초 구간 모두 200 응답 확인(일시적 ReadTimeout 해소)
-  - 현재 `result_id=34` 상태는 `review_needed`, 진행률 `failed`, 에러메시지 `채점 시간 5분 초과`
-  - 운영 `/health/runtime`는 현재 404(최신 코드 미반영 정황) → 배포 완료 후 다시 조회
+  - timeout 30초 재검증에서 `POST /api/results/34/regrade`는 200이며, 중간 poll에서 `result34=status=grading`, `progress=cross_validate 40%`를 1회 관측
+  - 같은 실행에서 `health/runtime/results/progress/items`가 다수 ReadTimeout(30초)으로 실패해 최종 수렴값은 미확정
+  - 운영 `/health/runtime` 200 이력과 timeout 값 노출은 확인된 상태(배포 반영 자체는 완료)
+  - Railway 로그 근거: `[TIMEOUT] 채점 시간 초과 (result #34, 400s)`가 직접 관측됨
+  - 최신 코드 반영사항: timeout/예외 시 마지막 단계(stage/detail)와 단계 경과시간 로그를 남기도록 패치 완료
   - 픽스처 경로: `qa-artifacts/regrade-fixtures/no_images.zip`, `empty.zip`, `not_a_zip.bin`
   - 통합 점검 리포트: `qa-artifacts/runtime-regrade-check-report.json`
   - 배포/검증 표준 절차: `qa-artifacts/deploy-and-verify-runtime.md`

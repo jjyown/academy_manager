@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import re
+import time
 from datetime import datetime
 
 from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile
@@ -177,6 +178,38 @@ def _get_grading_timeout_seconds(total_images: int) -> int:
     return timeout
 
 
+def _set_stage(
+    run_ctx: dict,
+    *,
+    result_id: int,
+    stage: str,
+    detail: str = "",
+) -> None:
+    """단계 전환 시점과 소요시간을 기록."""
+    now = time.monotonic()
+    prev_stage = run_ctx.get("stage")
+    prev_started_at = run_ctx.get("stage_started_at")
+    if prev_stage and prev_started_at:
+        logger.info(
+            f"[StageTiming] result #{result_id}: {prev_stage} done in {now - prev_started_at:.1f}s"
+        )
+
+    run_ctx["stage"] = stage
+    run_ctx["stage_detail"] = detail
+    run_ctx["stage_started_at"] = now
+    logger.info(f"[StageTiming] result #{result_id}: -> {stage} ({detail})")
+
+
+def _stage_snapshot(run_ctx: dict) -> tuple[str, str, float, float]:
+    """현재 단계 스냅샷 반환: stage, detail, stage_elapsed, total_elapsed"""
+    now = time.monotonic()
+    stage = run_ctx.get("stage", "unknown")
+    detail = run_ctx.get("stage_detail", "")
+    stage_started_at = run_ctx.get("stage_started_at", run_ctx.get("job_started_at", now))
+    job_started_at = run_ctx.get("job_started_at", now)
+    return stage, detail, max(0.0, now - stage_started_at), max(0.0, now - job_started_at)
+
+
 async def _run_grading_background(
     *,
     result_id: int,
@@ -191,6 +224,12 @@ async def _run_grading_background(
     homework_submission_id: int | None,
 ):
     timeout_seconds = _get_grading_timeout_seconds(len(image_bytes_list))
+    run_ctx = {
+        "job_started_at": time.monotonic(),
+        "stage": "queued",
+        "stage_detail": "백그라운드 채점 대기",
+        "stage_started_at": time.monotonic(),
+    }
     logger.info(
         f"[GradingJob] result #{result_id}: images={len(image_bytes_list)}, "
         f"timeout={timeout_seconds}s (base={GRADING_TIMEOUT_BASE_SECONDS}, "
@@ -209,25 +248,48 @@ async def _run_grading_background(
                 image_bytes_list=image_bytes_list,
                 mode=mode,
                 homework_submission_id=homework_submission_id,
+                run_ctx=run_ctx,
             ),
             timeout=timeout_seconds,
         )
     except asyncio.TimeoutError:
-        logger.error(f"[TIMEOUT] 채점 시간 초과 (result #{result_id}, {timeout_seconds}s)")
-        update_progress(result_id, "failed", 0, 0, f"채점 시간 초과({timeout_seconds}s)")
+        stage, detail, stage_elapsed, total_elapsed = _stage_snapshot(run_ctx)
+        logger.error(
+            f"[TIMEOUT] 채점 시간 초과 (result #{result_id}, {timeout_seconds}s, "
+            f"stage={stage}, stage_elapsed={stage_elapsed:.1f}s, total_elapsed={total_elapsed:.1f}s)"
+        )
+        update_progress(
+            result_id,
+            "failed",
+            0,
+            0,
+            f"채점 시간 초과({timeout_seconds}s, 단계={stage})",
+        )
         await _fail_grading_result(
             result_id, homework_submission_id, teacher_id, student, student_id,
             (
                 f"채점 시간이 제한({timeout_seconds // 60}분, 이미지 {len(image_bytes_list)}장 기준)을 초과했습니다. "
+                f"마지막 단계: {stage}"
+                f"{f'({detail})' if detail else ''}, 단계 경과 {stage_elapsed:.1f}초. "
                 "이미지 수를 줄이거나 재채점해주세요."
             ),
         )
     except Exception as e:
-        logger.error(f"[FATAL] 채점 실패 (result #{result_id}): {e}", exc_info=True)
-        update_progress(result_id, "failed", 0, 0, f"채점 실패: {str(e)[:100]}")
+        stage, detail, stage_elapsed, _ = _stage_snapshot(run_ctx)
+        logger.error(
+            f"[FATAL] 채점 실패 (result #{result_id}, stage={stage}, stage_elapsed={stage_elapsed:.1f}s): {e}",
+            exc_info=True,
+        )
+        update_progress(
+            result_id,
+            "failed",
+            0,
+            0,
+            f"채점 실패(단계={stage}): {str(e)[:100]}",
+        )
         await _fail_grading_result(
             result_id, homework_submission_id, teacher_id, student, student_id,
-            str(e)[:500],
+            f"[{stage}] {str(e)[:500]}",
         )
 
 
@@ -279,6 +341,7 @@ async def _execute_grading(
     image_bytes_list: list[bytes],
     mode: str,
     homework_submission_id: int | None,
+    run_ctx: dict,
 ) -> dict:
     all_items = []
     central_graded_urls = []
@@ -323,6 +386,7 @@ async def _execute_grading(
         update_progress(result_id, "done", total_images, total_images, "확인 요청")
         return {"result_id": result_id, "status": "review_needed"}
 
+    _set_stage(run_ctx, result_id=result_id, stage="preprocess", detail="이미지 전처리")
     update_progress(result_id, "preprocess", 0, total_images, "이미지 전처리 중...")
     logger.info(f"[Preprocess] {total_images}장 이미지 전처리 시작")
     image_bytes_list = preprocess_batch(image_bytes_list)
@@ -334,6 +398,7 @@ async def _execute_grading(
     question_types = answer_key.get("question_types_json") or None
 
     total_ocr_steps = 5 if USE_GRADING_AGENT else 4
+    _set_stage(run_ctx, result_id=result_id, stage="ocr", detail="Gemini OCR 1차")
     update_progress(result_id, "ocr", 1, total_ocr_steps, f"Gemini OCR 1차 처리 중 ({total_images}장)...")
     logger.info(f"[OCR] Gemini 2.5 Flash 더블체크 시작: {total_images}장"
                 f"{f', 유형 힌트 {len(question_types)}문제' if question_types else ''}")
@@ -347,6 +412,7 @@ async def _execute_grading(
         for r in ocr1_results
     ]
 
+    _set_stage(run_ctx, result_id=result_id, stage="cross_validate", detail="OCR 크로스 검증")
     update_progress(result_id, "cross_validate", 2, total_ocr_steps, "Gemini 2차 검증 중...")
     ocr_results = await cross_validate_ocr(
         image_bytes_list, ocr1_results,
@@ -358,6 +424,7 @@ async def _execute_grading(
     if USE_GRADING_AGENT:
         try:
             from ocr.agent import agent_verify_ocr
+            _set_stage(run_ctx, result_id=result_id, stage="agent_verify", detail="AI 에이전트 검증")
             update_progress(result_id, "agent_verify", 3, 5, "AI 에이전트 개별 문제 검증 중...")
             ocr_results = await agent_verify_ocr(
                 image_bytes_list, ocr_results,
@@ -429,6 +496,7 @@ async def _execute_grading(
     except Exception as e:
         logger.warning(f"[AutoMatch] 교재 재검증 실패 (무시): {e}")
 
+    _set_stage(run_ctx, result_id=result_id, stage="grading", detail="문항 채점")
     update_progress(result_id, "grading", 0, total_images, "채점 시작...")
     solution_only_count = 0
     graded_questions = set()
@@ -545,6 +613,7 @@ async def _execute_grading(
     if failed_images:
         logger.warning(f"[Grade] 총 {len(failed_images)}장 실패: {failed_images}")
 
+    _set_stage(run_ctx, result_id=result_id, stage="saving", detail="결과 저장")
     update_progress(result_id, "saving", total_images, total_images, "결과 저장 중...")
     if all_items:
         await create_grading_items(all_items)
@@ -609,6 +678,7 @@ async def _execute_grading(
     except Exception as notif_err:
         logger.warning(f"채점 완료 알림 생성 실패 (무시): {notif_err}")
 
+    _set_stage(run_ctx, result_id=result_id, stage="done", detail="채점 완료")
     update_progress(result_id, "done", total_images, total_images, "채점 완료")
 
     return {

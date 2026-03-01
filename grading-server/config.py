@@ -45,3 +45,11 @@ USE_GRADING_AGENT = os.getenv("USE_GRADING_AGENT", "true").lower() in ("true", "
 GRADING_TIMEOUT_BASE_SECONDS = int(os.getenv("GRADING_TIMEOUT_BASE_SECONDS", "300"))
 GRADING_TIMEOUT_PER_IMAGE_SECONDS = int(os.getenv("GRADING_TIMEOUT_PER_IMAGE_SECONDS", "20"))
 GRADING_TIMEOUT_MAX_SECONDS = int(os.getenv("GRADING_TIMEOUT_MAX_SECONDS", "900"))
+
+# OCR 타이브레이크 안전장치
+# 이미지당 타이브레이크 수행 최대 문제 수 (낮출수록 지연 감소)
+OCR_TIEBREAK_MAX_ITEMS_PER_IMAGE = int(os.getenv("OCR_TIEBREAK_MAX_ITEMS_PER_IMAGE", "6"))
+# 문제당 타이브레이크 재시도 횟수 (1이면 재시도 없이 1회만 시도)
+OCR_TIEBREAK_MAX_RETRIES_PER_QUESTION = int(os.getenv("OCR_TIEBREAK_MAX_RETRIES_PER_QUESTION", "1"))
+# 모델이 정책/거부 문구를 반환하면 즉시 OCR1 fallback
+OCR_TIEBREAK_FALLBACK_ON_REFUSAL = os.getenv("OCR_TIEBREAK_FALLBACK_ON_REFUSAL", "true").lower() in ("true", "1", "yes")

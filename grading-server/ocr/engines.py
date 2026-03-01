@@ -609,6 +609,8 @@ async def cross_validate_ocr(
     Returns:
         검증된 OCR 결과 리스트 (더블체크 형식: answers 값이 dict)
     """
+    from config import OCR_TIEBREAK_MAX_ITEMS_PER_IMAGE
+
     validated = []
 
     async def _noop():
@@ -734,6 +736,14 @@ async def cross_validate_ocr(
                 low_conf_items.append(q)
 
         if low_conf_items and idx < len(image_bytes_list):
+            max_items = max(0, OCR_TIEBREAK_MAX_ITEMS_PER_IMAGE)
+            if len(low_conf_items) > max_items:
+                dropped = low_conf_items[max_items:]
+                low_conf_items = low_conf_items[:max_items]
+                logger.warning(
+                    f"[Tiebreak] 이미지 {idx}: 저신뢰 {len(dropped)}개 항목은 시간 보호를 위해 건너뜀 {dropped}"
+                )
+
             logger.info(f"[Tiebreak] 이미지 {idx}: {len(low_conf_items)}개 항목 3차 검증 시작 "
                         f"({low_conf_items})")
             q_types = question_types or {}
@@ -814,7 +824,12 @@ async def _tiebreak_ocr(
         {"answer": "최종답", "confidence": 85~95}
     """
     from openai import AsyncOpenAI
-    from config import OPENAI_API_KEY, AI_API_TIMEOUT
+    from config import (
+        OPENAI_API_KEY,
+        AI_API_TIMEOUT,
+        OCR_TIEBREAK_MAX_RETRIES_PER_QUESTION,
+        OCR_TIEBREAK_FALLBACK_ON_REFUSAL,
+    )
 
     if not OPENAI_API_KEY:
         logger.debug(f"[Tiebreak] OpenAI API 키 없음 → OCR1 채택 ({question}번)")
@@ -864,7 +879,8 @@ async def _tiebreak_ocr(
         ]
 
         last_err = None
-        for attempt in range(1, 3):
+        max_attempts = max(1, OCR_TIEBREAK_MAX_RETRIES_PER_QUESTION)
+        for attempt in range(1, max_attempts + 1):
             try:
                 response = await client.chat.completions.create(
                     model="gpt-4o",
@@ -873,6 +889,17 @@ async def _tiebreak_ocr(
                     temperature=0.1,
                 )
                 text = response.choices[0].message.content.strip()
+                low = text.lower()
+                if OCR_TIEBREAK_FALLBACK_ON_REFUSAL and (
+                    "can't assist" in low
+                    or "cannot assist" in low
+                    or "i'm sorry" in low
+                ):
+                    logger.warning(
+                        f"[Tiebreak-GPT4o] {question}번 거부 응답 감지 → 즉시 OCR1 채택"
+                    )
+                    return {"answer": ocr1_answer, "confidence": 60}
+
                 parsed = _robust_json_parse(text)
                 if parsed and isinstance(parsed, dict) and "answer" in parsed:
                     confidence = min(95, max(70, parsed.get("confidence", 85)))
@@ -883,7 +910,7 @@ async def _tiebreak_ocr(
                 return {"answer": ocr1_answer, "confidence": 60}
             except Exception as e:
                 last_err = e
-                if attempt < 2:
+                if attempt < max_attempts:
                     await asyncio.sleep(1)
                     continue
         raise last_err

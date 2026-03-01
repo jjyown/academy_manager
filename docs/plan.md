@@ -25,9 +25,10 @@
 3. [ ] 대용량 ZIP/Drive 실데이터 시나리오 검증(토스트/진행률 포함 E2E 정합성)
    - 진행상태: 일부 수행(`result_id=34` full regrade 재실행 시 채점 시간 초과 실패 관측)
    - 남은범위: 생성된 픽스처(`qa-artifacts/regrade-fixtures`)로 실데이터 제출을 만들고 케이스별 재현
-   - 최신상태: 운영 API 응답성은 회복(5~20초 probe 모두 200), 다만 `result_id=34`는 여전히 timeout 실패 상태(`review_needed`/`failed`)로 남아 원인 검증 필요
+   - 최신상태: Railway 로그에서 내부 timeout(`result #34, 400s`)이 직접 관측되었고, 코드에 단계별 타이밍 로그/타이브레이크 상한 보호를 반영함. 다음은 배포 후 동일 케이스 재측정
 4. [x] 채점 타임아웃 동적화(이미지 수 기반, 상한 포함) 적용
 5. [x] 운영 반영 판별용 런타임 헬스 엔드포인트 추가(`/health/runtime`)
+6. [x] 채점 단계 추적/타이브레이크 안전장치 추가(시간초과 원인 분석용)
 
 ## 브랜드 리디자인 스프린트 (하이로드 수학)
 - [x] 브랜드 토큰(네이비/골드, 깔끔한 톤) 정의 및 공통 스타일 반영
@@ -71,25 +72,27 @@
 | 오류 유형별 실데이터 케이스 재현(다운로드/ZIP손상/이미지0건) | TODO | me/ai | 테스트용 제출 데이터셋 준비 필요(현재 운영 데이터 1건으로는 케이스 분리가 어려움) |
 | 채점 타임아웃 동적화 (`grading.py`, `config.py`) | DONE | me/ai | 고정 300초 대신 `base + per_image * n`(max 제한) 적용, timeout 메시지에 기준 시간/이미지 수 반영 |
 | 운영 API 응답성 재측정(5/10/20초) | DONE | me/ai | `results`/`grading-progress`/`items` 모두 200 응답 확인(일시적 ReadTimeout 해소) |
-| 동적 timeout 적용 효과 실측(`result_id=34`) | IN_PROGRESS | me/ai | 현재 상태는 여전히 `review_needed` + `채점 시간 5분 초과` 문구. 운영 배포 반영 여부 포함 추가 검증 필요 |
+| 동적 timeout 적용 효과 실측(`result_id=34`) | IN_PROGRESS | me/ai | Railway 로그에서 `[TIMEOUT] result #34, 400s`가 직접 관측됨. 단계별 타이밍/타이브레이크 상한 패치 반영 후 재측정 대기 |
 | 운영 반영 확인용 런타임 헬스 엔드포인트 (`main.py`) | DONE | me/ai | `/health/runtime`에 timeout/feature 플래그 노출(배포 후 동적 timeout 값 반영 여부 즉시 확인 가능) |
-| 운영 반영 여부 확인(`/health/runtime`) | BLOCKED | me/ai | 운영 서버 응답 404 확인 — 새 엔드포인트(및 동적 timeout 코드) 미배포 가능성 높음 |
+| 운영 반영 여부 확인(`/health/runtime`) | DONE | me/ai | 운영 서버 200 확인 + `grading_timeout_base/per_image/max` 값 노출 확인(배포 반영 완료) |
+| 채점 단계 타이밍 로그/timeout 원인 표시 보강 | DONE | me/ai | `preprocess→ocr→cross_validate→agent_verify→grading→saving` 단계 전환/소요를 로그에 남기고 timeout 메시지에 마지막 단계 포함 |
+| OCR 타이브레이크 안전장치 보강 | DONE | me/ai | 이미지당 타이브레이크 항목 상한 + 문제당 재시도 상한 + 거부응답 즉시 fallback 추가 |
 | 오류 재현 픽스처 생성(`qa-artifacts/regrade-fixtures`) | DONE | me/ai | `no_images.zip`, `empty.zip`, `not_a_zip.bin` 생성 + 사용 가이드 문서화 완료 |
 | 런타임/재채점 통합 점검 스크립트 추가 | DONE | me/ai | `qa-artifacts/run_runtime_regrade_check.py` 추가, 운영 리포트(`runtime-regrade-check-report.json`) 생성 |
 | 배포/반영 검증 절차 문서화 | DONE | me/ai | `qa-artifacts/deploy-and-verify-runtime.md`에 배포→`/health/runtime`→통합점검 재실행 절차 고정 |
-| 배포 후 검증 실행 스크립트 추가/실행 | DONE | me/ai | `qa-artifacts/verify_runtime_after_deploy.ps1` 추가 및 실행(현재도 `health_runtime=404`, `result34=review_needed`) |
+| 배포 후 검증 실행 스크립트 추가/실행 | DONE | me/ai | `qa-artifacts/verify_runtime_after_deploy.ps1`/통합 스크립트로 재검증 수행(`health_runtime=200`, `result34`는 기존 `review_needed`) |
 | 5분 배포 체크리스트 제공 | DONE | me/ai | `qa-artifacts/deployment-checklist-quick.md` 작성(배포 전/배포 확인/운영 판정/실패 조치) |
 | 배포 사전 준비상태 점검 | DONE | me/ai | `predeploy-readiness.md` 작성: 로컬 변경 미커밋/미푸시 상태 확인(배포 전 커밋·푸시 필요) |
 
 상태 기준: `TODO` / `IN_PROGRESS` / `DONE` / `BLOCKED`
 
 ## 작업 인계 메모 (다음 단계)
-- 현재 상태: 코드 보강 + 모킹 검증 완료, 실데이터 1건(`result_id=34`) 검증에서 채점 timeout 실패를 관측
-- 다음 작업(우선순위): 대용량 ZIP/Drive 오류 유형별(다운로드 실패/ZIP 손상/이미지 0건) 실데이터 케이스 확보 후 E2E 검증
+- 현재 상태: 코드 보강 + 모킹 검증 완료, 운영 배포 반영(`/health/runtime` 200)까지 확인
+- 다음 작업(우선순위): 방금 반영한 단계추적/타이브레이크 보호 코드 배포 후 `result_id=34` 재실행으로 timeout 원인 단계와 최종 수렴 상태를 확정
 - 다음 단계 권장 순서:
-  1) 오류 유형별 테스트 픽스처 확보(무효 Drive ID, 손상 ZIP, 비이미지 ZIP)
-  2) `/api/results/{id}/regrade` 실호출로 HTTP 코드/메시지 + 진행률/에러메시지 대조
-  3) 프론트 토스트/상태배너 노출 일관성 확인 후 `context.md`/`checklist.md`에 근거 기록
+  1) 코드 배포 후 `/health/runtime`에서 신규 `ocr_tiebreak` 설정값 노출 확인
+  2) `result_id=34` 재실행 + Railway 로그 대조로 마지막 단계/소요시간/timeout 지점 확정
+  3) 오류 유형별 테스트 픽스처 확보 후 `/api/results/{id}/regrade` 실호출로 HTTP 코드/메시지 + 진행률/에러메시지 대조
 
 ## 완료 기준 (Definition of Done)
 - [ ] 기능이 요구사항대로 동작한다.
@@ -133,3 +136,8 @@
 - 2026-03-01 - 원클릭 검증 재실행: `/health/runtime` 404 지속, `result_id=34` 상태 `review_needed` 유지 확인
 - 2026-03-01 - 빠른 배포 점검 체크리스트 작성: `deployment-checklist-quick.md`로 즉시 실행 가능한 확인 순서 제공
 - 2026-03-01 - 배포 사전점검 수행: 로컬 변경사항이 아직 원격에 반영되지 않았음을 문서화(`predeploy-readiness.md`)
+- 2026-03-01 - 운영 반영 재확인: `/health/runtime` 200 및 timeout 런타임 값 노출 확인
+- 2026-03-01 - 통합 점검 재실행(`trigger_regrade` 포함): 시작 200 확인, 후속 폴링 구간 ReadTimeout 반복으로 최종 판정 보류
+- 2026-03-01 - 타임아웃 상향(30초) 재검증: 시작 200 + 중간 `grading(40%)` 관측, 그러나 동일 실행 내 endpoint 다수가 ReadTimeout으로 불안정
+- 2026-03-01 - Railway 로그 분석 반영: `result #34` 내부 timeout(400s) 직접 관측, 단계별 타이밍 로그 + timeout 마지막 단계 노출 보강
+- 2026-03-01 - OCR 타이브레이크 보호 로직 추가: 이미지당 항목 상한/재시도 상한/거부응답 즉시 fallback 및 런타임 설정 노출

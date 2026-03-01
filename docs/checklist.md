@@ -68,6 +68,10 @@
 | 2026-03-01 | 원클릭 검증 재실행(운영 반영 재확인) | `powershell -ExecutionPolicy Bypass -File qa-artifacts/verify_runtime_after_deploy.ps1` 재실행 | BLOCKED | 이전과 동일하게 health_runtime=404 지속. `result_id=34` 상태/에러도 변화 없음(`review_needed`, `채점 시간 5분 초과`) |
 | 2026-03-01 | 5분 배포 확인 체크리스트 제공 | `qa-artifacts/deployment-checklist-quick.md` 작성 후 절차/판정 항목 검토 | PASS | 배포 전→배포 확인→운영 판정→실패 조치 흐름을 최소 단계로 고정해 즉시 실행 가능 |
 | 2026-03-01 | 배포 사전 준비상태 점검 | `git status -sb`, `git remote -v`, 최신 커밋 확인 후 `predeploy-readiness.md` 작성 | PASS | 로컬 변경 미커밋/미푸시 상태를 확인. GitHub 기반 배포 전 커밋/푸시가 선행돼야 함을 명시 |
+| 2026-03-01 | 운영 `/health/runtime` 재확인(배포 반영 판정) | 통합 리포트 단건 조회 + 수동 요약 출력(`health_runtime`, timeout 값) 확인 | PASS | `health_runtime=200`, `grading_timeout_base/per_image/max` 노출 확인으로 운영 반영 판정 완료 |
+| 2026-03-01 | `trigger_regrade` 포함 통합 재검증(`result_id=34`) | `python qa-artifacts/run_runtime_regrade_check.py --trigger-regrade ...` 실행 후 `polls` 분석 | BLOCKED | 시작 응답 200(`full_regrade=true`)은 확인. 하지만 후속 poll 4회가 모두 ReadTimeout(10s)으로 최종 상태 수렴 판정 보류 |
+| 2026-03-01 | timeout 상향 재검증(`result_id=34`, timeout=30/poll=6) | `python qa-artifacts/run_runtime_regrade_check.py --trigger-regrade --timeout 30 --poll-count 6 --poll-interval 8 ...` 실행 후 리포트 분석 | BLOCKED | 시작 응답 200 및 중간 `grading(cross_validate 40%)` 관측. 그러나 동일 실행에서 `health/runtime/results/progress/items` 다수가 ReadTimeout(30s)으로 실패해 최종 상태 확정 불가 |
+| 2026-03-01 | timeout 원인 분석용 로깅/보호 로직 보강 | 코드 수정(`grading.py`, `engines.py`, `config.py`, `main.py`) + `python -m compileall` + 린트 확인 | PASS | 단계별 소요시간 로깅, timeout 시 마지막 단계 표시, 타이브레이크 항목/재시도 상한, 거부응답 즉시 fallback, `/health/runtime` 설정 노출 반영 |
 
 ## 릴리즈 전 최종 확인
 - [ ] 치명 이슈 없음
