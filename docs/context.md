@@ -56,6 +56,11 @@
 | 2026-03-01 | Railway 로그 근거를 반영해 timeout 분석을 "외부 호출 지연"보다 "내부 채점 단계 장기 실행" 우선으로 전환 | `result #34`에서 `[TIMEOUT] ... 400s`가 직접 관측되어, 단계별 소요시간 가시화가 우선 과제가 됨 | Railway 운영 로그, `grading-server/routers/grading.py` |
 | 2026-03-01 | 채점 단계 컨텍스트(stage/detail/elapsed)를 타임아웃·치명오류 메시지에 포함 | 재현 시 "어느 단계에서 오래 걸렸는지"를 즉시 식별해 대응 시간을 줄이기 위함 | `grading-server/routers/grading.py` |
 | 2026-03-01 | OCR 타이브레이크에 시간 보호장치(항목 상한/재시도 상한/거부응답 즉시 fallback) 추가 | 거부 응답/저신뢰 대량 케이스에서 타이브레이크가 장시간 누적되는 것을 방지하기 위함 | `grading-server/ocr/engines.py`, `grading-server/config.py` |
+| 2026-03-01 | 배포 후 `/health/runtime`에서 `ocr_tiebreak` 설정 노출을 확인 | 코드 반영 여부를 운영에서 즉시 판정하고, 이후 이슈를 배포 문제와 분리하기 위함 | `https://academymanager-production.up.railway.app/health/runtime` |
+| 2026-03-01 | 배포 후 재검증에서 `regrade_trigger=200`이지만 `results` poll 실패가 지속됨을 확정 | 채점 잡 시작 성공과 조회 API 안정성 문제를 분리해 후속 대응 포인트를 명확히 하기 위함 | `qa-artifacts/runtime-regrade-check-report.json` |
+| 2026-03-01 | 긴급 우회(`USE_GRADING_AGENT=false`) 후 timeout 미재발을 확인 | 운영 안정화를 먼저 확보하고, 이후 에이전트 단계의 근본 수정을 안전하게 진행하기 위함 | `/health/runtime`, `qa-artifacts/runtime-regrade-check-report.json` |
+| 2026-03-01 | `agent_verify`에 hard timeout/문제수 상한/잔여시간 fallback을 동시 적용 | 내부 `agent_verify` 장기 실행이 전체 timeout을 유발한 로그 근거가 있어, 에이전트 단계를 "제한된 보조 검증"으로 고정하기 위함 | `grading-server/routers/grading.py`, `grading-server/ocr/agent.py`, `grading-server/config.py`, `grading-server/main.py` |
+| 2026-03-01 | 세션 재개 시 실행 순서를 커밋/배포/검증 기준으로 고정 | 다음 세션에서 "어디서부터 다시 시작할지" 혼선을 줄이고 복구 시간을 단축하기 위함 | `docs/plan.md`, `docs/context.md`, `docs/checklist.md` |
 
 ## 변경 방향/범위 변경 기록
 - 2026-03-01 - 임시 채팅 맥락 중심 -> 문서 중심 운영으로 변경, 이유: AI 작업 방향 일탈 방지
@@ -66,11 +71,12 @@
 - [ ] `grading-server/routers/results.py`의 전체 재채점 경로에 대해 대용량 ZIP/Drive 오류 시나리오 실검증 필요 (모킹 검증 완료, 실데이터 1건 부분 검증 완료)
 - [ ] 실데이터 `result_id=34` full regrade 재실행에서 채점 시간 초과로 `failed/review_needed` 종료됨 - 동적 timeout 적용 후 재측정 필요
 - [ ] 실데이터 `result_id=34`의 `error_message`가 여전히 "채점 시간 5분 초과"로 남음 - 동적 timeout 코드가 운영에 반영되었는지(배포 반영/실행 경로) 확인 필요
-- [ ] Railway 로그에서 `result #34` 내부 timeout(400s)이 관측됨 - 단계별 소요시간 로그가 반영된 최신 코드 배포 후 동일 케이스 재측정 필요
+- [ ] 근본 수정 코드는 반영됨. `USE_GRADING_AGENT=true` 복귀 상태에서 운영 재검증(동일 `result_id=34`) 필요
 - [ ] 로컬 변경사항이 아직 원격에 반영되지 않음(미커밋/미푸시) - 배포 전 커밋/푸시 필요
 - [ ] 생성된 픽스처(`no_images.zip`, `empty.zip`, `not_a_zip.bin`)를 실제 제출/재채점 경로에 연결해 400/400/400(또는 502) 계약 검증 필요
 - [ ] 통합 점검 리포트에서 `result_id=34`가 여전히 `review_needed` + `채점 시간 5분 초과`로 확인됨 - 배포 반영 후 동일 스크립트로 재비교 필요
-- [ ] timeout 30초 재실행에서도 API poll은 간헐 실패 - 다만 내부 timeout 로그가 확인된 만큼, 우선 최신 패치 배포 후 stage별 병목 지점 확정 필요
+- [ ] 긴급 우회 후 poll은 후반부 회복됐으나, 에이전트 비활성 상태 기반 결과이므로 원복 조건 검증 필요
+- [ ] 재개 시점에 로컬 커밋/푸시/배포 적용 여부가 달라질 수 있으므로 `git status`와 `/health/runtime`를 첫 단계에서 재확인 필요
 - [x] 전체 재채점 시작 후 진행률 폴링/완료 반영이 프론트와 일치하는지 E2E 확인 필요
 - [x] 리디자인 반영 후 일부 인라인 스타일(구 색상값) 잔존 가능성 확인 필요
 - [x] 다크 톤 화면(`grading/index.html`)에서 골드 포인트 대비(접근성) 수동 점검 필요
@@ -90,6 +96,11 @@
 - 현재 브랜치: `main`
 - 진행 중 작업: 1순위 코드 보강 + 모킹 하네스 검증 완료, 실데이터 검증 1건(`result_id=34`) 수행
 - 다음 1순위 작업: `result_id=34` 재채점 후속 상태를 안정적으로 수집(폴링 timeout 완화)하고, 이후 ZIP/Drive 오류 유형별 실데이터 케이스를 확장 검증
+- 재개 시작 순서(고정):
+  1) `git status --short`로 로컬 변경 확인
+  2) 배포 상태 확인: `/health/runtime`에서 `features.use_grading_agent`와 `agent_verify` 설정 조회
+  3) `run_runtime_regrade_check.py`로 `result_id=34` 재검증
+  4) 결과를 `checklist.md` 테스트 기록에 PASS/BLOCKED로 즉시 반영
 - 현재 차단 요인: 운영 데이터셋에 오류 유형(다운로드 실패/ZIP 손상/이미지 0건)을 분리 재현할 샘플이 부족함
 - 추가 차단 요인: 동적 timeout 코드와 운영 실행 결과(`5분 초과` 문구) 사이 불일치 가능성
 - 추가 차단 요인(최신): 내부 timeout(400s) 발생 단계가 아직 운영 로그에서 충분히 세분화되지 않아 병목 지점을 한 번에 특정하기 어려움
@@ -102,6 +113,9 @@
   - 운영 `/health/runtime` 200 이력과 timeout 값 노출은 확인된 상태(배포 반영 자체는 완료)
   - Railway 로그 근거: `[TIMEOUT] 채점 시간 초과 (result #34, 400s)`가 직접 관측됨
   - 최신 코드 반영사항: timeout/예외 시 마지막 단계(stage/detail)와 단계 경과시간 로그를 남기도록 패치 완료
+  - 배포 후 확인사항: `health_runtime_ok=True`, `ocr_tiebreak={max_items_per_image:6,max_retries_per_question:1,fallback_on_refusal:true}`
+  - 긴급 우회 확인사항: `features.use_grading_agent=false` 반영 확인
+  - 긴급 우회 재검증 요약: `regrade_trigger=200(grading)`, poll 후반부 `results/progress` 회복, `result_id=34` 최종 `review_needed`(score 100/500, uncertain 3), timeout 실패 문구 미재발
   - 픽스처 경로: `qa-artifacts/regrade-fixtures/no_images.zip`, `empty.zip`, `not_a_zip.bin`
   - 통합 점검 리포트: `qa-artifacts/runtime-regrade-check-report.json`
   - 배포/검증 표준 절차: `qa-artifacts/deploy-and-verify-runtime.md`

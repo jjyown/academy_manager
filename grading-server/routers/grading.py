@@ -13,6 +13,10 @@ from config import (
     GRADING_TIMEOUT_BASE_SECONDS,
     GRADING_TIMEOUT_PER_IMAGE_SECONDS,
     GRADING_TIMEOUT_MAX_SECONDS,
+    AGENT_VERIFY_HARD_TIMEOUT_SECONDS,
+    AGENT_VERIFY_MAX_QUESTIONS,
+    AGENT_VERIFY_MIN_REMAINING_SECONDS,
+    AGENT_VERIFY_TIMEOUT_GUARD_SECONDS,
 )
 from progress import update_progress
 from file_utils import extract_images_from_zip
@@ -210,6 +214,15 @@ def _stage_snapshot(run_ctx: dict) -> tuple[str, str, float, float]:
     return stage, detail, max(0.0, now - stage_started_at), max(0.0, now - job_started_at)
 
 
+def _remaining_timeout_seconds(run_ctx: dict, guard_seconds: float = 0.0) -> float | None:
+    """전체 타임아웃 예산 대비 잔여 시간(초). 예산 정보가 없으면 None."""
+    timeout_budget = run_ctx.get("timeout_budget_seconds")
+    if timeout_budget is None:
+        return None
+    _, _, _, total_elapsed = _stage_snapshot(run_ctx)
+    return max(0.0, float(timeout_budget) - float(total_elapsed) - float(guard_seconds))
+
+
 async def _run_grading_background(
     *,
     result_id: int,
@@ -226,6 +239,7 @@ async def _run_grading_background(
     timeout_seconds = _get_grading_timeout_seconds(len(image_bytes_list))
     run_ctx = {
         "job_started_at": time.monotonic(),
+        "timeout_budget_seconds": timeout_seconds,
         "stage": "queued",
         "stage_detail": "백그라운드 채점 대기",
         "stage_started_at": time.monotonic(),
@@ -426,12 +440,50 @@ async def _execute_grading(
             from ocr.agent import agent_verify_ocr
             _set_stage(run_ctx, result_id=result_id, stage="agent_verify", detail="AI 에이전트 검증")
             update_progress(result_id, "agent_verify", 3, 5, "AI 에이전트 개별 문제 검증 중...")
-            ocr_results = await agent_verify_ocr(
-                image_bytes_list, ocr_results,
-                expected_questions=expected_questions,
-                question_types=question_types,
+            remaining_seconds = _remaining_timeout_seconds(
+                run_ctx,
+                guard_seconds=AGENT_VERIFY_TIMEOUT_GUARD_SECONDS,
             )
-            logger.info("[Agent] 에이전트 검증 완료")
+            if remaining_seconds is not None and remaining_seconds < AGENT_VERIFY_MIN_REMAINING_SECONDS:
+                logger.warning(
+                    f"[Agent] 에이전트 단계 건너뜀: 잔여시간 부족 "
+                    f"(remaining={remaining_seconds:.1f}s, min={AGENT_VERIFY_MIN_REMAINING_SECONDS}s)"
+                )
+                update_progress(
+                    result_id,
+                    "agent_verify",
+                    3,
+                    5,
+                    f"잔여시간 부족({remaining_seconds:.0f}s)으로 에이전트 검증 생략",
+                )
+            else:
+                agent_timeout = float(AGENT_VERIFY_HARD_TIMEOUT_SECONDS)
+                if remaining_seconds is not None:
+                    agent_timeout = min(agent_timeout, remaining_seconds)
+                if agent_timeout < 1.0:
+                    logger.warning(
+                        f"[Agent] 에이전트 단계 건너뜀: 적용 가능한 timeout 없음 ({agent_timeout:.1f}s)"
+                    )
+                else:
+                    ocr_results = await asyncio.wait_for(
+                        agent_verify_ocr(
+                            image_bytes_list,
+                            ocr_results,
+                            expected_questions=expected_questions,
+                            question_types=question_types,
+                            max_questions=AGENT_VERIFY_MAX_QUESTIONS,
+                        ),
+                        timeout=agent_timeout,
+                    )
+                    logger.info(
+                        f"[Agent] 에이전트 검증 완료 (timeout={agent_timeout:.1f}s, max_questions={AGENT_VERIFY_MAX_QUESTIONS})"
+                    )
+        except asyncio.TimeoutError:
+            logger.warning(
+                f"[Agent] 에이전트 검증 hard timeout({AGENT_VERIFY_HARD_TIMEOUT_SECONDS}s)으로 중단, "
+                "기존 OCR 결과를 사용합니다."
+            )
+            update_progress(result_id, "agent_verify", 3, 5, "에이전트 검증 timeout, 기존 결과 사용")
         except Exception as e:
             logger.warning(f"[Agent] 에이전트 검증 실패, 기존 결과 사용: {e}")
 

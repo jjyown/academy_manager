@@ -31,6 +31,10 @@ from config import (
     OCR_TIEBREAK_MAX_ITEMS_PER_IMAGE,
     OCR_TIEBREAK_MAX_RETRIES_PER_QUESTION,
     OCR_TIEBREAK_FALLBACK_ON_REFUSAL,
+    AGENT_VERIFY_HARD_TIMEOUT_SECONDS,
+    AGENT_VERIFY_MAX_QUESTIONS,
+    AGENT_VERIFY_MIN_REMAINING_SECONDS,
+    AGENT_VERIFY_TIMEOUT_GUARD_SECONDS,
 )
 from auth import get_current_user
 from scheduler.monthly_eval import run_monthly_evaluation
@@ -210,6 +214,12 @@ async def health_runtime():
             "max_items_per_image": OCR_TIEBREAK_MAX_ITEMS_PER_IMAGE,
             "max_retries_per_question": OCR_TIEBREAK_MAX_RETRIES_PER_QUESTION,
             "fallback_on_refusal": OCR_TIEBREAK_FALLBACK_ON_REFUSAL,
+        },
+        "agent_verify": {
+            "hard_timeout_seconds": AGENT_VERIFY_HARD_TIMEOUT_SECONDS,
+            "max_questions": AGENT_VERIFY_MAX_QUESTIONS,
+            "min_remaining_seconds": AGENT_VERIFY_MIN_REMAINING_SECONDS,
+            "timeout_guard_seconds": AGENT_VERIFY_TIMEOUT_GUARD_SECONDS,
         },
         "features": {
             "use_grading_agent": USE_GRADING_AGENT,

@@ -22,6 +22,7 @@ async def agent_verify_ocr(
     initial_ocr_results: list[dict],
     expected_questions: list[str] | None = None,
     question_types: dict | None = None,
+    max_questions: int | None = None,
 ) -> list[dict]:
     """AI 에이전트: 각 문제를 개별 검증하여 OCR 결과 보강
 
@@ -34,7 +35,11 @@ async def agent_verify_ocr(
     Returns:
         에이전트 검증 완료된 OCR 결과 리스트 (기존 형식과 동일)
     """
+    from config import AGENT_VERIFY_MAX_QUESTIONS
+
     q_types = question_types or {}
+    question_cap = max_questions if max_questions is not None else AGENT_VERIFY_MAX_QUESTIONS
+    question_cap = max(1, int(question_cap))
     verified_results = []
 
     feedback_hint = await _load_feedback_hint()
@@ -58,11 +63,26 @@ async def agent_verify_ocr(
             for q in expected_questions:
                 all_questions_to_check.add(q)
 
-        logger.info(f"[Agent] 이미지 {idx}: {len(all_questions_to_check)}개 문제 개별 검증 시작")
+        prioritized_questions = sorted(
+            all_questions_to_check,
+            key=lambda q: (_agent_priority_key(answers.get(q)), _sort_question_key(q)),
+        )
+        selected_questions = prioritized_questions[:question_cap]
+        dropped_questions = prioritized_questions[question_cap:]
+        if dropped_questions:
+            logger.warning(
+                f"[Agent] 이미지 {idx}: 시간 보호를 위해 {len(dropped_questions)}개 문제 검증 건너뜀 "
+                f"(limit={question_cap}) {dropped_questions[:10]}"
+            )
+
+        logger.info(
+            f"[Agent] 이미지 {idx}: {len(selected_questions)}개 문제 개별 검증 시작 "
+            f"(candidate={len(all_questions_to_check)}, limit={question_cap})"
+        )
 
         sem = asyncio.Semaphore(VERIFY_CONCURRENCY)
         tasks = {}
-        for q_num in sorted(all_questions_to_check, key=_sort_question_key):
+        for q_num in sorted(selected_questions, key=_sort_question_key):
             q_type = q_types.get(q_num, _guess_type_from_answer(answers.get(q_num, {})))
             initial_answer = _extract_initial_answer(answers.get(q_num, {}))
             tasks[q_num] = _verify_with_semaphore(
@@ -290,6 +310,22 @@ def _guess_type_from_answer(val) -> str:
 
 
 import re
+
+
+def _agent_priority_key(val) -> tuple[int, int, int]:
+    """낮을수록 우선 검증: 낮은 confidence, 불일치(match=False), unanswered."""
+    if isinstance(val, dict):
+        confidence = int(val.get("confidence", 100) or 100)
+        is_match = 1 if bool(val.get("match", False)) else 0
+        answer = str(val.get("answer", ""))
+    else:
+        confidence = 80
+        is_match = 0
+        answer = _extract_initial_answer(val)
+
+    unanswered_first = 0 if answer == "unanswered" else 1
+    return (confidence, is_match, unanswered_first)
+
 
 def _sort_question_key(q: str):
     m = re.match(r"(\d+)", q)

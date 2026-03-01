@@ -53,3 +53,13 @@ OCR_TIEBREAK_MAX_ITEMS_PER_IMAGE = int(os.getenv("OCR_TIEBREAK_MAX_ITEMS_PER_IMA
 OCR_TIEBREAK_MAX_RETRIES_PER_QUESTION = int(os.getenv("OCR_TIEBREAK_MAX_RETRIES_PER_QUESTION", "1"))
 # 모델이 정책/거부 문구를 반환하면 즉시 OCR1 fallback
 OCR_TIEBREAK_FALLBACK_ON_REFUSAL = os.getenv("OCR_TIEBREAK_FALLBACK_ON_REFUSAL", "true").lower() in ("true", "1", "yes")
+
+# AI 에이전트 검증 보호장치
+# agent_verify 단계 자체 hard timeout(초)
+AGENT_VERIFY_HARD_TIMEOUT_SECONDS = int(os.getenv("AGENT_VERIFY_HARD_TIMEOUT_SECONDS", "180"))
+# agent_verify에서 이미지당 최대 검증 문제 수
+AGENT_VERIFY_MAX_QUESTIONS = int(os.getenv("AGENT_VERIFY_MAX_QUESTIONS", "12"))
+# 전체 채점 timeout 대비 잔여시간이 이 값보다 작으면 agent_verify 건너뜀(초)
+AGENT_VERIFY_MIN_REMAINING_SECONDS = int(os.getenv("AGENT_VERIFY_MIN_REMAINING_SECONDS", "45"))
+# 잔여시간 계산 시 안전 여유(초)
+AGENT_VERIFY_TIMEOUT_GUARD_SECONDS = int(os.getenv("AGENT_VERIFY_TIMEOUT_GUARD_SECONDS", "20"))

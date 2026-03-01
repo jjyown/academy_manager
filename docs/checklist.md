@@ -72,6 +72,11 @@
 | 2026-03-01 | `trigger_regrade` 포함 통합 재검증(`result_id=34`) | `python qa-artifacts/run_runtime_regrade_check.py --trigger-regrade ...` 실행 후 `polls` 분석 | BLOCKED | 시작 응답 200(`full_regrade=true`)은 확인. 하지만 후속 poll 4회가 모두 ReadTimeout(10s)으로 최종 상태 수렴 판정 보류 |
 | 2026-03-01 | timeout 상향 재검증(`result_id=34`, timeout=30/poll=6) | `python qa-artifacts/run_runtime_regrade_check.py --trigger-regrade --timeout 30 --poll-count 6 --poll-interval 8 ...` 실행 후 리포트 분석 | BLOCKED | 시작 응답 200 및 중간 `grading(cross_validate 40%)` 관측. 그러나 동일 실행에서 `health/runtime/results/progress/items` 다수가 ReadTimeout(30s)으로 실패해 최종 상태 확정 불가 |
 | 2026-03-01 | timeout 원인 분석용 로깅/보호 로직 보강 | 코드 수정(`grading.py`, `engines.py`, `config.py`, `main.py`) + `python -m compileall` + 린트 확인 | PASS | 단계별 소요시간 로깅, timeout 시 마지막 단계 표시, 타이브레이크 항목/재시도 상한, 거부응답 즉시 fallback, `/health/runtime` 설정 노출 반영 |
+| 2026-03-01 | 배포 후 런타임 설정 반영 검증 | `curl /health/runtime` 응답 확인 | PASS | `health_runtime=200`, `ocr_tiebreak(max_items=6,max_retries=1,fallback_on_refusal=true)` 노출 확인 |
+| 2026-03-01 | 배포 후 통합 재검증(`result_id=34`) | `run_runtime_regrade_check.py` 재실행 + 요약 스크립트 확인 | BLOCKED | `regrade_trigger=200(grading)` 확인. 다만 `poll_ok_pairs`에서 `results`는 6회 모두 실패, `progress`는 1회만 성공해 최종 수렴 판정 불가 |
+| 2026-03-01 | 긴급 우회 적용(`USE_GRADING_AGENT=false`) 및 재검증 | Railway 변수 변경 + Redeploy + `/health/runtime` 확인 + 통합 재검증 실행 | PASS | `features.use_grading_agent=false` 반영 확인. `result_id=34`가 `review_needed`(score 100/500, uncertain 3)로 수렴, timeout 실패 메시지 재발 없음 |
+| 2026-03-01 | `agent_verify` 근본 수정(하드 timeout/문제수 상한/잔여시간 fallback) | 코드 수정(`config.py`, `grading.py`, `agent.py`, `main.py`, `.env.example`) + `python -m compileall` + 린트 확인 | PASS | 에이전트 단계에 hard timeout/질문 상한/잔여시간 부족 시 생략 로직 추가. 운영 재검증(`USE_GRADING_AGENT=true`)은 후속 |
+| 2026-03-01 | 세션 재개 대비 문서 3종 인계 업데이트 | `plan/context/checklist` 동시 갱신 + 재개용 실행 순서 고정 확인 | PASS | 다음 세션 시작 시 `git status` → `/health/runtime` → `run_runtime_regrade_check.py` 순서로 즉시 재개 가능 |
 
 ## 릴리즈 전 최종 확인
 - [ ] 치명 이슈 없음
