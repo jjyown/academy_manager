@@ -33,6 +33,23 @@
 | 2026-03-01 | 상세 폴링 실패 카운트를 “요청 단위”가 아니라 “폴링 주기 단위(any fail)”로 누적 | `results` 단독 실패가 반복돼도 사용자 경고가 누락되지 않도록 하기 위함 | `grading/index.html` 상세 폴링 |
 | 2026-03-01 | 상세 완료 성공 토스트에 `result_id` 기준 중복 방지 가드를 적용 | 폴링 타이머 경합/연속 완료 감지 시 동일 결과에 대한 성공 토스트 반복 노출을 방지하기 위함 | `grading/index.html` 상세 폴링 |
 | 2026-03-01 | 전체 재채점(full_regrade) 시작→진행률 폴링→완료 반영 경로를 E2E로 확인 | `regradeWithKey` 분기와 `pollGradingProgress` 완료 반영(`loadResults`) 정합성을 실제 실행으로 검증하기 위함 | `grading/index.html`, `tmp-e2e-runner` |
+| 2026-03-01 | full regrade 오류를 유형별로 분리해 HTTP 상태/메시지를 명확화 | 운영 시 원인 파악 속도를 높이고 프론트 토스트가 사용자에게 더 정확한 안내를 하도록 개선 | `grading-server/routers/results.py` |
+| 2026-03-01 | full regrade 실패 분기를 모킹 하네스로 선검증 | 실데이터 대용량 검증 전에 API 상태코드/메시지 계약(502/400/400)을 빠르게 고정하기 위함 | `grading-server/routers/results.py` |
+| 2026-03-01 | 실데이터 full regrade 1건(`result_id=34`)을 재실행해 실패 신호를 확인 | 코드/모킹 검증 이후 실제 운영 데이터에서 진행률/에러메시지 반영이 일관적인지 점검하기 위함 | `/api/results/34/regrade`, `/api/grading-progress` |
+| 2026-03-01 | 브랜드 리디자인 트랙과 재채점 안정화 트랙을 문서상 분리 명시 | 사용자 관점에서 "현재 작업이 디자인 관련인지" 혼선 방지 | `docs/plan.md`, `docs/context.md`, `docs/checklist.md` |
+| 2026-03-01 | 채점 전체 timeout을 고정 5분에서 이미지 수 기반 동적 timeout으로 전환 | 대용량 이미지 채점에서 불필요한 timeout 실패를 줄이고, timeout 기준을 로그/메시지에 명시해 운영 분석성을 높이기 위함 | `grading-server/routers/grading.py`, `grading-server/config.py` |
+| 2026-03-01 | 작업 단위 완료 시 문서 3종을 매번 즉시 업데이트하는 운영 규칙을 고정 | 작업 맥락 유실 방지 및 다음 세션/다음 작업자 인계 품질 유지 | `docs/plan.md`, `docs/context.md`, `docs/checklist.md` |
+| 2026-03-01 | 동적 timeout 적용 후 실데이터 재검증을 진행했으나 운영 API 응답 지연으로 판정을 보류 | 검증 자체가 서비스 지연 영향을 받는지 먼저 분리해 판단해야 오판을 줄일 수 있음 | `/api/results`, `/api/grading-progress`, `/api/results/{id}/items` |
+| 2026-03-01 | 운영 API 응답성 재측정(5/10/20초 probe)으로 ReadTimeout이 일시 해소됨을 확인 | 네트워크/서버 지연 이슈와 채점 로직 이슈를 분리해 다음 검증 단계의 신뢰도를 높이기 위함 | `/api/results`, `/api/grading-progress`, `/api/results/34/items` |
+| 2026-03-01 | `/health/runtime` 엔드포인트를 추가해 런타임 timeout 설정을 외부에서 확인 가능하게 함 | 운영에서 코드 반영/환경변수 반영 여부를 추정이 아닌 값으로 확인하기 위함 | `grading-server/main.py` |
+| 2026-03-01 | 운영 서버 `/health/runtime`가 404임을 확인 | 동적 timeout 코드가 운영에 아직 배포되지 않았을 가능성을 실측으로 확인하기 위함 | `https://academymanager-production.up.railway.app/health/runtime` |
+| 2026-03-01 | 오류 유형별 검증을 위한 재현 픽스처 파일을 사전 생성 | 운영 샘플 부족 상태에서 동일 입력으로 반복 검증 가능하게 준비하기 위함 | `qa-artifacts/generate_regrade_fixtures.py`, `qa-artifacts/regrade-fixtures` |
+| 2026-03-01 | 런타임/재채점 통합 점검 스크립트로 운영 상태를 리포트화 | 수동 점검 반복 시 누락을 줄이고 동일 포맷으로 이력 비교하기 위함 | `qa-artifacts/run_runtime_regrade_check.py`, `qa-artifacts/runtime-regrade-check-report.json` |
+| 2026-03-01 | 배포 반영 검증 절차를 문서로 고정 | 배포 이후 누구나 동일 순서로 `/health/runtime` 반영 여부를 판정하기 위함 | `qa-artifacts/deploy-and-verify-runtime.md` |
+| 2026-03-01 | 배포 후 검증을 원클릭으로 수행하는 PowerShell 스크립트를 추가 | 배포 직후 반복 실행 비용을 줄이고 점검 누락을 방지하기 위함 | `qa-artifacts/verify_runtime_after_deploy.ps1` |
+| 2026-03-01 | 원클릭 검증 재실행에서도 `/health/runtime` 404가 지속됨을 확인 | 일시적 장애가 아닌 미배포 상태일 가능성을 높이고 배포 확인 작업을 우선순위로 고정하기 위함 | `qa-artifacts/verify_runtime_after_deploy.ps1`, `qa-artifacts/runtime-regrade-check-report.json` |
+| 2026-03-01 | 5분 내 실행 가능한 배포 체크리스트를 별도 문서로 제공 | 사용자/작업자가 즉시 따라할 수 있는 최소 절차를 분리해 커뮤니케이션 비용을 줄이기 위함 | `qa-artifacts/deployment-checklist-quick.md` |
+| 2026-03-01 | 배포 사전점검에서 로컬 변경 미커밋/미푸시 상태를 확인 | GitHub 기반 배포가 최신 코드를 반영하지 못하는 근본 원인 후보를 명시하기 위함 | `qa-artifacts/predeploy-readiness.md`, `git status -sb` |
 
 ## 변경 방향/범위 변경 기록
 - 2026-03-01 - 임시 채팅 맥락 중심 -> 문서 중심 운영으로 변경, 이유: AI 작업 방향 일탈 방지
@@ -40,7 +57,14 @@
 
 ## 알려진 이슈/리스크
 - [ ] `grading/index.html`의 선생님 목록 병렬 로딩 로직에 대해 실제 네트워크 환경(서버 지연/실패)에서 동작 확인 필요
-- [ ] `grading-server/routers/results.py`의 전체 재채점 경로에 대해 대용량 ZIP/Drive 오류 시나리오 검증 필요
+- [ ] `grading-server/routers/results.py`의 전체 재채점 경로에 대해 대용량 ZIP/Drive 오류 시나리오 실검증 필요 (모킹 검증 완료, 실데이터 1건 부분 검증 완료)
+- [ ] 실데이터 `result_id=34` full regrade 재실행에서 채점 시간 초과로 `failed/review_needed` 종료됨 - 동적 timeout 적용 후 재측정 필요
+- [ ] 실데이터 `result_id=34`의 `error_message`가 여전히 "채점 시간 5분 초과"로 남음 - 동적 timeout 코드가 운영에 반영되었는지(배포 반영/실행 경로) 확인 필요
+- [ ] 운영 `/health/runtime` 404로 최신 코드 미배포 가능성 높음 - 배포 파이프라인/배포 대상 브랜치 확인 필요
+- [ ] 로컬 변경사항이 아직 원격에 반영되지 않음(미커밋/미푸시) - 배포 전 커밋/푸시 필요
+- [ ] 생성된 픽스처(`no_images.zip`, `empty.zip`, `not_a_zip.bin`)를 실제 제출/재채점 경로에 연결해 400/400/400(또는 502) 계약 검증 필요
+- [ ] 통합 점검 리포트에서 `result_id=34`가 여전히 `review_needed` + `채점 시간 5분 초과`로 확인됨 - 배포 반영 후 동일 스크립트로 재비교 필요
+- [ ] `verify_runtime_after_deploy.ps1` 실행 결과도 동일(`health_runtime=404`, `result34=review_needed`) - 배포 반영 전까지 상태 변화 기대 어려움
 - [x] 전체 재채점 시작 후 진행률 폴링/완료 반영이 프론트와 일치하는지 E2E 확인 필요
 - [x] 리디자인 반영 후 일부 인라인 스타일(구 색상값) 잔존 가능성 확인 필요
 - [x] 다크 톤 화면(`grading/index.html`)에서 골드 포인트 대비(접근성) 수동 점검 필요
@@ -58,9 +82,25 @@
 
 ## 다음 작업자가 바로 알아야 할 것
 - 현재 브랜치: `main`
-- 진행 중 작업: 사용자 요청으로 일시 중단(휴식), 코드 변경 없이 문서 인계 상태로 전환
-- 다음 1순위 작업: `results.py` 전체 재채점 경로의 대용량 ZIP/Drive 오류 시나리오 검증
+- 진행 중 작업: 1순위 코드 보강 + 모킹 하네스 검증 완료, 실데이터 검증 1건(`result_id=34`) 수행
+- 다음 1순위 작업: ZIP/Drive 오류 유형별 실데이터 케이스를 확보해 full regrade 실패 코드를 직접 재현
+- 현재 차단 요인: 운영 데이터셋에 오류 유형(다운로드 실패/ZIP 손상/이미지 0건)을 분리 재현할 샘플이 부족함
+- 추가 차단 요인: 동적 timeout 코드와 운영 실행 결과(`5분 초과` 문구) 사이 불일치 가능성
+- 추가 차단 요인(확정 근거): 운영 `/health/runtime` 404 응답
+- 추가 차단 요인(재확인): 원클릭 점검 재실행에서도 `/health/runtime` 404 지속
+- 추가 차단 요인(원인 후보 강화): 로컬 워크트리 dirty 상태로 GitHub 기준 최신 코드 미배포 가능
 - 재개 체크포인트:
-  - `/api/results/{id}/regrade`의 full regrade 경로에서 실패 유형별 HTTP 상태/메시지 확인
+  - 모킹 검증 결과: Drive 다운로드 실패 502, ZIP 형식 오류 400, 이미지 0건 400
+  - 실데이터 검증 결과: `POST /api/results/34/regrade`는 시작 200 반환 후 진행률 `failed`, 결과 `review_needed`, `error_message=채점 시간 5분 초과`로 수렴
+  - 운영 API 응답성 probe: 5/10/20초 구간 모두 200 응답 확인(일시적 ReadTimeout 해소)
+  - 현재 `result_id=34` 상태는 `review_needed`, 진행률 `failed`, 에러메시지 `채점 시간 5분 초과`
+  - 운영 `/health/runtime`는 현재 404(최신 코드 미반영 정황) → 배포 완료 후 다시 조회
+  - 픽스처 경로: `qa-artifacts/regrade-fixtures/no_images.zip`, `empty.zip`, `not_a_zip.bin`
+  - 통합 점검 리포트: `qa-artifacts/runtime-regrade-check-report.json`
+  - 배포/검증 표준 절차: `qa-artifacts/deploy-and-verify-runtime.md`
+  - 원클릭 점검 스크립트: `qa-artifacts/verify_runtime_after_deploy.ps1`
+  - 빠른 체크리스트: `qa-artifacts/deployment-checklist-quick.md`
+  - 사전점검 리포트: `qa-artifacts/predeploy-readiness.md`
+  - `/api/results/{id}/regrade`의 full regrade 경로를 오류 유형별 데이터셋으로 추가 호출해 502/400/400 계약을 실데이터에서도 재확인
   - 실패 시 프론트 토스트/상태 배너/진행률 폴링 동작이 사용자 관점에서 일관적인지 확인
   - 검증 완료 즉시 `checklist.md` 테스트 기록에 PASS/FAIL과 근거를 남길 것

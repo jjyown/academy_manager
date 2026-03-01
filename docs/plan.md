@@ -5,10 +5,29 @@
 - 교사 권한으로만 수정 가능하도록 접근 제어를 적용한다.
 - 변경 이력을 남겨 추적 가능한 운영 상태를 유지한다.
 
+## 작업 운영 원칙
+- 작업 1개가 끝날 때마다 `docs/plan.md`, `docs/context.md`, `docs/checklist.md`를 즉시 동기화한다.
+- 문서 업데이트가 끝나기 전에는 해당 작업을 완료로 간주하지 않는다.
+
 ## 현재 스프린트 목표
 - [ ] 출석 입력/조회 기본 흐름 안정화
 - [ ] 결과 화면(`grading/index.html`) 동작 및 UX 점검
-- [ ] 결과 API(`grading-server/routers/results.py`) 검증 강화
+- [x] 결과 API(`grading-server/routers/results.py`) 검증 강화
+
+## 작업 트랙 분리 (중요)
+- 브랜드/디자인 트랙: 간판 기준 리디자인 반영 작업(메인/결과/서브 화면)은 1차 완료 상태
+- 현재 진행 트랙: 재채점 안정화/검증 트랙(결과 API, 오류 시나리오, 진행률/실패 처리)
+- 즉, 지금 작업은 디자인 개편의 후속이 아니라 운영 안정화 목적의 백엔드/검증 작업
+
+## 현재 우선 작업 (재개 후)
+1. [x] `results.py` full regrade 오류 분기 보강(Drive 다운로드 실패 / ZIP 손상 / 이미지 0건)
+2. [x] 오류 시나리오 모킹 검증(Drive 실패 502 / ZIP 형식 오류 400 / 이미지 0건 400)
+3. [ ] 대용량 ZIP/Drive 실데이터 시나리오 검증(토스트/진행률 포함 E2E 정합성)
+   - 진행상태: 일부 수행(`result_id=34` full regrade 재실행 시 채점 시간 초과 실패 관측)
+   - 남은범위: 생성된 픽스처(`qa-artifacts/regrade-fixtures`)로 실데이터 제출을 만들고 케이스별 재현
+   - 최신상태: 운영 API 응답성은 회복(5~20초 probe 모두 200), 다만 `result_id=34`는 여전히 timeout 실패 상태(`review_needed`/`failed`)로 남아 원인 검증 필요
+4. [x] 채점 타임아웃 동적화(이미지 수 기반, 상한 포함) 적용
+5. [x] 운영 반영 판별용 런타임 헬스 엔드포인트 추가(`/health/runtime`)
 
 ## 브랜드 리디자인 스프린트 (하이로드 수학)
 - [x] 브랜드 토큰(네이비/골드, 깔끔한 톤) 정의 및 공통 스타일 반영
@@ -46,17 +65,31 @@
 | 상세 폴링 경고 트리거 보강 (`grading/index.html`) | DONE | me/ai | `results` 단독 실패 누적도 경고 대상으로 반영 |
 | 상세 완료 토스트 중복 방지 (`grading/index.html`) | DONE | me/ai | 동일 `result_id` 완료 이벤트 반복에서도 성공 토스트 1회만 허용 |
 | 전체 재채점 시작→진행률/완료 반영 E2E 정합성 | DONE | me/ai | `regradeWithKey(full_regrade)` 분기, 진행률 폴링 시작, 완료 시 결과 재로딩까지 실측 PASS |
+| full regrade 오류 분기 보강 (`results.py`) | DONE | me/ai | Drive 실패(502), ZIP 형식/손상/빈 파일(400), 이미지 0건(400) 구분 처리 |
+| full regrade 오류 분기 모킹 검증 | DONE | me/ai | 함수 하네스로 3개 케이스 상태코드/메시지 확인(502/400/400) |
+| full regrade 실데이터 검증 (`result_id=34`) | DONE | me/ai | API 시작 응답 200 확인, 이후 진행률 `failed`/결과 `review_needed` + timeout 에러메시지 관측 |
+| 오류 유형별 실데이터 케이스 재현(다운로드/ZIP손상/이미지0건) | TODO | me/ai | 테스트용 제출 데이터셋 준비 필요(현재 운영 데이터 1건으로는 케이스 분리가 어려움) |
+| 채점 타임아웃 동적화 (`grading.py`, `config.py`) | DONE | me/ai | 고정 300초 대신 `base + per_image * n`(max 제한) 적용, timeout 메시지에 기준 시간/이미지 수 반영 |
+| 운영 API 응답성 재측정(5/10/20초) | DONE | me/ai | `results`/`grading-progress`/`items` 모두 200 응답 확인(일시적 ReadTimeout 해소) |
+| 동적 timeout 적용 효과 실측(`result_id=34`) | IN_PROGRESS | me/ai | 현재 상태는 여전히 `review_needed` + `채점 시간 5분 초과` 문구. 운영 배포 반영 여부 포함 추가 검증 필요 |
+| 운영 반영 확인용 런타임 헬스 엔드포인트 (`main.py`) | DONE | me/ai | `/health/runtime`에 timeout/feature 플래그 노출(배포 후 동적 timeout 값 반영 여부 즉시 확인 가능) |
+| 운영 반영 여부 확인(`/health/runtime`) | BLOCKED | me/ai | 운영 서버 응답 404 확인 — 새 엔드포인트(및 동적 timeout 코드) 미배포 가능성 높음 |
+| 오류 재현 픽스처 생성(`qa-artifacts/regrade-fixtures`) | DONE | me/ai | `no_images.zip`, `empty.zip`, `not_a_zip.bin` 생성 + 사용 가이드 문서화 완료 |
+| 런타임/재채점 통합 점검 스크립트 추가 | DONE | me/ai | `qa-artifacts/run_runtime_regrade_check.py` 추가, 운영 리포트(`runtime-regrade-check-report.json`) 생성 |
+| 배포/반영 검증 절차 문서화 | DONE | me/ai | `qa-artifacts/deploy-and-verify-runtime.md`에 배포→`/health/runtime`→통합점검 재실행 절차 고정 |
+| 배포 후 검증 실행 스크립트 추가/실행 | DONE | me/ai | `qa-artifacts/verify_runtime_after_deploy.ps1` 추가 및 실행(현재도 `health_runtime=404`, `result34=review_needed`) |
+| 5분 배포 체크리스트 제공 | DONE | me/ai | `qa-artifacts/deployment-checklist-quick.md` 작성(배포 전/배포 확인/운영 판정/실패 조치) |
+| 배포 사전 준비상태 점검 | DONE | me/ai | `predeploy-readiness.md` 작성: 로컬 변경 미커밋/미푸시 상태 확인(배포 전 커밋·푸시 필요) |
 
 상태 기준: `TODO` / `IN_PROGRESS` / `DONE` / `BLOCKED`
 
-## 작업 인계 메모 (휴식 후 재개용)
-- 현재 상태: 사용자 요청으로 작업 잠시 중단(코드 안정화/E2E 검증까지 완료 상태)
-- 재개 시작점: `docs/context.md`의 "다음 1순위 작업"부터 진행
-- 다음 작업(우선순위): `results.py` 전체 재채점 경로의 대용량 ZIP/Drive 오류 시나리오 검증
-- 재개 시 권장 순서:
-  1) 오류 시나리오 케이스 정의(다운로드 실패/압축 해제 실패/이미지 추출 0건)
-  2) API 응답/로그/프론트 토스트 정합성 확인
-  3) 검증 결과를 `context.md`/`checklist.md`에 즉시 반영
+## 작업 인계 메모 (다음 단계)
+- 현재 상태: 코드 보강 + 모킹 검증 완료, 실데이터 1건(`result_id=34`) 검증에서 채점 timeout 실패를 관측
+- 다음 작업(우선순위): 대용량 ZIP/Drive 오류 유형별(다운로드 실패/ZIP 손상/이미지 0건) 실데이터 케이스 확보 후 E2E 검증
+- 다음 단계 권장 순서:
+  1) 오류 유형별 테스트 픽스처 확보(무효 Drive ID, 손상 ZIP, 비이미지 ZIP)
+  2) `/api/results/{id}/regrade` 실호출로 HTTP 코드/메시지 + 진행률/에러메시지 대조
+  3) 프론트 토스트/상태배너 노출 일관성 확인 후 `context.md`/`checklist.md`에 근거 기록
 
 ## 완료 기준 (Definition of Done)
 - [ ] 기능이 요구사항대로 동작한다.
@@ -84,3 +117,19 @@
 - 2026-03-01 - 상세 완료 토스트 중복 방지: 동일 결과의 완료 상태가 연속 감지되어도 성공 토스트 중복 노출을 차단하는 가드 추가
 - 2026-03-01 - 전체 재채점 E2E 정합성 검증: full regrade 시작 토스트/진행률 폴링 시작/완료 후 결과 재로딩 경로까지 격리 러너로 확인
 - 2026-03-01 - 사용자 휴식 요청에 따라 인계 메모 보강: 다음 1순위/재개 절차를 문서에 고정
+- 2026-03-01 - `results.py` full regrade 오류 분기 보강: Drive 다운로드 실패(502), ZIP 형식/손상/빈 파일(400), 이미지 0건(400) 구분 처리
+- 2026-03-01 - full regrade 오류 분기 모킹 검증: 함수 하네스로 3개 실패 케이스(502/400/400) 응답코드/메시지 확인
+- 2026-03-01 - full regrade 실데이터 검증 1건 수행: `result_id=34` 재실행 후 진행률 `failed` 및 timeout 에러메시지 확인
+- 2026-03-01 - 문서 3종 정합성 업데이트: 실데이터 검증 범위를 "부분 완료 + 유형별 재현 대기"로 명확화
+- 2026-03-01 - 채점 타임아웃 동적화 적용: 이미지 수 기반 timeout 계산(`base/per_image/max`) 및 timeout 안내 메시지 개선
+- 2026-03-01 - 동적 timeout 적용 후 실데이터 재측정 시도: 운영 API ReadTimeout으로 상태 확인 BLOCKED, 서버 응답 안정화 후 재시도 필요
+- 2026-03-01 - 운영 API 응답성 재측정: 5/10/20초 probe에서 핵심 endpoint 3종 모두 200 확인(ReadTimeout 일시 해소)
+- 2026-03-01 - 운영 반영 판별용 `/health/runtime` 엔드포인트 추가: timeout/feature 런타임 설정 조회 경로 확보
+- 2026-03-01 - 운영 서버 `/health/runtime` 확인 결과 404: 최신 코드 미배포 정황 문서화
+- 2026-03-01 - 오류 유형 재현용 픽스처 생성: `qa-artifacts/regrade-fixtures`에 ZIP/비ZIP 샘플 및 README 추가
+- 2026-03-01 - 런타임/재채점 통합 점검 스크립트 추가 및 실행: `/health/runtime` 404, `result_id=34` 상태/에러메시지 리포트 파일 생성
+- 2026-03-01 - 배포/반영 검증 절차 문서화: 운영 반영 판정 기준을 `deploy-and-verify-runtime.md`로 표준화
+- 2026-03-01 - 배포 검증 실행 스크립트 추가/실행: `verify_runtime_after_deploy.ps1`로 원클릭 점검(여전히 `/health/runtime` 404)
+- 2026-03-01 - 원클릭 검증 재실행: `/health/runtime` 404 지속, `result_id=34` 상태 `review_needed` 유지 확인
+- 2026-03-01 - 빠른 배포 점검 체크리스트 작성: `deployment-checklist-quick.md`로 즉시 실행 가능한 확인 순서 제공
+- 2026-03-01 - 배포 사전점검 수행: 로컬 변경사항이 아직 원격에 반영되지 않았음을 문서화(`predeploy-readiness.md`)

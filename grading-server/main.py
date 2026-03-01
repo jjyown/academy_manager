@@ -18,7 +18,17 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from fastapi.responses import JSONResponse
 
-from config import PORT, CORS_ORIGINS, RATE_LIMIT_PER_MINUTE, SUPABASE_JWT_SECRET
+from config import (
+    PORT,
+    CORS_ORIGINS,
+    RATE_LIMIT_PER_MINUTE,
+    SUPABASE_JWT_SECRET,
+    AI_API_TIMEOUT,
+    USE_GRADING_AGENT,
+    GRADING_TIMEOUT_BASE_SECONDS,
+    GRADING_TIMEOUT_PER_IMAGE_SECONDS,
+    GRADING_TIMEOUT_MAX_SECONDS,
+)
 from auth import get_current_user
 from scheduler.monthly_eval import run_monthly_evaluation
 
@@ -177,6 +187,25 @@ async def health():
         "status": "ok",
         "time": datetime.now().isoformat(),
         "auth_enabled": bool(SUPABASE_JWT_SECRET),
+    }
+
+
+@app.get("/health/runtime")
+async def health_runtime():
+    """운영에서 적용 중인 핵심 런타임 설정 확인용."""
+    return {
+        "status": "ok",
+        "time": datetime.now().isoformat(),
+        "auth_enabled": bool(SUPABASE_JWT_SECRET),
+        "timeouts": {
+            "ai_api_timeout_seconds": AI_API_TIMEOUT,
+            "grading_timeout_base_seconds": GRADING_TIMEOUT_BASE_SECONDS,
+            "grading_timeout_per_image_seconds": GRADING_TIMEOUT_PER_IMAGE_SECONDS,
+            "grading_timeout_max_seconds": GRADING_TIMEOUT_MAX_SECONDS,
+        },
+        "features": {
+            "use_grading_agent": USE_GRADING_AGENT,
+        },
     }
 
 

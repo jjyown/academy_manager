@@ -39,3 +39,9 @@ AI_API_TIMEOUT = int(os.getenv("AI_API_TIMEOUT", "120"))
 
 # AI 채점 에이전트 (개별 문제 집중 검증) - "true"이면 활성화
 USE_GRADING_AGENT = os.getenv("USE_GRADING_AGENT", "true").lower() in ("true", "1", "yes")
+
+# 채점 백그라운드 전체 타임아웃(초)
+# 기본: 300초 + 이미지당 20초, 최대 900초
+GRADING_TIMEOUT_BASE_SECONDS = int(os.getenv("GRADING_TIMEOUT_BASE_SECONDS", "300"))
+GRADING_TIMEOUT_PER_IMAGE_SECONDS = int(os.getenv("GRADING_TIMEOUT_PER_IMAGE_SECONDS", "20"))
+GRADING_TIMEOUT_MAX_SECONDS = int(os.getenv("GRADING_TIMEOUT_MAX_SECONDS", "900"))

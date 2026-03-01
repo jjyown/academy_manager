@@ -1,5 +1,7 @@
 """채점 결과/문항 관리 라우터"""
+import io
 import logging
+import zipfile
 from typing import Any
 from datetime import datetime, timezone
 
@@ -477,13 +479,43 @@ async def _full_regrade_from_submission(
 
     try:
         zip_data = download_file_central(central_token, zip_drive_id)
+    except Exception as e:
+        logger.error(f"[FullRegrade] Drive 다운로드 실패 (file_id={zip_drive_id}): {e}")
+        raise HTTPException(502, f"Drive 원본 다운로드 실패: {str(e)[:200]}")
+
+    if not zip_data:
+        raise HTTPException(400, "원본 ZIP이 비어 있습니다. 숙제를 다시 제출해주세요.")
+
+    try:
+        with zipfile.ZipFile(io.BytesIO(zip_data)) as zf:
+            entries = [name for name in zf.namelist() if not name.endswith("/")]
+            if not entries:
+                raise HTTPException(400, "원본 ZIP에 파일이 없습니다. 숙제를 다시 제출해주세요.")
+            broken_name = zf.testzip()
+            if broken_name:
+                raise HTTPException(
+                    400,
+                    f"원본 ZIP이 손상되었습니다(오류 파일: {broken_name}). 숙제를 다시 제출해주세요.",
+                )
+    except HTTPException:
+        raise
+    except zipfile.BadZipFile:
+        raise HTTPException(400, "원본 파일이 ZIP 형식이 아닙니다. ZIP으로 다시 제출해주세요.")
+    except Exception as e:
+        logger.error(f"[FullRegrade] ZIP 구조 검사 실패 (file_id={zip_drive_id}): {e}")
+        raise HTTPException(500, f"원본 ZIP 검사 실패: {str(e)[:200]}")
+
+    try:
         image_bytes_list = extract_images_from_zip(zip_data)
     except Exception as e:
-        logger.error(f"[FullRegrade] 원본 다운로드 실패: {e}")
-        raise HTTPException(500, f"원본 파일 다운로드 실패: {str(e)[:200]}")
+        logger.error(f"[FullRegrade] ZIP 이미지 추출 중 예외 발생 (file_id={zip_drive_id}): {e}")
+        raise HTTPException(500, f"원본 ZIP 이미지 추출 실패: {str(e)[:200]}")
 
     if not image_bytes_list:
-        raise HTTPException(400, "원본 파일에서 이미지를 추출할 수 없습니다")
+        raise HTTPException(
+            400,
+            "원본 ZIP에서 채점 가능한 이미지(JPG/PNG/HEIC/PDF)를 찾지 못했습니다.",
+        )
 
     student_id = result.get("student_id")
     teacher_id = result.get("teacher_id", "")

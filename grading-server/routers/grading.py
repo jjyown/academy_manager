@@ -6,7 +6,13 @@ from datetime import datetime
 
 from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile
 
-from config import CENTRAL_GRADED_RESULT_FOLDER, USE_GRADING_AGENT
+from config import (
+    CENTRAL_GRADED_RESULT_FOLDER,
+    USE_GRADING_AGENT,
+    GRADING_TIMEOUT_BASE_SECONDS,
+    GRADING_TIMEOUT_PER_IMAGE_SECONDS,
+    GRADING_TIMEOUT_MAX_SECONDS,
+)
 from progress import update_progress
 from file_utils import extract_images_from_zip
 from ocr.engines import ocr_gemini, cross_validate_ocr
@@ -162,7 +168,13 @@ async def grade_homework(
     }
 
 
-GRADING_TIMEOUT_SECONDS = 300  # 5분
+def _get_grading_timeout_seconds(total_images: int) -> int:
+    """이미지 수 기준으로 채점 타임아웃을 동적으로 계산."""
+    images = max(total_images, 0)
+    timeout = GRADING_TIMEOUT_BASE_SECONDS + (GRADING_TIMEOUT_PER_IMAGE_SECONDS * images)
+    timeout = max(timeout, GRADING_TIMEOUT_BASE_SECONDS)
+    timeout = min(timeout, GRADING_TIMEOUT_MAX_SECONDS)
+    return timeout
 
 
 async def _run_grading_background(
@@ -178,6 +190,12 @@ async def _run_grading_background(
     mode: str,
     homework_submission_id: int | None,
 ):
+    timeout_seconds = _get_grading_timeout_seconds(len(image_bytes_list))
+    logger.info(
+        f"[GradingJob] result #{result_id}: images={len(image_bytes_list)}, "
+        f"timeout={timeout_seconds}s (base={GRADING_TIMEOUT_BASE_SECONDS}, "
+        f"per_image={GRADING_TIMEOUT_PER_IMAGE_SECONDS}, max={GRADING_TIMEOUT_MAX_SECONDS})"
+    )
     try:
         await asyncio.wait_for(
             _execute_grading(
@@ -192,14 +210,17 @@ async def _run_grading_background(
                 mode=mode,
                 homework_submission_id=homework_submission_id,
             ),
-            timeout=GRADING_TIMEOUT_SECONDS,
+            timeout=timeout_seconds,
         )
     except asyncio.TimeoutError:
-        logger.error(f"[TIMEOUT] 채점 시간 초과 (result #{result_id}, {GRADING_TIMEOUT_SECONDS}s)")
-        update_progress(result_id, "failed", 0, 0, "채점 시간 초과")
+        logger.error(f"[TIMEOUT] 채점 시간 초과 (result #{result_id}, {timeout_seconds}s)")
+        update_progress(result_id, "failed", 0, 0, f"채점 시간 초과({timeout_seconds}s)")
         await _fail_grading_result(
             result_id, homework_submission_id, teacher_id, student, student_id,
-            f"채점 시간이 {GRADING_TIMEOUT_SECONDS // 60}분을 초과했습니다. 이미지 수를 줄이거나 재채점해주세요.",
+            (
+                f"채점 시간이 제한({timeout_seconds // 60}분, 이미지 {len(image_bytes_list)}장 기준)을 초과했습니다. "
+                "이미지 수를 줄이거나 재채점해주세요."
+            ),
         )
     except Exception as e:
         logger.error(f"[FATAL] 채점 실패 (result #{result_id}): {e}", exc_info=True)
