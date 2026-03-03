@@ -77,8 +77,57 @@
 | 2026-03-01 | 긴급 우회 적용(`USE_GRADING_AGENT=false`) 및 재검증 | Railway 변수 변경 + Redeploy + `/health/runtime` 확인 + 통합 재검증 실행 | PASS | `features.use_grading_agent=false` 반영 확인. `result_id=34`가 `review_needed`(score 100/500, uncertain 3)로 수렴, timeout 실패 메시지 재발 없음 |
 | 2026-03-01 | `agent_verify` 근본 수정(하드 timeout/문제수 상한/잔여시간 fallback) | 코드 수정(`config.py`, `grading.py`, `agent.py`, `main.py`, `.env.example`) + `python -m compileall` + 린트 확인 | PASS | 에이전트 단계에 hard timeout/질문 상한/잔여시간 부족 시 생략 로직 추가. 운영 재검증(`USE_GRADING_AGENT=true`)은 후속 |
 | 2026-03-01 | 세션 재개 대비 문서 3종 인계 업데이트 | `plan/context/checklist` 동시 갱신 + 재개용 실행 순서 고정 확인 | PASS | 다음 세션 시작 시 `git status` → `/health/runtime` → `run_runtime_regrade_check.py` 순서로 즉시 재개 가능 |
+| 2026-03-01 | `USE_GRADING_AGENT=true` 복귀 후 통합 재검증(`result_id=34`) | `/health/runtime` 확인 + `run_runtime_regrade_check.py --trigger-regrade` 실행 | BLOCKED | 런타임 반영은 정상(`use_grading_agent=true`, `agent_verify` 설정 노출). 하지만 `regrade_trigger`가 500으로 실패(`PGRST204`: `grading_items.error_type` 컬럼 미존재)하여 timeout 재검증 단계로 진행 불가 |
+| 2026-03-01 | DB 스키마 복구 후 통합 재검증 재실행(`result_id=34`) | Supabase SQL(`error_type` 컬럼 보정 + `NOTIFY pgrst`) 후 `run_runtime_regrade_check.py` 재실행 | PASS | `regrade_trigger=200`, `status=confirmed`, `error_message=null`로 500 차단요인 해소. 단, 장시간 `agent_verify` 경로 timeout 검증은 별도 케이스 필요 |
+| 2026-03-01 | 장시간 관측 재검증(`result_id=34`, poll 20회) | `run_runtime_regrade_check.py --trigger-regrade --poll-count 20 --poll-interval 10` + 리포트 요약 | PASS | `trigger=200`, `results_ok=20/20`, `progress_ok=20/20`, 에러 0건. 상태는 `confirmed` 유지로 API 안정성은 확인, `agent_verify` 장시간 경로는 미진입 |
+| 2026-03-01 | 신규 제출 장시간 관측(`result_id=35`, poll 30회) | `run_runtime_regrade_check.py --result-id 35 --poll-count 30 --poll-interval 10` + 리포트 요약 | PASS | `results_ok=30/30`, `progress_ok=30/30`, `error_count=0`, 상태 `review_needed`로 안정 수렴. 다만 `agent_verify` 단계 진입 여부는 Railway StageTiming 로그로 추가 확인 필요 |
+| 2026-03-01 | 재채점 안정화 트랙 마감 판정 | 장시간 관측 결과 + 문서 3종 리스크/후속 기록 점검 | PASS | StageTiming 직접 캡처는 로그 노이즈로 보류했으나 운영 안정성 지표(30/30, 에러 0) 충족으로 마감. 다음 트랙은 학생/수납 대규모 업데이트 |
+| 2026-03-01 | 차기 트랙 킥오프 검토(학생/수납, 세무/교육/UX 관점) | 전문가 관점 롤플레잉 검토 + 1주차 MVP 범위/완료기준 정의 | PASS | 수납 ledger 필수 필드, 상태모델, 월 리포트/CSV를 1차 범위로 확정. 자동 세무연동은 2차로 이연 |
+| 2026-03-01 | 결제 채널 의사결정 비교표 정리(결제선생 vs Bizzle) | 세무/운영/UX 관점의 평가축과 파일럿 판정기준 정의 | PASS | 단일 채널 우선 원칙 + 월마감 대사 KPI(시간/오류율) 기준으로 선택하도록 정리 |
+| 2026-03-01 | API 미도입 3채널 수납 운영안 확정(결제선생/비즐/통장) | 채널별 역할 분리 + 공통 ledger + 일/월 마감 루틴 설계 | PASS | 비대면(결제선생), 대면/동백전(비즐), 계좌이체(통장)로 시작. 월마감 대사시간 KPI 충족 전까지 API 연동은 보류 |
+| 2026-03-01 | 수납 화면 정보구조 우선순위 확정(원장폼/상태배지 -> 사진+AI 보조입력) | 입력 누락 방지 관점의 단계 설계 검토 | PASS | 1단계는 수기 확정 중심, 2단계는 AI 추출값 제안 + 사용자 최종확정으로 운영 리스크 통제 |
+| 2026-03-01 | 1순위 구현(학생/원장 입력폼 + 상태배지) 반영 | 정적 코드 검토 + `node --check js/payment.js` + `ReadLints` 점검 | PASS | 원장 입력 모달/학생별 원장 수정 동선 추가, 상태배지 4종(청구됨/부분수납/완납/미확인입금) 적용, 린트 에러 없음 |
+| 2026-03-01 | 2순위 구현(증빙 업로드 + AI 추출 + 검토 팝업) 반영 | 코드 수정 + `node --check js/payment.js` + `python -m compileall grading-server/routers/misc.py` + `ReadLints` | PASS | `증빙+AI` 모달/검토 팝업 및 `POST /api/payments/extract` 구현. AI는 초안 제안만 하고 사용자 확정 저장 구조로 적용 |
+| 2026-03-01 | 3순위 구현(일마감/월마감 요약 + CSV 4종) 반영 | 코드 수정 + `node --check js/payment.js` + `ReadLints` 점검 | PASS | 일마감 요약(오늘 수납/월 미수금/미확인입금), 채널별 합계, 월 원장/미수금/수단별/환불 CSV 다운로드 추가. 환불금액/사유 필드 반영 |
+| 2026-03-01 | 미확인입금 저장 규칙 정합화(학생 미선택 허용) | 코드 수정 + `node --check js/payment.js` + `ReadLints` 점검 | PASS | 미확인입금 체크 시 학생 미선택 저장 가능. 별도 큐(localStorage) 저장 후 요약/CSV 집계에 포함되도록 반영 |
+| 2026-03-01 | 수납 카드 펼침 잘림 이슈 즉시 패치 | 코드 수정 + `node --check js/payment.js` + `ReadLints` 점검 | PASS | 카드 펼침 시 자동 스크롤, pay-list overflow/scroll-padding 보정, 모바일 payment 모달 높이(`100dvh` 기반) 보정 적용 |
+| 2026-03-01 | 노트북 화면 가시성 보강(요약 패널 컴팩트 모드) | 코드 수정 + `node --check js/payment.js` + `ReadLints` 점검 | PASS | `일마감/월마감 요약` 섹션 접기/펼치기 버튼 추가, 좁은 화면에서 기본 접힘 적용으로 카드 리스트 가시영역 확보 |
+| 2026-03-01 | 데스크톱/노트북 수납 모달 폭 확대 | CSS 수정 + `ReadLints` 점검 | PASS | 수납 모달 폭을 900~960px로 확장해 카드/요약/조작 버튼이 한 화면에서 더 안정적으로 보이도록 개선 |
+| 2026-03-01 | 미확인입금 큐 매칭 UI 추가 | 코드 수정 + `node --check js/payment.js` + `ReadLints` 점검 | PASS | 월 기준 미확인입금 목록 표시, 학생 선택 후 원장 연결(큐 제거), 큐 삭제 기능 추가 |
+| 2026-03-01 | 카드 상세영역 스크롤 보강(잘림/겹침 완화) | 코드 수정 + `node --check js/payment.js` + `ReadLints` 점검 | PASS | 카드 상세 콘텐츠를 내부 스크롤 컨테이너로 전환하고 화면 크기별 max-height를 적용해 노트북/모바일에서 잘림을 완화 |
+| 2026-03-01 | 카드 동시 펼침으로 인한 밀림/겹침 체감 보정(아코디언화) | 코드 수정 + `node --check js/payment.js` + `ReadLints` 점검 | PASS | 한 번에 1개 카드만 펼치도록 변경, 펼침 카드 강조(z-index/shadow) 및 상세영역 높이 상향으로 밀림 체감 완화 |
+| 2026-03-01 | 카드 상세 오버레이 전환(하단 카드 눌림/잘림 구조 개선) | 코드 수정 + `node --check js/payment.js` + `ReadLints` 점검 | PASS | 상세를 오버레이로 띄워 하단 카드 흐름을 유지하고, 자동 스크롤 계산을 상세 높이 기준으로 보정 |
+| 2026-03-01 | AI 수납 다건 추출 모드(선택형) + 일괄 저장 모달 | `node --check js/payment.js`, `python -m compileall grading-server/routers/misc.py`, `ReadLints` | PASS | `extract_mode(single/multi)`와 `drafts[]` 응답 지원, 프론트 다건 검토/일괄 저장(학생 지정/미확인입금) 동작 추가 |
+| 2026-03-01 | 문서 3종 재동기화(현재 우선 트랙 명시) | `plan/context/checklist` 상호 참조 점검 및 상태 정렬 | PASS | 재채점 안정화는 완료/모니터링으로 유지, 현재 우선순위를 학생/수납 대규모 업데이트로 명시 |
+| 2026-03-01 | 수납/비용 탭 분리 1차 구현 | 코드 수정(`index.html`, `js/payment.js`, `style.css`, `mobile.css`) + `node --check js/payment.js` + `ReadLints` | PASS | 수납 탭과 비용 탭을 분리하고 비용 등록 모달/월별 목록/요약/비용 CSV를 추가. 기존 수납 기능 회귀 없이 유지 |
+| 2026-03-01 | 비용 원장 Supabase 동기화 1차 구현(로컬 폴백 포함) | 코드 수정(`js/payment.js`) + `node --check js/payment.js` + `ReadLints` | PASS | `expense_ledgers` 테이블 사용 가능 시 동기화, 미구성/오류 시 로컬 저장으로 자동 폴백되도록 적용 |
+| 2026-03-01 | 비용 원장 DB/RLS SQL 스크립트 추가 | `EXPENSE_LEDGER_SETUP.sql` 작성 + 기존 Supabase SQL 패턴 대조(`rg`) | PASS | 테이블/인덱스/RLS 정책/`notify pgrst`를 1파일로 고정. 실제 DB 적용은 Supabase SQL Editor 수동 실행 필요 |
+| 2026-03-01 | 롤플레잉 전문가 의견 기록 규칙 상시화 | 규칙 파일 추가(`.cursor/rules/*.mdc`) + 문서 3종 동기화 | PASS | 롤플레잉 요청 시 관련 전문가 의견과 문서 기록을 기본화하고, 불필요 요청은 전문가 섹션 생략 규칙을 명시 |
+| 2026-03-01 | 롤플레잉 전문가 자동선택 규칙 보강 | 규칙 파일 수정 + 문서 3종 동기화 | PASS | 사용자가 전문가 구성을 별도로 지정하지 않아도 요청 맥락에 맞는 전문가를 자동 선택해 의견을 포함하도록 반영 |
+| 2026-03-01 | 비용 탭에서 학생 목록 노출되는 탭 숨김 버그 수정 | `style.css` 공통 `.hidden` 유틸 추가 + `ReadLints(style.css)` 확인 | PASS | 비용 탭 전환 시 수납 영역(학생 카드/필터/요약)이 숨김 처리되어 비용 목록만 노출되도록 보정 |
+| 2026-03-01 | 일마감 대사 차이 계산 UI 구현(외부 실합계 입력 대비 차이) | `index.html/js/payment.js/style.css/mobile.css` 수정 + `node --check js/payment.js` + `ReadLints` | PASS | 결제선생/비즐/통장/기타별 외부 실합계 입력, 내부 원장 대비 차이(채널별/합계) 표시, 월 기준 localStorage 저장 반영 |
+| 2026-03-01 | 인건비/강사비 조건부 입력 필드 추가(비용 모달) | `index.html/js/payment.js/style.css/mobile.css` 수정 + `node --check js/payment.js` + `ReadLints` | PASS | 인건비/강사비 선택 시 지급대상/지급월/원천세/공제 입력 노출, 저장 시 메모에 구조화 상세 라인 추가 |
+| 2026-03-01 | 수납/비용 세무 공통 필드 및 CSV 확장 | `index.html/js/payment.js` 수정 + `node --check js/payment.js` + `ReadLints` | PASS | 수납/비용에 공급가액·세액·증빙유형·증빙번호를 입력/저장/목록/CSV(월 원장·미수금·환불·비용)에 반영 |
+| 2026-03-01 | 비용 원장 세무 필드 Supabase 구조화 저장 전환(+legacy fallback) | `js/payment.js`, `EXPENSE_LEDGER_SETUP.sql` 수정 + `node --check js/payment.js` + `ReadLints` | PASS | 원격은 컬럼 우선(`supply_amount/vat_amount/evidence_type/evidence_number`) 저장/조회, 미마이그레이션 환경은 `note` 메타 fallback 유지 |
+| 2026-03-01 | 월 원장/수단별 CSV 옵션 확장(대사차이 + 인건비상세 메타) | `index.html/js/payment.js/style.css/mobile.css` 수정 + `node --check js/payment.js` + `ReadLints` | PASS | CSV 옵션 체크 시 부가섹션 컬럼(`추가섹션/추가항목/추가값1~3`)으로 대사차이 및 인건비상세를 함께 내보내도록 반영 |
+| 2026-03-01 | 수납/비용 모달 입력가이드 강화(입력/자동/AI 구분 + 자동계산 + 누락 하이라이트) | `index.html/js/payment.js/style.css/mobile.css` 수정 + `node --check js/payment.js` + `ReadLints` | PASS | 자동계산 필드를 읽기전용으로 분리하고, 저장 시 필수 누락 필드를 빨간 테두리/포커스로 안내해 입력 실수를 줄이도록 반영 |
+| 2026-03-01 | 쉬운 용어 병기 + 마우스오버 툴팁 추가(세무 용어) | `index.html/style.css/mobile.css` 수정 + `ReadLints` | PASS | 귀속월/공급가액/세액/부가세구분/증빙유형/증빙번호를 쉬운 라벨로 병기하고 `?` 툴팁 설명을 추가해 비회계 사용자 이해도를 개선 |
+| 2026-03-01 | 클릭형 도움말 팝업 추가(모바일/키보드 접근) | `js/payment.js/style.css/mobile.css` 수정 + `node --check js/payment.js` + `ReadLints` | PASS | `?` 클릭 시 설명 팝업 노출, 바깥 클릭/ESC 닫기, Enter/Space 토글을 지원해 터치 환경에서도 용어 설명 접근성을 확보 |
+| 2026-03-01 | 자주 쓰는 UI 용어 통일(결제채널/거래참조ID/미확인입금 큐) | `index.html/js/payment.js` 수정 + `node --check js/payment.js` + `ReadLints` | PASS | 화면/카드/CSV 헤더 용어를 `결제경로`, `거래확인번호`, `입금 확인대기함`으로 일괄 정리해 사용자 친화성을 높임 |
+| 2026-03-01 | `대사 차이 합계` 용어 단순화 + 설명 추가 | `index.html/js/payment.js/style.css/mobile.css` 수정 + `node --check js/payment.js` + `ReadLints` | PASS | 문구를 `장부와 실제 합계 차이`로 바꾸고 보조 설명/도움말을 넣어 개념 이해 부담을 낮춤 |
+| 2026-03-01 | 전문가 의견 반영 문서 확정(주민번호 미저장/세무검증 우선/면세 고정 지양) | `docs/plan.md`, `docs/context.md`, `docs/checklist.md` 동기화 + 상호 참조 점검 | PASS | 회계·보안·운영 관점 합의사항을 구현 전 기준으로 고정해 다음 단계(월 신고팩/저장검증 강화)의 방향 일탈을 방지 |
+| 2026-03-01 | 신고 일정 안내 + 신고 완료 확인창(기간/대상 기반) | `index.html/js/payment.js/style.css/mobile.css` 수정 + `node --check js/payment.js` + `ReadLints` | PASS | 사업장현황/종합소득/원천세(인건비 지급 시) 기준 안내를 추가하고, 해당 기간에 미완료 항목만 자동 확인창으로 완료 체크 가능하도록 반영 |
+| 2026-03-01 | 수납 모달 스크롤/가시성 이슈 수정(요약 자동 접힘 + 학생 목록 미노출) | `js/payment.js/style.css` 수정 + `node --check js/payment.js` + `ReadLints` | PASS | 요약 자동 접힘 기준을 완화하고 접힘 상태를 사용자별로 저장, 수납/비용 섹션을 flex 영역으로 고정해 학생 카드 리스트 스크롤이 정상 동작하도록 보정 |
+| 2026-03-01 | 월별 세무 체크카드 추가(비용 정리/인건비 지급/전월 원천세 확인) | `index.html/js/payment.js/style.css/mobile.css` 수정 + `node --check js/payment.js` + `ReadLints` | PASS | monthKey 기준 체크 상태를 저장하고, 전월 인건비 지급이 없으면 원천세 확인 항목을 자동 비활성 처리하도록 반영 |
+| 2026-03-01 | 인건비 소득유형 분기 + 비율제 3.3% 자동계산 + 실지급액 자동계산 | `index.html/js/payment.js/style.css/mobile.css` 수정 + `node --check js/payment.js` + `ReadLints` | PASS | 인건비/강사비 입력 시 소득유형을 필수로 받고, 비율제는 원천세/지방소득세 자동계산, 월급제는 직접입력 + 공제합계 검증, 저장 메타에 소득유형/실지급액 반영 |
+| 2026-03-01 | 수납 탭 데스크톱 2열 레이아웃(우측 학생목록 고정) 적용 | `index.html/style.css/mobile.css` 수정 + `node --check js/payment.js` + `ReadLints` | PASS | 좌측에 요약/세무/작업도구, 우측에 학생목록 독립 스크롤을 배치해 학생카드가 하단으로 밀리는 가시성 문제를 완화 |
+| 2026-03-01 | 요약 펼침 시 좌측 패널 하단 잘림 보정(독립 스크롤) | `style.css` 수정 + `node --check js/payment.js` + `ReadLints` | PASS | 데스크톱 2열에서 좌측 요약/세무 영역에 세로 스크롤을 부여해 확장 콘텐츠가 잘리지 않고 끝까지 탐색 가능하도록 조정 |
+| 2026-03-01 | 월별 노무/회계 체크리스트 추가 | `index.html/js/payment.js/style.css` 수정 + `node --check js/payment.js` + `ReadLints` | PASS | 월별 세무 체크 저장맵을 재사용해 노무/회계 체크항목을 추가하고, 요약이 접힘 상태여도 체크리스트를 확인/저장할 수 있도록 반영 |
+| 2026-03-01 | 체크리스트 조건부 활성화(현재 필요한 항목만 체크 가능) | `js/payment.js` 수정 + `node --check js/payment.js` + `ReadLints` | PASS | 현재 월/인건비 지급 여부/원천세 점검 기간 조건으로 항목을 자동 활성화하고, 비활성 항목에는 “왜 비활성인지” 안내 문구를 표시 |
+| 2026-03-01 | AI 증빙 추출 이미지 Drive 자동 저장 + 경로 메모 연결 | `grading-server/routers/misc.py`, `js/payment.js` 수정 + `python -m compileall grading-server/routers/misc.py` + `node --check js/payment.js` + `ReadLints` | PASS | `/api/payments/extract`에서 `수납증빙/학원명또는owner/YYYY/MM/DD/항목` 폴더 업로드를 수행하고, 응답 Drive 경로를 원장 메모(`[드라이브증빙]`)에 자동 기록해 누락 추적성을 강화 |
+| 2026-03-01 | 학생관리 전환 대비 문서 인계 정리(수납/비용 최신 상태) | `docs/plan.md`, `docs/context.md`, `docs/checklist.md` 동기화 + 내용 대조 | PASS | 수납/비용 완료 스냅샷과 학생관리 시작 우선순위를 문서에 명시해 다음 세션에서 바로 학생관리 구현을 이어갈 수 있도록 정리 |
 
 ## 릴리즈 전 최종 확인
-- [ ] 치명 이슈 없음
+- [x] 치명 이슈 없음
 - [x] 미해결 이슈는 `context.md`에 기록
 - [x] 다음 액션이 `plan.md`에 반영됨

@@ -258,8 +258,8 @@
 
     /* --- Payment Modal --- */
     .payment-card {
-        height: 95vh !important;
-        max-height: 95vh;
+        height: calc(100dvh - 12px) !important;
+        max-height: calc(100dvh - 12px);
         max-width: 100%;
     }
 
@@ -277,12 +277,34 @@
     .pay-stat-label { font-size: 10px; }
 
     .pay-toolbar { padding: 8px 12px; gap: 6px; flex-wrap: wrap; }
+    .pay-main-tabs { padding: 0 12px 10px; }
+    .pay-main-tab-btn { font-size: 11px; padding: 6px 10px; }
+    .pay-income-layout { display: flex; flex-direction: column; }
+    .pay-income-students-head { padding: 8px 10px; }
+    .pay-income-students-title { font-size: 11px; }
+    .pay-income-students-note { font-size: 10px; }
     .pay-search-wrap { min-width: 0; }
     .pay-filter-pills { gap: 3px; }
     .pay-pill { padding: 5px 10px; font-size: 11px; }
     .pay-batch-btn { padding: 6px 10px; font-size: 11px; }
+    .pay-ledger-btn { padding: 6px 10px; font-size: 11px; }
+    .pay-ai-btn { padding: 6px 10px; font-size: 11px; }
+    .pay-close-cards,
+    .pay-channel-grid { grid-template-columns: 1fr 1fr; }
+    .pay-channel-reconcile { flex-direction: column; align-items: stretch; gap: 4px; }
+    .pay-channel-actual-input { font-size: 10px; padding: 4px 6px; }
+    .pay-channel-diff { font-size: 10px; text-align: center; }
+    .pay-reconcile-total { font-size: 11px; padding: 6px 8px; }
+    .pay-report-btn { font-size: 11px; }
+    .pay-close-panel { padding: 8px 10px; gap: 6px; }
+    .pay-close-panel-title { font-size: 11px; }
+    .pay-close-toggle-btn { font-size: 10px; padding: 3px 7px; }
+    .pay-unmatched-panel { padding: 7px 10px; }
+    .pay-unmatched-select { min-width: 0; flex: 1 1 100%; }
+    .pay-unmatched-actions { gap: 5px; }
+    .pay-unmatched-btn { font-size: 10px; padding: 5px 7px; }
 
-    .pay-list { padding: 8px 10px 16px; gap: 6px; }
+    .pay-list { padding: 8px 10px 20px; gap: 6px; }
     .pay-card-head { padding: 10px 12px; gap: 8px; }
     .pay-card-name { font-size: 13px; }
     .pay-card-amounts { font-size: 12px; }
@@ -295,6 +317,23 @@
 
     .pay-amount-editor { flex-direction: column; gap: 6px; }
     .pay-edit-field input { font-size: 12px; }
+    .pay-card-detail-scroll { max-height: min(46vh, 360px); }
+    .pay-ledger-summary,
+    .pay-ledger-grid { grid-template-columns: 1fr; }
+    .pay-expense-toolbar { flex-direction: column; align-items: stretch; padding: 10px 12px 8px; }
+    .pay-expense-summary { margin: 0 10px; grid-template-columns: 1fr 1fr; }
+    .pay-expense-report-actions { margin: 8px 10px 4px; }
+    .pay-expense-item { flex-direction: column; align-items: stretch; }
+    .pay-expense-item-side { align-items: flex-start; }
+    .pay-payroll-fields { padding: 8px; }
+    .pay-payroll-title { font-size: 11px; }
+    .pay-payroll-help { font-size: 10px; }
+    .pay-payroll-note { font-size: 10px; }
+    .pay-ai-multi-grid { grid-template-columns: 1fr; }
+    .pay-ai-multi-row { padding: 10px; }
+    .pay-ai-review-actions { flex-direction: column-reverse; }
+    .pay-ai-secondary-btn,
+    .pay-ai-review-actions .btn-save-main { width: 100%; }
 
     /* --- Event Block --- */
     .event-block {
@@ -649,7 +688,11 @@
     .qr-item-avatar { width: 30px; height: 30px; font-size: 12px; border-radius: 8px; }
 
     /* --- Payment Modal (small) --- */
-    .payment-card { max-width: 100%; }
+    .payment-card {
+        max-width: 100%;
+        height: calc(100dvh - 10px) !important;
+        max-height: calc(100dvh - 10px);
+    }
     .pay-dashboard { flex-direction: column; align-items: stretch; padding: 10px 12px; }
     .pay-progress-wrap { flex-direction: row; gap: 8px; }
     .pay-progress-ring-container { width: 48px; height: 48px; }
@@ -664,10 +707,46 @@
     .pay-search-wrap { order: 1; flex: 1 1 100%; }
     .pay-filter-pills { order: 2; }
     .pay-batch-btn { order: 3; }
+    .pay-ledger-btn { order: 4; }
+    .pay-ai-btn { order: 5; }
     .pay-pill { padding: 4px 8px; font-size: 10px; }
     .pay-batch-btn { padding: 5px 8px; font-size: 10px; }
+    .pay-ledger-btn { padding: 5px 8px; font-size: 10px; }
+    .pay-ai-btn { padding: 5px 8px; font-size: 10px; }
+    .pay-close-cards,
+    .pay-channel-grid { grid-template-columns: 1fr 1fr; }
+    .pay-channel-reconcile { flex-direction: column; align-items: stretch; gap: 4px; }
+    .pay-channel-actual-input { font-size: 10px; padding: 4px 6px; }
+    .pay-channel-diff { font-size: 9px; text-align: center; }
+    .pay-reconcile-total { font-size: 10px; padding: 5px 7px; }
+    .pay-reconcile-help { font-size: 10px; }
+    .pay-report-actions { gap: 5px; }
+    .pay-report-options { gap: 4px 8px; }
+    .pay-report-option { font-size: 10px; gap: 4px; }
+    .pay-report-option input { width: 12px; height: 12px; }
+    .pay-tax-deadline-guide { padding: 7px 8px; border-radius: 8px; }
+    .pay-tax-deadline-title { font-size: 11px; }
+    .pay-tax-deadline-item, .pay-tax-deadline-note { font-size: 10px; }
+    .pay-tax-checklist-guide { padding: 7px 8px; border-radius: 8px; }
+    .pay-tax-checklist-title { font-size: 11px; }
+    .pay-tax-check-item { font-size: 10px; gap: 5px; }
+    .pay-tax-check-item input { width: 12px; height: 12px; }
+    .pay-field-legend { gap: 4px; margin-bottom: 8px; }
+    .pay-field-legend-text { font-size: 10px; }
+    .pay-field-badge { height: 18px; padding: 0 6px; font-size: 10px; }
+    .pay-term-help { width: 14px; height: 14px; font-size: 9px; }
+    .pay-term-popup { font-size: 11px; max-width: calc(100vw - 20px); }
+    .pay-report-btn { font-size: 10px; padding: 5px 8px; }
+    .pay-close-panel { padding: 7px 9px; gap: 5px; }
+    .pay-close-panel-title { font-size: 10px; }
+    .pay-close-toggle-btn { font-size: 10px; padding: 3px 6px; }
+    .pay-unmatched-panel { padding: 6px 9px; }
+    .pay-unmatched-title { font-size: 11px; }
+    .pay-unmatched-count { font-size: 10px; }
 
-    .pay-list { padding: 6px 8px 12px; gap: 5px; }
+    .pay-list { padding: 6px 8px 18px; gap: 5px; }
+    .pay-main-tabs { padding: 0 10px 8px; }
+    .pay-main-tab-btn { font-size: 10px; padding: 5px 9px; }
     .pay-card-head { padding: 8px 10px; }
     .pay-card-name { font-size: 12px; }
     .pay-card-grade { font-size: 10px; }
@@ -680,9 +759,27 @@
     .pay-fee-amount { font-size: 11px; }
     .pay-fee-btn { font-size: 10px; padding: 3px 6px; }
     .pay-fee-date { font-size: 10px; }
+    .pay-payroll-fields { padding: 7px; }
+    .pay-payroll-title { font-size: 10px; }
+    .pay-payroll-help { font-size: 9px; }
+    .pay-payroll-note { font-size: 9px; }
 
     .pay-amount-editor { padding: 8px; }
     .pay-edit-field input { font-size: 11px; padding: 5px 6px; }
+    .pay-card-detail-scroll { max-height: min(44vh, 320px); }
+    .pay-ledger-summary,
+    .pay-ledger-grid { grid-template-columns: 1fr; }
+    .pay-expense-toolbar { flex-direction: column; align-items: stretch; padding: 8px 10px 6px; }
+    .pay-expense-summary { margin: 0 8px; grid-template-columns: 1fr; }
+    .pay-expense-report-actions { margin: 6px 8px 2px; }
+    .pay-expense-item { padding: 8px 10px; }
+    .pay-expense-item-top,
+    .pay-expense-item-meta { font-size: 11px; }
+    .pay-ai-multi-grid { grid-template-columns: 1fr; }
+    .pay-ai-multi-row { padding: 10px; }
+    .pay-ai-review-actions { flex-direction: column-reverse; }
+    .pay-ai-secondary-btn,
+    .pay-ai-review-actions .btn-save-main { width: 100%; }
 
     /* --- Event Block --- */
     .event-block {
