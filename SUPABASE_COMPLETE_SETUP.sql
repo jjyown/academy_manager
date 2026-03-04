@@ -49,6 +49,9 @@ CREATE TABLE IF NOT EXISTS students (
     grade TEXT,
     phone TEXT,
     parent_phone TEXT,
+    guardian_name TEXT,
+    enrollment_start_date DATE,
+    enrollment_end_date DATE,
     parent_code TEXT,                -- 학부모 포털 인증코드 (6자리)
     qr_code_data TEXT,               -- QR 토큰 데이터
     default_fee NUMERIC DEFAULT 0,
@@ -56,7 +59,7 @@ CREATE TABLE IF NOT EXISTS students (
     default_textbook_fee NUMERIC DEFAULT 0,
     memo TEXT,
     register_date DATE,
-    status TEXT DEFAULT 'active' CHECK (status IN ('active', 'inactive', 'graduated')),
+    status TEXT DEFAULT 'active' CHECK (status IN ('active', 'paused', 'archived', 'inactive', 'graduated')),
     status_changed_date DATE,
     created_at TIMESTAMPTZ DEFAULT now()
 );
@@ -229,6 +232,18 @@ DO $$ BEGIN
     -- students.status_changed_date
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='students' AND column_name='status_changed_date') THEN
         ALTER TABLE students ADD COLUMN status_changed_date DATE;
+    END IF;
+    -- students.guardian_name
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='students' AND column_name='guardian_name') THEN
+        ALTER TABLE students ADD COLUMN guardian_name TEXT;
+    END IF;
+    -- students.enrollment_start_date
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='students' AND column_name='enrollment_start_date') THEN
+        ALTER TABLE students ADD COLUMN enrollment_start_date DATE;
+    END IF;
+    -- students.enrollment_end_date
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='students' AND column_name='enrollment_end_date') THEN
+        ALTER TABLE students ADD COLUMN enrollment_end_date DATE;
     END IF;
     -- attendance_records.memo
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='attendance_records' AND column_name='memo') THEN

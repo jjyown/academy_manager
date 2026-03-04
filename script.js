@@ -26,6 +26,9 @@ let isStudentSaving = false;
 let selectedScheduleStudents = [];
 let isScheduleSaving = false;
 let selectedPeriodDeleteStudents = [];
+let historyActionContext = { studentId: '', monthPrefix: '' };
+let testScoreSyncState = { mode: 'unknown', message: '동기화 상태 확인 전' };
+const TEST_SCORE_STORAGE_PREFIX = 'student_test_scores__';
 
 // ============================================
 // 글로벌 UI: 토스트 알림 + 확인 다이얼로그
@@ -3145,6 +3148,18 @@ window.openAttendanceModal = async function(sid, dateStr, startTime) {
     document.getElementById('att-edit-time').value = detail.start;
     document.getElementById('att-edit-duration').value = detail.duration;
     document.getElementById('att-original-time').value = detail.start;
+
+    if (typeof window.updateAttendanceSourceDisplay === 'function') {
+        let attendanceRecord = null;
+        if (typeof window.getAttendanceRecordByStudentAndDate === 'function') {
+            try {
+                attendanceRecord = await window.getAttendanceRecordByStudentAndDate(sid, dateStr, currentTeacherId, detail.start);
+            } catch (e) {
+                console.error('[openAttendanceModal] 출석 방식 조회 실패:', e);
+            }
+        }
+        window.updateAttendanceSourceDisplay(attendanceRecord);
+    }
 }
 
 window.updateClassTime = async function() {
@@ -3265,12 +3280,22 @@ window.setAttendance = async function(status, options = {}) {
         // DB에도 상태 업데이트 (기존 시간/스캔 결과 유지)
         // 반드시 scheduled_time(수업 시작시간)까지 포함하여 upsert
         const memoData = { memo: memo || null, shared_memo: sharedMemo || null };
+        let lastSavedRecord = null;
         if (scope === 'all') {
             for (const tid of teacherIds) {
-                await persistAttendanceStatusToDbForTeacher(sid, dateStr, status, String(tid), startTime, memoData);
+                const saved = await persistAttendanceStatusToDbForTeacher(sid, dateStr, status, String(tid), startTime, memoData);
+                if (String(tid) === String(currentTeacherId || '')) {
+                    lastSavedRecord = saved;
+                }
             }
         } else {
-            await persistAttendanceStatusToDbForTeacher(sid, dateStr, status, String(currentTeacherId || ''), startTime, memoData);
+            lastSavedRecord = await persistAttendanceStatusToDbForTeacher(sid, dateStr, status, String(currentTeacherId || ''), startTime, memoData);
+        }
+        if (typeof window.updateAttendanceSourceDisplay === 'function') {
+            window.updateAttendanceSourceDisplay(lastSavedRecord || {
+                qr_scanned: false,
+                check_in_time: new Date().toISOString()
+            });
         }
 
         // currentTeacherStudents 배열도 즉시 업데이트
@@ -3370,6 +3395,48 @@ function updateAttendanceStatusDisplay(status) {
     }
 }
 
+function resolveAttendanceSource(recordLike) {
+    if (!recordLike) return 'unknown';
+    const explicit = String(recordLike.attendance_source || '').trim();
+    if (explicit === 'qr_student' || explicit === 'teacher_manual') return explicit;
+    if (recordLike.qr_scanned) return 'qr_student';
+    if (recordLike.check_in_time) return 'teacher_manual';
+    return 'unknown';
+}
+
+window.updateAttendanceSourceDisplay = function(recordLike) {
+    const sourceEl = document.getElementById('attendance-source-display');
+    if (!sourceEl) return;
+
+    const sourceType = resolveAttendanceSource(recordLike);
+    sourceEl.className = 'am-source-badge';
+
+    if (sourceType === 'qr_student') {
+        sourceEl.classList.add('source-qr');
+        const timeLabel = recordLike && recordLike.qr_scan_time
+            ? new Date(recordLike.qr_scan_time).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
+            : '';
+        sourceEl.textContent = timeLabel
+            ? `출석 방식: 학생 QR (${timeLabel})`
+            : '출석 방식: 학생 QR';
+        return;
+    }
+
+    if (sourceType === 'teacher_manual') {
+        sourceEl.classList.add('source-teacher');
+        const timeLabel = recordLike && recordLike.check_in_time
+            ? new Date(recordLike.check_in_time).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
+            : '';
+        sourceEl.textContent = timeLabel
+            ? `출석 방식: 선생님 체크 (${timeLabel})`
+            : '출석 방식: 선생님 체크';
+        return;
+    }
+
+    sourceEl.classList.add('source-unknown');
+    sourceEl.textContent = '출석 방식: 미확인';
+}
+
 async function persistAttendanceStatusToDb(studentId, dateStr, status, teacherId) {
     await persistAttendanceStatusToDbForTeacher(studentId, dateStr, status, teacherId);
 }
@@ -3398,18 +3465,21 @@ async function persistAttendanceStatusToDbForTeacher(studentId, dateStr, status,
         studentId: studentId,
         teacherId: String(existing?.teacher_id || teacherId || currentTeacherId || ''),
         attendanceDate: dateStr,
-        checkInTime: existing?.check_in_time || null,
+        // 선생님 수동 처리 시에도 체크 시각을 남겨 "QR/수동" 구분이 가능하도록 유지
+        checkInTime: existing?.check_in_time || new Date().toISOString(),
         scheduledTime: startTime,
         status: status,
         qrScanned: existing?.qr_scanned || false,
         qrScanTime: existing?.qr_scan_time || null,
         qrJudgment: existing?.qr_judgment || null,
+        attendance_source: existing?.qr_scanned ? 'qr_student' : 'teacher_manual',
         memo: memoValue,
         shared_memo: sharedMemoValue
     };
 
+    let savedRecord = null;
     try {
-        await window.saveAttendanceRecord(payload);
+        savedRecord = await window.saveAttendanceRecord(payload);
     } catch (e) {
         console.error('[persistAttendanceStatusToDbForTeacher] 상태 저장 실패:', e);
     }
@@ -3423,6 +3493,8 @@ async function persistAttendanceStatusToDbForTeacher(studentId, dateStr, status,
             console.error('[persistAttendanceStatusToDbForTeacher] 출석 조회 갱신 실패:', e);
         }
     }
+
+    return savedRecord;
 }
 window.saveOnlyMemo = async function() {
     const sid = document.getElementById('att-student-id').value;
@@ -3612,6 +3684,89 @@ async function _generateScheduleCore(excludeHolidays) {
 
 window.generateSchedule = function() { return _generateScheduleCore(false); };
 window.generateScheduleWithoutHolidays = function() { return _generateScheduleCore(true); };
+
+function countStudentSchedulesInRange(studentId, startStr, endStr) {
+    if (!studentId || !startStr || !endStr || startStr > endStr) return 0;
+    const teacherSchedules = teacherScheduleData[currentTeacherId] || {};
+    const studentSchedules = teacherSchedules[String(studentId)] || {};
+    let count = 0;
+    Object.keys(studentSchedules).forEach((dateStr) => {
+        if (dateStr < startStr || dateStr > endStr) return;
+        const entries = getScheduleEntries(currentTeacherId, String(studentId), dateStr);
+        count += entries.length;
+    });
+    return count;
+}
+
+function getMonthSpanCount(startStr, endStr) {
+    if (!startStr || !endStr || startStr > endStr) return 0;
+    const [sy, sm] = startStr.split('-').map(Number);
+    const [ey, em] = endStr.split('-').map(Number);
+    if (!sy || !sm || !ey || !em) return 0;
+    return ((ey - sy) * 12) + (em - sm) + 1;
+}
+
+function formatDeleteScopeLabel(scope, studentCount) {
+    if (scope === 'student') return `선택 학생 ${studentCount}명`;
+    return '전체 학생';
+}
+
+function buildDeleteImpactText(options) {
+    const {
+        scopeLabel = '전체 학생',
+        startStr = '',
+        endStr = '',
+        totalCount = 0,
+        monthSpan = 0
+    } = options || {};
+    if (!startStr || !endStr) {
+        return '기간을 선택하면 삭제 범위와 영향이 표시됩니다.';
+    }
+    if (startStr > endStr) {
+        return '시작일이 종료일보다 늦습니다. 날짜를 다시 선택해주세요.';
+    }
+    if (totalCount <= 0) {
+        return `${scopeLabel} 기준으로 선택된 기간에 삭제할 일정이 없습니다.`;
+    }
+    const monthHint = monthSpan > 1 ? ` (${monthSpan}개월 범위)` : '';
+    return `${scopeLabel} 기준 ${startStr} ~ ${endStr}${monthHint}에서 ${totalCount}건이 삭제됩니다. 삭제 후 복구할 수 없습니다.`;
+}
+
+window.updateBulkDeletePreview = function() {
+    const previewEl = document.getElementById('bulk-del-preview');
+    const warningEl = document.getElementById('bulk-del-warning');
+    if (!previewEl) return;
+    const sid = document.getElementById('bulk-del-sid')?.value;
+    const startStr = document.getElementById('bulk-del-start')?.value;
+    const endStr = document.getElementById('bulk-del-end')?.value;
+    if (!sid || !startStr || !endStr || startStr > endStr) {
+        previewEl.textContent = '삭제 예정 일정: 0건';
+        if (warningEl) {
+            warningEl.textContent = buildDeleteImpactText({
+                scopeLabel: '현재 학생',
+                startStr,
+                endStr,
+                totalCount: 0,
+                monthSpan: getMonthSpanCount(startStr, endStr)
+            });
+            warningEl.classList.remove('danger');
+        }
+        return;
+    }
+    const count = countStudentSchedulesInRange(sid, startStr, endStr);
+    previewEl.textContent = `삭제 예정 일정: ${count}건`;
+    if (warningEl) {
+        warningEl.textContent = buildDeleteImpactText({
+            scopeLabel: '현재 학생',
+            startStr,
+            endStr,
+            totalCount: count,
+            monthSpan: getMonthSpanCount(startStr, endStr)
+        });
+        warningEl.classList.toggle('danger', count > 0);
+    }
+};
+
 window.prepareBulkDelete = function() {
     const sid = document.getElementById('edit-id').value;
     if(!sid) return;
@@ -3620,6 +3775,7 @@ window.prepareBulkDelete = function() {
     const todayStr = new Date(today.getTime() - off).toISOString().split('T')[0];
     document.getElementById('bulk-del-start').value = todayStr;
     document.getElementById('bulk-del-end').value = ""; 
+    updateBulkDeletePreview();
     closeModal('register-modal'); openModal('bulk-delete-modal');
 }
 window.executeBulkDelete = async function() {
@@ -3629,7 +3785,10 @@ window.executeBulkDelete = async function() {
     if(!startStr || !endStr) { showToast("기간을 모두 선택해주세요.", 'warning'); return; }
     const sIdx = students.findIndex(s => String(s.id) === String(sid));
     if(sIdx === -1) return;
-    if(!(await showConfirm("선택한 기간의 일정을 삭제하시겠습니까?", { type: 'danger', title: '삭제 확인', okText: '삭제' }))) return;
+    const deleteCount = countStudentSchedulesInRange(sid, startStr, endStr);
+    const monthSpan = getMonthSpanCount(startStr, endStr);
+    const confirmMessage = `선택한 기간의 일정을 삭제하시겠습니까?\n\n- 기간: ${startStr} ~ ${endStr}${monthSpan > 1 ? ` (${monthSpan}개월)` : ''}\n- 삭제 예정: ${deleteCount}건\n\n삭제 후 복구할 수 없습니다.`;
+    if(!(await showConfirm(confirmMessage, { type: 'danger', title: '삭제 확인', okText: '삭제' }))) return;
     const startDate = new Date(startStr); const endDate = new Date(endStr);
     
     let deletedCount = 0;
@@ -3812,7 +3971,49 @@ window.togglePeriodDeleteStudent = function() {
         const selectedList = document.getElementById('period-del-student-selected');
         if (selectedList) selectedList.innerHTML = '';
     }
+    updatePeriodDeletePreview();
 }
+
+window.updatePeriodDeletePreview = function() {
+    const previewEl = document.getElementById('period-del-preview');
+    const warningEl = document.getElementById('period-del-warning');
+    if (!previewEl) return;
+    const startDate = document.getElementById('period-del-start')?.value;
+    const endDate = document.getElementById('period-del-end')?.value;
+    if (!startDate || !endDate || startDate > endDate) {
+        previewEl.textContent = '삭제 예정 일정: 0건';
+        if (warningEl) {
+            warningEl.textContent = buildDeleteImpactText({
+                scopeLabel: '전체 학생',
+                startStr: startDate,
+                endStr: endDate,
+                totalCount: 0,
+                monthSpan: getMonthSpanCount(startDate, endDate)
+            });
+            warningEl.classList.remove('danger');
+        }
+        return;
+    }
+    const scope = document.getElementById('period-del-scope')?.value || 'all';
+    const targetStudentIds = scope === 'all'
+        ? Object.keys(teacherScheduleData[currentTeacherId] || {})
+        : [...selectedPeriodDeleteStudents];
+    let total = 0;
+    targetStudentIds.forEach((sid) => {
+        total += countStudentSchedulesInRange(sid, startDate, endDate);
+    });
+    previewEl.textContent = `삭제 예정 일정: ${total}건`;
+    if (warningEl) {
+        warningEl.textContent = buildDeleteImpactText({
+            scopeLabel: formatDeleteScopeLabel(scope, targetStudentIds.length),
+            startStr: startDate,
+            endStr: endDate,
+            totalCount: total,
+            monthSpan: getMonthSpanCount(startDate, endDate)
+        });
+        warningEl.classList.toggle('danger', total > 0);
+    }
+};
 
 // 기간별 일정 삭제 실행
 window.executePeriodDelete = async function() {
@@ -3831,18 +4032,29 @@ window.executePeriodDelete = async function() {
     }
     
     let targetStudentIds = [];
+    let expectedCount = 0;
+    let scopeLabel = '';
+    const monthSpan = getMonthSpanCount(startDate, endDate);
     
     if (scope === 'all') {
-        if (!(await showConfirm(`${startDate} ~ ${endDate} 기간의 모든 학생 일정을 삭제하시겠습니까?\n(출석체크가 안된 일정만 삭제됩니다)`, { type: 'danger', title: '삭제 확인', okText: '삭제' }))) return;
         targetStudentIds = Object.keys(teacherScheduleData[currentTeacherId] || {});
+        scopeLabel = formatDeleteScopeLabel(scope, targetStudentIds.length);
+        targetStudentIds.forEach((sid) => {
+            expectedCount += countStudentSchedulesInRange(sid, startDate, endDate);
+        });
     } else {
         if (!selectedPeriodDeleteStudents.length) {
             showToast('학생을 선택해주세요.', 'warning');
             return;
         }
-        if (!(await showConfirm(`${startDate} ~ ${endDate} 기간의 선택한 학생 일정을 삭제하시겠습니까?\n(출석체크가 안된 일정만 삭제됩니다)`, { type: 'danger', title: '삭제 확인', okText: '삭제' }))) return;
         targetStudentIds = [...selectedPeriodDeleteStudents];
+        scopeLabel = formatDeleteScopeLabel(scope, targetStudentIds.length);
+        targetStudentIds.forEach((sid) => {
+            expectedCount += countStudentSchedulesInRange(sid, startDate, endDate);
+        });
     }
+    const confirmMessage = `${startDate} ~ ${endDate}${monthSpan > 1 ? ` (${monthSpan}개월)` : ''} 기간의 일정을 삭제하시겠습니까?\n\n- 범위: ${scopeLabel}\n- 삭제 예정: ${expectedCount}건\n\n출석/상담 기록은 남고, 예정 일정만 삭제됩니다.\n삭제 후 복구할 수 없습니다.`;
+    if (!(await showConfirm(confirmMessage, { type: 'danger', title: '삭제 확인', okText: '삭제' }))) return;
     
     let deletedCount = 0;
     let deletedAny = false;
@@ -3917,6 +4129,573 @@ window.executePeriodDelete = async function() {
     }
 }
 
+function getTestScoreStorageKey() {
+    const ownerId = localStorage.getItem('current_owner_id') || 'local';
+    return `${TEST_SCORE_STORAGE_PREFIX}${ownerId}`;
+}
+
+function loadAllTestScores() {
+    try {
+        const raw = localStorage.getItem(getTestScoreStorageKey());
+        if (!raw) return [];
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+    } catch (error) {
+        console.warn('[loadAllTestScores] 파싱 실패:', error);
+        return [];
+    }
+}
+
+function saveAllTestScores(rows) {
+    try {
+        localStorage.setItem(getTestScoreStorageKey(), JSON.stringify(rows || []));
+    } catch (error) {
+        console.warn('[saveAllTestScores] 저장 실패:', error);
+    }
+}
+
+function getMonthlyTestScores(studentId, monthPrefix) {
+    return loadAllTestScores()
+        .filter((row) => String(row.studentId) === String(studentId) && String(row.examDate || '').startsWith(monthPrefix))
+        .sort((a, b) => String(a.examDate || '').localeCompare(String(b.examDate || '')));
+}
+
+function isUuidLike(value) {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || ''));
+}
+
+function upsertLocalTestScore(row) {
+    const rows = loadAllTestScores();
+    const idx = rows.findIndex((item) => String(item.id) === String(row.id));
+    if (idx > -1) rows[idx] = { ...rows[idx], ...row };
+    else rows.push(row);
+    saveAllTestScores(rows);
+}
+
+function removeLocalTestScore(scoreId) {
+    const filtered = loadAllTestScores().filter((row) => String(row.id) !== String(scoreId));
+    saveAllTestScores(filtered);
+}
+
+function setTestScoreSyncState(mode, message) {
+    testScoreSyncState = {
+        mode: String(mode || 'unknown'),
+        message: String(message || '상태 미확인')
+    };
+    renderTestScoreSyncStatus();
+}
+
+function renderTestScoreSyncStatus() {
+    const el = document.getElementById('test-score-sync-status');
+    if (!el) return;
+    const mode = testScoreSyncState.mode || 'unknown';
+    const cls = mode === 'remote' ? 'remote' : (mode === 'local' ? 'local' : 'unknown');
+    el.className = `test-score-sync-status ${cls}`;
+    el.textContent = testScoreSyncState.message || '상태 미확인';
+}
+
+async function getMonthlyTestScoresWithFallback(studentId, monthPrefix) {
+    if (typeof window.getStudentTestScoresByMonth === 'function') {
+        try {
+            const remoteRows = await window.getStudentTestScoresByMonth(studentId, monthPrefix);
+            if (Array.isArray(remoteRows)) {
+                remoteRows.forEach(upsertLocalTestScore);
+                setTestScoreSyncState('remote', `원격 동기화 정상 · ${remoteRows.length}건 조회`);
+                return remoteRows;
+            }
+        } catch (error) {
+            console.warn('[getMonthlyTestScoresWithFallback] 원격 조회 실패, 로컬 폴백:', error);
+            setTestScoreSyncState('local', `원격 조회 실패 · 로컬 폴백 사용 (${error.message || 'unknown'})`);
+        }
+    }
+    if (typeof window.getStudentTestScoresByMonth !== 'function') {
+        setTestScoreSyncState('local', '원격 동기화 함수 미구성 · 로컬 저장 모드');
+    }
+    return getMonthlyTestScores(studentId, monthPrefix);
+}
+
+window.runTestScoreSyncCheck = async function() {
+    const nameInput = document.getElementById('test-score-name');
+    const monthPrefix = String(nameInput?.dataset?.monthPrefix || '');
+    const studentId = String(nameInput?.dataset?.studentId || '');
+    const checkBtn = document.getElementById('test-score-sync-check-btn');
+    if (!studentId || !monthPrefix) {
+        showToast('학생/월 정보가 없어 동기화 점검을 실행할 수 없습니다.', 'warning');
+        return;
+    }
+    if (typeof window.saveStudentTestScore !== 'function' || typeof window.getStudentTestScoresByMonth !== 'function' || typeof window.deleteStudentTestScore !== 'function') {
+        setTestScoreSyncState('local', '원격 점검 함수 없음 · 로컬 저장 모드');
+        showToast('원격 동기화 점검 함수를 찾을 수 없습니다.', 'warning');
+        return;
+    }
+
+    const now = new Date();
+    const off = now.getTimezoneOffset() * 60000;
+    const todayStr = new Date(now.getTime() - off).toISOString().split('T')[0];
+    const examDate = todayStr.startsWith(monthPrefix) ? todayStr : `${monthPrefix}-01`;
+    const stamp = now.toISOString().slice(11, 19);
+    const probeRow = {
+        studentId,
+        teacherId: String(currentTeacherId || ''),
+        examName: `[동기화진단] ${stamp}`,
+        examDate,
+        score: 0,
+        maxScore: 100
+    };
+
+    try {
+        if (checkBtn) {
+            checkBtn.disabled = true;
+            checkBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 점검 중...';
+        }
+        setTestScoreSyncState('unknown', '원격 동기화 점검 실행 중...');
+        const saved = await window.saveStudentTestScore(probeRow);
+        const rows = await window.getStudentTestScoresByMonth(studentId, monthPrefix);
+        const found = (rows || []).some((row) => String(row.id) === String(saved?.id));
+        if (!found) throw new Error('저장 후 조회에서 진단 레코드를 찾지 못했습니다.');
+        await window.deleteStudentTestScore(saved.id);
+        removeLocalTestScore(saved.id);
+        setTestScoreSyncState('remote', `원격 동기화 점검 성공 · ${new Date().toLocaleTimeString('ko-KR')}`);
+        showToast('테스트 점수 원격 동기화 점검이 성공했습니다.', 'success');
+        await renderTestScoreSection(studentId, monthPrefix, `${monthPrefix.slice(0, 4)}년 ${monthPrefix.slice(5)}월`);
+    } catch (error) {
+        console.error('[runTestScoreSyncCheck] 동기화 점검 실패:', error);
+        setTestScoreSyncState('local', `원격 점검 실패 · 로컬 폴백 권장 (${error.message || 'unknown'})`);
+        showToast(`동기화 점검 실패: ${error.message}`, 'warning');
+    } finally {
+        if (checkBtn) {
+            checkBtn.disabled = false;
+            checkBtn.innerHTML = '<i class="fas fa-stethoscope"></i> 동기화 점검';
+        }
+    }
+};
+
+function buildTestScoreSummary(scores) {
+    if (!scores.length) {
+        return '<div class="test-score-empty">이번 달 저장된 테스트 점수가 없습니다.</div>';
+    }
+    const normalized = scores
+        .map((item) => {
+            const maxScore = Number(item.maxScore || 0);
+            const score = Number(item.score || 0);
+            const percent = maxScore > 0 ? Math.round((score / maxScore) * 100) : 0;
+            return { ...item, score, maxScore, percent };
+        })
+        .filter((item) => Number.isFinite(item.percent));
+    if (!normalized.length) {
+        return '<div class="test-score-empty">점수 데이터를 계산할 수 없습니다.</div>';
+    }
+    const avgPercent = Math.round(normalized.reduce((sum, item) => sum + item.percent, 0) / normalized.length);
+    const first = normalized[0];
+    const last = normalized[normalized.length - 1];
+    const diff = last.percent - first.percent;
+    const diffLabel = diff === 0 ? '변화 없음' : (diff > 0 ? `+${diff}%p` : `${diff}%p`);
+    const trendClass = diff > 0 ? 'up' : (diff < 0 ? 'down' : 'flat');
+    return `
+        <div class="test-score-summary-item">
+            <span class="label">평균</span>
+            <strong>${avgPercent}%</strong>
+        </div>
+        <div class="test-score-summary-item ${trendClass}">
+            <span class="label">변화</span>
+            <strong>${diffLabel}</strong>
+        </div>
+        <div class="test-score-summary-item">
+            <span class="label">건수</span>
+            <strong>${normalized.length}회</strong>
+        </div>
+    `;
+}
+
+function buildTestScoreTrendBars(scores) {
+    if (!scores.length) return '';
+    return scores.map((item) => {
+        const maxScore = Number(item.maxScore || 0);
+        const score = Number(item.score || 0);
+        const percent = maxScore > 0 ? Math.max(0, Math.min(100, Math.round((score / maxScore) * 100))) : 0;
+        const dayLabel = String(item.examDate || '').split('-').slice(1).join('/');
+        const title = `${item.examName || '테스트'} ${score}/${maxScore} (${percent}%)`;
+        return `
+            <div class="test-trend-bar" title="${escapeHtml(title)}">
+                <span class="test-trend-fill" style="height:${percent}%;"></span>
+                <span class="test-trend-day">${escapeHtml(dayLabel || '-')}</span>
+            </div>
+        `;
+    }).join('');
+}
+
+function buildTestScoreList(scores) {
+    if (!scores.length) return '';
+    return scores.map((item) => {
+        const maxScore = Number(item.maxScore || 0);
+        const score = Number(item.score || 0);
+        const percent = maxScore > 0 ? Math.round((score / maxScore) * 100) : 0;
+        return `
+            <div class="test-score-item">
+                <div class="test-score-item-main">
+                    <div class="test-score-item-title">${escapeHtml(item.examName || '테스트')}</div>
+                    <div class="test-score-item-meta">${escapeHtml(item.examDate || '-')} · ${score}/${maxScore} (${percent}%)</div>
+                </div>
+                <button type="button" class="test-score-delete-btn" onclick="deleteTestScoreFromHistory('${item.id}')">
+                    <i class="fas fa-trash-alt"></i>
+                </button>
+            </div>
+        `;
+    }).join('');
+}
+
+async function renderTestScoreSection(studentId, monthPrefix, monthLabel, preloadedScores) {
+    const monthEl = document.getElementById('test-score-month-label');
+    const summaryEl = document.getElementById('test-score-summary');
+    const trendEl = document.getElementById('test-score-trend');
+    const listEl = document.getElementById('test-score-list');
+    const dateInput = document.getElementById('test-score-date');
+    const nameInput = document.getElementById('test-score-name');
+    const valueInput = document.getElementById('test-score-value');
+    const maxInput = document.getElementById('test-score-max');
+    if (monthEl) monthEl.textContent = monthLabel;
+    if (dateInput && !dateInput.value) {
+        const today = new Date(); const off = today.getTimezoneOffset() * 60000;
+        dateInput.value = new Date(today.getTime() - off).toISOString().split('T')[0];
+    }
+    if (maxInput && !maxInput.value) maxInput.value = '100';
+    if (nameInput) {
+        nameInput.dataset.studentId = String(studentId);
+        nameInput.dataset.monthPrefix = monthPrefix;
+    }
+    if (valueInput) {
+        valueInput.dataset.studentId = String(studentId);
+        valueInput.dataset.monthPrefix = monthPrefix;
+    }
+    if (summaryEl && trendEl && listEl) {
+        const scores = Array.isArray(preloadedScores) ? preloadedScores : await getMonthlyTestScoresWithFallback(studentId, monthPrefix);
+        summaryEl.innerHTML = buildTestScoreSummary(scores);
+        trendEl.innerHTML = scores.length ? buildTestScoreTrendBars(scores) : '';
+        listEl.innerHTML = buildTestScoreList(scores);
+        renderTestScoreSyncStatus();
+    }
+}
+
+function toSafeNumber(value) {
+    if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+    const parsed = Number(String(value || '').replace(/,/g, ''));
+    return Number.isFinite(parsed) ? parsed : 0;
+}
+
+async function getHistoryHomeworkSummary(studentId, monthPrefix) {
+    const empty = { scheduledCount: 0, submittedCount: 0, missingCount: 0 };
+    try {
+        if (!supabase || !studentId) return empty;
+        const ownerId = localStorage.getItem('current_owner_id');
+        const [year, month] = String(monthPrefix).split('-').map(Number);
+        if (!year || !month) return empty;
+        const lastDay = new Date(year, month, 0).getDate();
+        const startDate = `${monthPrefix}-01`;
+        const endDate = `${monthPrefix}-${String(lastDay).padStart(2, '0')}`;
+
+        let scheduleQuery = supabase
+            .from('schedules')
+            .select('schedule_date')
+            .eq('student_id', parseInt(studentId, 10))
+            .gte('schedule_date', startDate)
+            .lte('schedule_date', endDate);
+        if (ownerId) scheduleQuery = scheduleQuery.eq('owner_user_id', ownerId);
+        const { data: schedules, error: scheduleErr } = await scheduleQuery;
+        if (scheduleErr) throw scheduleErr;
+
+        let submitQuery = supabase
+            .from('homework_submissions')
+            .select('submission_date, status')
+            .eq('student_id', parseInt(studentId, 10))
+            .gte('submission_date', startDate)
+            .lte('submission_date', endDate);
+        if (ownerId) submitQuery = submitQuery.eq('owner_user_id', ownerId);
+        const { data: submissions, error: submitErr } = await submitQuery;
+        if (submitErr) throw submitErr;
+
+        const scheduledDates = new Set((schedules || []).map((row) => String(row.schedule_date || '')).filter(Boolean));
+        const submittedDates = new Set(
+            (submissions || [])
+                .filter((row) => ['uploaded', 'manual'].includes(String(row.status || '').toLowerCase()))
+                .map((row) => String(row.submission_date || ''))
+                .filter(Boolean)
+        );
+        const submittedCount = submissions ? submissions.filter((row) => ['uploaded', 'manual'].includes(String(row.status || '').toLowerCase())).length : 0;
+        const todayStr = getTodayStr();
+        const missingCount = Array.from(scheduledDates).filter((date) => date <= todayStr && !submittedDates.has(date)).length;
+        return {
+            scheduledCount: scheduledDates.size,
+            submittedCount,
+            missingCount
+        };
+    } catch (error) {
+        console.warn('[getHistoryHomeworkSummary] 조회 실패:', error);
+        return empty;
+    }
+}
+
+async function getHistoryPaymentSummary(student, studentId, monthPrefix) {
+    const empty = { dueAmount: 0, paidAmount: 0, unpaidAmount: 0, rowCount: 0 };
+    try {
+        if (typeof window.getPaymentsByStudent === 'function') {
+            const rows = await window.getPaymentsByStudent(studentId);
+            const monthRows = (rows || []).filter((row) => String(row.payment_month || '') === String(monthPrefix));
+            if (monthRows.length > 0) {
+                const dueAmount = monthRows.reduce((sum, row) => sum + toSafeNumber(row.amount), 0);
+                const paidAmount = monthRows.reduce((sum, row) => sum + toSafeNumber(row.paid_amount), 0);
+                return {
+                    dueAmount,
+                    paidAmount,
+                    unpaidAmount: Math.max(0, dueAmount - paidAmount),
+                    rowCount: monthRows.length
+                };
+            }
+        }
+    } catch (error) {
+        console.warn('[getHistoryPaymentSummary] 원격 조회 실패, 로컬 폴백:', error);
+    }
+
+    const monthData = student && student.payments ? student.payments[monthPrefix] : null;
+    if (!monthData) return empty;
+    const dueAmount = toSafeNumber(monthData.amount || monthData.dueAmount || 0);
+    const paidAmount = toSafeNumber(monthData.paidAmount || 0);
+    return {
+        dueAmount,
+        paidAmount,
+        unpaidAmount: Math.max(0, dueAmount - paidAmount),
+        rowCount: dueAmount > 0 || paidAmount > 0 ? 1 : 0
+    };
+}
+
+function renderHistoryIntegratedOverview(payload) {
+    const overviewEl = document.getElementById('hist-overview');
+    if (!overviewEl) return;
+    const attendanceHandled = (payload.attendance.present || 0) + (payload.attendance.late || 0) + (payload.attendance.makeup || 0);
+    const attendanceTotal = payload.totalClassDays || 0;
+    const attendanceRate = attendanceTotal > 0 ? Math.round((attendanceHandled / attendanceTotal) * 100) : 0;
+
+    const homeworkScheduled = payload.homework.scheduledCount || 0;
+    const homeworkSubmitted = payload.homework.submittedCount || 0;
+    const homeworkMissing = payload.homework.missingCount || 0;
+
+    const dueAmount = toSafeNumber(payload.payment.dueAmount);
+    const paidAmount = toSafeNumber(payload.payment.paidAmount);
+    const unpaidAmount = toSafeNumber(payload.payment.unpaidAmount);
+
+    const scoreRows = payload.testScores || [];
+    const scoreAvg = scoreRows.length
+        ? Math.round(scoreRows.reduce((sum, row) => {
+            const maxScore = toSafeNumber(row.maxScore);
+            const score = toSafeNumber(row.score);
+            return sum + (maxScore > 0 ? ((score / maxScore) * 100) : 0);
+        }, 0) / scoreRows.length)
+        : 0;
+
+    overviewEl.innerHTML = `
+        <div class="hist-overview-card attendance">
+            <div class="title"><i class="fas fa-calendar-check"></i> 출석</div>
+            <div class="value">${attendanceHandled}/${attendanceTotal}회</div>
+            <div class="meta">처리율 ${attendanceRate}%</div>
+            <div class="hist-overview-actions">
+                <button type="button" class="hist-overview-action-btn" onclick="openHistoryAttendanceAction()"><i class="fas fa-clipboard-check"></i> 출석 처리</button>
+            </div>
+        </div>
+        <div class="hist-overview-card homework">
+            <div class="title"><i class="fas fa-book"></i> 숙제</div>
+            <div class="value">${homeworkSubmitted}건 제출</div>
+            <div class="meta">예정 ${homeworkScheduled}일 · 미제출 ${homeworkMissing}일</div>
+            <div class="hist-overview-actions">
+                <button type="button" class="hist-overview-action-btn" onclick="openHistoryHomeworkAction()"><i class="fas fa-pen"></i> 평가/메모 작성</button>
+            </div>
+        </div>
+        <div class="hist-overview-card payment">
+            <div class="title"><i class="fas fa-won-sign"></i> 수납</div>
+            <div class="value">${Math.round(paidAmount).toLocaleString()}원</div>
+            <div class="meta">청구 ${Math.round(dueAmount).toLocaleString()}원 · 미수 ${Math.round(unpaidAmount).toLocaleString()}원</div>
+            <div class="hist-overview-actions">
+                <button type="button" class="hist-overview-action-btn" onclick="openHistoryPaymentAction()"><i class="fas fa-file-invoice-dollar"></i> 수납 원장 열기</button>
+            </div>
+        </div>
+        <div class="hist-overview-card score">
+            <div class="title"><i class="fas fa-chart-line"></i> 테스트</div>
+            <div class="value">${scoreRows.length ? `${scoreAvg}%` : '-'}</div>
+            <div class="meta">응시 ${scoreRows.length}회</div>
+            <div class="hist-overview-actions">
+                <button type="button" class="hist-overview-action-btn" onclick="openHistoryScoreAction()"><i class="fas fa-square-poll-vertical"></i> 점수 입력</button>
+            </div>
+        </div>
+    `;
+}
+
+window.openHistoryAttendanceAction = async function() {
+    const sid = String(historyActionContext.studentId || '');
+    const monthPrefix = String(historyActionContext.monthPrefix || '');
+    if (!sid) return;
+
+    const todayStr = getTodayStr();
+    const teacherSchedule = teacherScheduleData[currentTeacherId] || {};
+    const studentSchedule = teacherSchedule[sid] || {};
+
+    let targetDate = todayStr;
+    let targetStart = null;
+
+    const todayEntries = getScheduleEntries(currentTeacherId, sid, todayStr);
+    if (todayEntries.length > 0) {
+        targetStart = getEarliestScheduleEntry(todayEntries)?.start || null;
+    } else {
+        const monthDates = Object.keys(studentSchedule)
+            .filter((d) => d.startsWith(monthPrefix))
+            .sort((a, b) => a.localeCompare(b));
+        if (monthDates.length > 0) {
+            targetDate = monthDates[monthDates.length - 1];
+            const entries = getScheduleEntries(currentTeacherId, sid, targetDate);
+            targetStart = getEarliestScheduleEntry(entries)?.start || null;
+        }
+    }
+
+    closeModal('history-modal');
+
+    if (targetStart) {
+        await openAttendanceModal(sid, targetDate, targetStart);
+        return;
+    }
+
+    openModal('schedule-modal');
+    setTimeout(() => {
+        const dateInput = document.getElementById('sch-start-date');
+        if (dateInput) dateInput.value = todayStr;
+        selectedScheduleStudents = [sid];
+        renderSelectedScheduleStudents();
+        updateDurationByGrade();
+    }, 40);
+    showToast('먼저 일정을 등록한 뒤 출석 처리를 진행해주세요.', 'warning');
+};
+
+window.openHistoryHomeworkAction = function() {
+    const evalBox = document.getElementById('eval-textarea-main');
+    if (!evalBox) return;
+    evalBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    evalBox.focus();
+};
+
+window.openHistoryPaymentAction = function() {
+    const sid = String(historyActionContext.studentId || '');
+    const monthPrefix = String(historyActionContext.monthPrefix || '');
+    if (!sid) return;
+
+    if (typeof window.openPaymentLedgerModal !== 'function') {
+        showToast('수납 원장 기능을 찾을 수 없습니다.', 'warning');
+        return;
+    }
+
+    closeModal('history-modal');
+    setTimeout(() => {
+        window.openPaymentLedgerModal(sid, monthPrefix);
+    }, 40);
+};
+
+window.openHistoryScoreAction = function() {
+    const section = document.getElementById('test-score-section');
+    if (!section) return;
+    section.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const nameInput = document.getElementById('test-score-name');
+    if (nameInput) nameInput.focus();
+};
+
+window.saveTestScoreFromHistory = async function() {
+    const nameInput = document.getElementById('test-score-name');
+    const dateInput = document.getElementById('test-score-date');
+    const valueInput = document.getElementById('test-score-value');
+    const saveBtn = document.getElementById('test-score-save-btn');
+    const maxInput = document.getElementById('test-score-max');
+    if (!nameInput || !dateInput || !valueInput || !maxInput) return;
+
+    const studentId = nameInput.dataset.studentId || valueInput.dataset.studentId;
+    const monthPrefix = nameInput.dataset.monthPrefix || valueInput.dataset.monthPrefix;
+    const teacherId = String(currentTeacherId || '');
+    const examName = String(nameInput.value || '').trim();
+    const examDate = String(dateInput.value || '').trim();
+    const score = Number(valueInput.value || 0);
+    const maxScore = Number(maxInput.value || 0);
+
+    if (!studentId || !monthPrefix) {
+        showToast('학생 정보를 찾을 수 없습니다.', 'warning');
+        return;
+    }
+    if (!examName || !examDate) {
+        showToast('시험명과 시험일을 입력해주세요.', 'warning');
+        return;
+    }
+    if (!Number.isFinite(score) || !Number.isFinite(maxScore) || maxScore <= 0 || score < 0 || score > maxScore) {
+        showToast('점수/만점 값을 확인해주세요. (0 <= 점수 <= 만점)', 'warning');
+        return;
+    }
+    if (!examDate.startsWith(monthPrefix)) {
+        showToast('현재 월의 시험일만 저장할 수 있습니다.', 'warning');
+        return;
+    }
+
+    const localRow = {
+        id: `ts_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        studentId: String(studentId),
+        teacherId,
+        examName,
+        examDate,
+        score,
+        maxScore,
+        createdAt: new Date().toISOString()
+    };
+
+    if (saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 저장 중...';
+    }
+
+    let savedRow = localRow;
+    if (typeof window.saveStudentTestScore === 'function') {
+        try {
+            const remoteSaved = await window.saveStudentTestScore(localRow);
+            if (remoteSaved && remoteSaved.id) savedRow = remoteSaved;
+            setTestScoreSyncState('remote', `원격 저장 성공 · ${new Date().toLocaleTimeString('ko-KR')}`);
+        } catch (error) {
+            console.warn('[saveTestScoreFromHistory] 원격 저장 실패, 로컬 폴백:', error);
+            setTestScoreSyncState('local', `원격 저장 실패 · 로컬 저장 (${error.message || 'unknown'})`);
+        }
+    } else {
+        setTestScoreSyncState('local', '원격 저장 함수 미구성 · 로컬 저장');
+    }
+    upsertLocalTestScore(savedRow);
+    valueInput.value = '';
+    if (!nameInput.value) nameInput.focus();
+    await renderTestScoreSection(studentId, monthPrefix, `${monthPrefix.slice(0, 4)}년 ${monthPrefix.slice(5)}월`);
+
+    if (saveBtn) {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = '<i class="fas fa-plus"></i> 점수 저장';
+    }
+    showToast(savedRow.id === localRow.id ? '테스트 점수가 저장되었습니다. (로컬 저장)' : '테스트 점수가 저장되었습니다.', 'success');
+};
+
+window.deleteTestScoreFromHistory = async function(scoreId) {
+    const nameInput = document.getElementById('test-score-name');
+    const valueInput = document.getElementById('test-score-value');
+    const studentId = (nameInput && nameInput.dataset.studentId) || (valueInput && valueInput.dataset.studentId);
+    const monthPrefix = (nameInput && nameInput.dataset.monthPrefix) || (valueInput && valueInput.dataset.monthPrefix);
+    if (!studentId || !monthPrefix || !scoreId) return;
+    if (isUuidLike(scoreId) && typeof window.deleteStudentTestScore === 'function') {
+        try {
+            await window.deleteStudentTestScore(scoreId);
+            setTestScoreSyncState('remote', `원격 삭제 성공 · ${new Date().toLocaleTimeString('ko-KR')}`);
+        } catch (error) {
+            console.warn('[deleteTestScoreFromHistory] 원격 삭제 실패, 로컬만 삭제:', error);
+            setTestScoreSyncState('local', `원격 삭제 실패 · 로컬 삭제 (${error.message || 'unknown'})`);
+        }
+    }
+    removeLocalTestScore(scoreId);
+    await renderTestScoreSection(studentId, monthPrefix, `${monthPrefix.slice(0, 4)}년 ${monthPrefix.slice(5)}월`);
+    showToast('테스트 점수가 삭제되었습니다.', 'info');
+};
+
 window.openHistoryModal = async function() {
     const sid = document.getElementById('att-student-id').value;
     const s = students.find(x => String(x.id) === String(sid));
@@ -3929,7 +4708,12 @@ window.openHistoryModal = async function() {
     const container = document.getElementById('history-timeline');
     container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--gray);">로딩 중...</div>';
     const statsEl = document.getElementById('hist-stats');
+    const overviewEl = document.getElementById('hist-overview');
+    if (overviewEl) {
+        overviewEl.innerHTML = '<div class="hist-overview-loading"><i class="fas fa-spinner fa-spin"></i> 통합 요약 불러오는 중...</div>';
+    }
     const monthPrefix = `${curYear}-${String(curMonth).padStart(2, '0')}`;
+    historyActionContext = { studentId: String(sid), monthPrefix };
 
     // DB에서 해당 학생의 이번 달 전체 출석 레코드를 조회 (메모 + 공유 메모 모두)
     try {
@@ -4016,12 +4800,6 @@ window.openHistoryModal = async function() {
     const stats = { present: 0, late: 0, absent: 0, makeup: 0 };
     const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
 
-    if (monthlyEvents.length === 0) {
-        statsEl.innerHTML = '';
-        container.innerHTML = '<div class="hist-list-empty"><i class="fas fa-inbox" style="font-size:28px;margin-bottom:10px;display:block;color:#cbd5e1;"></i>이번 달 수업/기록이 없습니다.</div>';
-        return;
-    }
-
     // Helper: 날짜에서 출석 상태 가져오기
     function getStatusForDate(date) {
         if (!s.attendance || !s.attendance[date]) return 'none';
@@ -4102,7 +4880,12 @@ window.openHistoryModal = async function() {
             ${memosHtml}
         </div>`;
     });
-    container.innerHTML = html;
+
+    if (monthlyEvents.length === 0) {
+        container.innerHTML = '<div class="hist-list-empty"><i class="fas fa-inbox" style="font-size:28px;margin-bottom:10px;display:block;color:#cbd5e1;"></i>이번 달 수업/기록이 없습니다.</div>';
+    } else {
+        container.innerHTML = html;
+    }
 
     // 통계 렌더링
     statsEl.innerHTML = `
@@ -4111,6 +4894,19 @@ window.openHistoryModal = async function() {
         <div class="hist-stat-item absent"><div class="hist-stat-num">${stats.absent}</div><div class="hist-stat-label">결석</div></div>
         <div class="hist-stat-item makeup"><div class="hist-stat-num">${stats.makeup}</div><div class="hist-stat-label">보강</div></div>
     `;
+
+    const [homeworkSummary, paymentSummary, testScores] = await Promise.all([
+        getHistoryHomeworkSummary(sid, monthPrefix),
+        getHistoryPaymentSummary(s, sid, monthPrefix),
+        getMonthlyTestScoresWithFallback(sid, monthPrefix)
+    ]);
+    renderHistoryIntegratedOverview({
+        attendance: stats,
+        totalClassDays: monthlyEvents.length,
+        homework: homeworkSummary,
+        payment: paymentSummary,
+        testScores
+    });
 
     // ★ 종합평가 로드
     const evalMonthLabel = document.getElementById('eval-current-month');
@@ -4145,6 +4941,8 @@ window.openHistoryModal = async function() {
     } catch (e) {
         console.error('[openHistoryModal] 종합평가 로드 실패:', e);
     }
+
+    await renderTestScoreSection(sid, monthPrefix, `${curYear}년 ${curMonth}월`, testScores);
 }
 // ★ 종합평가 저장
 window.saveEvalFromHistory = async function() {
@@ -4356,17 +5154,22 @@ async function loadAndCleanData() {
         
         if (supabaseStudents && supabaseStudents.length > 0) {
             // Supabase 데이터를 앱 형식으로 변환
-            students = supabaseStudents.map(s => ({
+            students = supabaseStudents.map(s => {
+                const metaFromMemo = parseStudentMetaFromMemo(s.memo || '');
+                return ({
                 id: s.id,
                 name: s.name,
                 school: s.school || '',
                 grade: s.grade,
                 studentPhone: s.phone || '',
                 parentPhone: s.parent_phone || '',
+                guardianName: s.guardian_name || metaFromMemo.guardianName || '',
+                enrollmentStartDate: s.enrollment_start_date || metaFromMemo.enrollmentStartDate || (s.register_date || ''),
+                enrollmentEndDate: s.enrollment_end_date || metaFromMemo.enrollmentEndDate || '',
                 defaultFee: s.default_fee || 0,
                 specialLectureFee: s.special_lecture_fee || 0,
                 defaultTextbookFee: s.default_textbook_fee || 0,
-                memo: s.memo || '',
+                memo: stripStudentMetaFromMemo(s.memo || ''),
                 registerDate: s.register_date || '',
                 parentCode: s.parent_code || '',
                 studentCode: s.student_code || '',
@@ -4377,7 +5180,8 @@ async function loadAndCleanData() {
                 records: {},
                 shared_records: {},
                 payments: {}
-            }));
+            });
+            });
             // 로컬 스토리지에도 백업 저장
             const ownerKey = `academy_students__${cachedLsGet('current_owner_id') || 'no-owner'}`;
             localStorage.setItem(ownerKey, JSON.stringify(students));
@@ -5573,30 +6377,114 @@ window.updateStudentStatus = async function(id, newStatus) {
         renderDrawerList();
     }
 }
+window.openEmergencyQueueAction = async function() {
+    try {
+        if (typeof window.setEmergencyAttendanceFilterDays === 'function') {
+            window.setEmergencyAttendanceFilterDays(7);
+        }
+        if (typeof window.renderEmergencyAttendanceQueue === 'function') {
+            await window.renderEmergencyAttendanceQueue();
+        }
+        const queueEl = document.getElementById('emergency-attendance-queue');
+        if (queueEl) {
+            queueEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    } catch (error) {
+        console.error('[openEmergencyQueueAction] 에러:', error);
+    }
+};
+
 // QR 출석 모달 오늘 요약 렌더링
-function renderQRTodaySummary() {
+async function renderQRTodaySummary() {
     const el = document.getElementById('qr-today-summary');
     if (!el) return;
     const todayStr = getTodayStr();
     let total = 0, present = 0, late = 0, absent = 0, pending = 0;
-    const activeStudents = students.filter(s => s.status === 'active');
+    const activeStudents = students.filter(s => !s.status || s.status === 'active');
+    const now = new Date();
+    let nextClass = null;
+
     for (const s of activeStudents) {
         const sid = String(s.id);
         // 이 학생이 오늘 일정이 있는지 확인
         const entries = getScheduleEntries(currentTeacherId, sid, todayStr);
         if (entries.length === 0) continue;
         total++;
+
+        // 다음 수업 시각 계산(운영자 즉시 판단용)
+        for (const entry of entries) {
+            const startText = String(entry?.start || '');
+            if (!startText || startText === 'default') continue;
+            const [h, m] = startText.split(':').map(Number);
+            if (Number.isNaN(h) || Number.isNaN(m)) continue;
+            const dt = new Date(now);
+            dt.setHours(h, m, 0, 0);
+            if (dt >= now && (!nextClass || dt < nextClass)) {
+                nextClass = dt;
+            }
+        }
+
         const att = s.attendance?.[todayStr];
         if (att === 'present') present++;
         else if (att === 'late') late++;
         else if (att === 'absent') absent++;
         else pending++;
     }
+
+    const scheduleSnapshot = (typeof window.getTodayScheduleSnapshotForTeacher === 'function')
+        ? window.getTodayScheduleSnapshotForTeacher(currentTeacherId)
+        : null;
+    const missingCount = scheduleSnapshot ? (scheduleSnapshot.missingStudents || []).length : 0;
+    const emergencyPendingCount = (typeof window.getEmergencyAttendancePendingCount === 'function')
+        ? await window.getEmergencyAttendancePendingCount(14)
+        : null;
+
+    let nextClassLabel = '오늘 일정 종료';
+    if (nextClass) {
+        const diffMin = Math.max(0, Math.round((nextClass.getTime() - now.getTime()) / 60000));
+        const hh = String(nextClass.getHours()).padStart(2, '0');
+        const mm = String(nextClass.getMinutes()).padStart(2, '0');
+        nextClassLabel = `${diffMin}분 후 (${hh}:${mm})`;
+    }
+
+    const dashboardHtml = `
+        <div class="qr-ops-dashboard">
+            <div class="qr-ops-cards">
+                <div class="qr-ops-card">
+                    <div class="qr-ops-label">오늘 일정 누락</div>
+                    <div class="qr-ops-value ${missingCount > 0 ? 'warn' : ''}">${missingCount}명</div>
+                </div>
+                <div class="qr-ops-card">
+                    <div class="qr-ops-label">임시출석 미확정</div>
+                    <div class="qr-ops-value ${Number(emergencyPendingCount || 0) > 0 ? 'warn' : ''}">${emergencyPendingCount === null ? '-' : `${emergencyPendingCount}건`}</div>
+                </div>
+                <div class="qr-ops-card">
+                    <div class="qr-ops-label">다음 수업</div>
+                    <div class="qr-ops-value">${nextClassLabel}</div>
+                </div>
+            </div>
+            <div class="qr-ops-actions">
+                <button type="button" class="qr-ops-btn" onclick="openQRScanPage()"><i class="fas fa-camera"></i> 바로 스캔</button>
+                <button type="button" class="qr-ops-btn alt" onclick="openTodayScheduleSuggestion()"><i class="fas fa-calendar-plus"></i> 누락 일정 등록</button>
+                <button type="button" class="qr-ops-btn alt" onclick="openEmergencyQueueAction()"><i class="fas fa-hourglass-half"></i> 임시확정 보기</button>
+            </div>
+        </div>
+    `;
+
     if (total === 0) {
-        el.innerHTML = '<div style="text-align:center;padding:14px;color:#94a3b8;font-size:12px;"><i class="fas fa-calendar-check" style="margin-right:4px;"></i>오늘 등록된 수업이 없습니다</div>';
+        const hasAction = typeof window.openTodayScheduleSuggestion === 'function';
+        el.innerHTML = `
+            ${dashboardHtml}
+            <div class="qr-schedule-missing-alert">
+                <div class="qr-schedule-missing-title"><i class="fas fa-triangle-exclamation"></i> 오늘 등록된 수업이 없습니다</div>
+                <div class="qr-schedule-missing-desc">QR 스캔 시 임시출석이 누적될 수 있어, 먼저 오늘 일정을 등록하는 것을 권장합니다.</div>
+                ${hasAction ? '<button type="button" class="qr-schedule-missing-btn" onclick="openTodayScheduleSuggestion()"><i class="fas fa-calendar-plus"></i> 오늘 일정 빠른 등록</button>' : ''}
+            </div>
+        `;
         return;
     }
     el.innerHTML = `
+        ${dashboardHtml}
         <div class="qr-summary-grid">
             <div class="qr-sum-item"><span class="qr-sum-num" style="color:#0f172a;">${total}</span><span class="qr-sum-label">전체</span></div>
             <div class="qr-sum-item"><span class="qr-sum-num" style="color:#22c55e;">${present}</span><span class="qr-sum-label">출석</span></div>
@@ -5608,7 +6496,12 @@ function renderQRTodaySummary() {
 
 window.openModal = function(id) {
     document.getElementById(id).style.display = 'flex';
-    if(id === 'qr-attendance-modal') { renderQRTodaySummary(); }
+    if(id === 'qr-attendance-modal') {
+        renderQRTodaySummary();
+        if (typeof window.renderEmergencyAttendanceQueue === 'function') {
+            window.renderEmergencyAttendanceQueue();
+        }
+    }
     if(id === 'schedule-modal') {
         const searchInput = document.getElementById('sch-student-search');
         const dropdown = document.getElementById('sch-student-dropdown');
@@ -5821,6 +6714,7 @@ function renderPeriodDeleteSelectedStudents() {
     if (!selectedList) return;
     if (!selectedPeriodDeleteStudents.length) {
         selectedList.textContent = '';
+        updatePeriodDeletePreview();
         return;
     }
     const dupNames = getDuplicateNameSet();
@@ -5833,11 +6727,13 @@ function renderPeriodDeleteSelectedStudents() {
         return `<button type="button" class="schedule-selected-chip${isDup ? ' chip-dup' : ''}" onclick="removePeriodDeleteStudent('${id}')">${label} ×</button>`;
     });
     selectedList.innerHTML = chips.join('');
+    updatePeriodDeletePreview();
 }
 
 window.removePeriodDeleteStudent = function(id) {
     selectedPeriodDeleteStudents = selectedPeriodDeleteStudents.filter(sid => String(sid) !== String(id));
     renderPeriodDeleteSelectedStudents();
+    updatePeriodDeletePreview();
 }
 
 window.closeModal = function(id) {
@@ -5870,12 +6766,17 @@ window.toggleCodeSection = function() {
 
 window.prepareRegister = function() {
     document.getElementById('reg-title').textContent = "학생 등록";
-    ['edit-id', 'reg-name', 'reg-school', 'reg-student-phone', 'reg-parent-phone', 'reg-memo', 'reg-default-fee', 'reg-special-fee', 'reg-default-textbook-fee'].forEach(id => document.getElementById(id).value = "");
+    ['edit-id', 'reg-name', 'reg-school', 'reg-student-phone', 'reg-parent-phone', 'reg-guardian-name', 'reg-memo', 'reg-default-fee', 'reg-special-fee', 'reg-default-textbook-fee', 'reg-enroll-start-date', 'reg-enroll-end-date'].forEach(id => document.getElementById(id).value = "");
+    clearStudentRequiredMarks();
     // 학년 드롭다운 초기화
     const gradeSelect = document.getElementById('reg-grade');
     if (gradeSelect) gradeSelect.selectedIndex = 0;
+    const statusSelect = document.getElementById('reg-status');
+    if (statusSelect) statusSelect.value = 'active';
     const today = new Date(); const off = today.getTimezoneOffset() * 60000;
-    document.getElementById('reg-register-date').value = new Date(today.getTime() - off).toISOString().split('T')[0];
+    const todayStr = new Date(today.getTime() - off).toISOString().split('T')[0];
+    document.getElementById('reg-register-date').value = todayStr;
+    document.getElementById('reg-enroll-start-date').value = todayStr;
     document.getElementById('edit-mode-actions').style.display = 'none'; 
     document.getElementById('view-attendance-btn').style.display = 'none';
     const codeSection = document.getElementById('reg-code-section');
@@ -5885,6 +6786,7 @@ window.prepareRegister = function() {
 window.prepareEdit = function(id) {
     const s = students.find(x => String(x.id) === String(id));
     if(!s) return;
+    clearStudentRequiredMarks();
     document.getElementById('reg-title').textContent = "학생 정보 수정";
     document.getElementById('edit-id').value = s.id;
     document.getElementById('reg-name').value = s.name;
@@ -5892,11 +6794,20 @@ window.prepareEdit = function(id) {
     document.getElementById('reg-grade').value = s.grade;
     document.getElementById('reg-student-phone').value = s.studentPhone || "";
     document.getElementById('reg-parent-phone').value = s.parentPhone || "";
+    document.getElementById('reg-guardian-name').value = s.guardianName || "";
+    document.getElementById('reg-status').value = s.status || 'active';
+    document.getElementById('reg-enroll-start-date').value = s.enrollmentStartDate || s.registerDate || "";
+    document.getElementById('reg-enroll-end-date').value = s.enrollmentEndDate || "";
     document.getElementById('reg-default-fee').value = s.defaultFee ? s.defaultFee.toLocaleString() : "";
     document.getElementById('reg-special-fee').value = s.specialLectureFee ? s.specialLectureFee.toLocaleString() : "";
     document.getElementById('reg-default-textbook-fee').value = s.defaultTextbookFee ? s.defaultTextbookFee.toLocaleString() : "";
     document.getElementById('reg-memo').value = s.memo || "";
-    document.getElementById('reg-register-date').value = s.registerDate || "";
+    if (s.registerDate) {
+        document.getElementById('reg-register-date').value = s.registerDate;
+    } else {
+        const today = new Date(); const off = today.getTimezoneOffset() * 60000;
+        document.getElementById('reg-register-date').value = new Date(today.getTime() - off).toISOString().split('T')[0];
+    }
     // 코드 관리 통합 섹션 표시 (인증코드 + QR)
     const codeSection = document.getElementById('reg-code-section');
     const codeInput = document.getElementById('reg-parent-code');
@@ -5916,28 +6827,150 @@ window.prepareEdit = function(id) {
     document.getElementById('view-attendance-btn').style.display = 'inline-block';
     openModal('register-modal');
 }
+
+function clearStudentRequiredMarks() {
+    const requiredIds = ['reg-name', 'reg-register-date', 'reg-enroll-start-date', 'reg-student-phone', 'reg-parent-phone', 'reg-enroll-end-date'];
+    requiredIds.forEach((fieldId) => {
+        const input = document.getElementById(fieldId);
+        if (!input) return;
+        input.classList.remove('is-required-missing');
+        const group = input.closest('.input-group');
+        if (group) group.classList.remove('is-required-missing-group');
+    });
+}
+
+function markStudentRequiredField(fieldId) {
+    const input = document.getElementById(fieldId);
+    if (!input) return;
+    input.classList.add('is-required-missing');
+    const group = input.closest('.input-group');
+    if (group) group.classList.add('is-required-missing-group');
+}
+
+function normalizePhoneDigits(phoneValue) {
+    return String(phoneValue || '').replace(/[^0-9]/g, '');
+}
+
+function isValidKoreanMobile(phoneValue) {
+    const digits = normalizePhoneDigits(phoneValue);
+    return /^01[0-9]\d{7,8}$/.test(digits);
+}
+
+function parseStudentMetaFromMemo(memoText) {
+    const marker = '[학생확장메타]';
+    const text = String(memoText || '');
+    const lines = text.split('\n');
+    const metaLine = lines.find((line) => line.startsWith(marker));
+    if (!metaLine) return { guardianName: '', enrollmentStartDate: '', enrollmentEndDate: '' };
+    const payload = metaLine.slice(marker.length);
+    const parts = payload.split('|');
+    const map = {};
+    parts.forEach((part) => {
+        const idx = part.indexOf('=');
+        if (idx <= -1) return;
+        const key = part.slice(0, idx).trim();
+        const value = part.slice(idx + 1).trim();
+        map[key] = value;
+    });
+    return {
+        guardianName: map.guardian_name || '',
+        enrollmentStartDate: map.enroll_start || '',
+        enrollmentEndDate: map.enroll_end || ''
+    };
+}
+
+function stripStudentMetaFromMemo(memoText) {
+    const marker = '[학생확장메타]';
+    return String(memoText || '')
+        .split('\n')
+        .filter((line) => !line.startsWith(marker))
+        .join('\n')
+        .trim();
+}
+
+function buildMemoWithStudentMeta(memoText, meta) {
+    const marker = '[학생확장메타]';
+    const baseMemo = String(memoText || '')
+        .split('\n')
+        .filter((line) => !line.startsWith(marker))
+        .join('\n')
+        .trim();
+    const metaLine = `${marker}guardian_name=${meta.guardianName || ''}|enroll_start=${meta.enrollmentStartDate || ''}|enroll_end=${meta.enrollmentEndDate || ''}`;
+    return baseMemo ? `${baseMemo}\n${metaLine}` : metaLine;
+}
+
+function isStudentSchemaColumnError(error) {
+    const msg = String((error && (error.message || error.details || error.hint)) || '').toLowerCase();
+    return msg.includes('guardian_name') || msg.includes('enrollment_start_date') || msg.includes('enrollment_end_date');
+}
+
+function validateStudentRegisterForm(values) {
+    const issues = [];
+    if (!values.name) issues.push({ id: 'reg-name', reason: '이름을 입력해주세요.' });
+    if (!values.registerDate) issues.push({ id: 'reg-register-date', reason: '등록일을 입력해주세요.' });
+    if (!values.enrollmentStartDate) issues.push({ id: 'reg-enroll-start-date', reason: '시작일을 입력해주세요.' });
+    if ((values.status === 'archived' || values.status === 'paused') && !values.enrollmentEndDate) {
+        issues.push({ id: 'reg-enroll-end-date', reason: '휴원/퇴원 상태에서는 종료일을 입력해주세요.' });
+    }
+    if (values.enrollmentStartDate && values.enrollmentEndDate && values.enrollmentStartDate > values.enrollmentEndDate) {
+        issues.push({ id: 'reg-enroll-end-date', reason: '종료일은 시작일보다 빠를 수 없습니다.' });
+    }
+    if (!values.studentPhone && !values.parentPhone) {
+        issues.push({ id: 'reg-student-phone', reason: '학생/학부모 연락처 중 1개는 입력해주세요.' });
+        issues.push({ id: 'reg-parent-phone', reason: '학생/학부모 연락처 중 1개는 입력해주세요.' });
+    }
+    if (values.studentPhone && !isValidKoreanMobile(values.studentPhone)) {
+        issues.push({ id: 'reg-student-phone', reason: '학생 연락처 형식을 확인해주세요. (예: 010-1234-5678)' });
+    }
+    if (values.parentPhone && !isValidKoreanMobile(values.parentPhone)) {
+        issues.push({ id: 'reg-parent-phone', reason: '학부모 연락처 형식을 확인해주세요. (예: 010-1234-5678)' });
+    }
+    return issues;
+}
+
+function parseAmountInput(value) {
+    return value ? parseInt(String(value).replace(/,/g, ''), 10) || 0 : 0;
+}
+
 window.handleStudentSave = async function() {
     if (isStudentSaving) return;
     const id = document.getElementById('edit-id').value;
-    const name = document.getElementById('reg-name').value;
-    const school = document.getElementById('reg-school').value;
+    const name = document.getElementById('reg-name').value.trim();
+    const school = document.getElementById('reg-school').value.trim();
     const grade = document.getElementById('reg-grade').value;
-    const sPhone = document.getElementById('reg-student-phone').value;
-    const pPhone = document.getElementById('reg-parent-phone').value;
+    const status = document.getElementById('reg-status').value || 'active';
+    const enrollmentStartDate = document.getElementById('reg-enroll-start-date').value.trim();
+    const enrollmentEndDate = document.getElementById('reg-enroll-end-date').value.trim();
+    const sPhone = document.getElementById('reg-student-phone').value.trim();
+    const pPhone = document.getElementById('reg-parent-phone').value.trim();
+    const guardianName = document.getElementById('reg-guardian-name').value.trim();
     const defaultFee = document.getElementById('reg-default-fee').value;
     const specialLectureFee = document.getElementById('reg-special-fee').value;
     const defaultTextbookFee = document.getElementById('reg-default-textbook-fee').value;
-    const memo = document.getElementById('reg-memo').value;
-    const regDate = document.getElementById('reg-register-date').value;
-    const nameInput = document.getElementById('reg-name');
-    if (!name.trim()) {
-        showToast("이름을 입력해주세요.", 'warning');
-        if (nameInput) { nameInput.style.borderColor = '#ef4444'; nameInput.focus(); setTimeout(() => nameInput.style.borderColor = '', 2000); }
+    const memo = document.getElementById('reg-memo').value.trim();
+    const regDate = document.getElementById('reg-register-date').value.trim();
+
+    clearStudentRequiredMarks();
+    const validationIssues = validateStudentRegisterForm({
+        name,
+        status,
+        registerDate: regDate,
+        enrollmentStartDate,
+        enrollmentEndDate,
+        studentPhone: sPhone,
+        parentPhone: pPhone
+    });
+    if (validationIssues.length > 0) {
+        const firstIssue = validationIssues[0];
+        validationIssues.forEach(issue => markStudentRequiredField(issue.id));
+        showToast(firstIssue.reason, 'warning');
+        const focusTarget = document.getElementById(firstIssue.id);
+        if (focusTarget) focusTarget.focus();
         return;
     }
 
     // 동명이인 경고 (신규 등록 또는 이름 변경 시)
-    const trimmedName = name.trim();
+    const trimmedName = name;
     const isNewStudent = !id;
     const isNameChanged = id && (() => { const orig = students.find(x => String(x.id) === String(id)); return orig && orig.name.trim() !== trimmedName; })();
     if (isNewStudent || isNameChanged) {
@@ -5952,6 +6985,27 @@ window.handleStudentSave = async function() {
             );
             if (!proceed) return;
         }
+    }
+
+    // 중복 등록 강한 차단: 이름+학년+연락처가 같은 활성 학생
+    const normalizedStudentPhone = normalizePhoneDigits(sPhone);
+    const normalizedParentPhone = normalizePhoneDigits(pPhone);
+    const strictDuplicate = students.find((s) => {
+        if (String(s.id) === String(id)) return false;
+        if (s.status && s.status !== 'active') return false;
+        const sameName = String(s.name || '').trim() === trimmedName;
+        const sameGrade = String(s.grade || '') === String(grade || '');
+        if (!sameName || !sameGrade) return false;
+        const sStudentPhone = normalizePhoneDigits(s.studentPhone || s.phone || '');
+        const sParentPhone = normalizePhoneDigits(s.parentPhone || s.parent_phone || '');
+        const hasMatchingStudentPhone = normalizedStudentPhone && sStudentPhone === normalizedStudentPhone;
+        const hasMatchingParentPhone = normalizedParentPhone && sParentPhone === normalizedParentPhone;
+        return hasMatchingStudentPhone || hasMatchingParentPhone;
+    });
+    if (strictDuplicate) {
+        showToast(`동일 학생으로 보이는 데이터가 이미 있습니다: ${strictDuplicate.name}(${strictDuplicate.grade})`, 'error');
+        markStudentRequiredField('reg-name');
+        return;
     }
 
     isStudentSaving = true;
@@ -5978,11 +7032,16 @@ window.handleStudentSave = async function() {
         name,
         school,
         grade,
+        status,
+        guardianName,
+        enrollmentStartDate,
+        enrollmentEndDate,
+        statusChangedDate: (status === 'archived' || status === 'paused') ? (enrollmentEndDate || null) : null,
         studentPhone: sPhone,
         parentPhone: pPhone,
-        defaultFee: defaultFee ? parseInt(defaultFee.replace(/,/g, '')) : 0,
-        specialLectureFee: specialLectureFee ? parseInt(specialLectureFee.replace(/,/g, '')) : 0,
-        defaultTextbookFee: defaultTextbookFee ? parseInt(defaultTextbookFee.replace(/,/g, '')) : 0,
+        defaultFee: parseAmountInput(defaultFee),
+        specialLectureFee: parseAmountInput(specialLectureFee),
+        defaultTextbookFee: parseAmountInput(defaultTextbookFee),
         memo,
         registerDate: regDate,
         parentCode,
@@ -5992,8 +7051,13 @@ window.handleStudentSave = async function() {
         name,
         school,
         grade,
+        status,
         phone: sPhone,  // 학생 연락처
         parent_phone: pPhone,
+        guardian_name: guardianName || null,
+        enrollment_start_date: enrollmentStartDate || null,
+        enrollment_end_date: enrollmentEndDate || null,
+        status_changed_date: (status === 'archived' || status === 'paused') ? (enrollmentEndDate || null) : null,
         default_fee: localData.defaultFee,
         special_lecture_fee: localData.specialLectureFee,
         default_textbook_fee: localData.defaultTextbookFee,
@@ -6015,7 +7079,23 @@ window.handleStudentSave = async function() {
         if (id) {
             // 학생 수정
             console.log('학생 수정 중:', id, dbData);
-            const updatedStudent = await updateStudent(id, dbData);
+            let updatedStudent;
+            try {
+                updatedStudent = await updateStudent(id, dbData);
+            } catch (schemaError) {
+                if (!isStudentSchemaColumnError(schemaError)) throw schemaError;
+                // DB 컬럼 미반영 환경에서는 메모에 확장 메타를 임시 저장
+                const fallbackMemo = buildMemoWithStudentMeta(memo, {
+                    guardianName,
+                    enrollmentStartDate,
+                    enrollmentEndDate
+                });
+                const legacyDbData = { ...dbData, memo: fallbackMemo };
+                delete legacyDbData.guardian_name;
+                delete legacyDbData.enrollment_start_date;
+                delete legacyDbData.enrollment_end_date;
+                updatedStudent = await updateStudent(id, legacyDbData);
+            }
             
             if (updatedStudent) {
                 // 메모리 업데이트
@@ -6030,7 +7110,23 @@ window.handleStudentSave = async function() {
         } else {
             // 학생 추가
             console.log('학생 추가 중:', dbData);
-            const addedStudent = await addStudent(dbData);
+            let addedStudent;
+            try {
+                addedStudent = await addStudent(dbData);
+            } catch (schemaError) {
+                if (!isStudentSchemaColumnError(schemaError)) throw schemaError;
+                // DB 컬럼 미반영 환경에서는 메모에 확장 메타를 임시 저장
+                const fallbackMemo = buildMemoWithStudentMeta(memo, {
+                    guardianName,
+                    enrollmentStartDate,
+                    enrollmentEndDate
+                });
+                const legacyDbData = { ...dbData, memo: fallbackMemo };
+                delete legacyDbData.guardian_name;
+                delete legacyDbData.enrollment_start_date;
+                delete legacyDbData.enrollment_end_date;
+                addedStudent = await addStudent(legacyDbData);
+            }
             
             if (addedStudent) {
                 // Supabase에서 생성된 ID 사용

@@ -359,6 +359,20 @@
     .history-card .modal-body {
         padding: 16px 20px;
     }
+    .hist-overview {
+        grid-template-columns: 1fr;
+        gap: 6px;
+        padding-bottom: 6px;
+    }
+    .hist-overview-card {
+        min-height: 74px;
+    }
+    .hist-overview-card .value {
+        font-size: 15px;
+    }
+    .hist-overview-action-btn {
+        width: 100%;
+    }
 
     /* 종합평가 모바일 */
     .eval-section {
@@ -372,6 +386,44 @@
     .eval-save-btn {
         padding: 8px 14px;
         font-size: 11.5px;
+    }
+    .test-score-form-row {
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+    .test-score-sync-row {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 6px;
+    }
+    .test-score-sync-check-btn {
+        width: 100%;
+    }
+    .test-score-form-row .m-input {
+        flex: 1 1 120px;
+    }
+    .test-score-save-btn {
+        width: 100%;
+        justify-content: center;
+    }
+    .test-score-summary {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .test-score-trend {
+        min-height: 84px;
+    }
+    .test-score-item-title {
+        font-size: 12px;
+    }
+    .test-score-item-meta {
+        font-size: 10.5px;
+    }
+    .schedule-delete-preview {
+        font-size: 11px;
+    }
+    .schedule-delete-warning {
+        font-size: 10.5px;
+        padding: 8px 9px;
     }
 
     /* --- Register Modal --- */
@@ -682,6 +734,33 @@
 
     /* QR List (small) */
     .qr-list-toolbar { padding: 0 14px 10px; flex-direction: column; gap: 6px; }
+    .qr-schedule-missing-btn { width: 100%; }
+    .qr-ops-cards { grid-template-columns: 1fr; }
+    .qr-ops-actions { flex-direction: column; }
+    .qr-ops-btn { width: 100%; }
+
+    .emg-row-top {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+    }
+
+    .emg-queue-toolbar {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .emg-filter-select {
+        width: 100%;
+    }
+
+    .emg-actions {
+        justify-content: stretch;
+    }
+
+    .emg-confirm-btn {
+        width: 100%;
+    }
     .qr-item-name { font-size: 13px; }
     .qr-item-grade { font-size: 10px; }
     .qr-regenerate-btn { padding: 5px 10px; font-size: 10px; }
@@ -821,12 +900,20 @@
     }
 
     /* --- QR Scan Page --- */
-    #qr-scan-page > div {
+    #qr-scan-page > div,
+    .qr-scan-layout {
         padding: 12px !important;
     }
 
     #qr-scan-page h2 {
         font-size: 16px !important;
+    }
+    .qr-phone-auth-row {
+        flex-direction: column;
+    }
+    .qr-phone-auth-btn {
+        width: 100%;
+        min-height: 42px;
     }
 
     /* --- Day Detail Timetable --- */

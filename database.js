@@ -107,26 +107,38 @@ window.addStudent = async function(studentData) {
 
         let regDate = studentData.register_date;
         if (!regDate || regDate === '' || regDate === '연도-월-일') regDate = null;
+        let enrollStartDate = studentData.enrollment_start_date;
+        if (!enrollStartDate || enrollStartDate === '' || enrollStartDate === '연도-월-일') enrollStartDate = null;
+        let enrollEndDate = studentData.enrollment_end_date;
+        if (!enrollEndDate || enrollEndDate === '' || enrollEndDate === '연도-월-일') enrollEndDate = null;
+        let statusChangedDate = studentData.status_changed_date;
+        if (!statusChangedDate || statusChangedDate === '' || statusChangedDate === '연도-월-일') statusChangedDate = null;
+
+        const insertPayload = {
+            owner_user_id: user.id,
+            teacher_id: null,
+            name: studentData.name,
+            school: studentData.school || '',
+            grade: studentData.grade,
+            phone: studentData.phone || '',
+            parent_phone: studentData.parent_phone || '',
+            default_fee: studentData.default_fee || 0,
+            special_lecture_fee: studentData.special_lecture_fee || 0,
+            default_textbook_fee: studentData.default_textbook_fee || 0,
+            memo: studentData.memo || '',
+            register_date: regDate,
+            status: studentData.status || 'active',
+            status_changed_date: statusChangedDate,
+            parent_code: studentData.parent_code || null,
+            student_code: studentData.student_code || null
+        };
+        if (studentData.guardian_name !== undefined) insertPayload.guardian_name = studentData.guardian_name || null;
+        if (studentData.enrollment_start_date !== undefined) insertPayload.enrollment_start_date = enrollStartDate;
+        if (studentData.enrollment_end_date !== undefined) insertPayload.enrollment_end_date = enrollEndDate;
 
         const { data, error } = await supabase
             .from('students')
-            .insert([{
-                owner_user_id: user.id,
-                teacher_id: null,
-                name: studentData.name,
-                school: studentData.school || '',
-                grade: studentData.grade,
-                phone: studentData.phone || '',
-                parent_phone: studentData.parent_phone || '',
-                default_fee: studentData.default_fee || 0,
-                special_lecture_fee: studentData.special_lecture_fee || 0,
-                default_textbook_fee: studentData.default_textbook_fee || 0,
-                memo: studentData.memo || '',
-                register_date: regDate,
-                status: studentData.status || 'active',
-                parent_code: studentData.parent_code || null,
-                student_code: studentData.student_code || null
-            }])
+            .insert([insertPayload])
             .select()
             .single();
 
@@ -134,7 +146,7 @@ window.addStudent = async function(studentData) {
         return data || null;
     } catch (error) {
         console.error('학생 추가 실패:', error);
-        return null;
+        throw error;
     }
 }
 
@@ -151,7 +163,7 @@ window.updateStudent = async function(studentId, updateData) {
         return data || null;
     } catch (error) {
         console.error('학생 수정 실패:', error);
-        return null;
+        throw error;
     }
 }
 
@@ -164,16 +176,17 @@ window.deleteStudent = async function(studentId) {
         }
 
         // 관련 데이터 병렬 삭제 (순서 무관한 항목들을 동시에 처리 - 성능 4배 향상)
-        const [schedRes, attRes, payRes, evalRes] = await Promise.allSettled([
+        const [schedRes, attRes, payRes, evalRes, testScoreRes] = await Promise.allSettled([
             supabase.from('schedules').delete().eq('student_id', numericId),
             supabase.from('attendance_records').delete().eq('student_id', numericId),
             supabase.from('payments').delete().eq('student_id', numericId),
-            supabase.from('student_evaluations').delete().eq('student_id', numericId)
+            supabase.from('student_evaluations').delete().eq('student_id', numericId),
+            supabase.from('student_test_scores').delete().eq('student_id', numericId)
         ]);
 
         // 실패 로깅 (관련 데이터가 없을 수 있으므로 에러는 경고만)
-        const labels = ['일정', '출석 기록', '결제 기록', '평가 기록'];
-        [schedRes, attRes, payRes, evalRes].forEach((res, i) => {
+        const labels = ['일정', '출석 기록', '결제 기록', '평가 기록', '테스트 점수 기록'];
+        [schedRes, attRes, payRes, evalRes, testScoreRes].forEach((res, i) => {
             if (res.status === 'rejected' || res.value?.error) {
                 console.warn(`[deleteStudent] ${labels[i]} 삭제 실패:`, res.reason || res.value?.error);
             }
@@ -691,6 +704,105 @@ window.saveStudentEvaluation = async function(studentId, evalMonth, comment, tea
         return data;
     } catch (error) {
         console.error('[saveStudentEvaluation] 에러:', error);
+        throw error;
+    }
+}
+
+// ========== 테스트 점수 관리 ==========
+
+window.getStudentTestScoresByMonth = async function(studentId, monthPrefix) {
+    try {
+        const ownerId = _getOwnerId();
+        if (!ownerId) return [];
+        const startDate = `${monthPrefix}-01`;
+        const [year, month] = monthPrefix.split('-').map(Number);
+        const lastDay = new Date(year, month, 0).getDate();
+        const endDate = `${monthPrefix}-${String(lastDay).padStart(2, '0')}`;
+
+        const { data, error } = await supabase
+            .from('student_test_scores')
+            .select('id, student_id, teacher_id, exam_name, exam_date, score, max_score, created_at, updated_at')
+            .eq('owner_user_id', ownerId)
+            .eq('student_id', parseInt(studentId))
+            .gte('exam_date', startDate)
+            .lte('exam_date', endDate)
+            .order('exam_date', { ascending: true })
+            .order('created_at', { ascending: true });
+
+        if (error) throw error;
+        return (data || []).map((row) => ({
+            id: row.id,
+            studentId: String(row.student_id),
+            teacherId: row.teacher_id ? String(row.teacher_id) : '',
+            examName: row.exam_name || '',
+            examDate: row.exam_date || '',
+            score: Number(row.score || 0),
+            maxScore: Number(row.max_score || 0),
+            createdAt: row.created_at || '',
+            updatedAt: row.updated_at || ''
+        }));
+    } catch (error) {
+        console.error('[getStudentTestScoresByMonth] 에러:', error);
+        throw error;
+    }
+}
+
+window.saveStudentTestScore = async function(scoreRow) {
+    try {
+        const ownerId = _getOwnerId();
+        if (!ownerId) throw new Error('로그인이 필요합니다');
+        const payload = {
+            owner_user_id: ownerId,
+            student_id: parseInt(scoreRow.studentId),
+            teacher_id: String(scoreRow.teacherId || ''),
+            exam_name: String(scoreRow.examName || '').trim(),
+            exam_date: scoreRow.examDate,
+            score: Number(scoreRow.score || 0),
+            max_score: Number(scoreRow.maxScore || 0),
+            updated_at: new Date().toISOString()
+        };
+        if (!payload.exam_name || !payload.exam_date || payload.max_score <= 0) {
+            throw new Error('필수값 누락(시험명/시험일/점수/만점)');
+        }
+
+        const { data, error } = await supabase
+            .from('student_test_scores')
+            .insert(payload)
+            .select('id, student_id, teacher_id, exam_name, exam_date, score, max_score, created_at, updated_at')
+            .single();
+
+        if (error) throw error;
+        return {
+            id: data.id,
+            studentId: String(data.student_id),
+            teacherId: data.teacher_id ? String(data.teacher_id) : '',
+            examName: data.exam_name || '',
+            examDate: data.exam_date || '',
+            score: Number(data.score || 0),
+            maxScore: Number(data.max_score || 0),
+            createdAt: data.created_at || '',
+            updatedAt: data.updated_at || ''
+        };
+    } catch (error) {
+        console.error('[saveStudentTestScore] 에러:', error);
+        throw error;
+    }
+}
+
+window.deleteStudentTestScore = async function(scoreId) {
+    try {
+        const ownerId = _getOwnerId();
+        if (!ownerId) throw new Error('로그인이 필요합니다');
+        const { error } = await supabase
+            .from('student_test_scores')
+            .delete()
+            .eq('owner_user_id', ownerId)
+            .eq('id', scoreId);
+
+        if (error) throw error;
+        return true;
+    } catch (error) {
+        console.error('[deleteStudentTestScore] 에러:', error);
         throw error;
     }
 }

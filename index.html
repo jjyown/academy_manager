@@ -504,8 +504,23 @@
             <div class="modal-body-scrollable custom-scroll">
                 <input type="hidden" id="edit-id">
                 <div class="input-group">
-                    <label>등록일</label>
+                    <label>등록일 <span style="color:#ef4444;font-weight:700;">*</span></label>
                     <input type="date" id="reg-register-date" class="m-input">
+                </div>
+                <div class="input-group">
+                    <label>재원 상태</label>
+                    <select id="reg-status" class="m-input">
+                        <option value="active">재원</option>
+                        <option value="paused">휴원</option>
+                        <option value="archived">퇴원</option>
+                    </select>
+                </div>
+                <div class="input-group">
+                    <label>수강 기간</label>
+                    <div class="form-row">
+                        <input type="date" id="reg-enroll-start-date" class="m-input" title="시작일">
+                        <input type="date" id="reg-enroll-end-date" class="m-input" title="종료일">
+                    </div>
                 </div>
                 <div class="input-group">
                     <label>기본 정보 <span style="color:#ef4444;font-weight:700;">*</span></label>
@@ -514,7 +529,7 @@
                     </div>
                     <div class="form-row">
                         <input type="text" id="reg-school" class="m-input" placeholder="학교">
-                        <select id="reg-grade" class="m-input">
+                        <select id="reg-grade" class="m-input" title="학년(필수)">
                             <option value="초1">초1</option><option value="초2">초2</option><option value="초3">초3</option>
                             <option value="초4">초4</option><option value="초5">초5</option><option value="초6">초6</option>
                             <option value="중1">중1</option><option value="중2">중2</option><option value="중3">중3</option>
@@ -529,6 +544,15 @@
                 <div class="input-group">
                     <label>학부모 연락처</label>
                     <input type="text" id="reg-parent-phone" class="m-input" placeholder="010-0000-0000" maxlength="13" oninput="formatPhoneNumber(this)">
+                </div>
+                <div class="input-group">
+                    <label>보호자 이름</label>
+                    <input type="text" id="reg-guardian-name" class="m-input" placeholder="예: 홍길동(부)">
+                </div>
+                <div class="input-group">
+                    <div style="margin-top:-4px;font-size:12px;color:#64748b;">
+                        필수 입력: 이름, 등록일, 시작일, 연락처 1개 이상(학생/학부모 중 선택)
+                    </div>
                 </div>
                 <div class="input-group">
                     <label>기본 수강료 (원)</label>
@@ -685,12 +709,16 @@
             <input type="hidden" id="bulk-del-sid">
             <div class="input-group">
                 <label>삭제 시작 날짜</label>
-                <input type="date" id="bulk-del-start" class="m-input">
+                    <input type="date" id="bulk-del-start" class="m-input" onchange="updateBulkDeletePreview()">
             </div>
             <div class="input-group">
                 <label>삭제 종료 날짜</label>
-                <input type="date" id="bulk-del-end" class="m-input">
+                    <input type="date" id="bulk-del-end" class="m-input" onchange="updateBulkDeletePreview()">
             </div>
+                <div id="bulk-del-preview" class="schedule-delete-preview">삭제 예정 일정: 0건</div>
+                <div id="bulk-del-warning" class="schedule-delete-warning">
+                    기간을 선택하면 삭제 범위 안내가 표시됩니다.
+                </div>
             <button class="btn-save-main" style="background-color: var(--red);" onclick="executeBulkDelete()">일정 삭제하기</button>
         </div>
     </div>
@@ -708,7 +736,7 @@
                 </p>
                 <div class="input-group">
                     <label>삭제 범위</label>
-                    <select id="period-del-scope" class="m-input" onchange="togglePeriodDeleteStudent()">
+                    <select id="period-del-scope" class="m-input" onchange="togglePeriodDeleteStudent(); updatePeriodDeletePreview();">
                         <option value="all">기간 내 전체 일정 삭제</option>
                         <option value="student">특정 학생만 삭제</option>
                     </select>
@@ -723,11 +751,15 @@
                 </div>
                 <div class="input-group">
                     <label>삭제 시작 날짜</label>
-                    <input type="date" id="period-del-start" class="m-input">
+                    <input type="date" id="period-del-start" class="m-input" onchange="updatePeriodDeletePreview()">
                 </div>
                 <div class="input-group">
                     <label>삭제 종료 날짜</label>
-                    <input type="date" id="period-del-end" class="m-input">
+                    <input type="date" id="period-del-end" class="m-input" onchange="updatePeriodDeletePreview()">
+                </div>
+                <div id="period-del-preview" class="schedule-delete-preview">삭제 예정 일정: 0건</div>
+                <div id="period-del-warning" class="schedule-delete-warning">
+                    기간과 범위를 선택하면 삭제 영향 안내가 표시됩니다.
                 </div>
             </div>
             <div class="modal-footer-actions">
@@ -773,7 +805,10 @@
                 <!-- 상단: 학생 정보 + 출석 상태 -->
                 <div class="am-header-row">
                     <div class="am-info" id="att-info-text"></div>
-                    <div id="current-status-display" class="am-status-badge">미등록</div>
+                    <div class="am-status-wrap">
+                        <div id="current-status-display" class="am-status-badge">미등록</div>
+                        <div id="attendance-source-display" class="am-source-badge source-unknown">출석 방식: 미확인</div>
+                    </div>
                 </div>
 
                 <!-- 출석 버튼 -->
@@ -904,6 +939,7 @@
             </div>
             <!-- 통계 요약 -->
             <div class="hist-stats" id="hist-stats"></div>
+            <div class="hist-overview" id="hist-overview"></div>
             <div class="modal-body custom-scroll">
                 <div id="history-timeline" class="hist-list"></div>
                 <!-- 종합평가 섹션 -->
@@ -919,6 +955,32 @@
                             <i class="fas fa-save"></i> 저장
                         </button>
                     </div>
+                </div>
+                <div class="eval-section test-score-section" id="test-score-section">
+                    <div class="eval-section-header">
+                        <div class="eval-section-title"><i class="fas fa-chart-line"></i> 테스트 점수</div>
+                        <span class="eval-month-label" id="test-score-month-label"></span>
+                    </div>
+                    <div class="test-score-sync-row">
+                        <span id="test-score-sync-status" class="test-score-sync-status unknown">동기화 상태 확인 전</span>
+                        <button type="button" id="test-score-sync-check-btn" class="test-score-sync-check-btn" onclick="runTestScoreSyncCheck()">
+                            <i class="fas fa-stethoscope"></i> 동기화 점검
+                        </button>
+                    </div>
+                    <div class="test-score-form-row">
+                        <input type="text" id="test-score-name" class="m-input" placeholder="시험명 (예: 3월 모의고사)">
+                        <input type="date" id="test-score-date" class="m-input">
+                    </div>
+                    <div class="test-score-form-row">
+                        <input type="number" id="test-score-value" class="m-input" min="0" placeholder="점수">
+                        <input type="number" id="test-score-max" class="m-input" min="1" value="100" placeholder="만점">
+                        <button class="eval-save-btn test-score-save-btn" id="test-score-save-btn" onclick="saveTestScoreFromHistory()">
+                            <i class="fas fa-plus"></i> 점수 저장
+                        </button>
+                    </div>
+                    <div id="test-score-summary" class="test-score-summary"></div>
+                    <div id="test-score-trend" class="test-score-trend"></div>
+                    <div id="test-score-list" class="test-score-list"></div>
                 </div>
             </div>
         </div>
@@ -1737,32 +1799,50 @@
                 </div>
                 <div id="qr-attendance-content">
                     <div id="today-attendance-list"></div>
+                    <div id="emergency-attendance-queue" class="emergency-attendance-queue"></div>
                 </div>
             </div>
         </div>
     </div>
 
     <!-- QR 스캔 페이지 (전체 화면) -->
-    <div id="qr-scan-page" class="auth-page" style="display: none; background: #1e293b !important;">
-        <div style="width: 100%; max-width: 600px; padding: 20px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                <h2 style="color: white; margin: 0;">QR 코드 스캔</h2>
-                <div style="display: flex; gap: 10px;">
-                    <button onclick="toggleQRFullscreen()" id="qr-fullscreen-btn" style="background: var(--primary); color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 16px;">
+    <div id="qr-scan-page" class="auth-page qr-scan-page-wrap" style="display: none; background: #1e293b !important;">
+        <div class="qr-scan-layout">
+            <div class="qr-scan-main">
+                <div class="qr-scan-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h2 style="color: white; margin: 0;">QR 코드 스캔</h2>
+                    <div id="qr-camera-actions" style="display: flex; gap: 10px;">
+                        <button onclick="toggleQRFullscreen()" id="qr-fullscreen-btn" class="qr-top-btn qr-top-btn-primary">
                         <i class="fas fa-expand"></i> 전체화면
-                    </button>
-                    <button onclick="switchCamera()" style="background: #3b82f6; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 16px;">
+                        </button>
+                        <button onclick="switchCamera()" class="qr-top-btn qr-top-btn-info">
                         <i class="fas fa-camera-rotate"></i> 카메라 전환
-                    </button>
-                    <button onclick="closeQRScanPage()" style="background: #ef4444; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 16px;">
+                        </button>
+                    </div>
+                    <div style="display: flex; gap: 10px;">
+                        <button onclick="closeQRScanPage()" class="qr-top-btn qr-top-btn-danger">
                         <i class="fas fa-times"></i> 닫기
-                    </button>
+                        </button>
+                    </div>
+                </div>
+
+                <div id="qr-scan-mode-qr" class="qr-scan-mode-panel active">
+                    <div id="qr-reader" style="width: 100%; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.3);"></div>
+                    <!-- 하단 결과 패널 제거: 상단 토스트만 사용 -->
+                </div>
+
+                <div id="qr-scan-mode-phone" class="qr-scan-mode-panel active">
+                    <div class="qr-phone-auth-panel">
+                        <div class="qr-phone-auth-title"><i class="fas fa-mobile-screen-button"></i> 전화번호 인증 출석</div>
+                        <div class="qr-phone-auth-desc">학생/보호자 연락처의 뒷자리 4자리를 입력해 출석 인증합니다.</div>
+                        <div class="qr-phone-auth-row">
+                            <input type="text" id="qr-phone-last4-input" class="m-input qr-phone-last4-input" placeholder="예: 1234" maxlength="4" inputmode="numeric" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,4)" onkeydown="if(event.key==='Enter') submitPhoneAttendanceAuth()">
+                            <button type="button" class="qr-phone-auth-btn" onclick="submitPhoneAttendanceAuth()"><i class="fas fa-check-circle"></i> 인증</button>
+                        </div>
+                        <div id="qr-phone-auth-result" class="qr-phone-auth-result"></div>
+                    </div>
                 </div>
             </div>
-            
-            <div id="qr-reader" style="width: 100%; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.3);"></div>
-            
-            <!-- 하단 결과 패널 제거: 상단 토스트만 사용 -->
         </div>
     </div>
 

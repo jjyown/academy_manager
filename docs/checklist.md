@@ -1,5 +1,7 @@
 # 출석관리앱 체크리스트
 
+- 문서 기준일: 2026-03-04
+
 ## 공통 품질 체크
 - [x] 요구사항 재확인 후 구현 시작
 - [x] 변경 파일/영향 범위 확인
@@ -126,6 +128,30 @@
 | 2026-03-01 | 체크리스트 조건부 활성화(현재 필요한 항목만 체크 가능) | `js/payment.js` 수정 + `node --check js/payment.js` + `ReadLints` | PASS | 현재 월/인건비 지급 여부/원천세 점검 기간 조건으로 항목을 자동 활성화하고, 비활성 항목에는 “왜 비활성인지” 안내 문구를 표시 |
 | 2026-03-01 | AI 증빙 추출 이미지 Drive 자동 저장 + 경로 메모 연결 | `grading-server/routers/misc.py`, `js/payment.js` 수정 + `python -m compileall grading-server/routers/misc.py` + `node --check js/payment.js` + `ReadLints` | PASS | `/api/payments/extract`에서 `수납증빙/학원명또는owner/YYYY/MM/DD/항목` 폴더 업로드를 수행하고, 응답 Drive 경로를 원장 메모(`[드라이브증빙]`)에 자동 기록해 누락 추적성을 강화 |
 | 2026-03-01 | 학생관리 전환 대비 문서 인계 정리(수납/비용 최신 상태) | `docs/plan.md`, `docs/context.md`, `docs/checklist.md` 동기화 + 내용 대조 | PASS | 수납/비용 완료 스냅샷과 학생관리 시작 우선순위를 문서에 명시해 다음 세션에서 바로 학생관리 구현을 이어갈 수 있도록 정리 |
+| 2026-03-01 | 학생등록 폼 UX 1차 보강(필수검증/연락처형식/중복차단) | `index.html`, `script.js` 수정 + `node --check script.js` + `ReadLints` | PASS | 저장 기준을 이름/등록일/연락처 1개 이상으로 통일하고, 01x 연락처 형식검증 및 이름+학년+연락처 일치 중복 저장 차단을 반영 |
+| 2026-03-01 | 학생관리 2차(일정삭제 영향 미리보기 + 테스트 점수/추이) | `index.html`, `script.js`, `style.css`, `mobile.css` 수정 + `node --check script.js` + `ReadLints` | PASS | 일정 삭제 전 예상 건수 확인 UI를 추가하고, 학생 이력 모달에서 테스트 점수 입력/삭제와 월별 변화 추이(평균·변화·막대)를 확인 가능하도록 반영 |
+| 2026-03-03 | 문서 날짜 갱신 + 다음 작업 우선순위 정리 | `docs/plan.md`, `docs/context.md`, `docs/checklist.md` 동기화 | PASS | 문서 기준일을 2026-03-03으로 반영하고 학생관리 3차 작업 순서(점수 동기화→스키마 확장→통합 상세)를 고정 |
+| 2026-03-04 | 학생관리 3차(테스트 점수 Supabase 동기화 + 폴백) | `database.js`, `script.js`, `STUDENT_TEST_SCORE_SETUP.sql` 수정 + `node --check script.js` + `ReadLints` | PASS | 원격 저장/조회/삭제 함수를 추가하고 UI 로직을 원격 우선+로컬 폴백으로 전환. 운영 적용을 위해 SQL Editor에서 setup 스크립트 실행이 추가 필요 |
+| 2026-03-04 | 학생관리 4차(학생 스키마 확장: 재원상태/시작일/종료일/보호자) | `index.html`, `script.js`, `database.js`, `SUPABASE_COMPLETE_SETUP.sql`, `STUDENT_SCHEMA_UPDATE.sql` 수정 + `node --check script.js; node --check database.js` + `ReadLints` | PASS | 등록폼 필드/검증을 확장하고 DB 저장 필드를 연결. DB 컬럼 미반영 환경은 메모 메타 폴백으로 저장 지속, 운영 적용을 위해 SQL Editor에서 스키마 업데이트 실행 필요 |
+| 2026-03-04 | 학생관리 5차(학생 상세 통합 뷰: 출석/숙제/수납/테스트) | `index.html`, `script.js`, `style.css`, `mobile.css` 수정 + `node --check script.js` + `ReadLints` | PASS | 이력 모달에 통합 요약 카드를 추가하고 숙제/수납/테스트 월 집계를 연결. 기록이 없는 달에도 요약/평가/점수 섹션이 유지되도록 흐름 보강 |
+| 2026-03-04 | 학생관리 6차(일정 삭제 UX 보강: 범위 경고/월 범위 안내) | `index.html`, `script.js`, `style.css`, `mobile.css` 수정 + `node --check script.js` + `ReadLints` | PASS | 일괄/기간 삭제 모달에 실시간 영향 경고를 추가하고, 삭제 확인창에 기간·건수·월 범위·복구불가 안내를 포함해 오삭제 위험을 낮춤 |
+| 2026-03-04 | 학생관리 우선순위 재정렬(전체 시스템 관점) 문서 반영 | `docs/plan.md`, `docs/context.md`, `docs/checklist.md` 수정 + 내용 정합성 점검 | PASS | 우선순위를 "현장 실패 방지→데이터 신뢰성→운영 효율→고도화"로 재정의하고, QR 긴급출석/확정 워크플로우를 최우선 항목으로 고정 |
+| 2026-03-04 | 학생관리 7차(출석 주체 구분: 학생 QR vs 선생님 체크) | `index.html`, `style.css`, `script.js`, `qr-attendance.js` 수정 + `node --check script.js` + `node --check qr-attendance.js` + `ReadLints` | PASS | 수업관리 모달에 출석 방식 배지를 추가하고, 수동 출석 시 `check_in_time` 자동 기록으로 구분 정확도를 보강. 이력 배지 문구를 `학생 QR`/`선생님 체크`로 통일 |
+| 2026-03-04 | 학생관리 8차(QR 긴급출석 1차 + 중복스캔 보호) | `qr-attendance.js` 수정 + `node --check qr-attendance.js` + `ReadLints` | PASS | 일정 미등록 시 임시출석으로 흐름을 유지하고, 동일 날짜 기존 처리기록이 있으면 임시출석 대신 `already_processed`로 판정해 중복 생성 위험을 차단 |
+| 2026-03-04 | 학생관리 9차(임시출석 확정 대기함/건별 확정/사유 기록 1차) | `index.html`, `style.css`, `mobile.css`, `script.js`, `qr-attendance.js` 수정 + `node --check script.js` + `node --check qr-attendance.js` + `ReadLints` | PASS | QR 모달에 임시출석 확정 대기함을 추가하고, 건별 사유 입력 후 확정 시 `qr_judgment`/`memo`를 갱신하여 이력 추적성을 확보. 확정 후 목록 즉시 갱신으로 중복 확정 방지 |
+| 2026-03-04 | 학생관리 10차(임시출석 확정 2차: 확정자 기록/기간 필터/일괄확정) | `qr-attendance.js`, `style.css`, `mobile.css` 수정 + `node --check qr-attendance.js` + `ReadLints` | PASS | 확정 시 교사명을 감사로그에 남기고, 대기함에 기간 필터 및 다중 선택 일괄확정을 추가해 대량 처리 효율을 개선. 확정 후 목록/요약 동기화와 선택 초기화로 중복 처리 위험을 낮춤 |
+| 2026-03-04 | 학생관리 11차(일정 누락 사전 예방 1차: 당일 경고/QR 진입 전 확인/일정등록 빠른제안) | `script.js`, `qr-attendance.js`, `style.css`, `mobile.css` 수정 + `node --check script.js` + `node --check qr-attendance.js` + `ReadLints` | PASS | QR 모달에 일정 누락 경고와 빠른 등록 CTA를 추가하고, QR 스캔 진입 직전에 일정 미등록 경고 확인창을 표시. 확인 시 일정 모달을 오늘 날짜/미등록 학생 기준으로 즉시 열어 누락 복구 동선을 단축 |
+| 2026-03-04 | 학생관리 12차(학생 상세 통합 화면 액션화 1차) | `script.js`, `style.css`, `mobile.css` 수정 + `node --check script.js` + `ReadLints` | PASS | 통합 요약 카드에 출석/평가/수납/테스트 즉시 조치 버튼을 추가해 조회 중심 흐름을 조치 중심으로 확장. 학생·월 컨텍스트를 유지한 채 관련 모달/섹션으로 바로 이동되도록 연결 |
+| 2026-03-04 | 학생관리 13차(테스트 점수 원격 동기화 운영 검증 1차) | `index.html`, `script.js`, `style.css`, `mobile.css` 수정 + `node --check script.js` + `node --check database.js` + `node --check qr-attendance.js` + `ReadLints` | PASS | 테스트 점수 섹션에 동기화 상태 배지와 자동 점검 버튼을 추가하고, 저장/조회/삭제 경로에서 원격 성공·실패를 즉시 표시. 점검은 임시 레코드 원격 저장→조회→삭제 스모크로 구성해 운영 검증 진입 장벽을 낮춤 |
+| 2026-03-04 | 학생관리 14차(출석 긴급 운영: 전화번호 뒷자리 인증 추가) | `index.html`, `qr-attendance.js`, `style.css`, `mobile.css` 수정 + `node --check qr-attendance.js` + `ReadLints` | PASS | 태블릿 가로모드 QR 화면 우측에 뒷자리 4자리 인증 패널을 추가하고, 단일/다중 매칭 처리 후 기존 출석 엔진으로 연결. 기존 `already_processed` 보호를 유지해 중복 임시출석 생성 리스크를 차단 |
+| 2026-03-04 | 학생관리 15차(일정생성 모달 선택 학생 `x` 중복 표시 수정) | `style.css` 수정 + `ReadLints(style.css)` | PASS | `.schedule-selected-chip` 텍스트의 `×`와 `::after`의 `×`가 중복 노출되던 문제를 `::after` 제거로 해결. 일정생성/기간삭제 모달 칩 UI 일관성 확인 |
+| 2026-03-04 | 학생관리 16차(운영 SQL 실행 점검 패키지 추가) | `STUDENT_TEST_SCORE_VERIFY.sql`, `STUDENT_SCHEMA_VERIFY.sql`, `docs/plan.md`, `docs/context.md`, `docs/checklist.md` 수정 + `ReadLints(docs)` | PASS | 운영 SQL 수동 실행 전/후 검증을 위한 표준 쿼리 파일 2종을 추가해 판정 기준을 고정. 실제 SQL 실행은 Supabase 콘솔 권한이 필요한 수동 단계로 다음 액션에 유지 |
+| 2026-03-04 | 학생관리 17차(오늘 운영 대시보드 1차 + 즉시조치 버튼) | `script.js`, `qr-attendance.js`, `style.css`, `mobile.css`, `docs/*` 수정 + `node --check script.js` + `node --check qr-attendance.js` + `ReadLints` | PASS | QR 출석 모달 상단에 운영 대시보드를 추가해 일정 누락/임시출석 미확정/다음 수업을 즉시 노출하고, 스캔·누락등록·임시확정으로 바로 이동하도록 연결. 대기함 렌더 후 요약 자동 갱신으로 카운트 최신성 유지 |
+| 2026-03-04 | 학생관리 18차(출석체크 화면 탭 단순화 1차) | `index.html`, `qr-attendance.js`, `style.css`, `mobile.css`, `docs/*` 수정 + `node --check qr-attendance.js` + `node --check script.js` + `ReadLints` | PASS | QR 스캔 페이지를 `QR/전화번호/수동체크` 3탭으로 분리하고, 탭 전환 시 카메라 리소스를 자동 중지/재시작하도록 제어. 수동체크 탭에 운영 요약과 즉시조치 버튼을 배치해 모드 인지성과 동선을 단순화 |
+| 2026-03-04 | 학생관리 19차(10인치 태블릿 전체화면 듀얼 표시 1차) | `index.html`, `qr-attendance.js`, `style.css`, `docs/*` 수정 + `node --check qr-attendance.js` + `node --check script.js` + `ReadLints` | PASS | 화면 폭 900~1400px에서 `QR 스캔` 모드 시 카메라와 전화번호 입력 패널을 동시 표시하도록 적용. resize 시 자동 재판정으로 가로/세로 전환에도 레이아웃이 즉시 동기화되며 기존 출석 처리 로직은 유지 |
+| 2026-03-04 | 학생관리 20차(학생용 출석화면 고정형 분리: 수동체크 제거 + 2패널 단순화) | `index.html`, `qr-attendance.js`, `style.css`, `docs/*` 수정 + `node --check qr-attendance.js` + `node --check script.js` + `ReadLints` | PASS | 학생 화면에서 수동체크 UI를 제거하고 QR+전화번호 2패널 고정 구조로 재정렬. 가로는 좌우, 세로는 상하 자동 배치로 10인치 태블릿 전체화면 사용성을 높였고 탭 전환 오조작 가능성을 제거 |
+| 2026-03-04 | 학생관리 21차(10인치 터치 최적화 2차: 버튼/입력 확대) | `index.html`, `style.css`, `docs/*` 수정 + `ReadLints` | PASS | 상단 제어 버튼을 클래스 기반으로 정리해 터치 영역을 확대하고, 900~1400px 구간에서 입력/버튼/타이포를 확장해 오터치와 가독성 문제를 완화. 기존 출석 처리 로직 영향 없이 UI 레이어만 조정 |
+| 2026-03-04 | 학생관리 22차(키보드 오버레이 대응 1차: 번호입력 가림 보정) | `qr-attendance.js`, `style.css`, `docs/*` 수정 + `node --check qr-attendance.js` + `ReadLints` | PASS | 전화번호 입력 포커스 시 `visualViewport`로 키보드 높이를 감지해 하단 여백을 동적으로 보정하고, 키보드 오픈 중 듀얼 레이아웃을 단일열로 전환해 입력창/버튼 가림을 완화. 페이지 종료 시 이벤트 해제로 누수 방지 |
 
 ## 릴리즈 전 최종 확인
 - [x] 치명 이슈 없음
