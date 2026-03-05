@@ -1810,12 +1810,12 @@
         <div class="qr-scan-layout">
             <div class="qr-scan-main">
                 <div class="qr-scan-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                    <h2 style="color: white; margin: 0;">QR 코드 스캔</h2>
-                    <div id="qr-camera-actions" style="display: flex; gap: 10px;">
-                        <button onclick="toggleQRFullscreen()" id="qr-fullscreen-btn" class="qr-top-btn qr-top-btn-primary">
-                        <i class="fas fa-expand"></i> 전체화면
-                        </button>
-                        <button onclick="switchCamera()" class="qr-top-btn qr-top-btn-info">
+                    <div class="qr-header-title-wrap">
+                        <h2 id="qr-fullscreen-gesture-zone" class="qr-header-title-gesture" ondblclick="toggleQRFullscreen()" ontouchend="handleQRFullscreenGestureTouch(event)" style="color: white; margin: 0;">QR 코드 스캔</h2>
+                        <div class="qr-header-gesture-hint">상단 제목을 빠르게 2번 터치하면 전체화면 전환</div>
+                    </div>
+                    <div id="qr-camera-actions" class="qr-camera-actions-panel qr-camera-actions-hidden" aria-hidden="true">
+                        <button onclick="switchCamera()" id="qr-switch-camera-btn" class="qr-top-btn qr-top-btn-info">
                         <i class="fas fa-camera-rotate"></i> 카메라 전환
                         </button>
                     </div>
@@ -1825,6 +1825,10 @@
                         </button>
                     </div>
                 </div>
+                <div id="qr-corner-admin-trigger" class="qr-corner-admin-trigger"
+                     ontouchstart="handleQRCornerPressStart(event)" ontouchend="handleQRCornerPressEnd(event)" ontouchcancel="handleQRCornerPressEnd(event)"
+                     onmousedown="handleQRCornerPressStart(event)" onmouseup="handleQRCornerPressEnd(event)" onmouseleave="handleQRCornerPressEnd(event)"
+                     aria-hidden="true"></div>
 
                 <div id="qr-scan-mode-qr" class="qr-scan-mode-panel active">
                     <div id="qr-reader" style="width: 100%; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.3);"></div>
@@ -1834,10 +1838,9 @@
                 <div id="qr-scan-mode-phone" class="qr-scan-mode-panel active">
                     <div class="qr-phone-auth-panel">
                         <div class="qr-phone-auth-title"><i class="fas fa-mobile-screen-button"></i> 전화번호 인증 출석</div>
-                        <div class="qr-phone-auth-desc">학생/보호자 연락처의 뒷자리 4자리를 입력해 출석 인증합니다.</div>
+                        <div class="qr-phone-auth-desc">학생 연락처의 뒷자리 4자리를 입력해 출석 인증합니다.</div>
                         <div class="qr-phone-auth-row">
                             <input type="text" id="qr-phone-last4-input" class="m-input qr-phone-last4-input" placeholder="예: 1234" maxlength="4" inputmode="numeric" oninput="handlePhoneAuthInputChange(this)" onkeydown="if(event.key==='Enter') submitPhoneAttendanceAuth()">
-                            <button type="button" class="qr-phone-auth-btn" onclick="submitPhoneAttendanceAuth()"><i class="fas fa-check-circle"></i> 인증</button>
                         </div>
                         <div class="qr-phone-keypad" aria-label="전화번호 입력 키패드">
                             <button type="button" class="qr-phone-key" onclick="handlePhoneAuthKeypadKey('1')">1</button>
@@ -1853,9 +1856,6 @@
                             <button type="button" class="qr-phone-key" onclick="handlePhoneAuthKeypadKey('0')">0</button>
                             <button type="button" class="qr-phone-key qr-phone-key-action" onclick="handlePhoneAuthKeypadAction('backspace')">지우기</button>
                         </div>
-                        <button type="button" class="qr-phone-keypad-submit" onclick="handlePhoneAuthKeypadAction('submit')">
-                            <i class="fas fa-check-circle"></i> 키패드 확인
-                        </button>
                         <div id="qr-phone-auth-result" class="qr-phone-auth-result"></div>
                     </div>
                 </div>

@@ -6,6 +6,7 @@ let html5QrcodeScanner = null;
 let currentStudentForAttendance = null;
 let currentFacingMode = "environment"; // "environment" (후방) 또는 "user" (전방)
 let qrClosePinCheckInProgress = false;
+let qrCameraSwitchInProgress = false;
 const ATTENDANCE_GRACE_MINUTES = 2;
 
 function shouldUseDualPanelMode() {
@@ -25,7 +26,7 @@ function getCurrentTeacherForQrPinGuard() {
     return teacherList.find((t) => String(t?.id) === teacherId) || null;
 }
 
-async function verifyTeacherPinForQrClose() {
+async function verifyTeacherPinForAction(options = {}) {
     const teacher = getCurrentTeacherForQrPinGuard();
     if (!teacher || !teacher.pin_hash) {
         showToast('선생님 인증 정보를 찾을 수 없습니다. 다시 로그인 후 시도해주세요.', 'warning');
@@ -36,16 +37,13 @@ async function verifyTeacherPinForQrClose() {
         return false;
     }
 
-    const input = await window.showPrompt(
-        '학생 출석 화면을 종료하려면 선생님 비밀번호를 입력해주세요.',
-        {
-            title: '선생님 인증',
-            placeholder: '선생님 비밀번호',
-            inputType: 'password',
-            okText: '확인',
-            cancelText: '취소'
-        }
-    );
+    const input = await window.showPrompt(options.message || '선생님 비밀번호를 입력해주세요.', {
+        title: options.title || '선생님 인증',
+        placeholder: options.placeholder || '선생님 비밀번호',
+        inputType: 'password',
+        okText: options.okText || '확인',
+        cancelText: options.cancelText || '취소'
+    });
     if (input === null) return false;
 
     const password = String(input || '').trim();
@@ -60,6 +58,18 @@ async function verifyTeacherPinForQrClose() {
         return false;
     }
     return true;
+}
+
+async function verifyTeacherPinForQrClose() {
+    return verifyTeacherPinForAction({
+        message: '학생 출석 화면을 종료하려면 선생님 비밀번호를 입력해주세요.'
+    });
+}
+
+async function verifyTeacherPinForCameraSwitch() {
+    return verifyTeacherPinForAction({
+        message: '카메라를 전환하려면 선생님 비밀번호를 입력해주세요.'
+    });
 }
 
 // ========== 후속 수업 재석 확인 시스템 ==========
@@ -919,9 +929,8 @@ function getPhoneSuffixMatchCandidates(last4) {
     return (students || [])
         .filter((s) => !s.status || s.status === 'active')
         .filter((s) => {
-            const studentPhone = normalizePhoneDigits(s.studentPhone);
-            const parentPhone = normalizePhoneDigits(s.parentPhone);
-            return (studentPhone && studentPhone.endsWith(suffix)) || (parentPhone && parentPhone.endsWith(suffix));
+            const studentPhone = normalizePhoneDigits(s.studentPhone || s.phone);
+            return studentPhone && studentPhone.endsWith(suffix);
         });
 }
 
@@ -1003,7 +1012,7 @@ window.submitPhoneAttendanceAuth = async function() {
         const candidates = getPhoneSuffixMatchCandidates(suffix);
         if (candidates.length === 0) {
             if (resultEl) resultEl.innerHTML = '<div class="qr-phone-auth-empty">일치하는 학생이 없습니다.</div>';
-            showToast('일치하는 학생이 없습니다. 학생/보호자 연락처를 확인해주세요.', 'warning');
+            showToast('일치하는 학생이 없습니다. 학생 연락처를 확인해주세요.', 'warning');
             return;
         }
         if (candidates.length > 1) {
@@ -1050,9 +1059,6 @@ window.handlePhoneAuthKeypadAction = async function(action) {
         const resultEl = document.getElementById('qr-phone-auth-result');
         if (resultEl) resultEl.innerHTML = '';
         return;
-    }
-    if (action === 'submit') {
-        await window.submitPhoneAttendanceAuth();
     }
 };
 
@@ -1257,6 +1263,9 @@ window.openQRScanPage = async function() {
         applyQRScanResponsiveLayout();
         bindQRViewportGuard();
         updateQRKeyboardViewportState();
+        setQRCameraActionsVisible(false);
+        clearQRCameraActionsAutoHideTimer();
+        clearQRCornerPressTimer();
         setTimeout(() => {
             if (!html5QrcodeScanner) startQRScanner();
         }, 80);
@@ -1391,13 +1400,16 @@ window.confirmQRPassword = async function() {
 // 카메라 전환 (전방 ↔ 후방)
 window.switchCamera = async function() {
     console.log('[switchCamera] 카메라 전환 시작');
-    
+    if (qrCameraSwitchInProgress) return;
     if (!html5QrcodeScanner) {
         console.warn('[switchCamera] 실행 중인 스캐너가 없습니다');
         return;
     }
-    
+    qrCameraSwitchInProgress = true;
     try {
+        const authenticated = await verifyTeacherPinForCameraSwitch();
+        if (!authenticated) return;
+
         // 현재 스캐너 중지
         await html5QrcodeScanner.stop();
         console.log('[switchCamera] 스캐너 중지 완료');
@@ -1417,11 +1429,70 @@ window.switchCamera = async function() {
     } catch (err) {
         console.error('[switchCamera] 카메라 전환 실패:', err);
         showToast('카메라 전환에 실패했습니다.', 'error');
+    } finally {
+        qrCameraSwitchInProgress = false;
     }
 }
 
 // QR 스캔 페이지 닫기
 // 풀스크린 토글 (브라우저 Fullscreen API)
+let qrFullscreenGestureLastTouchAt = 0;
+let qrCornerPressTimer = null;
+let qrCameraActionsAutoHideTimer = null;
+
+function clearQRCornerPressTimer() {
+    if (!qrCornerPressTimer) return;
+    clearTimeout(qrCornerPressTimer);
+    qrCornerPressTimer = null;
+}
+
+function setQRCameraActionsVisible(visible) {
+    const panel = document.getElementById('qr-camera-actions');
+    if (!panel) return;
+    panel.classList.toggle('qr-camera-actions-hidden', !visible);
+    panel.setAttribute('aria-hidden', visible ? 'false' : 'true');
+}
+
+function clearQRCameraActionsAutoHideTimer() {
+    if (!qrCameraActionsAutoHideTimer) return;
+    clearTimeout(qrCameraActionsAutoHideTimer);
+    qrCameraActionsAutoHideTimer = null;
+}
+
+function revealQRCameraActionsTemporarily(durationMs = 12000) {
+    setQRCameraActionsVisible(true);
+    clearQRCameraActionsAutoHideTimer();
+    qrCameraActionsAutoHideTimer = setTimeout(() => {
+        setQRCameraActionsVisible(false);
+        qrCameraActionsAutoHideTimer = null;
+    }, durationMs);
+}
+
+window.handleQRCornerPressStart = function(event) {
+    clearQRCornerPressTimer();
+    qrCornerPressTimer = setTimeout(() => {
+        qrCornerPressTimer = null;
+        revealQRCameraActionsTemporarily(12000);
+        showToast('카메라 전환 버튼이 12초간 표시됩니다.', 'info');
+    }, 3000);
+    if (event && typeof event.preventDefault === 'function') event.preventDefault();
+};
+
+window.handleQRCornerPressEnd = function(event) {
+    clearQRCornerPressTimer();
+    if (event && typeof event.preventDefault === 'function') event.preventDefault();
+};
+
+window.handleQRFullscreenGestureTouch = function(event) {
+    const now = Date.now();
+    const delta = now - qrFullscreenGestureLastTouchAt;
+    qrFullscreenGestureLastTouchAt = now;
+    if (delta > 0 && delta <= 350) {
+        if (event && typeof event.preventDefault === 'function') event.preventDefault();
+        window.toggleQRFullscreen();
+    }
+};
+
 window.toggleQRFullscreen = function() {
     const el = document.documentElement;
     if (!document.fullscreenElement && !document.webkitFullscreenElement) {
@@ -1477,6 +1548,9 @@ window.closeQRScanPage = async function() {
         const scanPageEl = document.getElementById('qr-scan-page');
         if (scanPageEl) scanPageEl.style.display = 'none';
         unbindQRViewportGuard();
+        setQRCameraActionsVisible(false);
+        clearQRCameraActionsAutoHideTimer();
+        clearQRCornerPressTimer();
 
         // QR 스캔 중 보류된 재석 확인 알림 일괄 표시
         if (window._qrDeferredNotifications && window._qrDeferredNotifications.length > 0) {
