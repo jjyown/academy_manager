@@ -1836,9 +1836,26 @@
                         <div class="qr-phone-auth-title"><i class="fas fa-mobile-screen-button"></i> 전화번호 인증 출석</div>
                         <div class="qr-phone-auth-desc">학생/보호자 연락처의 뒷자리 4자리를 입력해 출석 인증합니다.</div>
                         <div class="qr-phone-auth-row">
-                            <input type="text" id="qr-phone-last4-input" class="m-input qr-phone-last4-input" placeholder="예: 1234" maxlength="4" inputmode="numeric" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,4)" onkeydown="if(event.key==='Enter') submitPhoneAttendanceAuth()">
+                            <input type="text" id="qr-phone-last4-input" class="m-input qr-phone-last4-input" placeholder="예: 1234" maxlength="4" inputmode="numeric" oninput="handlePhoneAuthInputChange(this)" onkeydown="if(event.key==='Enter') submitPhoneAttendanceAuth()">
                             <button type="button" class="qr-phone-auth-btn" onclick="submitPhoneAttendanceAuth()"><i class="fas fa-check-circle"></i> 인증</button>
                         </div>
+                        <div class="qr-phone-keypad" aria-label="전화번호 입력 키패드">
+                            <button type="button" class="qr-phone-key" onclick="handlePhoneAuthKeypadKey('1')">1</button>
+                            <button type="button" class="qr-phone-key" onclick="handlePhoneAuthKeypadKey('2')">2</button>
+                            <button type="button" class="qr-phone-key" onclick="handlePhoneAuthKeypadKey('3')">3</button>
+                            <button type="button" class="qr-phone-key" onclick="handlePhoneAuthKeypadKey('4')">4</button>
+                            <button type="button" class="qr-phone-key" onclick="handlePhoneAuthKeypadKey('5')">5</button>
+                            <button type="button" class="qr-phone-key" onclick="handlePhoneAuthKeypadKey('6')">6</button>
+                            <button type="button" class="qr-phone-key" onclick="handlePhoneAuthKeypadKey('7')">7</button>
+                            <button type="button" class="qr-phone-key" onclick="handlePhoneAuthKeypadKey('8')">8</button>
+                            <button type="button" class="qr-phone-key" onclick="handlePhoneAuthKeypadKey('9')">9</button>
+                            <button type="button" class="qr-phone-key qr-phone-key-action" onclick="handlePhoneAuthKeypadAction('clear')">초기화</button>
+                            <button type="button" class="qr-phone-key" onclick="handlePhoneAuthKeypadKey('0')">0</button>
+                            <button type="button" class="qr-phone-key qr-phone-key-action" onclick="handlePhoneAuthKeypadAction('backspace')">지우기</button>
+                        </div>
+                        <button type="button" class="qr-phone-keypad-submit" onclick="handlePhoneAuthKeypadAction('submit')">
+                            <i class="fas fa-check-circle"></i> 키패드 확인
+                        </button>
                         <div id="qr-phone-auth-result" class="qr-phone-auth-result"></div>
                     </div>
                 </div>

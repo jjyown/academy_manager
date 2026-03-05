@@ -209,6 +209,42 @@ textarea:focus:not(:focus-visible) {
     min-height: 48px;
 }
 .qr-phone-auth-btn:hover { background: #15803d; }
+.qr-phone-keypad {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    margin-top: 2px;
+}
+.qr-phone-key {
+    border: 1px solid rgba(148, 163, 184, 0.5);
+    border-radius: 8px;
+    min-height: 34px;
+    font-size: 14px;
+    font-weight: 700;
+    color: #f8fafc;
+    background: rgba(30, 41, 59, 0.86);
+    cursor: pointer;
+}
+.qr-phone-key:active {
+    transform: translateY(1px);
+}
+.qr-phone-key-action {
+    font-size: 12px;
+    font-weight: 600;
+    color: #cbd5e1;
+    background: rgba(15, 23, 42, 0.85);
+}
+.qr-phone-keypad-submit {
+    border: none;
+    border-radius: 9px;
+    min-height: 36px;
+    font-size: 13px;
+    font-weight: 700;
+    color: #fff;
+    background: #16a34a;
+    cursor: pointer;
+}
+.qr-phone-keypad-submit:hover { background: #15803d; }
 .qr-phone-auth-result {
     display: flex;
     flex-direction: column;
@@ -286,6 +322,22 @@ textarea:focus:not(:focus-visible) {
         min-height: 56px;
         min-width: 100px;
         font-size: 15px;
+    }
+    .qr-phone-keypad {
+        gap: 8px;
+    }
+    .qr-phone-key {
+        min-height: 44px;
+        font-size: 18px;
+        border-radius: 10px;
+    }
+    .qr-phone-key-action {
+        font-size: 13px;
+    }
+    .qr-phone-keypad-submit {
+        min-height: 44px;
+        font-size: 15px;
+        border-radius: 10px;
     }
     .qr-phone-candidate-btn {
         min-height: 52px;
@@ -2670,6 +2722,32 @@ textarea:focus:not(:focus-visible) {
     border-left: 3px solid var(--orange);
 }
 .student-info span:nth-of-type(1) { font-size: 12px; color: var(--gray); }
+.student-quick-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.student-quick-btn {
+    border: 1px solid #cbd5e1;
+    background: #ffffff;
+    color: #334155;
+    border-radius: 8px;
+    padding: 5px 8px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    min-width: 52px;
+}
+.student-quick-btn:hover {
+    border-color: #93c5fd;
+    color: #1d4ed8;
+    background: #eff6ff;
+}
+.student-quick-btn.score {
+    border-color: #bfdbfe;
+    color: #1d4ed8;
+    background: #eef2ff;
+}
 
 .student-teachers { display: flex; flex-wrap: wrap; gap: 6px; }
 
@@ -6361,6 +6439,18 @@ textarea:focus:not(:focus-visible) {
     background: var(--theme-header);
     color: var(--text);
     border-color: var(--border);
+}
+[data-theme="night"] .student-quick-btn,
+[data-theme="charcoal"] .student-quick-btn {
+    background: rgba(15, 23, 42, 0.75);
+    border-color: rgba(148, 163, 184, 0.45);
+    color: #cbd5e1;
+}
+[data-theme="night"] .student-quick-btn.score,
+[data-theme="charcoal"] .student-quick-btn.score {
+    background: rgba(37, 99, 235, 0.2);
+    border-color: rgba(96, 165, 250, 0.5);
+    color: #bfdbfe;
 }
 [data-theme="night"] .btn-delete-schedule,
 [data-theme="charcoal"] .btn-delete-schedule {

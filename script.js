@@ -2744,6 +2744,7 @@ window.renderDayEvents = function(dateStr) {
     // 현재 선생님의 학생 + 일정 데이터 기준 활성 학생
     const activeStudents = getActiveStudentsForTeacher(currentTeacherId);
     let rawEvents = [];
+    let temporaryAttendanceStudents = [];
     // QR 출석 뱃지용 학생ID (전역)
     const qrBadgeStudentId = typeof lastQrScannedStudentId !== 'undefined' ? lastQrScannedStudentId : null;
     const teacherSchedule = teacherScheduleData[currentTeacherId] || {};
@@ -2768,6 +2769,13 @@ window.renderDayEvents = function(dateStr) {
             });
         } else {
             console.log(`[디버그] 일정 없음:`, s.name, dateStr, teacherSchedule[s.id]);
+            const attByDate = s.attendance && s.attendance[dateStr];
+            if (attByDate && typeof attByDate === 'object') {
+                const emergencyStatus = attByDate.emergency || attByDate.default || '';
+                if (emergencyStatus === 'present') {
+                    temporaryAttendanceStudents.push(s);
+                }
+            }
         }
     });
     let groupedEvents = {}; 
@@ -3000,6 +3008,38 @@ window.renderDayEvents = function(dateStr) {
         };
         grid.appendChild(block);
     });
+
+    // 일정이 없는 임시출석도 시간표 화면에서 보이도록 상단 배너 노출
+    if (temporaryAttendanceStudents.length > 0) {
+        const uniqueStudents = [];
+        const seenIds = new Set();
+        temporaryAttendanceStudents.forEach((s) => {
+            const sid = String(s.id);
+            if (seenIds.has(sid)) return;
+            seenIds.add(sid);
+            uniqueStudents.push(s);
+        });
+
+        const tempBanner = document.createElement('div');
+        tempBanner.className = 'tt-temporary-attendance-banner';
+        tempBanner.style.position = 'absolute';
+        tempBanner.style.top = (paddingTop + 6) + 'px';
+        tempBanner.style.left = '8px';
+        tempBanner.style.right = '8px';
+        tempBanner.style.minHeight = '36px';
+        tempBanner.style.padding = '8px 10px';
+        tempBanner.style.borderRadius = '10px';
+        tempBanner.style.background = 'rgba(16, 185, 129, 0.14)';
+        tempBanner.style.border = '1px solid rgba(16, 185, 129, 0.35)';
+        tempBanner.style.color = '#065f46';
+        tempBanner.style.fontSize = '12px';
+        tempBanner.style.fontWeight = '700';
+        tempBanner.style.zIndex = '4';
+        tempBanner.style.pointerEvents = 'none';
+        tempBanner.textContent = `임시출석 ${uniqueStudents.length}건 · ` +
+            uniqueStudents.map((s) => `${s.name}(${s.grade || '-'})`).join(', ');
+        grid.appendChild(tempBanner);
+    }
 
     // 시간 선 오버레이 (박스 위에 표시, 클릭 통과)
     const lineOverlay = document.createElement('div');
@@ -5919,6 +5959,32 @@ window.toggleStudentList = function() {
     }
 }
 
+window.openHistoryFromStudentList = async function(studentId, focusScoreInput) {
+    const sid = String(studentId || '');
+    if (!sid) return;
+    const student = students.find((s) => String(s.id) === sid);
+    if (!student) {
+        showToast('학생 정보를 찾을 수 없습니다.', 'warning');
+        return;
+    }
+    const attSidInput = document.getElementById('att-student-id');
+    if (attSidInput) attSidInput.value = sid;
+
+    const drawer = document.getElementById('student-drawer');
+    if (drawer && drawer.classList.contains('open')) {
+        toggleStudentList();
+    }
+
+    await window.openHistoryModal();
+    if (focusScoreInput) {
+        setTimeout(() => {
+            if (typeof window.openHistoryScoreAction === 'function') {
+                window.openHistoryScoreAction();
+            }
+        }, 80);
+    }
+};
+
 // 동명이인 감지: 같은 이름의 학생이 여러 명인지 확인
 function getDuplicateNameSet() {
     const nameCount = {};
@@ -6081,6 +6147,14 @@ window.renderDrawerList = function() {
                     <b>${s.name} ${dupBadge}<span>${s.grade}</span></b>
                     ${schoolLabel}
                     <span>${s.studentPhone || '-'}</span>
+                </div>
+                <div class="student-quick-actions">
+                    <button type="button" class="student-quick-btn" onclick="event.stopPropagation(); openHistoryFromStudentList('${s.id}', false)">
+                        <i class="fas fa-history"></i> 이력
+                    </button>
+                    <button type="button" class="student-quick-btn score" onclick="event.stopPropagation(); openHistoryFromStudentList('${s.id}', true)">
+                        <i class="fas fa-square-poll-vertical"></i> 점수
+                    </button>
                 </div>
                 ${assignControl}
                 <select id="status-select-${s.id}" class="status-select ${s.status}" data-student-id="${s.id}" data-original-status="${s.status}" onchange="updateStudentStatus('${s.id}', this.value)">

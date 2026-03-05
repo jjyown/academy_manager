@@ -28,17 +28,26 @@ where schemaname = 'public'
 order by policyname;
 
 -- 2) 앱 계정 기준 owner별 데이터 건수 확인(운영 체크)
--- owner_user_id를 실제 운영 계정 UUID로 치환
+-- owner_user_id를 치환하지 않아도 실행되도록 안전 파라미터 처리
+-- (치환 시 해당 owner만 필터링, 미치환 시 전체 owner 요약)
+with owner_param as (
+    select nullif('REPLACE_WITH_OWNER_UUID', 'REPLACE_WITH_OWNER_UUID')::uuid as owner_id
+)
 select owner_user_id, count(*) as score_count
 from public.student_test_scores
-where owner_user_id = 'REPLACE_WITH_OWNER_UUID'::uuid
+where (select owner_id from owner_param) is null
+   or owner_user_id = (select owner_id from owner_param)
 group by owner_user_id;
 
 -- 3) 최근 데이터 샘플 확인(운영 체크)
 -- exam_name/score/max_score 값이 앱 입력과 일치하는지 확인
+with owner_param as (
+    select nullif('REPLACE_WITH_OWNER_UUID', 'REPLACE_WITH_OWNER_UUID')::uuid as owner_id
+)
 select id, owner_user_id, student_id, teacher_id, exam_name, exam_date, score, max_score, created_at, updated_at
 from public.student_test_scores
-where owner_user_id = 'REPLACE_WITH_OWNER_UUID'::uuid
+where (select owner_id from owner_param) is null
+   or owner_user_id = (select owner_id from owner_param)
 order by created_at desc
 limit 20;
 

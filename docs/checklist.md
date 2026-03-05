@@ -152,6 +152,39 @@
 | 2026-03-04 | 학생관리 20차(학생용 출석화면 고정형 분리: 수동체크 제거 + 2패널 단순화) | `index.html`, `qr-attendance.js`, `style.css`, `docs/*` 수정 + `node --check qr-attendance.js` + `node --check script.js` + `ReadLints` | PASS | 학생 화면에서 수동체크 UI를 제거하고 QR+전화번호 2패널 고정 구조로 재정렬. 가로는 좌우, 세로는 상하 자동 배치로 10인치 태블릿 전체화면 사용성을 높였고 탭 전환 오조작 가능성을 제거 |
 | 2026-03-04 | 학생관리 21차(10인치 터치 최적화 2차: 버튼/입력 확대) | `index.html`, `style.css`, `docs/*` 수정 + `ReadLints` | PASS | 상단 제어 버튼을 클래스 기반으로 정리해 터치 영역을 확대하고, 900~1400px 구간에서 입력/버튼/타이포를 확장해 오터치와 가독성 문제를 완화. 기존 출석 처리 로직 영향 없이 UI 레이어만 조정 |
 | 2026-03-04 | 학생관리 22차(키보드 오버레이 대응 1차: 번호입력 가림 보정) | `qr-attendance.js`, `style.css`, `docs/*` 수정 + `node --check qr-attendance.js` + `ReadLints` | PASS | 전화번호 입력 포커스 시 `visualViewport`로 키보드 높이를 감지해 하단 여백을 동적으로 보정하고, 키보드 오픈 중 듀얼 레이아웃을 단일열로 전환해 입력창/버튼 가림을 완화. 페이지 종료 시 이벤트 해제로 누수 방지 |
+| 2026-03-04 | 학생관리 23차(운영 검증 SQL placeholder 오류 방지) | `STUDENT_TEST_SCORE_VERIFY.sql`, `STUDENT_SCHEMA_VERIFY.sql`, `docs/*` 수정 + 정적 검토 | PASS | `REPLACE_WITH_OWNER_UUID` 미치환 상태에서도 검증 쿼리가 안전하게 실행되도록 `nullif(... )::uuid` 파라미터 패턴으로 보강. SQL Editor 복붙 실행 시 UUID 캐스팅 오류 재발을 차단 |
+| 2026-03-04 | 학생관리 24차(스키마 검증 쿼리 컬럼 호환 보강) | `STUDENT_SCHEMA_VERIFY.sql`, `docs/*` 수정 + 정적 검토 | PASS | `students.updated_at` 미존재 환경에서 검증 쿼리가 실패하던 문제를 제거하기 위해 샘플 조회 컬럼/정렬 기준을 공통 컬럼(`id`) 기반으로 수정 |
+| 2026-03-04 | 학생관리 25차(운영 SQL 반영 최종 검증 결과 확정) | Supabase SQL Editor 실행 결과 확인(SETUP/UPDATE success + VERIFY 결과 테이블 확인) + 문서 동기화 | PASS | `STUDENT_TEST_SCORE_SETUP.sql`/`STUDENT_SCHEMA_UPDATE.sql` 실행 성공, 테스트 점수 정책 조회 4건 확인, 학생 스키마 샘플 조회 성공으로 SQL 운영 반영 검증을 완료 처리 |
+| 2026-03-04 | 학생관리 26차(학생 목록 이력/점수 퀵 액션 추가) | `script.js`, `style.css`, `mobile.css`, `docs/*` 수정 + `node --check script.js` + `ReadLints` | PASS | 학생 목록 카드에 `이력`/`점수` 버튼을 추가해 학생 정보 수정 외에도 이력/점수 입력으로 즉시 진입 가능하게 보강. 점수 버튼은 이력 모달 오픈 후 점수 섹션 자동 포커스로 연결 |
+| 2026-03-04 | 학생관리 27차(재석확인 오탐 팝업 방지: 일정 유효성 재검증) | `qr-attendance.js`, `docs/*` 수정 + `node --check qr-attendance.js` + `ReadLints` | PASS | 재석확인 팝업 오픈 전에 큐 항목의 일정 유효성(오늘 날짜/해당 시각 일정 존재)을 재확인하고 무효 항목을 즉시 제거하도록 수정. 일정 이동/삭제 직후 발생하던 "학생이 자리에 있나요?" 오탐 팝업을 차단 |
+| 2026-03-04 | 학생관리 28차 준비(테스트 점수 앱 실데이터 운영 검증 범위 고정) | `docs/plan.md`, `docs/context.md`, `docs/checklist.md` 동기화 | PASS | 다음 우선 작업을 앱 실데이터 저장/조회/삭제 검증으로 고정하고, SQL 반영 완료 상태를 문서 리스크와 우선순위에 일치시키도록 정리 |
+| 2026-03-04 | 학생관리 28차 실검증 1차 시도(브라우저 자동화) | 로컬 서버(`http://127.0.0.1:4173/`) 접속 후 학생관리→점수 저장/조회/삭제 시나리오 자동 실행 시도 | BLOCKED | 초기 화면이 `auth-page` 로그인 단계라 학생관리 화면 진입 불가. 운영 계정(또는 테스트 계정) 제공 후 동일 시나리오 재실행 필요 |
+| 2026-03-04 | 학생관리 29차(학생용 QR 화면 종료 PIN 잠금 1차) | `qr-attendance.js`, `docs/*` 수정 + `node --check qr-attendance.js` + `ReadLints` | PASS | QR 학생 화면 닫기 버튼에 선생님 PIN 재인증을 필수화하고, `current_teacher_id` 기반 `pin_hash` 검증이 성공할 때만 종료되도록 적용. 인증 취소/실패 시 화면 유지로 학생의 운영 화면 이탈을 차단 |
+| 2026-03-04 | 학생관리 30차(재석확인 팝업 미종료 버그 수정) | `qr-attendance.js`, `docs/*` 수정 + `node --check qr-attendance.js` + `ReadLints` | PASS | 원인: 팝업 자동닫힘이 "전체 대기 큐 완료" 기준이라 타 선생님/타 시간 미처리건이 있으면 창이 남음. 조치: 현재 선생님+현재 timeKey 완료 기준으로 닫힘 판정 및 큐 정리를 분리해 `출석` 처리 후 창이 정상 종료되도록 보정 |
+| 2026-03-04 | 학생관리 30차 보강(재석확인 팝업 DOM 기준 보조 닫힘 판정) | `qr-attendance.js`, `docs/*` 수정 + `node --check qr-attendance.js` + `ReadLints` | PASS | `출석/지각/결석/보강` 공통 경로에서 큐 상태와 UI 상태가 순간 불일치할 때를 대비해, 팝업 내 미선택 체크박스가 없으면 닫힘 처리하도록 보강 |
+| 2026-03-04 | 학생관리 31차(일정 재등록 후 `이미 출석` 오탐 보정) | `qr-attendance.js`, `docs/*` 수정 + `node --check qr-attendance.js` + `ReadLints` | PASS | 원인: QR 중복 판정에서 `scheduled_time` 미일치 시 최신 레코드 폴백을 사용해 과거 기록이 현재 수업에 매칭됨. 조치: QR 경로는 엄격한 `scheduled_time` 일치 조회(`allowScheduledFallback=false`)로 변경해 같은 시간 재등록 오탐을 차단 |
+| 2026-03-04 | 학생관리 32차(하루 다중 일정 운영 점검 시나리오 정의) | 문서 3종에 A~D 시나리오(정상 다중/재등록/시간경계/임시혼합) 추가 | PASS | 다음 실기기 점검 시 동일 기준으로 PASS/FAIL을 남길 수 있도록 테스트 표준을 고정 |
+| 2026-03-04 | 학생관리 33차(번호인증 `만료 QR` 오탐 보정) | `qr-attendance.js`, `docs/*` 수정 + `node --check qr-attendance.js` + `ReadLints` | PASS | 원인: 전화번호 인증도 QR 토큰 검증(DB/로컬 비교)을 타면서 `만료된 QR코드` 오탐 발생. 조치: `phone_last4` 경로는 토큰 만료 검증을 스킵하고 출석 엔진만 실행하도록 분리 |
+| 2026-03-04 | 학생관리 32차-시나리오 A (정상 다중 일정) | `18:00/20:00` 등록 후 18:00 스캔 | TODO | 기대: 18:00만 처리되고 20:00은 재석확인 대기(또는 후속 확인)로 남아야 함 |
+| 2026-03-04 | 학생관리 32차-시나리오 B (재등록 오탐 방지) | `20:00 출석 -> 삭제 -> 20:00 재등록 -> 재스캔` | TODO | 기대: `already_processed` 오탐 없이 정상 출석 처리 |
+| 2026-03-04 | 학생관리 32차-시나리오 C (시간 경계) | `19:59/20:00/20:01` 순차 스캔 | TODO | 기대: 출석/출석/지각 판정 일관 + 재석확인 팝업 정책 일치 |
+| 2026-03-04 | 학생관리 32차-시나리오 D (임시출석 혼합) | 일정 미등록 임시출석 후 같은날 정규 일정 등록/스캔 | TODO | 기대: 임시출석 레코드와 정규 출석 레코드 충돌 없음 |
+| 2026-03-04 | 학생관리 33차(전화번호 인증 `만료` 오탐 보정) | `qr-attendance.js`, `docs/*` 수정 + `node --check qr-attendance.js` + `ReadLints` | PASS | 원인: 전화번호 인증도 QR 토큰 만료 검증을 타서 `student_code`/토큰 불일치 시 `만료된 QR코드` 오탐이 발생. 조치: `phone_last4` 모드는 토큰 만료 검증을 스킵하고 payload 토큰 fallback을 추가 |
+| 2026-03-04 | 학생관리 34차(출석 판정 그레이스 2분 도입) | `qr-attendance.js`, `docs/*` 수정 + `node --check qr-attendance.js` + `ReadLints` | PASS | 수업 시작 후 2분까지를 출석으로 처리하도록 정책 반영. 2분 초과~종료 전은 지각, 종료 후는 결석으로 유지해 현장 체감과 판정 일관성을 개선 |
+| 2026-03-04 | 학생관리 36차(무일정 스캔 결석/이미처리 오탐 보정) | `qr-attendance.js`, `docs/*` 수정 + `node --check qr-attendance.js` + `ReadLints` | PASS | 원인: `absent`도 이미처리로 간주 + 일정 조회가 타 선생님 일정까지 포함되어 무일정 상황에서 결석/이미처리 오탐 발생. 조치: 처리완료 상태를 `present/late/makeup`으로 제한하고 일정 조회를 현재 선생님 기준으로 필터링 |
+| 2026-03-04 | 학생관리 37차(임시출석 시간표 가시화) | `script.js`, `docs/*` 수정 + `node --check script.js` + `ReadLints` | PASS | 원인: 임시출석은 일정(`schedules`) 블록이 없어 시간표가 비어 보임. 조치: 시간표 상단에 `임시출석 n건` 배너를 표시해 학생명/학년을 즉시 확인 가능하게 보강 |
+| 2026-03-04 | 학생관리 38차(무일정 `이미처리` 오탐 축소: 임시출석 기준) | `qr-attendance.js`, `docs/*` 수정 + `node --check qr-attendance.js` + `ReadLints` | PASS | 원인: 무일정 분기 중복판정이 넓게 적용돼 일정 기반 기록까지 `already_processed`로 오탐될 여지가 있었음. 조치: 현재 교사 기준 조회 + 임시출석 기록(`scheduled_time` 없음/임시출석 로그)일 때만 중복 차단 |
+| 2026-03-04 | 학생관리 39차(무일정 `이미처리` 재오탐 추가 보정: 임시출석 쿼리/owner 필터) | `qr-attendance.js`, `docs/*` 수정 + `node --check qr-attendance.js` + `ReadLints` | PASS | 원인: 무일정 중복조회가 일반 출석/타원장 레코드까지 참조할 여지가 남아 `already_processed`가 재발할 수 있었음. 조치: 무일정 분기 조회를 `scheduled_time is null` + `owner_user_id` + `currentTeacherId`로 고정하고 공통 조회함수에도 owner 필터 추가 |
+| 2026-03-04 | 학생관리 40차(무일정 스캔 정책 전환: 미처리 저장 + 자동일정 생성) | `qr-attendance.js`, `docs/*` 수정 + `node --check qr-attendance.js` + `ReadLints` | PASS | 원인: 무일정 스캔이 즉시 `출석`으로 저장되어 후속 확인 전 상태 확정이 이뤄지는 운영 혼선. 조치: 무일정 스캔을 `status=none(미처리)`로 저장하고 QR 시각 기록, 현재 시각 일정 자동 생성으로 시간표 즉시 반영 |
+| 2026-03-04 | 학생관리 41차(전화번호 인증 패널 소형 숫자패드 추가) | `index.html`, `style.css`, `qr-attendance.js`, `docs/*` 수정 + `node --check qr-attendance.js` + `ReadLints` | PASS | 원인: 태블릿에서 번호 4자리 입력 시 가상키보드 의존으로 입력 동선이 길고 가림 이슈가 반복됨. 조치: 입력창 하단에 숫자패드(0~9/초기화/지우기)와 전용 핸들러를 추가해 터치 입력만으로 인증 가능하도록 보강 |
+| 2026-03-04 | 학생관리 42차(숫자패드 확인 버튼 일체화) | `index.html`, `style.css`, `docs/*` 수정 + `node --check qr-attendance.js` + `ReadLints` | PASS | 원인: 숫자패드 입력 후 상단 인증 버튼으로 다시 이동해야 하는 터치 왕복이 남아 있었음. 조치: 숫자패드 하단에 `키패드 확인` 버튼을 추가해 숫자패드 영역에서 바로 인증 실행 가능하도록 보강 |
+| 2026-03-04 | 학생관리 43차(4자리 입력 즉시 자동 인증) | `index.html`, `qr-attendance.js`, `docs/*` 수정 + `node --check qr-attendance.js` + `ReadLints` | PASS | 원인: 숫자 4자리 입력 완료 후 추가 탭(인증)이 필요해 반복 입력 효율이 떨어짐. 조치: 입력창/숫자패드 모두 4자리 완성 시 자동 인증을 실행하고, `phoneAuthSubmitting` 가드로 중복 요청을 차단 |
+
+## 학생관리 32차 결과 입력 템플릿 (복붙용)
+- 아래 1줄을 복붙해서 결과만 수정
+`A: PASS/FAIL (메모) | B: PASS/FAIL (메모) | C: PASS/FAIL (메모) | D: PASS/FAIL (메모)`
+- 예시
+`A: PASS (18:00 처리, 20:00 대기 확인) | B: FAIL (재등록 후 still already_processed) | C: PASS (19:59/20:00 출석, 20:03 지각) | D: PASS (임시출석과 정규출석 충돌 없음)`
 
 ## 릴리즈 전 최종 확인
 - [x] 치명 이슈 없음

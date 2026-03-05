@@ -614,6 +614,16 @@
     .student-item {
         padding: 10px 12px;
     }
+    .student-quick-actions {
+        width: 100%;
+        justify-content: flex-start;
+        margin-top: 6px;
+    }
+    .student-quick-btn {
+        min-height: 34px;
+        font-size: 11px;
+        padding: 6px 10px;
+    }
 
     .student-info b {
         font-size: 14px;

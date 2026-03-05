@@ -25,10 +25,15 @@ where schemaname = 'public'
 order by indexname;
 
 -- 4) 확장 필드 샘플 확인(운영 체크)
--- owner_user_id를 실제 운영 계정 UUID로 치환
-select id, name, status, guardian_name, enrollment_start_date, enrollment_end_date, updated_at
+-- owner_user_id를 치환하지 않아도 실행되도록 안전 파라미터 처리
+-- (치환 시 해당 owner만 필터링, 미치환 시 최근 학생 샘플)
+with owner_param as (
+    select nullif('REPLACE_WITH_OWNER_UUID', 'REPLACE_WITH_OWNER_UUID')::uuid as owner_id
+)
+select id, name, status, guardian_name, enrollment_start_date, enrollment_end_date
 from public.students
-where owner_user_id = 'REPLACE_WITH_OWNER_UUID'::uuid
-order by updated_at desc
+where (select owner_id from owner_param) is null
+   or owner_user_id = (select owner_id from owner_param)
+order by id desc
 limit 20;
 
