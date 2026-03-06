@@ -15,14 +15,21 @@ Before coding, read these files in order:
 1. Restate the current task in one or two sentences.
 2. Propose a short implementation plan aligned with `docs/plan.md`.
 3. Implement in small steps and report changed files clearly.
-4. Update documents before final response:
+4. Update document base date first (HARD REQUIREMENT):
+   - `docs/plan.md`, `docs/context.md`, `docs/checklist.md`의 `문서 기준일`을 **시스템 오늘 날짜**로 먼저 통일한다.
+   - 날짜는 고정값이 아니라 매 작업일마다 갱신한다. 예: 오늘 2026-03-06 저장, 다음날 작업 시 2026-03-07로 재저장.
+   - 날짜가 하나라도 다르면 구현/응답을 진행하지 않는다.
+5. Update documents before final response:
    - `docs/plan.md`: status and next step
    - `docs/context.md`: key decisions and reasons
    - `docs/checklist.md`: checked and unchecked items
-5. If any checklist item is skipped, explain why.
+6. Run date consistency check before final response:
+   - 세 문서의 `문서 기준일`이 동일한지 확인하고, 불일치 시 반드시 수정 후에만 종료한다.
+7. If any checklist item is skipped, explain why.
 
 ## Quality Gate
 
 - Run or describe relevant verification after edits.
 - Explicitly mention risks, assumptions, and follow-up work.
 - Avoid changing direction silently; record scope changes in `docs/context.md`.
+- NEVER finalize while `문서 기준일` mismatch exists in docs.

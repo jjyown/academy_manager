@@ -1,10 +1,12 @@
 # 출석관리앱 체크리스트
 
-- 문서 기준일: 2026-03-01
+- 문서 기준일: 2026-03-06
 
 ## 공통 품질 체크
 - [x] 요구사항 재확인 후 구현 시작
 - [x] 문서 기준일을 작업 당일로 갱신
+- [x] 다음날 작업 시 `문서 기준일`을 다음 날짜로 재갱신(고정 날짜 사용 금지)
+- [x] 문서 3종(`plan/context/checklist`)의 `문서 기준일` 완전 일치 확인
 - [x] 변경 파일/영향 범위 확인
 - [ ] 에러 처리(실패 응답/예외) 포함
 - [x] 회귀 가능 구간 점검
@@ -185,12 +187,72 @@
 | 2026-03-04 | 학생관리 45차 문서 보강(인계/리스크 동기화) | `docs/plan.md`, `docs/context.md`, `docs/checklist.md` 정리 + 상호 참조 확인 | PASS | 변경 이력에 44/45차를 명시하고, 학생번호 전용 인증 정책의 실기기 확인 필요 리스크를 추가해 다음 검증 포인트를 고정 |
 | 2026-03-04 | 학생관리 46차(상단 제어 버튼 숨김 + 더블탭 전체화면 토글) | `index.html`, `style.css`, `qr-attendance.js`, `docs/*` 수정 + `node --check qr-attendance.js` + `ReadLints` | PASS | 원인: 학생이 `전체화면/카메라전환` 버튼을 탭해 화면 상태를 임의 변경할 수 있는 운영 리스크. 조치: 버튼은 학생 화면에서 숨기고 상단 제목 더블탭 제스처로만 전체화면을 전환하도록 변경, 닫기 PIN 정책은 유지 |
 | 2026-03-04 | 학생관리 47차(모서리 3초 롱프레스 카메라 버튼 + 카메라전환 PIN 인증) | `index.html`, `style.css`, `qr-attendance.js`, `docs/*` 수정 + `node --check qr-attendance.js` + `ReadLints` | PASS | 원인: 카메라 버튼 상시 노출 시 학생 오조작 우려가 큼. 조치: 모서리 3초 롱프레스 때만 카메라 전환 버튼을 12초간 노출하고, 실제 전환 시 선생님 비밀번호를 매번 검증하도록 보강 |
+| 2026-03-01 | 학생관리 48차(다중 시간대 이력 분리 + 겹침 오탐 보정) | `script.js`, `qr-attendance.js`, `docs/*` 수정 + `node --check script.js` + `node --check qr-attendance.js` + `ReadLints` | PASS | 원인1: 출석 이력이 날짜 단위 1건 렌더여서 같은 날 다중 시간대가 사라진 것처럼 보임. 조치1: `날짜+시간` 슬롯 단위 렌더로 분리. 원인2: 겹침 판정에서 문자열 duration 계산 오류로 인접 시간대 오탐 발생. 조치2: duration 숫자 정규화 후 겹침 계산 |
+| 2026-03-01 | 학생관리 49차(다교사 시간표 스코프 + 후속 알림 라우팅 보강) | `index.html`, `style.css`, `script.js`, `qr-attendance.js`, `docs/*` 수정 + `node --check script.js` + `node --check qr-attendance.js` + `ReadLints` | PASS | 시간표 상세에 `내 학생만/전체 선생님` 범위 토글을 추가하고 캘린더 배지/시간표 렌더를 스코프 기반으로 분기. 전체 보기에서 교사 배지/레이아웃 키 충돌을 보정했고, QR/번호인증 일정 조회를 전체 선생님 기준으로 확장해 후속 큐 생성을 정확화. 알림 팝업은 기존 teacher 필터를 유지해 담당 선생님에게만 노출되도록 유지 |
+| 2026-03-01 | 학생관리 50차(메인 토글 상시노출 + 일정 수정 권한/메모 정책 보강) | `index.html`, `style.css`, `script.js`, `docs/*` 수정 + `node --check script.js` + `ReadLints` | PASS | 월/주간 헤더에 시간표 범위 토글을 상시 노출해 전환 접근성을 개선. 일정 소유 teacher 기준으로 수정/삭제 권한을 고정하고(본인만), 관리자만 PIN 재인증 후 예외 허용하도록 보강. 메모 안내 문구를 개인/공유 운영정책형으로 정리 |
+| 2026-03-01 | 학생관리 51차(등록 일정 전체 공유 기본화) | `script.js`, `index.html`, `docs/*` 수정 + `node --check script.js` + `ReadLints` | PASS | 시간표 기본 스코프를 `all`로 전환하고 선생님 전환 시에도 `전체 선생님` 보기로 재설정되도록 고정. 메인/상세 스코프 선택 UI 기본 순서와 힌트를 공유 정책 기준으로 동기화 |
+| 2026-03-01 | 학생관리 52차(시간표 선생님 라벨 UUID 노출 보정) | `script.js`, `docs/*` 수정 + `node --check script.js` + `ReadLints` | PASS | 선생님 이름 조회 fallback에서 `선생님(UUID)` 형태를 제거하고 사용자용 라벨(`선생님`)로 통일. 현재 로그인 선생님 ID는 세션 이름으로 보강해 전체보기 텍스트 깨짐 체감을 완화 |
+| 2026-03-01 | 학생관리 53차(담당 선생님 이름 표시 보강: owner UUID 호환) | `script.js`, `docs/*` 수정 + `node --check script.js` + `ReadLints` | PASS | `getTeacherNameById`에서 `teacher.id` 외 `teacher.owner_user_id` 보조 매핑을 추가하고 owner UUID 케이스를 세션 선생님명으로 2차 보정해 `선생님` 일반 라벨로 떨어지던 블록의 담당명 복원을 강화 |
+| 2026-03-01 | 학생관리 54차(다중 일정 중 1건 삭제 시 타 시간대 상태 초기화 버그 보정) | `script.js`, `docs/*` 수정 + `node --check script.js` + `ReadLints` | PASS | 원인: 단건 삭제에서 `attendance[date]`/`records[date]` 날짜 전체를 삭제해 다른 시간대 상태까지 `미처리`로 초기화됨. 조치: 해당 시간 슬롯(`date+startTime`)만 제거하고, 남은 슬롯이 없을 때만 날짜 키 삭제 |
+| 2026-03-01 | 학생관리 55차(묶음 일정 블록 담당 선생님명 복원 보강) | `script.js`, `docs/*` 수정 + `node --check script.js` + `ReadLints` | PASS | 묶음 블록용 선생님명 해석 함수에서 `teacher.id` 매칭 실패 시 학생 `teacher_id` 및 로컬 학생-선생님 매핑(`getAssignedTeacherId`) fallback을 추가. 그룹 라벨이 `선생님`일 때 후속 이벤트 이름으로 승격해 담당명 노출률을 개선 |
+| 2026-03-01 | 학생관리 56차(타 교사 일정 조회전 관리자 인증 + 완전 보기 전용) | `script.js`, `docs/*` 수정 + `node --check script.js` + `ReadLints` | PASS | 타 교사 일정 클릭 시 관리자 비밀번호 인증을 추가하고, 모달을 읽기 전용으로 고정해 출석/일정/메모/삭제 편집 액션을 전면 비활성화. 권한 함수도 타 교사 편집을 관리자 포함 차단하도록 단순화 |
+| 2026-03-01 | 학생관리 57차(기간/일괄 삭제 경로 소유자 가드 + 정책 문구 고정) | `script.js`, `docs/*` 수정 + `node --check script.js` + `ReadLints` | PASS | `executeBulkDelete`/`executePeriodDelete` 시작 시 선생님 컨텍스트 가드를 추가하고, 확인창에 `대상: 내가 등록한 일정만` 문구를 반영해 삭제 경로에서도 소유자 전용 정책을 명확히 고정 |
+| 2026-03-01 | 학생관리 58차(상태 적용 범위 팝업 제거 + 담당 선생님 단일 반영) | `script.js`, `qr-attendance.js`, `docs/*` 수정 + `node --check script.js` + `node --check qr-attendance.js` + `ReadLints` | PASS | `상태 적용 범위` 선택 팝업을 제거하고 상태 변경을 현재 선생님 일정에만 즉시 반영하도록 고정. 수업 관리 모달/출석 이력 모달 모두 동일 정책으로 통일해 다교사 동시 반영 혼선을 제거 |
+| 2026-03-01 | 학생관리 59차(묶음 일정 클릭 시 관리자 인증 과노출 보정) | `script.js`, `docs/*` 수정 + `node --check script.js` + `ReadLints` | PASS | 모달 진입 전 owner teacher id를 정규화해 legacy 식별자 혼입으로 인한 타교사 오판정을 완화. 본인 담당 학생 클릭 시 불필요한 관리자 인증 팝업 반복을 줄이고, 인증 문구의 `선생님 선생님` 중복도 제거 |
+| 2026-03-01 | 학생관리 60차(묶음 규칙 보정: 교사별 분리 + 동일교사만 묶기) | `script.js`, `docs/*` 수정 + `node --check script.js` + `ReadLints` | PASS | 전체 보기 묶음 키를 교사 정규화 키로 전환해 동시간대 A/B 교사 일정은 분리하고, 동일 교사 동시간 다건만 묶이도록 보정. legacy teacher_id 혼입 케이스에서도 학생 매핑 fallback으로 그룹 분리를 강화 |
+| 2026-03-01 | 학생관리 61차(시간표 교사 배지 가시성 강화) | `style.css`, `docs/*` 수정 + `ReadLints` | PASS | `evt-teacher` 배지를 고대비 캡슐형(그라데이션/테두리/그림자)으로 강화하고 `담당` 프리픽스를 추가해 다교사 분리 화면에서 블록 담당 교사를 더 빠르게 식별할 수 있도록 보강 |
+| 2026-03-01 | 학생관리 62차(교사 수 무관 배지 색상 자동화) | `script.js`, `style.css`, `docs/*` 수정 + `node --check script.js` + `ReadLints` | PASS | 교사 식별자 해시 기반으로 배지 색상을 동적 생성해 교사 수 증가 시에도 별도 수동 매핑 없이 구분성을 유지. CSS 변수(`--evt-teacher-bg/border/shadow`)로 스타일 주입 구조를 표준화 |
+| 2026-03-01 | 학생관리 63차(교사 배지 유사색 충돌 완화) | `script.js`, `docs/*` 수정 + `node --check script.js` + `ReadLints` | PASS | 동일 화면의 교사 배지 hue 간격(최소 각도)을 강제해 색상 유사도를 낮춤. 동일 교사는 고정색을 유지하면서도 동시 노출 교사 간 색상 충돌을 완화 |
+| 2026-03-01 | 학생관리 64차(출석 완료 일정이 결석으로 재변경되는 회귀 보정) | `script.js`, `docs/*` 수정 + `node --check script.js` + `ReadLints` | PASS | 원인: `scheduled_time` 포맷(`HH:MM:SS`)과 로컬 키(`HH:MM`) 불일치로 자동 결석 경로가 기존 출석 상태를 미인식. 조치: 시간키 정규화 유틸을 추가하고 자동결석/동기화/로딩 전 구간에 적용해 이미 처리된 슬롯 덮어쓰기를 차단 |
+| 2026-03-06 | 학생관리 65차(출석기록 메타 가시화: 처리방식/인증시간/자리확인/처리시간) | `qr-attendance.js`, `docs/*` 수정 + `node --check qr-attendance.js` + `ReadLints` | PASS | 원인: 출석기록 카드가 `QR 스캔 시간` 중심으로만 보여 처리 경로(번호입력/재석확인/수동확정) 설명이 어려움. 조치: 기존 저장 필드 조합으로 처리방식/인증시간/자리확인/처리시간을 카드에 동시 표기 |
+| 2026-03-06 | 학생관리 66차(출석기록 메타 DB 정규화 2단계) | `ATTENDANCE_RECORD_META_UPDATE.sql`, `SUPABASE_COMPLETE_SETUP.sql`, `qr-attendance.js`, `database.js`, `docs/*` 수정 + `node --check qr-attendance.js` + `node --check script.js` + `node --check database.js` + `ReadLints` | PASS | 조치1: 메타 컬럼(`attendance_source/auth_time/presence_checked/processed_at`) 추가 및 백필 SQL 작성. 조치2: 앱 저장 로직이 신규 컬럼 우선 저장하고 미마이그레이션 DB에서는 레거시 payload로 자동 재시도. 조치3: 이력 화면은 신규 컬럼 우선, 구형 필드 폴백으로 해석 |
+| 2026-03-06 | 파일 정리 1차(66차 후속 안정성 점검) | `node --check qr-attendance.js; node --check script.js; node --check database.js` + 문서 3종 동기화 확인 | PASS | 세 파일 모두 문법 오류 없음. 코드 추가 변경 없이 정리 단계로 마감하고, 남은 작업은 운영 SQL 적용 + 실기기 회귀로 고정 |
+| 2026-03-06 | 학생관리 67차(관리자 인증 시 타교사 일정 수정/삭제 허용 복원) | `script.js` 권한 분기 수정 + `node --check script.js` + 문서 3종 동기화 | PASS | 타교사 일정 진입 시 관리자 PIN 인증 성공하면 읽기전용을 해제해 상태/메모/일정변경/삭제 가능. 인증 실패/취소 시 기존처럼 차단 유지 |
+| 2026-03-06 | 학생관리 68차(묶음 블록 담당 라벨 `선생님` 폴백 축소) | `script.js`(`getTeacherNameById`) 수정 + `node --check script.js` + `ReadLints` + 문서 3종 동기화 | PASS | teacher id/owner id 해석을 대소문자/공백 무시로 보강하고, UUID/난독화 키가 아닌 레거시 식별자는 라벨로 유지해 묶음 블록의 `담당 선생님` 일반 표기를 줄임 |
+| 2026-03-06 | 학생관리 69차(전체 일정 로드시 타교사 이름맵 동기화) | `script.js`(`loadAllTeachersScheduleData`, `getTeacherNameById`) 수정 + `node --check script.js` + `ReadLints` + 문서 3종 동기화 | PASS | owner 범위 `teachers` 조회로 `teacherNameLookup`를 갱신하고 라벨 해석 우선순위에 반영해, `teacherList` 지연 시에도 묶음 블록 담당 라벨 복원률을 높임 |
+| 2026-03-06 | 학생관리 70차(묶음 블록 담당 라벨 별칭 보강: `선생님A/B`) | `script.js`(`renderDayEvents`) 수정 + `node --check script.js` + `ReadLints` + 문서 3종 동기화 | PASS | 실제 선생님명 해석 실패 시에도 교사 키별 별칭(`선생님A/B/C...`)을 표시해 묶음 블록 간 담당 구분이 유지되도록 보강 |
+| 2026-03-06 | 학생관리 70차(묶음 담당 라벨 실명 우선 복원: 학생-교사 매핑 점수화) | `script.js`(`renderDayEvents`) 수정 + `node --check script.js` + `ReadLints` + 문서 3종 동기화 | PASS | 묶음 멤버 학생집합을 기준으로 등록 선생님 매핑(teacher_students_mapping + student.teacher_id) 점수를 계산해 담당명을 추론하고, 이름 매칭 실패 시 별칭 fallback 전에 실명 복원을 우선 적용 |
+| 2026-03-06 | 학생관리 71차(결석->출석 후 결석 역전 회귀 보정) | `script.js`(`autoMarkAbsentForPastSchedules`, `setAttendance`, `saveOnlyMemo`) 수정 + `node --check script.js` + `ReadLints` + 문서 3종 동기화 | PASS | 자동결석 전에 DB 최신 상태를 확인해 처리완료 상태 덮어쓰기를 차단하고, 관리자 모드 타교사 일정 편집 시 저장 `teacher_id`를 owner 기준으로 통일해 상태가 작업 후 결석으로 되돌아가는 구조 문제를 보정 |
+| 2026-03-06 | 학생관리 72차(레거시 teacher key 정규화 + 자동결석 슬롯 매칭 보강) | `script.js`(`normalizeLegacyTeacherScheduleOwnership`, `autoMarkAbsentForPastSchedules`, schedule load 경로) 수정 + `node --check script.js` + `ReadLints` + 문서 3종 동기화 | PASS | `teacherScheduleData`의 미등록 teacher key를 등록 teacher id로 병합해 라벨/권한 정합성을 복원하고, 자동결석 DB 확인에서 `HH:MM`/`HH:MM:00`를 함께 조회해 시간포맷 차이로 인한 `출석->결석` 역전을 추가 차단 |
+| 2026-03-06 | 학생관리 73차(묶음 라벨 실명 우선 고정 + `선생님A/B` fallback 제거) | `script.js`(`resolveKnownTeacherId`, `renderDayEvents`) 수정 + `node --check script.js` + `ReadLints` + 문서 3종 동기화 | PASS | 레거시 teacher key를 렌더 단계에서 등록 teacher id로 즉시 해석하고, 묶음 라벨의 별칭 fallback(`선생님A/B`)을 제거해 등록 선생님명 우선 정책을 강화. 복원 실패 시 `담당 미확인`으로 명시 |
+| 2026-03-06 | 학생관리 74차(출석 역전 재발 차단: 날짜동기화 병합 + 결석 그림자 정리) | `script.js`, `qr-attendance.js` 수정 + `node --check script.js` + `node --check qr-attendance.js` + `ReadLints` + 문서 3종 동기화 | PASS | 날짜별 출석 보강 조회를 owner 전체 teacher 병합으로 확장하고 슬롯 중복 상태를 우선순위/최신시각으로 통합. 관리자 모드 타교사 저장 시 남아 있던 과거 결석 그림자 레코드를 조건부 정리해 `출석->결석` 재역전 경로를 추가 차단 |
+| 2026-03-06 | 학생관리 75차(단건 조회 우선순위 + 메모저장 결석 강제저장 차단) | `qr-attendance.js`, `script.js` 수정 + `node --check qr-attendance.js` + `node --check script.js` + `ReadLints` + 문서 3종 동기화 | PASS | 단건 조회 다중 레코드에서 `maybeSingle` 복수결과를 `teacher_id 일치 > scheduled_time 일치 > 상태 우선순위 > 최신시각`으로 점수화 선택하고, fallback 조회도 동일 규칙으로 통일. 메모 저장 시 `absent` 강제 업서트를 제거해 재역전 가능성을 추가 축소 |
+
+## 학생관리 58~64차 실기기 회귀 결과 템플릿 (복붙용)
+- 아래 1줄을 복붙해서 PASS/FAIL만 채워 주세요.
+`58: PASS/FAIL (상태범위 팝업 제거/담당선생님 단일반영) | 59: PASS/FAIL (묶음 블록 관리자 인증 과노출 보정) | 60: PASS/FAIL (동시간대 타교사 분리+동일교사 묶음) | 61: PASS/FAIL (교사 배지 가독성) | 62: PASS/FAIL (다교사 색상 자동화) | 63: PASS/FAIL (유사색 충돌 완화) | 64: PASS/FAIL (출석완료 후 결석 재변경 없음)`
+- 예시
+`58: PASS (담당선생님 일정만 즉시 반영) | 59: PASS (본인학생 클릭 시 인증 팝업 없음) | 60: PASS (A/B 분리, A동시간 2건 묶음) | 61: PASS (태블릿에서도 배지 식별 양호) | 62: PASS (5명 동시 노출 색상 구분됨) | 63: PASS (비슷한 색상 체감 없음) | 64: PASS (새로고침/재진입 후에도 출석 유지)`
+
+## 학생관리 58~64차 실기기 점검 순서 (1->7)
+1) **58차**: 다교사 학생 상태 변경 시 `상태 적용 범위` 팝업이 뜨지 않고 현재 담당 선생님 일정만 즉시 반영되는지 확인
+2) **59차**: 묶음 블록에서 본인 담당 학생 클릭 시 관리자 인증 없이 열리고, 타교사 학생 클릭 시에만 관리자 인증이 뜨는지 확인
+3) **60차**: 같은 시간에 A/B 교사 일정은 분리되고, 같은 교사의 동시간 다건은 1개 묶음 블록으로 보이는지 확인
+4) **61차**: 태블릿/PC에서 교사 배지(담당 라벨) 글자/대비가 충분히 읽히는지 확인
+5) **62차**: 교사 5명 이상 동시 노출 시에도 배지 색이 자동으로 구분되고 텍스트 대비가 유지되는지 확인
+6) **63차**: 같은 화면에서 서로 비슷한 교사 배지 색이 과도하게 겹치지 않는지 확인
+7) **64차**: 출석 또는 지각 처리 후 자동타이머, 재진입, 새로고침을 거쳐도 상태가 결석으로 바뀌지 않는지 확인
+- 결과 보고 형식(복붙): 위 템플릿 1줄 + 실패 시 재현 순서 1줄(학생/시간/교사/기기/브라우저)
 
 ## 학생관리 32차 결과 입력 템플릿 (복붙용)
 - 아래 1줄을 복붙해서 결과만 수정
 `A: PASS/FAIL (메모) | B: PASS/FAIL (메모) | C: PASS/FAIL (메모) | D: PASS/FAIL (메모)`
 - 예시
 `A: PASS (18:00 처리, 20:00 대기 확인) | B: FAIL (재등록 후 still already_processed) | C: PASS (19:59/20:00 출석, 20:03 지각) | D: PASS (임시출석과 정규출석 충돌 없음)`
+
+## 학생관리 71차 결과 입력 템플릿 (복붙용)
+- 아래 1줄을 복붙해서 결과만 수정
+`71: PASS/FAIL (결석->출석 변경 후 시간수정/메모저장/재진입/새로고침/수업종료 이후에도 출석 유지 여부)`
+- 예시
+`71: PASS (결석->출석 변경 후 시간수정/메모저장/재진입/새로고침/수업종료 경과 모두 출석 유지)`
+
+## 학생관리 74차 결과 입력 템플릿 (복붙용)
+- 아래 1줄을 복붙해서 결과만 수정
+`74: PASS/FAIL (묶음 일정/관리자모드에서 결석->출석 변경 후 재진입/자동타이머 이후에도 출석 유지 + 담당라벨 실명 표시 여부)`
+
+## 학생관리 75차 결과 입력 템플릿 (복붙용)
+- 아래 1줄을 복붙해서 결과만 수정
+`75: PASS/FAIL (묶음 일정/관리자모드에서 결석->출석 변경 후 메모저장/재진입/자동타이머 이후에도 결석 재역전 없음)`
 
 ## 릴리즈 전 최종 확인
 - [x] 치명 이슈 없음

@@ -103,6 +103,10 @@ CREATE TABLE IF NOT EXISTS attendance_records (
     qr_scanned BOOLEAN DEFAULT FALSE,
     qr_scan_time TIMESTAMPTZ,        -- QR 스캔 시각
     qr_judgment TEXT,                 -- QR 판정 결과
+    attendance_source TEXT CHECK (attendance_source IN ('qr', 'phone', 'teacher', 'emergency', 'unknown')),
+    auth_time TIMESTAMPTZ,            -- 인증 시각(QR/번호 인증)
+    presence_checked BOOLEAN DEFAULT FALSE, -- 선생님 자리확인 처리 여부
+    processed_at TIMESTAMPTZ,         -- 최종 처리 시각
     memo TEXT,                        -- 선생님 개인 메모
     shared_memo TEXT,                 -- 학부모에게 공유되는 메모
     created_at TIMESTAMPTZ DEFAULT now(),
@@ -260,6 +264,22 @@ DO $$ BEGIN
     -- attendance_records.qr_judgment
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='attendance_records' AND column_name='qr_judgment') THEN
         ALTER TABLE attendance_records ADD COLUMN qr_judgment TEXT;
+    END IF;
+    -- attendance_records.attendance_source
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='attendance_records' AND column_name='attendance_source') THEN
+        ALTER TABLE attendance_records ADD COLUMN attendance_source TEXT CHECK (attendance_source IN ('qr', 'phone', 'teacher', 'emergency', 'unknown'));
+    END IF;
+    -- attendance_records.auth_time
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='attendance_records' AND column_name='auth_time') THEN
+        ALTER TABLE attendance_records ADD COLUMN auth_time TIMESTAMPTZ;
+    END IF;
+    -- attendance_records.presence_checked
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='attendance_records' AND column_name='presence_checked') THEN
+        ALTER TABLE attendance_records ADD COLUMN presence_checked BOOLEAN DEFAULT FALSE;
+    END IF;
+    -- attendance_records.processed_at
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='attendance_records' AND column_name='processed_at') THEN
+        ALTER TABLE attendance_records ADD COLUMN processed_at TIMESTAMPTZ;
     END IF;
     -- teachers.google_email
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='teachers' AND column_name='google_email') THEN

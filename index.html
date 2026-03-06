@@ -415,9 +415,16 @@
         </div>
     </header>
 
-    <div style="display: flex; justify-content: center; margin-top: 20px; gap: 10px;">
+    <div style="display: flex; justify-content: center; align-items: center; margin-top: 20px; gap: 10px; flex-wrap: wrap;">
         <button class="view-btn active" id="tab-month" onclick="switchView('month')">월간</button>
         <button class="view-btn" id="tab-week" onclick="switchView('week')">주간</button>
+        <div class="timetable-scope-main-wrap">
+            <label for="tt-scope-main-select">시간표</label>
+            <select id="tt-scope-main-select" class="timetable-scope-main-select" onchange="setTimetableScope(this.value)">
+                <option value="all">전체 선생님</option>
+                <option value="mine">내 학생만</option>
+            </select>
+        </div>
     </div>
 
     <div class="calendar-wrapper">
@@ -777,11 +784,21 @@
                 <button class="btn-close-x" onclick="closeModal('day-detail-modal')"><i class="fas fa-times"></i></button>
             </div>
             <div class="tt-search-bar">
+                <div class="tt-search-row">
                 <div class="tt-search-input-wrap">
                     <i class="fas fa-search tt-search-icon"></i>
                     <input type="text" id="tt-search-input" class="tt-search-input" placeholder="학생 이름 검색" oninput="searchStudentInTimetable(this.value)">
                     <button type="button" class="tt-search-clear" id="tt-search-clear" onclick="clearTimetableSearch()" style="display:none;"><i class="fas fa-times"></i></button>
                 </div>
+                <div class="tt-scope-wrap">
+                    <label for="tt-scope-select">표시 범위</label>
+                    <select id="tt-scope-select" class="tt-scope-select" onchange="setTimetableScope(this.value)">
+                        <option value="all">전체 선생님</option>
+                        <option value="mine">내 학생만</option>
+                    </select>
+                </div>
+                </div>
+                <div id="tt-scope-hint" class="tt-scope-hint">모든 선생님의 학생 일정을 함께 표시합니다.</div>
             </div>
             <div class="modal-body custom-scroll">
                 <div class="timetable-container">
@@ -801,6 +818,7 @@
             <input type="hidden" id="att-student-id">
             <input type="hidden" id="att-date">
             <input type="hidden" id="att-original-time">
+            <input type="hidden" id="att-owner-teacher-id">
             <div class="attendance-modal-body custom-scroll">
                 <!-- 상단: 학생 정보 + 출석 상태 -->
                 <div class="am-header-row">

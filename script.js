@@ -12,6 +12,7 @@ let currentView = 'month';
 let students = [];  // 전역: 모든 학생 (학생목록은 통합)
 let currentTeacherStudents = [];  // 현재 선생님의 학생만 (일정용)
 let teacherScheduleData = {};  // 선생님별 일정 데이터: { teacherId: { studentId: { date: { start, duration } } } }
+let teacherNameLookup = {}; // 시간표 라벨 복원용: { teacherId/owner_user_id(lowercase): teacherName }
 let customHolidays = {};
 let dailyLayouts = {};
 let currentPaymentDate = new Date();
@@ -26,6 +27,7 @@ let isStudentSaving = false;
 let selectedScheduleStudents = [];
 let isScheduleSaving = false;
 let selectedPeriodDeleteStudents = [];
+let timetableScope = 'all';
 let historyActionContext = { studentId: '', monthPrefix: '' };
 let testScoreSyncState = { mode: 'unknown', message: '동기화 상태 확인 전' };
 const TEST_SCORE_STORAGE_PREFIX = 'student_test_scores__';
@@ -301,7 +303,11 @@ async function checkScheduleOverlap(studentId, dateStr, newStart, newDuration, e
     const conflicts = [];
     const newStartMin = timeToMinutes(newStart);
     if (newStartMin < 0) return conflicts;
-    const newEndMin = newStartMin + (parseInt(newDuration) || 60);
+    const parseDurationMinutes = (value) => {
+        const parsed = parseInt(value, 10);
+        return Number.isFinite(parsed) && parsed > 0 ? parsed : 60;
+    };
+    const newEndMin = newStartMin + parseDurationMinutes(newDuration);
     const checkedKeys = new Set(); // 중복 방지
 
     // 1단계: 로컬 데이터에서 확인
@@ -318,7 +324,7 @@ async function checkScheduleOverlap(studentId, dateStr, newStart, newDuration, e
 
             const existStartMin = timeToMinutes(entry.start);
             if (existStartMin < 0) continue;
-            const existEndMin = existStartMin + (entry.duration || 60);
+            const existEndMin = existStartMin + parseDurationMinutes(entry.duration);
 
             if (newStartMin < existEndMin && existStartMin < newEndMin) {
                 const key = `${teacherId}_${entry.start}`;
@@ -360,7 +366,7 @@ async function checkScheduleOverlap(studentId, dateStr, newStart, newDuration, e
 
                     const existStartMin = timeToMinutes(startStr);
                     if (existStartMin < 0) continue;
-                    const dur = row.duration || 60;
+                    const dur = parseDurationMinutes(row.duration);
                     const existEndMin = existStartMin + dur;
 
                     if (newStartMin < existEndMin && existStartMin < newEndMin) {
@@ -397,11 +403,71 @@ function minutesToTime(min) {
     return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
 }
 
+function normalizeScheduleTimeKey(rawTime) {
+    if (!rawTime) return 'default';
+    const text = String(rawTime).trim();
+    if (!text) return 'default';
+    const match = text.match(/^(\d{1,2}):(\d{2})/);
+    if (!match) return text;
+    return `${String(parseInt(match[1], 10)).padStart(2, '0')}:${match[2]}`;
+}
+
+function getSlotValueByNormalizedTime(slotMap, rawTime) {
+    if (!slotMap || typeof slotMap !== 'object') return null;
+    const target = normalizeScheduleTimeKey(rawTime);
+    if (Object.prototype.hasOwnProperty.call(slotMap, target)) {
+        return slotMap[target];
+    }
+    const matchedKey = Object.keys(slotMap).find((key) => normalizeScheduleTimeKey(key) === target);
+    return matchedKey ? slotMap[matchedKey] : null;
+}
+
 // teacherId로 선생님 이름 가져오기
 function getTeacherNameById(teacherId) {
-    if (!teacherList || !teacherList.length) return `선생님(${teacherId})`;
-    const t = teacherList.find(t => String(t.id) === String(teacherId));
-    return t ? t.name : `선생님(${teacherId})`;
+    const rawId = String(teacherId || '').trim();
+    if (!rawId) return '선생님';
+    const normalizedRawId = rawId.toLowerCase();
+    const canonicalRawId = normalizedRawId.replace(/[^a-z0-9]/g, '');
+    const looksLikeUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(rawId);
+    const looksLikeOpaqueKey = /^[a-z0-9_-]{24,}$/i.test(rawId);
+    const byLookup = String(teacherNameLookup[normalizedRawId] || '').trim();
+    if (byLookup) return byLookup;
+    const byCanonicalLookup = String(teacherNameLookup[canonicalRawId] || '').trim();
+    if (byCanonicalLookup) return byCanonicalLookup;
+    if (teacherList && teacherList.length) {
+        const toCanonical = (value) => String(value || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+        const t = teacherList.find((item) => {
+            const idValue = String(item.id || '').trim().toLowerCase();
+            if (idValue === normalizedRawId) return true;
+            const canonicalId = toCanonical(item.id);
+            return !!(canonicalRawId && canonicalId && canonicalId === canonicalRawId);
+        });
+        if (t && t.name) return t.name;
+        // 과거/혼합 데이터에서 schedule.teacher_id가 owner_user_id로 저장된 경우 보정
+        const ownerMatched = teacherList.find((item) => {
+            const ownerValue = String(item.owner_user_id || '').trim().toLowerCase();
+            if (ownerValue === normalizedRawId) return true;
+            const canonicalOwner = toCanonical(item.owner_user_id);
+            return !!(canonicalRawId && canonicalOwner && canonicalOwner === canonicalRawId);
+        });
+        if (ownerMatched && ownerMatched.name) return ownerMatched.name;
+    }
+    // teacherList 동기화 지연/미매칭 시 UUID를 그대로 노출하지 않도록 사용자용 라벨로 폴백
+    if (String(getCurrentTeacherId() || '') === rawId) {
+        const mine = String(getCurrentTeacherName() || '').trim();
+        if (mine) return mine;
+    }
+    // schedule.teacher_id가 owner id인 케이스에서 현재 세션 선생님 이름으로 2차 보정
+    if (String(cachedLsGet('current_owner_id') || '') === rawId) {
+        const mine = String(getCurrentTeacherName() || '').trim();
+        if (mine) return mine;
+    }
+    // UUID/난독화 키가 아닌 레거시 식별자는 사용자 라벨로 그대로 노출
+    // (예: "선생님3", "teacher3", 과거 이름 기반 키)
+    if (!looksLikeUuid && !looksLikeOpaqueKey && rawId.length <= 24) {
+        return rawId;
+    }
+    return '선생님';
 }
 
 // 겹침 목록을 사용자에게 보여주는 메시지 생성
@@ -513,6 +579,226 @@ function getStorageKey(base) {
     return `${base}__${currentTeacherId || 'no-teacher'}`;
 }
 
+function getTimetableScopeStorageKey() {
+    return getStorageKey('timetable_scope');
+}
+
+function getTeacherIdsForTimetableScope() {
+    const ids = new Set();
+    if (currentTeacherId) ids.add(String(currentTeacherId));
+    if (timetableScope === 'all') {
+        Object.keys(teacherScheduleData || {}).forEach((tid) => {
+            if (tid) ids.add(String(tid));
+        });
+    }
+    return Array.from(ids);
+}
+
+function updateTimetableScopeUi() {
+    const selectEl = document.getElementById('tt-scope-select');
+    if (selectEl && selectEl.value !== timetableScope) {
+        selectEl.value = timetableScope;
+    }
+    const mainSelectEl = document.getElementById('tt-scope-main-select');
+    if (mainSelectEl && mainSelectEl.value !== timetableScope) {
+        mainSelectEl.value = timetableScope;
+    }
+    const hintEl = document.getElementById('tt-scope-hint');
+    if (hintEl) {
+        hintEl.textContent = timetableScope === 'all'
+            ? '모든 선생님의 학생 일정을 함께 표시합니다.'
+            : '현재 선생님에게 배정된 학생 일정만 표시합니다.';
+    }
+}
+
+function restoreTimetableScope() {
+    const saved = localStorage.getItem(getTimetableScopeStorageKey());
+    timetableScope = saved === 'mine' ? 'mine' : 'all';
+    updateTimetableScopeUi();
+}
+
+function persistTeacherScheduleLocalFor(teacherId) {
+    if (!teacherId) return;
+    const key = `teacher_schedule_data__${teacherId}`;
+    localStorage.setItem(key, JSON.stringify(teacherScheduleData[teacherId] || {}));
+}
+
+function resolveScheduleOwnerTeacherId(studentId, dateStr, startTime) {
+    const sid = String(studentId || '');
+    const dateKey = String(dateStr || '');
+    const startKey = String(startTime || '');
+    if (!sid || !dateKey) return String(currentTeacherId || '');
+    for (const tid of Object.keys(teacherScheduleData || {})) {
+        const entries = getScheduleEntries(tid, sid, dateKey);
+        if (startKey) {
+            if (entries.some((entry) => String(entry?.start || '') === startKey)) return String(tid);
+        } else if (entries.length > 0) {
+            return String(tid);
+        }
+    }
+    return String(currentTeacherId || '');
+}
+
+async function verifyCurrentTeacherPinForAdmin(message) {
+    const role = String(getCurrentTeacherRole() || 'teacher');
+    if (role !== 'admin') return false;
+    const current = teacherList.find((t) => String(t.id) === String(currentTeacherId));
+    if (!current || !current.pin_hash) {
+        showToast('관리자 PIN 정보가 없습니다.', 'error');
+        return false;
+    }
+    const input = await showPrompt(message || '관리자 비밀번호를 입력하세요.', {
+        title: '관리자 인증',
+        placeholder: '관리자 비밀번호',
+        inputType: 'password',
+        okText: '확인',
+        cancelText: '취소'
+    });
+    if (input === null) return false;
+    if (!String(input).trim()) {
+        showToast('비밀번호를 입력해주세요.', 'warning');
+        return false;
+    }
+    const inputHash = await hashPin(String(input));
+    if (inputHash !== current.pin_hash) {
+        showToast('관리자 비밀번호가 올바르지 않습니다.', 'error');
+        return false;
+    }
+    return true;
+}
+
+async function verifyAdminPinForCrossTeacherAccess(ownerTeacherName) {
+    const admins = (teacherList || []).filter((t) => String(t.teacher_role || 'teacher') === 'admin' && t.pin_hash);
+    if (!admins.length) {
+        showToast('관리자 비밀번호 정보가 없어 타 선생님 일정을 열 수 없습니다.', 'error');
+        return false;
+    }
+    const ownerLabel = ownerTeacherName && ownerTeacherName !== '선생님'
+        ? `${ownerTeacherName} 선생님`
+        : '해당 선생님';
+    const input = await showPrompt(
+        `${ownerLabel} 일정입니다.\n관리자 비밀번호를 입력하면 조회/수정을 계속할 수 있습니다.`,
+        {
+            title: '관리자 인증',
+            placeholder: '관리자 비밀번호',
+            inputType: 'password',
+            okText: '계속',
+            cancelText: '취소'
+        }
+    );
+    if (input === null) return false;
+    if (!String(input).trim()) {
+        showToast('비밀번호를 입력해주세요.', 'warning');
+        return false;
+    }
+    const inputHash = await hashPin(String(input));
+    const matched = admins.some((admin) => String(admin.pin_hash || '') === String(inputHash));
+    if (!matched) {
+        showToast('관리자 비밀번호가 올바르지 않습니다.', 'error');
+        return false;
+    }
+    return true;
+}
+
+function setAttendanceModalReadOnly(isReadOnly) {
+    const modal = document.getElementById('attendance-modal');
+    if (modal) modal.dataset.readonly = isReadOnly ? '1' : '0';
+
+    const setDisabled = (selector) => {
+        document.querySelectorAll(selector).forEach((el) => {
+            el.disabled = !!isReadOnly;
+        });
+    };
+    setDisabled('#attendance-modal .am-att-btn');
+    setDisabled('#attendance-modal .am-collapse-toggle');
+    setDisabled('#attendance-modal .am-btn-change');
+    setDisabled('#attendance-modal .am-btn-save-memo');
+    setDisabled('#attendance-modal .btn-delete-schedule');
+    setDisabled('#attendance-modal .memo-editor-toolbar .color-btn');
+    setDisabled('#att-edit-date, #att-edit-time, #att-edit-duration');
+
+    const privateMemo = document.getElementById('att-memo');
+    const sharedMemo = document.getElementById('att-shared-memo');
+    if (privateMemo) privateMemo.contentEditable = isReadOnly ? 'false' : 'true';
+    if (sharedMemo) sharedMemo.contentEditable = isReadOnly ? 'false' : 'true';
+}
+
+function isAttendanceModalReadOnly() {
+    const modal = document.getElementById('attendance-modal');
+    return !!(modal && modal.dataset && modal.dataset.readonly === '1');
+}
+
+function isKnownTeacherId(teacherId) {
+    const raw = String(teacherId || '').trim();
+    if (!raw) return false;
+    return (teacherList || []).some((t) => String(t.id) === raw);
+}
+
+function resolveOwnerTeacherIdForModal(studentId, dateStr, startTime, preferredOwnerTeacherId) {
+    const rawCandidates = [
+        preferredOwnerTeacherId,
+        resolveScheduleOwnerTeacherId(studentId, dateStr, startTime),
+        (() => {
+            const st = (students || []).find((item) => String(item.id) === String(studentId));
+            return st ? st.teacher_id : '';
+        })(),
+        (typeof getAssignedTeacherId === 'function' ? getAssignedTeacherId(studentId) : ''),
+        currentTeacherId
+    ].map((v) => String(v || '').trim()).filter(Boolean);
+
+    const candidates = [];
+    rawCandidates.forEach((id) => {
+        if (!id) return;
+        if (!candidates.includes(id)) candidates.push(id);
+        const resolved = typeof resolveKnownTeacherId === 'function' ? resolveKnownTeacherId(id) : '';
+        if (resolved && !candidates.includes(resolved)) candidates.push(resolved);
+    });
+
+    // 우선순위: 실제 teacher.id로 확인 가능한 값
+    const known = candidates.find((id) => isKnownTeacherId(id));
+    if (known) return known;
+
+    // legacy 값만 남은 경우에는 현재 선생님으로 보수 fallback (불필요한 관리자 인증 방지)
+    return String(currentTeacherId || '');
+}
+
+async function verifyScheduleEditPermission(ownerTeacherId) {
+    const ownerId = String(ownerTeacherId || '');
+    const myId = String(currentTeacherId || '');
+    const modal = document.getElementById('attendance-modal');
+    const modalAdminOverride = !!(modal && modal.dataset && modal.dataset.adminOverride === '1');
+    if (!ownerId || ownerId === myId) {
+        return { allowed: true, effectiveTeacherId: ownerId || myId, adminOverride: false };
+    }
+    if (modalAdminOverride) {
+        return { allowed: true, effectiveTeacherId: ownerId, adminOverride: true };
+    }
+    showToast('타 선생님 일정은 보기 전용입니다. 수정/삭제할 수 없습니다.', 'warning');
+    return { allowed: false };
+}
+
+window.setTimetableScope = async function(scope) {
+    const nextScope = scope === 'all' ? 'all' : 'mine';
+    if (timetableScope === nextScope) {
+        updateTimetableScopeUi();
+        return;
+    }
+    timetableScope = nextScope;
+    localStorage.setItem(getTimetableScopeStorageKey(), timetableScope);
+    updateTimetableScopeUi();
+    if (timetableScope === 'all' && typeof loadAllTeachersScheduleData === 'function') {
+        try {
+            await loadAllTeachersScheduleData();
+        } catch (e) {
+            console.warn('[setTimetableScope] 전체 일정 재로드 실패:', e);
+        }
+    }
+    renderCalendar();
+    if (currentDetailDate && document.getElementById('day-detail-modal')?.style.display === 'flex') {
+        renderDayEvents(currentDetailDate);
+    }
+};
+
 // 전역 보관소 키(선생님 구분 없이 모든 학생 공유)
 function getGlobalStorageKey(base) {
     return `${base}__global`;
@@ -555,6 +841,8 @@ async function autoMarkAbsentForPastSchedules() {
                 for (const schedule of entries) {
                     const startTime = schedule?.start;
                     if (!startTime || startTime === 'default') continue;
+                    const normalizedStartTime = normalizeScheduleTimeKey(startTime);
+                    const startWithSeconds = `${normalizedStartTime}:00`;
 
                     const duration = schedule?.duration || 60;
 
@@ -574,18 +862,60 @@ async function autoMarkAbsentForPastSchedules() {
 
                     if (!shouldCheck) continue;
 
+                    // DB 기준으로 이미 처리된 상태가 있으면 자동 결석 덮어쓰기를 금지
+                    // (로컬 캐시 누락/지연으로 인한 present -> absent 역전 방지)
+                    if (typeof window.getAttendanceRecordByStudentAndDate === 'function') {
+                        try {
+                            // 1) 일정 소유 teacher_id 기준 조회
+                            let dbRecord = await window.getAttendanceRecordByStudentAndDate(
+                                studentId,
+                                dateStr,
+                                String(teacherId),
+                                normalizedStartTime,
+                                false
+                            );
+                            // 2) 과거 잘못 저장된 teacher_id를 흡수하기 위한 owner 기준 보조 조회
+                            if (!dbRecord) {
+                                dbRecord = await window.getAttendanceRecordByStudentAndDate(
+                                    studentId,
+                                    dateStr,
+                                    null,
+                                    normalizedStartTime,
+                                    false
+                                );
+                            }
+                            const dbStatus = String(dbRecord?.status || '').toLowerCase();
+                            if (dbStatus === 'present' || dbStatus === 'late' || dbStatus === 'makeup' || dbStatus === 'etc') {
+                                if (!student.attendance) student.attendance = {};
+                                if (!student.attendance[dateStr] || typeof student.attendance[dateStr] !== 'object') {
+                                    student.attendance[dateStr] = {};
+                                }
+                                student.attendance[dateStr][normalizedStartTime] = dbStatus === 'etc' ? 'makeup' : dbStatus;
+                                continue;
+                            }
+                        } catch (dbCheckError) {
+                            console.warn('[autoMarkAbsentForPastSchedules] DB 상태 확인 실패, 로컬 기준으로 진행:', dbCheckError);
+                        }
+                    }
+
                     if (!student.attendance) student.attendance = {};
                     if (typeof student.attendance[dateStr] === 'string') {
                         const prev = student.attendance[dateStr];
                         student.attendance[dateStr] = {};
                         student.attendance[dateStr]['default'] = prev;
                     }
-                    if (student.attendance[dateStr] && typeof student.attendance[dateStr] === 'object' && student.attendance[dateStr][startTime]) continue;
+                    if (student.attendance[dateStr] && typeof student.attendance[dateStr] === 'object') {
+                        const hasAnyStatusForSlot = Object.keys(student.attendance[dateStr]).some((key) => {
+                            const keyNorm = normalizeScheduleTimeKey(key);
+                            return keyNorm === normalizedStartTime && !!student.attendance[dateStr][key];
+                        });
+                        if (hasAnyStatusForSlot) continue;
+                    }
 
                     if (!student.attendance[dateStr] || typeof student.attendance[dateStr] !== 'object') {
                         student.attendance[dateStr] = {};
                     }
-                    student.attendance[dateStr][startTime] = 'absent';
+                    student.attendance[dateStr][normalizedStartTime] = 'absent';
 
                     const ctIdx = currentTeacherStudents.findIndex(s => String(s.id) === String(studentId));
                     if (ctIdx > -1) {
@@ -598,7 +928,7 @@ async function autoMarkAbsentForPastSchedules() {
                         if (!currentTeacherStudents[ctIdx].attendance[dateStr] || typeof currentTeacherStudents[ctIdx].attendance[dateStr] !== 'object') {
                             currentTeacherStudents[ctIdx].attendance[dateStr] = {};
                         }
-                        currentTeacherStudents[ctIdx].attendance[dateStr][startTime] = 'absent';
+                        currentTeacherStudents[ctIdx].attendance[dateStr][normalizedStartTime] = 'absent';
                     }
 
                     if (typeof window.saveAttendanceRecord === 'function') {
@@ -608,7 +938,7 @@ async function autoMarkAbsentForPastSchedules() {
                                 teacherId: String(teacherId),
                                 attendanceDate: dateStr,
                                 checkInTime: null,
-                                scheduledTime: startTime,
+                                scheduledTime: normalizedStartTime,
                                 status: 'absent',
                                 qrScanned: false,
                                 qrScanTime: null,
@@ -880,6 +1210,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     
     // 테마 피커 초기화
     initThemePicker();
+    restoreTimetableScope();
     
     // ===== 세션 플래그 설정 (새로고침 vs 창 닫기 구분) =====
     // sessionStorage는 탭/창을 닫으면 사라지고, 새로고침하면 유지됨
@@ -1022,6 +1353,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     setupHolidayColorChips();
+    updateTimetableScopeUi();
     
     // ✅ restorePageOnLoad()는 제거 - initializeAuth()가 이미 모든 페이지 복원 처리
     // initializeAuth()가 Supabase 세션 기반으로 페이지 라우팅을 완료함
@@ -1306,6 +1638,11 @@ async function setCurrentTeacher(teacher) {
         setTabValue('current_teacher_name', teacher.name || '');
         setTabValue('current_teacher_role', teacher.teacher_role);
         console.log('[setCurrentTeacher] 로컬 저장 완료, teacherId:', teacher.id, '역할:', teacher.teacher_role);
+        restoreTimetableScope();
+        // 운영 기본 정책: 로그인/선생님 전환 시 전체 일정 공유 보기를 우선 적용
+        timetableScope = 'all';
+        localStorage.setItem(getTimetableScopeStorageKey(), timetableScope);
+        updateTimetableScopeUi();
         
         // 1단계: 관리자별 모든 학생 로드
         console.log('[setCurrentTeacher] 1단계: 학생 데이터 로드 중...');
@@ -2484,7 +2821,6 @@ function _renderCalendarImpl() {
 
     // DocumentFragment로 DOM 조작 최소화
     const fragment = document.createDocumentFragment();
-    const activeStudents = getActiveStudentsForTeacher(currentTeacherId);
     const todayStr = getTodayStr();
 
     if (currentView === 'month') {
@@ -2498,7 +2834,7 @@ function _renderCalendarImpl() {
         if (startDow > 0) {
             const prevLastDay = new Date(year, month, 0).getDate();
             for (let i = startDow - 1; i >= 0; i--) {
-                const cell = createCell(new Date(year, month - 1, prevLastDay - i), activeStudents, todayStr);
+                const cell = createCell(new Date(year, month - 1, prevLastDay - i), null, todayStr);
                 cell.classList.add('other-month');
                 fragment.appendChild(cell);
             }
@@ -2506,14 +2842,14 @@ function _renderCalendarImpl() {
         
         // 이번 달
         for (let i = 1; i <= lastDay; i++) {
-            fragment.appendChild(createCell(new Date(year, month, i), activeStudents, todayStr));
+            fragment.appendChild(createCell(new Date(year, month, i), null, todayStr));
         }
         
         // 다음 달 채우기 (5~6줄)
         const totalCells = startDow + lastDay;
         const totalRows = totalCells <= 35 ? 35 : 42;
         for (let i = 1; i <= totalRows - totalCells; i++) {
-            const cell = createCell(new Date(year, month + 1, i), activeStudents, todayStr);
+            const cell = createCell(new Date(year, month + 1, i), null, todayStr);
             cell.classList.add('other-month');
             fragment.appendChild(cell);
         }
@@ -2524,7 +2860,7 @@ function _renderCalendarImpl() {
         for (let i = 0; i <= 6; i++) {
             const dateObj = new Date(start);
             dateObj.setDate(start.getDate() + i);
-            fragment.appendChild(createCell(dateObj, activeStudents, todayStr));
+            fragment.appendChild(createCell(dateObj, null, todayStr));
         }
     }
 
@@ -2541,6 +2877,31 @@ window.renderCalendar = function(immediate) {
     } else {
         _debouncedRender();
     }
+}
+
+function collectCellScheduleSummary(dateStr) {
+    const results = [];
+    const seen = new Set();
+    const teacherIds = getTeacherIdsForTimetableScope();
+    for (const teacherId of teacherIds) {
+        const teacherSched = teacherScheduleData[teacherId] || {};
+        const activeStudents = getActiveStudentsForTeacher(teacherId);
+        for (const student of activeStudents) {
+            if (!student || !shouldShowScheduleForStudent(student, dateStr)) continue;
+            const entries = normalizeScheduleEntries((teacherSched[String(student.id)] || {})[dateStr]);
+            if (!entries.length) continue;
+            const uniqueKey = `${teacherId}__${student.id}`;
+            if (seen.has(uniqueKey)) continue;
+            seen.add(uniqueKey);
+            results.push({
+                studentName: student.name,
+                grade: student.grade || '-',
+                teacherId: String(teacherId),
+                teacherName: getTeacherNameById(teacherId)
+            });
+        }
+    }
+    return results;
 }
 
 function createCell(date, activeStudents, todayStr) {
@@ -2584,22 +2945,12 @@ function createCell(date, activeStudents, todayStr) {
     `;
 
     // 일정이 있는 학생 수 빠르게 카운트
-    let eventCount = 0;
-    const eventNames = [];
-    const teacherId = currentTeacherId;
-    const teacherSched = teacherScheduleData[teacherId] || {};
-    
-    for (let i = 0; i < activeStudents.length; i++) {
-        const student = activeStudents[i];
-        if (!student || !shouldShowScheduleForStudent(student, dateStr)) continue;
-        const studentSched = teacherSched[String(student.id)];
-        if (!studentSched) continue;
-        const entries = normalizeScheduleEntries(studentSched[dateStr]);
-        if (entries.length > 0) {
-            eventCount++;
-            eventNames.push(`<div>${student.name} (${student.grade || '-'})</div>`);
-        }
-    }
+    const summaryRows = collectCellScheduleSummary(dateStr);
+    const eventCount = summaryRows.length;
+    const eventNames = summaryRows.map((row) => {
+        const teacherText = timetableScope === 'all' ? ` · ${escapeHtml(row.teacherName)}` : '';
+        return `<div>${escapeHtml(row.studentName)} (${escapeHtml(row.grade)})${teacherText}</div>`;
+    });
 
     if (eventCount > 0) {
         const badgeContainer = document.createElement('div');
@@ -2635,6 +2986,14 @@ window.openDayDetail = async function(dateStr) {
     if (searchInput) { searchInput.value = ''; }
     const clearBtn = document.getElementById('tt-search-clear');
     if (clearBtn) clearBtn.style.display = 'none';
+    updateTimetableScopeUi();
+    if (timetableScope === 'all' && typeof loadAllTeachersScheduleData === 'function') {
+        try {
+            await loadAllTeachersScheduleData();
+        } catch (e) {
+            console.warn('[openDayDetail] 전체 일정 재로드 실패:', e);
+        }
+    }
     currentDetailDate = dateStr;
     await ensureAttendanceForDate(dateStr);
     renderDayEvents(dateStr);
@@ -2741,50 +3100,246 @@ window.renderDayEvents = function(dateStr) {
 
     // Grid lines are rendered via overlay after all blocks (see bottom of function)
 
-    // 현재 선생님의 학생 + 일정 데이터 기준 활성 학생
-    const activeStudents = getActiveStudentsForTeacher(currentTeacherId);
+    // 시간표 스코프 기준 학생 + 일정 데이터 수집
+    const teacherIdsForScope = getTeacherIdsForTimetableScope();
+    const isAllScope = timetableScope === 'all';
     let rawEvents = [];
     let temporaryAttendanceStudents = [];
     // QR 출석 뱃지용 학생ID (전역)
     const qrBadgeStudentId = typeof lastQrScannedStudentId !== 'undefined' ? lastQrScannedStudentId : null;
-    const teacherSchedule = teacherScheduleData[currentTeacherId] || {};
-    activeStudents.forEach((s) => {
-        // 퇴원/휴원 학생은 상태 변경일 이전 일정만 표시
-        if (!shouldShowScheduleForStudent(s, dateStr)) return;
-        // 디버깅: 날짜 포맷과 데이터 매칭 확인
-        if (teacherSchedule[s.id]) {
-            const allDates = Object.keys(teacherSchedule[s.id]);
-            console.log(`[디버그] 학생:${s.name}(${s.id}) 일정 날짜 목록:`, allDates, '찾는 날짜:', dateStr);
-        }
-        // 현재 선생님의 schedule 데이터에서만 확인
-        const entries = getScheduleEntries(currentTeacherId, String(s.id), dateStr);
-        if(entries.length > 0) {
-            console.log(`[디버그] 일정 있음:`, s.name, dateStr, entries);
-            entries.forEach(detail => {
-                const [h, m] = detail.start.split(':').map(Number);
-                let startMin = (h * 60) + m;
-                if (startMin < 0) startMin = 0;
-                if (startMin >= 24 * 60) startMin = (24 * 60) - 1;
-                rawEvents.push({ student: s, startMin: startMin, duration: parseInt(detail.duration), originalStart: detail.start });
-            });
-        } else {
-            console.log(`[디버그] 일정 없음:`, s.name, dateStr, teacherSchedule[s.id]);
-            const attByDate = s.attendance && s.attendance[dateStr];
-            if (attByDate && typeof attByDate === 'object') {
-                const emergencyStatus = attByDate.emergency || attByDate.default || '';
-                if (emergencyStatus === 'present') {
-                    temporaryAttendanceStudents.push(s);
+    const teacherAssignedStudentSetMap = new Map();
+    (teacherList || []).forEach((t) => {
+        const teacherId = String(t?.id || '').trim();
+        if (!teacherId) return;
+        const assignedIds = (typeof getAssignedStudentIdsForTeacher === 'function')
+            ? getAssignedStudentIdsForTeacher(teacherId)
+            : [];
+        teacherAssignedStudentSetMap.set(
+            teacherId,
+            new Set((assignedIds || []).map((id) => String(id)))
+        );
+    });
+    const inferTeacherNameFromMembers = (members) => {
+        if (!Array.isArray(members) || members.length === 0) return '선생님';
+        const memberStudentIds = members
+            .map((m) => String(m?.student?.id || ''))
+            .filter(Boolean);
+        if (memberStudentIds.length === 0) return '선생님';
+
+        let bestName = '선생님';
+        let bestScore = 0;
+        (teacherList || []).forEach((teacher) => {
+            const teacherId = String(teacher?.id || '').trim();
+            const teacherName = String(teacher?.name || '').trim();
+            if (!teacherId || !teacherName) return;
+
+            let score = 0;
+            const assignedSet = teacherAssignedStudentSetMap.get(teacherId);
+            if (assignedSet && assignedSet.size > 0) {
+                memberStudentIds.forEach((sid) => {
+                    if (assignedSet.has(sid)) score += 3;
+                });
+            }
+
+            memberStudentIds.forEach((sid) => {
+                const student = (students || []).find((item) => String(item?.id) === sid);
+                if (!student) return;
+                const studentTeacherId = String(student.teacher_id || '').trim();
+                const teacherOwnerId = String(teacher.owner_user_id || '').trim();
+                if (studentTeacherId && (studentTeacherId === teacherId || studentTeacherId === teacherOwnerId)) {
+                    score += 2;
                 }
+            });
+
+            if (score > bestScore) {
+                bestScore = score;
+                bestName = teacherName;
+            }
+        });
+
+        return bestScore > 0 ? bestName : '선생님';
+    };
+    const knownTeacherIds = new Set((teacherList || []).map((t) => String(t.id || '')).filter(Boolean));
+    const legacyTeacherResolutionMap = new Map();
+    Object.keys(teacherScheduleData || {}).forEach((rawTeacherId) => {
+        const legacyId = String(rawTeacherId || '').trim();
+        if (!legacyId || knownTeacherIds.has(legacyId)) return;
+        const legacySchedule = teacherScheduleData[legacyId] || {};
+        const studentIds = Object.keys(legacySchedule);
+        if (studentIds.length === 0) return;
+
+        const scoreMap = new Map();
+        const addScore = (teacherId, score) => {
+            const tid = String(teacherId || '').trim();
+            if (!tid || !knownTeacherIds.has(tid)) return;
+            scoreMap.set(tid, (scoreMap.get(tid) || 0) + score);
+        };
+        studentIds.forEach((sid) => {
+            const student = (students || []).find((s) => String(s.id) === String(sid));
+            if (student && student.teacher_id) addScore(resolveKnownTeacherId(student.teacher_id), 3);
+            if (typeof getAssignedTeacherId === 'function') addScore(resolveKnownTeacherId(getAssignedTeacherId(sid)), 2);
+        });
+        const ranked = Array.from(scoreMap.entries()).sort((a, b) => {
+            if (b[1] !== a[1]) return b[1] - a[1];
+            return String(a[0]).localeCompare(String(b[0]));
+        });
+        if (ranked.length > 0 && ranked[0][1] > 0) {
+            legacyTeacherResolutionMap.set(legacyId, String(ranked[0][0]));
+        }
+    });
+
+    const resolveTeacherDisplayName = (rawTeacherId, student) => {
+        const raw = String(rawTeacherId || '').trim();
+        const resolvedTeacherId = resolveKnownTeacherId(raw) || String(legacyTeacherResolutionMap.get(raw) || '');
+        if (resolvedTeacherId) {
+            const knownName = getTeacherNameById(resolvedTeacherId);
+            if (knownName && knownName !== '선생님') return knownName;
+        }
+        const primary = getTeacherNameById(rawTeacherId);
+        if (primary && primary !== '선생님') return primary;
+        // 학생 레코드의 teacher_id가 있으면 우선 보조 매핑
+        if (student && student.teacher_id) {
+            const byStudentField = getTeacherNameById(String(student.teacher_id));
+            if (byStudentField && byStudentField !== '선생님') return byStudentField;
+        }
+        // 로컬 선생님-학생 매핑 fallback
+        if (student && student.id && typeof getAssignedTeacherId === 'function') {
+            const assignedId = String(getAssignedTeacherId(String(student.id)) || '');
+            if (assignedId) {
+                const byAssigned = getTeacherNameById(assignedId);
+                if (byAssigned && byAssigned !== '선생님') return byAssigned;
             }
         }
+        return primary || '선생님';
+    };
+    const resolveTeacherGroupKey = (rawTeacherId, student) => {
+        const raw = String(rawTeacherId || '').trim();
+        if (raw && knownTeacherIds.has(raw)) return raw;
+        if (raw && legacyTeacherResolutionMap.has(raw)) return String(legacyTeacherResolutionMap.get(raw));
+        // 전체 보기 묶음은 반드시 스케줄 소유 teacher_id를 우선 키로 사용
+        // (학생 teacher_id fallback이 끼면 A/B 묶음이 섞일 수 있음)
+        if (raw) return raw;
+        const studentTeacherId = student && student.teacher_id ? String(student.teacher_id).trim() : '';
+        const assignedId = (student && student.id && typeof getAssignedTeacherId === 'function')
+            ? String(getAssignedTeacherId(String(student.id)) || '').trim()
+            : '';
+
+        const candidates = [studentTeacherId, assignedId].filter(Boolean);
+        for (const id of candidates) {
+            if (typeof isKnownTeacherId === 'function' && isKnownTeacherId(id)) return id;
+        }
+        return studentTeacherId || assignedId || 'unknown';
+    };
+    const toStableHash = (seedValue) => {
+        const seed = String(seedValue || 'default');
+        let hash = 0;
+        for (let i = 0; i < seed.length; i++) {
+            hash = ((hash << 5) - hash) + seed.charCodeAt(i);
+            hash |= 0;
+        }
+        return Math.abs(hash);
+    };
+    const buildTeacherBadgeThemeFromHue = (hue) => {
+        return {
+            bg: `linear-gradient(135deg, hsl(${hue} 74% 38%), hsl(${(hue + 22) % 360} 76% 46%))`,
+            border: `hsla(${hue}, 78%, 72%, 0.58)`,
+            shadow: `hsla(${hue}, 84%, 42%, 0.38)`
+        };
+    };
+    const hueDistance = (a, b) => {
+        const diff = Math.abs(a - b);
+        return Math.min(diff, 360 - diff);
+    };
+
+    teacherIdsForScope.forEach((teacherId) => {
+        const teacherSchedule = teacherScheduleData[teacherId] || {};
+        const activeStudents = getActiveStudentsForTeacher(teacherId);
+        activeStudents.forEach((s) => {
+            if (!shouldShowScheduleForStudent(s, dateStr)) return;
+            const entries = getScheduleEntries(teacherId, String(s.id), dateStr);
+            if (entries.length > 0) {
+                entries.forEach(detail => {
+                    const [h, m] = detail.start.split(':').map(Number);
+                    let startMin = (h * 60) + m;
+                    if (startMin < 0) startMin = 0;
+                    if (startMin >= 24 * 60) startMin = (24 * 60) - 1;
+                    rawEvents.push({
+                        teacherId: String(teacherId),
+                        groupTeacherKey: resolveTeacherGroupKey(teacherId, s),
+                        teacherName: resolveTeacherDisplayName(teacherId, s),
+                        startMin: startMin,
+                        duration: parseInt(detail.duration, 10) || 60,
+                        originalStart: detail.start,
+                        member: { student: s, teacherId: resolveTeacherGroupKey(teacherId, s) }
+                    });
+                });
+            } else {
+                const attByDate = s.attendance && s.attendance[dateStr];
+                if (attByDate && typeof attByDate === 'object') {
+                    const emergencyStatus = attByDate.emergency || attByDate.default || '';
+                    if (emergencyStatus === 'present') {
+                        temporaryAttendanceStudents.push({ ...s, _teacherId: String(teacherId) });
+                    }
+                }
+            }
+        });
     });
     let groupedEvents = {}; 
     rawEvents.forEach(ev => {
-        const key = `${ev.startMin}-${ev.duration}`;
-        if (!groupedEvents[key]) groupedEvents[key] = { type: 'group', startMin: ev.startMin, duration: ev.duration, originalStart: ev.originalStart, members: [] };
-        groupedEvents[key].members.push(ev.student);
+        const key = isAllScope
+            ? `${ev.groupTeacherKey || ev.teacherId}-${ev.startMin}-${ev.duration}`
+            : `${ev.startMin}-${ev.duration}`;
+        if (!groupedEvents[key]) {
+            groupedEvents[key] = {
+                type: 'group',
+                teacherId: ev.groupTeacherKey || ev.teacherId,
+                teacherName: ev.teacherName,
+                startMin: ev.startMin,
+                duration: ev.duration,
+                originalStart: ev.originalStart,
+                members: []
+            };
+        }
+        if (groupedEvents[key].teacherName === '선생님' && ev.teacherName && ev.teacherName !== '선생님') {
+            groupedEvents[key].teacherName = ev.teacherName;
+        }
+        groupedEvents[key].members.push(ev.member);
+        if (!groupedEvents[key].teacherName || groupedEvents[key].teacherName === '선생님') {
+            const inferred = inferTeacherNameFromMembers(groupedEvents[key].members);
+            if (inferred && inferred !== '선생님') {
+                groupedEvents[key].teacherName = inferred;
+            }
+        }
     });
     let layoutEvents = Object.values(groupedEvents).sort((a, b) => a.startMin - b.startMin);
+    // 화면 내 교사 배지 색상 간격을 강제해 유사색 충돌을 줄임
+    const teacherThemeMap = new Map();
+    const usedHues = [];
+    const distinctTeacherKeys = [...new Set(layoutEvents.map(ev => String(ev.teacherId || ev.groupTeacherKey || ev.teacherName || 'unknown')))]
+        .sort();
+    const resolveTeacherLabelForEvent = (ev) => {
+        const eventTeacherId = String(ev.teacherId || '').trim();
+        const resolvedEventTeacherId = resolveKnownTeacherId(eventTeacherId) || String(legacyTeacherResolutionMap.get(eventTeacherId) || '');
+        if (resolvedEventTeacherId) {
+            const resolvedName = String(getTeacherNameById(resolvedEventTeacherId) || '').trim();
+            if (resolvedName && resolvedName !== '선생님') return resolvedName;
+        }
+        const baseName = String(ev.teacherName || getTeacherNameById(ev.teacherId || '') || '').trim();
+        if (baseName && baseName !== '선생님') return baseName;
+        const inferredName = inferTeacherNameFromMembers(ev.members || []);
+        if (inferredName && inferredName !== '선생님') return inferredName;
+        return '담당 미확인';
+    };
+    distinctTeacherKeys.forEach((teacherKey) => {
+        let hue = toStableHash(teacherKey) % 360;
+        let guard = 0;
+        while (usedHues.some((used) => hueDistance(used, hue) < 34) && guard < 30) {
+            hue = (hue + 137) % 360;
+            guard += 1;
+        }
+        usedHues.push(hue);
+        teacherThemeMap.set(teacherKey, buildTeacherBadgeThemeFromHue(hue));
+    });
     let columns = []; 
     layoutEvents.forEach(ev => {
         let placed = false;
@@ -2828,15 +3383,17 @@ window.renderDayEvents = function(dateStr) {
 
     layoutEvents.forEach(ev => {
         const isMerged = ev.members.length > 1;
-        const blockId = isMerged ? `group-${ev.startMin}-${ev.duration}` : `${ev.members[0].id}-${ev.originalStart}`;
+        const blockId = isMerged
+            ? `group-${ev.teacherId || 'na'}-${ev.startMin}-${ev.duration}`
+            : `${ev.teacherId || 'na'}-${ev.members[0].student.id}-${ev.originalStart}`;
         const block = document.createElement('div');
         // 학생 검색용 데이터 속성
-        block.dataset.studentNames = ev.members.map(m => m.name).join(',');
+        block.dataset.studentNames = ev.members.map(m => m.student.name).join(',');
         
         // Merged 그룹도 학년별 색상 적용
         if (isMerged) {
             const grades = ev.members.map(m => {
-                const g = m.grade || '';
+                const g = m.student.grade || '';
                 if (g.includes('초')) return 'cho';
                 if (g.includes('중')) return 'jung';
                 if (g.includes('고')) return 'go';
@@ -2864,15 +3421,22 @@ window.renderDayEvents = function(dateStr) {
         const resizeHandle = document.createElement('div'); resizeHandle.className = 'resize-handle'; block.appendChild(resizeHandle);
         const contentDiv = document.createElement('div');
         contentDiv.style.flex = "1"; contentDiv.style.overflow = "hidden"; contentDiv.style.display = "flex"; contentDiv.style.flexDirection = "column";
+        const teacherThemeKey = String(ev.teacherId || ev.groupTeacherKey || ev.teacherName || 'unknown');
+        const teacherTheme = teacherThemeMap.get(teacherThemeKey) || buildTeacherBadgeThemeFromHue(toStableHash(teacherThemeKey) % 360);
+        const resolvedTeacherLabel = resolveTeacherLabelForEvent(ev);
+        const teacherBadge = isAllScope
+            ? `<span class="evt-teacher" style="--evt-teacher-bg:${teacherTheme.bg};--evt-teacher-border:${teacherTheme.border};--evt-teacher-shadow:${teacherTheme.shadow};">${escapeHtml(resolvedTeacherLabel)}</span>`
+            : '';
         if (isMerged) {
-            contentDiv.innerHTML = `<div class="merged-header"><span>${ev.originalStart}~${endTimeStr}</span><span style="opacity:0.8; font-size:10px;">${ev.members.length}명</span></div><div class="merged-list">${ev.members.map(m => {
+            contentDiv.innerHTML = `<div class="merged-header"><span>${teacherBadge}${ev.originalStart}~${endTimeStr}</span><span style="opacity:0.8; font-size:10px;">${ev.members.length}명</span></div><div class="merged-list">${ev.members.map(m => {
+                const student = m.student;
                 // ★ 해당 수업시간(ev.originalStart)의 출결만 표시
                 let status = '';
-                if (m.attendance && m.attendance[dateStr]) {
-                    if (typeof m.attendance[dateStr] === 'object') {
-                        status = m.attendance[dateStr][ev.originalStart] || '';
+                if (student.attendance && student.attendance[dateStr]) {
+                    if (typeof student.attendance[dateStr] === 'object') {
+                        status = student.attendance[dateStr][ev.originalStart] || '';
                     } else {
-                        status = m.attendance[dateStr] || '';
+                        status = student.attendance[dateStr] || '';
                     }
                 }
                 let badge = '';
@@ -2881,10 +3445,10 @@ window.renderDayEvents = function(dateStr) {
                 else if (status === 'absent') badge = '<span style="background:#ef4444;color:white;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;">결석</span>';
                 else if (status === 'makeup' || status === 'etc') badge = '<span style="background:#8b5cf6;color:white;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;">보강</span>';
                 else badge = '<span style="background:#d1d5db;color:#374151;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;">미처리</span>';
-                return `<div class="sub-event-item ${getSubItemColorClass(m.grade)}" data-student-name="${m.name}" onclick="event.stopPropagation(); openAttendanceModal('${m.id}', '${dateStr}', '${ev.originalStart}')"><div class="sub-info"><span class="sub-name">${m.name} ${badge}</span><span class="sub-grade">${m.grade}</span></div></div>`;
+                return `<div class="sub-event-item ${getSubItemColorClass(student.grade)}" data-student-name="${student.name}" onclick="event.stopPropagation(); openAttendanceModal('${student.id}', '${dateStr}', '${ev.originalStart}', '${m.teacherId || ev.teacherId || ''}')"><div class="sub-info"><span class="sub-name">${student.name} ${badge}</span><span class="sub-grade">${student.grade}</span></div></div>`;
             }).join('')}</div>`;
         } else {
-            const s = ev.members[0];
+            const s = ev.members[0].student;
             // 단일 일정: 해당 일정의 출결만 표시
             let status = 'none';
             if (s.attendance && s.attendance[dateStr]) {
@@ -2917,11 +3481,11 @@ window.renderDayEvents = function(dateStr) {
             const _dupNames = getDuplicateNameSet();
             const _isDup = _dupNames.has((s.name || '').trim());
             const schoolHint = _isDup && s.school ? `<span class="evt-school">${s.school}</span>` : '';
-            contentDiv.innerHTML = `<div class="evt-title">${s.name}${qrBadge} ${statusBadge} <span class="evt-grade">(${s.grade})</span>${schoolHint}</div><div class="event-time-text">${ev.originalStart} - ${endTimeStr} (${ev.duration}분)</div>`;
+            contentDiv.innerHTML = `<div class="evt-title">${teacherBadge}${s.name}${qrBadge} ${statusBadge} <span class="evt-grade">(${s.grade})</span>${schoolHint}</div><div class="event-time-text">${ev.originalStart} - ${endTimeStr} (${ev.duration}분)</div>`;
             block.onclick = (e) => { 
                 if(block.getAttribute('data-action-status') === 'moved' || block.getAttribute('data-action-status') === 'resized') { e.stopPropagation(); block.setAttribute('data-action-status', 'none'); return; }
                 if(e.target.classList.contains('resize-handle')) return;
-                e.stopPropagation(); openAttendanceModal(s.id, dateStr, ev.originalStart); 
+                e.stopPropagation(); openAttendanceModal(s.id, dateStr, ev.originalStart, ev.teacherId || '');
             };
         }
         block.appendChild(contentDiv);
@@ -3071,7 +3635,7 @@ window.switchMemoTab = function(tab) {
         privateMemo.style.display = '';
         sharedMemo.style.display = 'none';
         if (sharedOthers) sharedOthers.style.display = 'none';
-        hint.textContent = '🔒 나만 볼 수 있는 기록입니다.';
+        hint.textContent = '🔒 개인메모: 본인만 확인 (학부모/다른 선생님 미노출)';
         hint.className = 'am-memo-hint';
     } else {
         privateMemo.style.display = 'none';
@@ -3080,19 +3644,32 @@ window.switchMemoTab = function(tab) {
         if (sharedOthers) {
             sharedOthers.style.display = sharedOthers.innerHTML.trim() ? '' : 'none';
         }
-        hint.textContent = '👥 모든 선생님이 볼 수 있는 공유 기록입니다.';
+        hint.textContent = '👥 공유메모: 모든 선생님이 확인 (인수인계/공통 공지 용도)';
         hint.className = 'am-memo-hint shared';
     }
 }
 
-window.openAttendanceModal = async function(sid, dateStr, startTime) {
+window.openAttendanceModal = async function(sid, dateStr, startTime, ownerTeacherId) {
     const sIdx = students.findIndex(x => String(x.id) === String(sid));
     if (sIdx === -1) return;
     const s = students[sIdx];
+    const effectiveOwnerTeacherId = resolveOwnerTeacherIdForModal(sid, dateStr, startTime, ownerTeacherId);
+    const isOwnerSchedule = String(effectiveOwnerTeacherId || '') === String(currentTeacherId || '');
+    let adminOverride = false;
+    if (!isOwnerSchedule) {
+        const ownerTeacherName = getTeacherNameById(effectiveOwnerTeacherId);
+        const verified = await verifyAdminPinForCrossTeacherAccess(ownerTeacherName);
+        if (!verified) return;
+        adminOverride = true;
+    }
     await ensureAttendanceForDate(dateStr);
-    document.getElementById('attendance-modal').style.display = 'flex';
+    const attendanceModal = document.getElementById('attendance-modal');
+    attendanceModal.style.display = 'flex';
+    attendanceModal.dataset.adminOverride = adminOverride ? '1' : '0';
     document.getElementById('att-modal-title').textContent = `${s.name} (${s.grade}) 수업 관리`;
-    document.getElementById('att-info-text').textContent = `${dateStr}${s.school ? ' · ' + s.school : ''}`;
+    document.getElementById('att-owner-teacher-id').value = effectiveOwnerTeacherId;
+    const ownerTeacherName = getTeacherNameById(effectiveOwnerTeacherId);
+    document.getElementById('att-info-text').textContent = `${dateStr}${s.school ? ' · ' + s.school : ''}${ownerTeacherName ? ' · 담당 ' + ownerTeacherName : ''}${adminOverride ? ' · 관리자 편집 모드' : ''}`;
     document.getElementById('att-student-id').value = sid;
     document.getElementById('att-date').value = dateStr;
     document.getElementById('att-edit-date').value = dateStr;
@@ -3111,7 +3688,7 @@ window.openAttendanceModal = async function(sid, dateStr, startTime) {
     if (!savedRecord) {
         try {
             if (typeof window.getAttendanceRecordByStudentAndDate === 'function') {
-                const dbRecord = await window.getAttendanceRecordByStudentAndDate(sid, dateStr, currentTeacherId, startTime);
+                const dbRecord = await window.getAttendanceRecordByStudentAndDate(sid, dateStr, effectiveOwnerTeacherId, startTime);
                 if (dbRecord && dbRecord.memo) {
                     savedRecord = dbRecord.memo;
                     // 로컬에도 저장
@@ -3172,7 +3749,7 @@ window.openAttendanceModal = async function(sid, dateStr, startTime) {
     let currentStatus = null;
     if (s.attendance && s.attendance[dateStr]) {
         if (startTime && typeof s.attendance[dateStr] === 'object') {
-            currentStatus = s.attendance[dateStr][startTime] || null;
+            currentStatus = getSlotValueByNormalizedTime(s.attendance[dateStr], startTime);
         } else if (typeof s.attendance[dateStr] === 'string') {
             currentStatus = s.attendance[dateStr];
         }
@@ -3180,7 +3757,7 @@ window.openAttendanceModal = async function(sid, dateStr, startTime) {
     updateAttendanceStatusDisplay(currentStatus);
 
     // 선생님별 일정 데이터 사용
-    const entries = getScheduleEntries(currentTeacherId, String(sid), dateStr);
+    const entries = getScheduleEntries(effectiveOwnerTeacherId, String(sid), dateStr);
     const target = startTime
         ? entries.find(item => item.start === startTime) || null
         : getEarliestScheduleEntry(entries);
@@ -3193,13 +3770,14 @@ window.openAttendanceModal = async function(sid, dateStr, startTime) {
         let attendanceRecord = null;
         if (typeof window.getAttendanceRecordByStudentAndDate === 'function') {
             try {
-                attendanceRecord = await window.getAttendanceRecordByStudentAndDate(sid, dateStr, currentTeacherId, detail.start);
+                attendanceRecord = await window.getAttendanceRecordByStudentAndDate(sid, dateStr, effectiveOwnerTeacherId, detail.start);
             } catch (e) {
                 console.error('[openAttendanceModal] 출석 방식 조회 실패:', e);
             }
         }
         window.updateAttendanceSourceDisplay(attendanceRecord);
     }
+    setAttendanceModalReadOnly(!isOwnerSchedule && !adminOverride);
 }
 
 window.updateClassTime = async function() {
@@ -3209,11 +3787,15 @@ window.updateClassTime = async function() {
     const newStart = document.getElementById('att-edit-time').value;
     const newDur = document.getElementById('att-edit-duration').value;
     const originalStart = document.getElementById('att-original-time').value;
+    const ownerTeacherId = document.getElementById('att-owner-teacher-id').value || currentTeacherId;
     if(!newDur || parseInt(newDur) <= 0) { showToast("올바른 수업 시간을 입력해주세요.", 'warning'); return; }
     const sIdx = students.findIndex(s => String(s.id) === String(sid));
     if(sIdx > -1) {
+        const permission = await verifyScheduleEditPermission(ownerTeacherId);
+        if (!permission.allowed) return;
+        const targetTeacherId = String(permission.effectiveTeacherId || ownerTeacherId || currentTeacherId);
         // ★ 시간 겹침 확인 (기존 일정 자신은 제외)
-        const overlaps = await checkScheduleOverlap(sid, newDateStr, newStart, parseInt(newDur), currentTeacherId, originalStart);
+        const overlaps = await checkScheduleOverlap(sid, newDateStr, newStart, parseInt(newDur), targetTeacherId, originalStart);
         if (overlaps.length > 0) {
             const studentName = students[sIdx].name || `학생${sid}`;
             if (!(await showConfirm(formatOverlapMessage(studentName, newDateStr, overlaps), { type: 'warn', title: '일정 겹침' }))) {
@@ -3222,8 +3804,8 @@ window.updateClassTime = async function() {
         }
 
         // 선생님별 일정 데이터 사용
-        if(!teacherScheduleData[currentTeacherId]) teacherScheduleData[currentTeacherId] = {};
-        if(!teacherScheduleData[currentTeacherId][sid]) teacherScheduleData[currentTeacherId][sid] = {};
+        if(!teacherScheduleData[targetTeacherId]) teacherScheduleData[targetTeacherId] = {};
+        if(!teacherScheduleData[targetTeacherId][sid]) teacherScheduleData[targetTeacherId][sid] = {};
         
         if (oldDateStr !== newDateStr) {
             students[sIdx].events = students[sIdx].events.filter(d => d !== oldDateStr);
@@ -3236,26 +3818,26 @@ window.updateClassTime = async function() {
                 if(!students[sIdx].records) students[sIdx].records = {};
                 students[sIdx].records[newDateStr] = students[sIdx].records[oldDateStr]; delete students[sIdx].records[oldDateStr];
             }
-            const oldEntries = getScheduleEntries(currentTeacherId, String(sid), oldDateStr);
+            const oldEntries = getScheduleEntries(targetTeacherId, String(sid), oldDateStr);
             const nextOldEntries = oldEntries.filter(item => item.start !== originalStart);
-            setScheduleEntries(currentTeacherId, String(sid), oldDateStr, nextOldEntries);
+            setScheduleEntries(targetTeacherId, String(sid), oldDateStr, nextOldEntries);
         }
-        let newEntries = getScheduleEntries(currentTeacherId, String(sid), newDateStr);
+        let newEntries = getScheduleEntries(targetTeacherId, String(sid), newDateStr);
         if (oldDateStr === newDateStr && originalStart && originalStart !== newStart) {
             newEntries = newEntries.filter(item => item.start !== originalStart);
         }
         const nextEntry = { start: newStart, duration: parseInt(newDur) };
         const updated = upsertScheduleEntry(newEntries, nextEntry);
-        setScheduleEntries(currentTeacherId, String(sid), newDateStr, updated.list);
+        setScheduleEntries(targetTeacherId, String(sid), newDateStr, updated.list);
         saveData();
-        persistTeacherScheduleLocal();
+        persistTeacherScheduleLocalFor(targetTeacherId);
 
         try {
             if (oldDateStr !== newDateStr || (originalStart && originalStart !== newStart)) {
-                await deleteScheduleFromDatabase(sid, oldDateStr, currentTeacherId, originalStart);
+                await deleteScheduleFromDatabase(sid, oldDateStr, targetTeacherId, originalStart);
             }
             await saveScheduleToDatabase({
-                teacherId: currentTeacherId,
+                teacherId: targetTeacherId,
                 studentId: sid,
                 date: newDateStr,
                 startTime: newStart,
@@ -3273,35 +3855,24 @@ window.updateClassTime = async function() {
         await loadAllTeachersScheduleData();
         if (typeof window.initMissedScanChecks === 'function') window.initMissedScanChecks();
         if (typeof scheduleKstMidnightAutoAbsent === 'function') scheduleKstMidnightAutoAbsent();
-        showToast("일정이 변경되었습니다.", 'success'); closeModal('attendance-modal');
+        showToast(permission.adminOverride ? "일정이 변경되었습니다. (관리자 권한)" : "일정이 변경되었습니다.", 'success'); closeModal('attendance-modal');
     }
 }
 window.setAttendance = async function(status, options = {}) {
+    if (isAttendanceModalReadOnly()) {
+        showToast('타 선생님 일정은 보기 전용입니다.', 'warning');
+        return;
+    }
     const sid = document.getElementById('att-student-id').value;
     const dateStr = document.getElementById('att-date').value;
     const memo = document.getElementById('att-memo').innerHTML;
     const sharedMemo = document.getElementById('att-shared-memo').innerHTML;
     const keepModalOpen = options && options.keepModalOpen === true;
-    const startTime = options && options.startTime ? options.startTime : document.getElementById('att-edit-time').value;
+    const rawStartTime = options && options.startTime ? options.startTime : document.getElementById('att-edit-time').value;
+    const startTime = normalizeScheduleTimeKey(rawStartTime);
+    const ownerTeacherId = String(document.getElementById('att-owner-teacher-id')?.value || currentTeacherId || '');
     const sIdx = students.findIndex(s => String(s.id) === String(sid));
     if(sIdx > -1 && startTime) {
-        let scope = 'current';
-        let teacherIds = new Set([String(currentTeacherId || '')]);
-        if (typeof window.getTeacherIdsForStudentDate === 'function') {
-            try {
-                teacherIds = await window.getTeacherIdsForStudentDate(sid, dateStr);
-            } catch (e) {
-                console.error('[setAttendance] 선생님 일정 조회 실패:', e);
-            }
-        }
-
-        if (teacherIds.size > 1 && typeof window.showAttendanceScopeModal === 'function') {
-            scope = await window.showAttendanceScopeModal();
-            if (!scope) {
-                return;
-            }
-        }
-
         if(!students[sIdx].attendance) students[sIdx].attendance = {};
         if(!students[sIdx].attendance[dateStr]) students[sIdx].attendance[dateStr] = {};
         students[sIdx].attendance[dateStr][startTime] = status;
@@ -3320,17 +3891,14 @@ window.setAttendance = async function(status, options = {}) {
         // DB에도 상태 업데이트 (기존 시간/스캔 결과 유지)
         // 반드시 scheduled_time(수업 시작시간)까지 포함하여 upsert
         const memoData = { memo: memo || null, shared_memo: sharedMemo || null };
-        let lastSavedRecord = null;
-        if (scope === 'all') {
-            for (const tid of teacherIds) {
-                const saved = await persistAttendanceStatusToDbForTeacher(sid, dateStr, status, String(tid), startTime, memoData);
-                if (String(tid) === String(currentTeacherId || '')) {
-                    lastSavedRecord = saved;
-                }
-            }
-        } else {
-            lastSavedRecord = await persistAttendanceStatusToDbForTeacher(sid, dateStr, status, String(currentTeacherId || ''), startTime, memoData);
-        }
+        const lastSavedRecord = await persistAttendanceStatusToDbForTeacher(
+            sid,
+            dateStr,
+            status,
+            ownerTeacherId,
+            startTime,
+            memoData
+        );
         if (typeof window.updateAttendanceSourceDisplay === 'function') {
             window.updateAttendanceSourceDisplay(lastSavedRecord || {
                 qr_scanned: false,
@@ -3378,7 +3946,7 @@ window.setAttendance = async function(status, options = {}) {
             let currentStatus = null;
             if (sIdx > -1 && students[sIdx].attendance && students[sIdx].attendance[dateStr]) {
                 if (startTime && typeof students[sIdx].attendance[dateStr] === 'object') {
-                    currentStatus = students[sIdx].attendance[dateStr][startTime] || null;
+                    currentStatus = getSlotValueByNormalizedTime(students[sIdx].attendance[dateStr], startTime);
                 } else if (typeof students[sIdx].attendance[dateStr] === 'string') {
                     currentStatus = students[sIdx].attendance[dateStr];
                 }
@@ -3438,9 +4006,10 @@ function updateAttendanceStatusDisplay(status) {
 function resolveAttendanceSource(recordLike) {
     if (!recordLike) return 'unknown';
     const explicit = String(recordLike.attendance_source || '').trim();
-    if (explicit === 'qr_student' || explicit === 'teacher_manual') return explicit;
-    if (recordLike.qr_scanned) return 'qr_student';
-    if (recordLike.check_in_time) return 'teacher_manual';
+    if (['qr', 'phone', 'teacher', 'emergency', 'unknown', 'qr_student', 'teacher_manual'].includes(explicit)) return explicit;
+    if (recordLike.qr_scanned) return 'qr';
+    if (String(recordLike.qr_judgment || '').includes('전화번호인증') || String(recordLike.memo || '').includes('[전화번호인증]')) return 'phone';
+    if (recordLike.check_in_time) return 'teacher';
     return 'unknown';
 }
 
@@ -3451,7 +4020,7 @@ window.updateAttendanceSourceDisplay = function(recordLike) {
     const sourceType = resolveAttendanceSource(recordLike);
     sourceEl.className = 'am-source-badge';
 
-    if (sourceType === 'qr_student') {
+    if (sourceType === 'qr' || sourceType === 'qr_student') {
         sourceEl.classList.add('source-qr');
         const timeLabel = recordLike && recordLike.qr_scan_time
             ? new Date(recordLike.qr_scan_time).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
@@ -3462,7 +4031,18 @@ window.updateAttendanceSourceDisplay = function(recordLike) {
         return;
     }
 
-    if (sourceType === 'teacher_manual') {
+    if (sourceType === 'phone') {
+        sourceEl.classList.add('source-teacher');
+        const timeLabel = recordLike && (recordLike.auth_time || recordLike.check_in_time)
+            ? new Date(recordLike.auth_time || recordLike.check_in_time).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
+            : '';
+        sourceEl.textContent = timeLabel
+            ? `출석 방식: 번호 입력 (${timeLabel})`
+            : '출석 방식: 번호 입력';
+        return;
+    }
+
+    if (sourceType === 'teacher' || sourceType === 'teacher_manual') {
         sourceEl.classList.add('source-teacher');
         const timeLabel = recordLike && recordLike.check_in_time
             ? new Date(recordLike.check_in_time).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
@@ -3473,12 +4053,70 @@ window.updateAttendanceSourceDisplay = function(recordLike) {
         return;
     }
 
+    if (sourceType === 'emergency') {
+        sourceEl.classList.add('source-unknown');
+        sourceEl.textContent = '출석 방식: 임시출석';
+        return;
+    }
+
     sourceEl.classList.add('source-unknown');
     sourceEl.textContent = '출석 방식: 미확인';
 }
 
 async function persistAttendanceStatusToDb(studentId, dateStr, status, teacherId) {
     await persistAttendanceStatusToDbForTeacher(studentId, dateStr, status, teacherId);
+}
+
+function hasTeacherScheduleAtSlot(teacherId, studentId, dateStr, startTime) {
+    const normalizedTeacherId = String(teacherId || '').trim();
+    const normalizedStudentId = String(studentId || '').trim();
+    const normalizedStart = normalizeScheduleTimeKey(startTime);
+    if (!normalizedTeacherId || !normalizedStudentId || !dateStr || !normalizedStart) return false;
+    const entries = getScheduleEntries(normalizedTeacherId, normalizedStudentId, dateStr);
+    return entries.some((entry) => normalizeScheduleTimeKey(entry?.start || '') === normalizedStart);
+}
+
+async function cleanupLegacyAbsentShadowRecord(studentId, dateStr, ownerTeacherId, startTime, appliedStatus) {
+    if (typeof supabase === 'undefined') return;
+    const normalizedOwnerTeacherId = String(ownerTeacherId || '').trim();
+    const normalizedCurrentTeacherId = String(currentTeacherId || '').trim();
+    const normalizedStatus = String(appliedStatus || '').toLowerCase();
+    const normalizedStart = normalizeScheduleTimeKey(startTime);
+    if (!normalizedOwnerTeacherId || !normalizedCurrentTeacherId || normalizedOwnerTeacherId === normalizedCurrentTeacherId) return;
+    if (!normalizedStart) return;
+    if (!['present', 'late', 'makeup', 'etc'].includes(normalizedStatus)) return;
+    if (hasTeacherScheduleAtSlot(normalizedCurrentTeacherId, studentId, dateStr, normalizedStart)) return;
+
+    try {
+        const ownerId = cachedLsGet('current_owner_id');
+        if (!ownerId) return;
+        const numericStudentId = parseInt(studentId, 10);
+        if (Number.isNaN(numericStudentId)) return;
+        const timeVariants = Array.from(new Set([normalizedStart, `${normalizedStart}:00`]));
+        const { data: shadowRows, error: fetchError } = await supabase
+            .from('attendance_records')
+            .select('id')
+            .eq('owner_user_id', ownerId)
+            .eq('student_id', numericStudentId)
+            .eq('attendance_date', dateStr)
+            .eq('teacher_id', normalizedCurrentTeacherId)
+            .eq('status', 'absent')
+            .in('scheduled_time', timeVariants);
+        if (fetchError || !shadowRows || shadowRows.length === 0) return;
+        const shadowIds = shadowRows.map((row) => row.id).filter((id) => !!id);
+        if (shadowIds.length === 0) return;
+        const { error: deleteError } = await supabase
+            .from('attendance_records')
+            .delete()
+            .in('id', shadowIds);
+        if (deleteError) {
+            console.warn('[cleanupLegacyAbsentShadowRecord] stale absent 정리 실패:', deleteError);
+        } else {
+            console.log('[cleanupLegacyAbsentShadowRecord] stale absent 정리 완료:', shadowIds.length);
+        }
+    } catch (cleanupError) {
+        console.warn('[cleanupLegacyAbsentShadowRecord] 예외:', cleanupError);
+    }
 }
 
 async function persistAttendanceStatusToDbForTeacher(studentId, dateStr, status, teacherId, startTime, memoData) {
@@ -3503,7 +4141,7 @@ async function persistAttendanceStatusToDbForTeacher(studentId, dateStr, status,
 
     const payload = {
         studentId: studentId,
-        teacherId: String(existing?.teacher_id || teacherId || currentTeacherId || ''),
+        teacherId: String(teacherId || existing?.teacher_id || currentTeacherId || ''),
         attendanceDate: dateStr,
         // 선생님 수동 처리 시에도 체크 시각을 남겨 "QR/수동" 구분이 가능하도록 유지
         checkInTime: existing?.check_in_time || new Date().toISOString(),
@@ -3512,7 +4150,10 @@ async function persistAttendanceStatusToDbForTeacher(studentId, dateStr, status,
         qrScanned: existing?.qr_scanned || false,
         qrScanTime: existing?.qr_scan_time || null,
         qrJudgment: existing?.qr_judgment || null,
-        attendance_source: existing?.qr_scanned ? 'qr_student' : 'teacher_manual',
+        attendance_source: existing?.attendance_source || (existing?.qr_scanned ? 'qr' : 'teacher'),
+        authTime: existing?.auth_time || existing?.qr_scan_time || existing?.check_in_time || new Date().toISOString(),
+        presenceChecked: existing?.presence_checked || false,
+        processedAt: new Date().toISOString(),
         memo: memoValue,
         shared_memo: sharedMemoValue
     };
@@ -3523,6 +4164,8 @@ async function persistAttendanceStatusToDbForTeacher(studentId, dateStr, status,
     } catch (e) {
         console.error('[persistAttendanceStatusToDbForTeacher] 상태 저장 실패:', e);
     }
+
+    await cleanupLegacyAbsentShadowRecord(studentId, dateStr, teacherId, startTime, status);
 
     // ★ 출석 조회 모달이 열려있으면 즉시 갱신 (student-attendance-history-modal)
     const historyModal = document.getElementById('student-attendance-history-modal');
@@ -3537,9 +4180,14 @@ async function persistAttendanceStatusToDbForTeacher(studentId, dateStr, status,
     return savedRecord;
 }
 window.saveOnlyMemo = async function() {
+    if (isAttendanceModalReadOnly()) {
+        showToast('타 선생님 일정은 보기 전용입니다.', 'warning');
+        return;
+    }
     const sid = document.getElementById('att-student-id').value;
     const dateStr = document.getElementById('att-date').value;
     const startTime = document.getElementById('att-original-time').value;
+    const ownerTeacherId = String(document.getElementById('att-owner-teacher-id')?.value || currentTeacherId || '');
     const privateMemo = document.getElementById('att-memo').innerHTML;
     const sharedMemo = document.getElementById('att-shared-memo').innerHTML;
     const sIdx = students.findIndex(s => String(s.id) === String(sid));
@@ -3568,12 +4216,13 @@ window.saveOnlyMemo = async function() {
         try {
             if (typeof window.saveAttendanceRecord === 'function') {
                 const existing = typeof window.getAttendanceRecordByStudentAndDate === 'function'
-                    ? await window.getAttendanceRecordByStudentAndDate(sid, dateStr, currentTeacherId, startTime)
+                    ? await window.getAttendanceRecordByStudentAndDate(sid, dateStr, ownerTeacherId, startTime)
                     : null;
-                const currentStatus = existing ? existing.status : (students[sIdx].attendance?.[dateStr]?.[startTime] || 'absent');
+                const localStatus = getSlotValueByNormalizedTime(students[sIdx].attendance?.[dateStr], startTime);
+                const currentStatus = existing?.status || localStatus || 'none';
                 await window.saveAttendanceRecord({
                     studentId: sid,
-                    teacherId: String(currentTeacherId || ''),
+                    teacherId: ownerTeacherId,
                     attendanceDate: dateStr,
                     scheduledTime: startTime || null,
                     status: currentStatus,
@@ -3592,6 +4241,10 @@ window.saveOnlyMemo = async function() {
 }
 
 window.applyMemoColor = function(color) {
+    if (isAttendanceModalReadOnly()) {
+        showToast('타 선생님 일정은 보기 전용입니다.', 'warning');
+        return;
+    }
     const selection = window.getSelection();
     if (!selection.toString()) { showToast("글자를 선택해주세요.", 'warning'); return; }
     
@@ -3818,7 +4471,15 @@ window.prepareBulkDelete = function() {
     updateBulkDeletePreview();
     closeModal('register-modal'); openModal('bulk-delete-modal');
 }
+
+function ensureOwnedScheduleDeleteContext(actionLabel) {
+    if (currentTeacherId) return true;
+    showToast(`${actionLabel || '일정 삭제'}를 진행할 선생님 정보가 없습니다. 다시 로그인해주세요.`, 'error');
+    return false;
+}
+
 window.executeBulkDelete = async function() {
+    if (!ensureOwnedScheduleDeleteContext('기간 삭제')) return;
     const sid = document.getElementById('bulk-del-sid').value;
     const startStr = document.getElementById('bulk-del-start').value;
     const endStr = document.getElementById('bulk-del-end').value;
@@ -3827,7 +4488,7 @@ window.executeBulkDelete = async function() {
     if(sIdx === -1) return;
     const deleteCount = countStudentSchedulesInRange(sid, startStr, endStr);
     const monthSpan = getMonthSpanCount(startStr, endStr);
-    const confirmMessage = `선택한 기간의 일정을 삭제하시겠습니까?\n\n- 기간: ${startStr} ~ ${endStr}${monthSpan > 1 ? ` (${monthSpan}개월)` : ''}\n- 삭제 예정: ${deleteCount}건\n\n삭제 후 복구할 수 없습니다.`;
+    const confirmMessage = `선택한 기간의 일정을 삭제하시겠습니까?\n\n- 기간: ${startStr} ~ ${endStr}${monthSpan > 1 ? ` (${monthSpan}개월)` : ''}\n- 삭제 예정: ${deleteCount}건\n- 대상: 내가 등록한 일정만\n\n삭제 후 복구할 수 없습니다.`;
     if(!(await showConfirm(confirmMessage, { type: 'danger', title: '삭제 확인', okText: '삭제' }))) return;
     const startDate = new Date(startStr); const endDate = new Date(endStr);
     
@@ -3940,27 +4601,48 @@ window.deleteSingleSchedule = async function() {
     const sid = document.getElementById('att-student-id').value;
     const dateStr = document.getElementById('att-date').value;
     const originalStart = document.getElementById('att-original-time').value;
+    const ownerTeacherId = document.getElementById('att-owner-teacher-id').value || currentTeacherId;
+    const permission = await verifyScheduleEditPermission(ownerTeacherId);
+    if (!permission.allowed) return;
+    const targetTeacherId = String(permission.effectiveTeacherId || ownerTeacherId || currentTeacherId);
     if(!(await showConfirm("이 날짜의 일정을 삭제하시겠습니까?", { type: 'danger', title: '삭제 확인', okText: '삭제' }))) return;
     const sIdx = students.findIndex(s => String(s.id) === String(sid));
     if(sIdx > -1) {
         // 1. 로컬 메모리에서 먼저 삭제
-        if(students[sIdx].attendance) delete students[sIdx].attendance[dateStr]; 
-        if(students[sIdx].records) delete students[sIdx].records[dateStr];
+        const removeTimeScopedValue = (container, dateKey, timeKey) => {
+            if (!container || !container[dateKey]) return;
+            const dateValue = container[dateKey];
+            if (!timeKey) {
+                delete container[dateKey];
+                return;
+            }
+            if (typeof dateValue === 'object' && dateValue !== null) {
+                delete dateValue[timeKey];
+                // default 외 남은 시간 슬롯이 없으면 날짜 키 정리
+                const remainKeys = Object.keys(dateValue).filter(k => k !== 'default');
+                if (remainKeys.length === 0) delete container[dateKey];
+            } else {
+                // 레거시 문자열 형태는 시간 슬롯 구분이 없어 단건 삭제로 간주
+                delete container[dateKey];
+            }
+        };
+        removeTimeScopedValue(students[sIdx].attendance, dateStr, originalStart || '');
+        removeTimeScopedValue(students[sIdx].records, dateStr, originalStart || '');
         // 현재 선생님의 일정 데이터 삭제
-        const entries = getScheduleEntries(currentTeacherId, String(sid), dateStr);
+        const entries = getScheduleEntries(targetTeacherId, String(sid), dateStr);
         const nextEntries = originalStart ? entries.filter(item => item.start !== originalStart) : [];
-        setScheduleEntries(currentTeacherId, String(sid), dateStr, nextEntries);
+        setScheduleEntries(targetTeacherId, String(sid), dateStr, nextEntries);
         
         // 2. 데이터 저장 및 화면 업데이트
         saveData();
-        persistTeacherScheduleLocal();
+        persistTeacherScheduleLocalFor(targetTeacherId);
         renderCalendar();
         if (document.getElementById('day-detail-modal').style.display === 'flex') renderDayEvents(dateStr);
         
-        showToast('일정이 삭제되었습니다.', 'success');
+        showToast(permission.adminOverride ? '일정이 삭제되었습니다. (관리자 권한)' : '일정이 삭제되었습니다.', 'success');
 
         // 3. 데이터베이스 삭제는 백그라운드 처리
-        deleteScheduleFromDatabase(sid, dateStr, currentTeacherId, originalStart || null)
+        deleteScheduleFromDatabase(sid, dateStr, targetTeacherId, originalStart || null)
             .then(result => console.log('[deleteSingleSchedule] 데이터베이스 삭제:', result))
             .catch(dbError => {
                 console.error('[deleteSingleSchedule] 데이터베이스 삭제 실패:', dbError);
@@ -4057,6 +4739,7 @@ window.updatePeriodDeletePreview = function() {
 
 // 기간별 일정 삭제 실행
 window.executePeriodDelete = async function() {
+    if (!ensureOwnedScheduleDeleteContext('기간별 일정 삭제')) return;
     const scope = document.getElementById('period-del-scope').value;
     const startDate = document.getElementById('period-del-start').value;
     const endDate = document.getElementById('period-del-end').value;
@@ -4093,7 +4776,7 @@ window.executePeriodDelete = async function() {
             expectedCount += countStudentSchedulesInRange(sid, startDate, endDate);
         });
     }
-    const confirmMessage = `${startDate} ~ ${endDate}${monthSpan > 1 ? ` (${monthSpan}개월)` : ''} 기간의 일정을 삭제하시겠습니까?\n\n- 범위: ${scopeLabel}\n- 삭제 예정: ${expectedCount}건\n\n출석/상담 기록은 남고, 예정 일정만 삭제됩니다.\n삭제 후 복구할 수 없습니다.`;
+    const confirmMessage = `${startDate} ~ ${endDate}${monthSpan > 1 ? ` (${monthSpan}개월)` : ''} 기간의 일정을 삭제하시겠습니까?\n\n- 범위: ${scopeLabel}\n- 삭제 예정: ${expectedCount}건\n- 대상: 내가 등록한 일정만\n\n출석/상담 기록은 남고, 예정 일정만 삭제됩니다.\n삭제 후 복구할 수 없습니다.`;
     if (!(await showConfirm(confirmMessage, { type: 'danger', title: '삭제 확인', okText: '삭제' }))) return;
     
     let deletedCount = 0;
@@ -4786,7 +5469,7 @@ window.openHistoryModal = async function() {
 
                 allRecords.forEach(rec => {
                     const dk = rec.attendance_date;
-                    const tk = rec.scheduled_time || 'default';
+                    const tk = normalizeScheduleTimeKey(rec.scheduled_time);
                     const sharedKey = `${tk}__${rec.teacher_id || 'unknown'}`;
 
                     // 공유 메모 (선생님 이름 태그 포함)
@@ -5247,7 +5930,7 @@ async function loadAndCleanData() {
                 // scheduled_time까지 포함한 키로 중복 제거
                 const recordMap = new Map();
                 records.forEach(r => {
-                    const timeKey = r.scheduled_time || 'default';
+                    const timeKey = normalizeScheduleTimeKey(r.scheduled_time);
                     const key = `${r.student_id}__${r.attendance_date}__${timeKey}`;
                     const timeVal = r.qr_scan_time || r.check_in_time || r.updated_at || r.created_at || null;
                     if (!recordMap.has(key)) {
@@ -5269,7 +5952,7 @@ async function loadAndCleanData() {
                     
                     // ★ 시간별 객체로 저장 (기존 flat string → object 마이그레이션)
                     const dateKey = record.attendance_date;
-                    const scheduledTimeKey = record.scheduled_time || 'default';
+                    const scheduledTimeKey = normalizeScheduleTimeKey(record.scheduled_time);
                     if (typeof student.attendance[dateKey] === 'string') {
                         const prev = student.attendance[dateKey];
                         student.attendance[dateKey] = {};
@@ -5437,15 +6120,41 @@ async function ensureAttendanceForDate(dateStr) {
             return;
         }
 
-        const records = await getAttendanceRecordsByDate(dateStr);
+        const records = await getAttendanceRecordsByDate(dateStr, { includeAllTeachers: true });
         if (records && records.length > 0 && Array.isArray(students)) {
-            records.forEach(r => {
+            const statusPriority = { present: 5, late: 4, makeup: 3, etc: 3, absent: 2, none: 1 };
+            const pickPriority = (value) => statusPriority[String(value || '').toLowerCase()] || 0;
+            const mergedMap = new Map();
+
+            records.forEach((row) => {
+                const slotKey = `${String(row?.student_id || '')}__${String(row?.attendance_date || '')}__${normalizeScheduleTimeKey(row?.scheduled_time)}`;
+                const current = mergedMap.get(slotKey);
+                if (!current) {
+                    mergedMap.set(slotKey, row);
+                    return;
+                }
+                const currentPriority = pickPriority(current?.status);
+                const nextPriority = pickPriority(row?.status);
+                if (nextPriority > currentPriority) {
+                    mergedMap.set(slotKey, row);
+                    return;
+                }
+                if (nextPriority === currentPriority) {
+                    const currentTime = new Date(current?.processed_at || current?.check_in_time || current?.created_at || 0).getTime();
+                    const nextTime = new Date(row?.processed_at || row?.check_in_time || row?.created_at || 0).getTime();
+                    if (nextTime >= currentTime) {
+                        mergedMap.set(slotKey, row);
+                    }
+                }
+            });
+
+            Array.from(mergedMap.values()).forEach(r => {
                 const student = students.find(s => String(s.id) === String(r.student_id));
                 if (!student) return;
                 if (!student.attendance) student.attendance = {};
                 // ★ 시간별 객체로 저장 (flat string → object 마이그레이션)
                 const dateKey = r.attendance_date;
-                const scheduledTimeKey = r.scheduled_time || 'default';
+                const scheduledTimeKey = normalizeScheduleTimeKey(r.scheduled_time);
                 if (typeof student.attendance[dateKey] === 'string') {
                     const prev = student.attendance[dateKey];
                     student.attendance[dateKey] = {};
@@ -5517,6 +6226,7 @@ async function loadTeacherScheduleData(teacherId) {
             }
         }
         console.log(`선생님 ${teacherId} 일정 데이터 로드 완료: ${Object.keys(teacherScheduleData[teacherId] || {}).length}명`);
+        normalizeLegacyTeacherScheduleOwnership();
         if (teacherId === currentTeacherId) {
             await refreshCurrentTeacherStudents();
         }
@@ -5541,6 +6251,35 @@ async function loadAllTeachersScheduleData() {
         if (error) {
             console.error('[loadAllTeachersScheduleData] DB 에러:', error);
             return;
+        }
+
+        // 타교사 일정 라벨 복원을 위해 owner 범위 선생님 이름 맵 갱신
+        try {
+            const { data: teacherRows, error: teacherErr } = await supabase
+                .from('teachers')
+                .select('id, owner_user_id, name')
+                .eq('owner_user_id', ownerId);
+            if (teacherErr) {
+                console.warn('[loadAllTeachersScheduleData] teachers 라벨 조회 실패:', teacherErr);
+            } else if (Array.isArray(teacherRows)) {
+                const nextLookup = {};
+                const addLookup = (key, name) => {
+                    const rawKey = String(key || '').trim().toLowerCase();
+                    if (!rawKey) return;
+                    nextLookup[rawKey] = name;
+                    const canonicalKey = rawKey.replace(/[^a-z0-9]/g, '');
+                    if (canonicalKey) nextLookup[canonicalKey] = name;
+                };
+                teacherRows.forEach((row) => {
+                    const name = String(row?.name || '').trim();
+                    if (!name) return;
+                    addLookup(row?.id, name);
+                    addLookup(row?.owner_user_id, name);
+                });
+                teacherNameLookup = { ...teacherNameLookup, ...nextLookup };
+            }
+        } catch (lookupErr) {
+            console.warn('[loadAllTeachersScheduleData] teachers 라벨 보강 예외:', lookupErr);
         }
 
         // 현재 선생님의 데이터는 보존하고, 다른 선생님 데이터만 추가/갱신
@@ -5577,6 +6316,7 @@ async function loadAllTeachersScheduleData() {
 
         const otherCount = Object.keys(otherTeachers).filter(t => String(t) !== String(currentTeacherId)).length;
         console.log(`[loadAllTeachersScheduleData] 다른 선생님 ${otherCount}명 일정 로드 완료 (총 ${(data || []).length}건)`);
+        normalizeLegacyTeacherScheduleOwnership();
     } catch (e) {
         console.error('[loadAllTeachersScheduleData] 예외:', e);
     }
@@ -6213,6 +6953,92 @@ function getAssignedTeacherId(studentId) {
 }
 
 window.getAssignedTeacherId = getAssignedTeacherId;
+
+function resolveKnownTeacherId(rawTeacherId) {
+    const raw = String(rawTeacherId || '').trim();
+    if (!raw) return '';
+    const normalizedRaw = raw.toLowerCase();
+    const canonicalRaw = normalizedRaw.replace(/[^a-z0-9]/g, '');
+    const byId = (teacherList || []).find((t) => {
+        const idRaw = String(t.id || '').trim().toLowerCase();
+        if (idRaw === normalizedRaw) return true;
+        const idCanonical = idRaw.replace(/[^a-z0-9]/g, '');
+        return !!(canonicalRaw && idCanonical && canonicalRaw === idCanonical);
+    });
+    if (byId) return String(byId.id || '');
+    const byOwner = (teacherList || []).find((t) => {
+        const ownerRaw = String(t.owner_user_id || '').trim().toLowerCase();
+        if (ownerRaw === normalizedRaw) return true;
+        const ownerCanonical = ownerRaw.replace(/[^a-z0-9]/g, '');
+        return !!(canonicalRaw && ownerCanonical && canonicalRaw === ownerCanonical);
+    });
+    return byOwner ? String(byOwner.id || '') : '';
+}
+
+function normalizeLegacyTeacherScheduleOwnership() {
+    if (!teacherScheduleData || typeof teacherScheduleData !== 'object') return false;
+    const knownTeacherIds = new Set((teacherList || []).map((t) => String(t.id || '')).filter(Boolean));
+    if (knownTeacherIds.size === 0) return false;
+
+    let changed = false;
+    const legacyTeacherIds = Object.keys(teacherScheduleData).filter((tid) => tid && !knownTeacherIds.has(String(tid)));
+
+    legacyTeacherIds.forEach((legacyTeacherId) => {
+        const legacySchedule = teacherScheduleData[legacyTeacherId] || {};
+        const studentIds = Object.keys(legacySchedule);
+        if (studentIds.length === 0) return;
+
+        const scoreMap = new Map();
+        const addScore = (teacherId, score) => {
+            const tid = String(teacherId || '').trim();
+            if (!tid || !knownTeacherIds.has(tid)) return;
+            scoreMap.set(tid, (scoreMap.get(tid) || 0) + score);
+        };
+
+        studentIds.forEach((sid) => {
+            const student = (students || []).find((s) => String(s.id) === String(sid));
+            if (student && student.teacher_id) {
+                addScore(resolveKnownTeacherId(student.teacher_id), 3);
+            }
+            if (typeof getAssignedTeacherId === 'function') {
+                addScore(resolveKnownTeacherId(getAssignedTeacherId(sid)), 2);
+            }
+        });
+
+        const ranked = Array.from(scoreMap.entries()).sort((a, b) => {
+            if (b[1] !== a[1]) return b[1] - a[1];
+            return String(a[0]).localeCompare(String(b[0]));
+        });
+        if (!ranked.length) return;
+        const [targetTeacherId, topScore] = ranked[0];
+        if (topScore <= 0) return;
+
+        if (!teacherScheduleData[targetTeacherId]) teacherScheduleData[targetTeacherId] = {};
+        studentIds.forEach((sid) => {
+            const byDate = legacySchedule[sid] || {};
+            Object.keys(byDate).forEach((dateStr) => {
+                const rawEntries = byDate[dateStr];
+                const entries = Array.isArray(rawEntries) ? rawEntries : [rawEntries];
+                let targetEntries = getScheduleEntries(targetTeacherId, String(sid), dateStr);
+                entries.forEach((entry) => {
+                    const start = normalizeScheduleTimeKey(entry?.start || '');
+                    if (!start || start === 'default') return;
+                    const duration = parseInt(entry?.duration, 10) || 60;
+                    targetEntries = upsertScheduleEntry(targetEntries, { start, duration }).list;
+                });
+                setScheduleEntries(targetTeacherId, String(sid), dateStr, targetEntries);
+            });
+        });
+
+        delete teacherScheduleData[legacyTeacherId];
+        localStorage.removeItem(`teacher_schedule_data__${legacyTeacherId}`);
+        persistTeacherScheduleLocalFor(targetTeacherId);
+        changed = true;
+        console.log(`[normalizeLegacyTeacherScheduleOwnership] legacy=${legacyTeacherId} -> target=${targetTeacherId} 병합`);
+    });
+
+    return changed;
+}
 
 // localStorage의 선생님-학생 매핑을 DB에 동기화 (한 번만 실행)
 async function syncTeacherAssignmentsToDb() {

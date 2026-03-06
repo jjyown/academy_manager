@@ -253,6 +253,10 @@ async function _processAttendanceCheck(timeKey, idx, status) {
             qrScanned: existing?.qr_scanned || false,
             qrScanTime: existing?.qr_scan_time || null,
             qrJudgment: judgmentMap[status] || status,
+            attendance_source: existing?.attendance_source || 'teacher',
+            authTime: existing?.auth_time || existing?.qr_scan_time || existing?.check_in_time || null,
+            presenceChecked: true,
+            processedAt: new Date().toISOString(),
             memo: existing?.memo || null
         });
         
@@ -1907,22 +1911,19 @@ async function processAttendanceFromQR(qrData, authMeta = null) {
         let earliestSchedule = null;
         let allSchedules = [];
         
-        // Step 1: DB에서 해당 학생의 당일 일정 조회
-        // 현재 선택 선생님 기준이 있으면 해당 선생님 일정만 조회한다.
+        // Step 1: DB에서 해당 학생의 당일 전체 일정 조회
+        // 후속 알림 큐를 정확히 생성하려면 선생님 필터 없이 전체를 먼저 읽어야 한다.
         if (typeof supabase !== 'undefined') {
             console.log('[processAttendanceFromQR] DB에서 학생의 당일 전체 일정 조회 시작');
             try {
                 const ownerId = await ensureOwnerId();
                 if (ownerId) {
-                    let scheduleQuery = supabase
+                    const scheduleQuery = supabase
                         .from('schedules')
                         .select('teacher_id, start_time, duration')
                         .eq('owner_user_id', ownerId)
                         .eq('student_id', parseInt(studentId))
                         .eq('schedule_date', dateStr);
-                    if (currentTeacherId) {
-                        scheduleQuery = scheduleQuery.eq('teacher_id', String(currentTeacherId));
-                    }
                     const { data: schedules, error } = await scheduleQuery.order('start_time', { ascending: true });
                     
                     if (!error && schedules && schedules.length > 0) {
@@ -1946,12 +1947,26 @@ async function processAttendanceFromQR(qrData, authMeta = null) {
                         // 로컬 캐시에도 반영 (다음 조회 시 빨라짐)
                         for (const s of schedules) {
                             const tid = String(s.teacher_id);
-                            if (!teacherScheduleData[tid]) teacherScheduleData[tid] = {};
-                            if (!teacherScheduleData[tid][String(studentId)]) teacherScheduleData[tid][String(studentId)] = {};
-                            teacherScheduleData[tid][String(studentId)][dateStr] = {
-                                start: s.start_time ? s.start_time.substring(0, 5) : s.start_time,
-                                duration: s.duration
-                            };
+                            const startTime = s.start_time ? s.start_time.substring(0, 5) : s.start_time;
+                            if (!startTime) continue;
+                            const duration = parseInt(s.duration, 10) || 60;
+                            if (typeof getScheduleEntries === 'function' && typeof setScheduleEntries === 'function') {
+                                const entries = getScheduleEntries(tid, String(studentId), dateStr);
+                                const next = Array.isArray(entries) ? [...entries] : [];
+                                const idx = next.findIndex((entry) => String(entry?.start || '') === String(startTime));
+                                if (idx >= 0) next[idx] = { start: startTime, duration };
+                                else next.push({ start: startTime, duration });
+                                setScheduleEntries(tid, String(studentId), dateStr, next);
+                            } else {
+                                if (!teacherScheduleData[tid]) teacherScheduleData[tid] = {};
+                                if (!teacherScheduleData[tid][String(studentId)]) teacherScheduleData[tid][String(studentId)] = {};
+                                const raw = teacherScheduleData[tid][String(studentId)][dateStr];
+                                const list = Array.isArray(raw) ? [...raw] : (raw ? [raw] : []);
+                                const idx = list.findIndex((entry) => String(entry?.start || '') === String(startTime));
+                                if (idx >= 0) list[idx] = { start: startTime, duration };
+                                else list.push({ start: startTime, duration });
+                                teacherScheduleData[tid][String(studentId)][dateStr] = list;
+                            }
                         }
                     } else {
                         console.warn('[processAttendanceFromQR] DB 일정 조회 결과 없음 또는 에러:', error);
@@ -1967,9 +1982,6 @@ async function processAttendanceFromQR(qrData, authMeta = null) {
             console.log('[processAttendanceFromQR] DB 조회 결과 없음 - 로컬 캐시에서 검색');
             let scheduleResult = findEarliestScheduleForStudent(studentId, dateStr);
             allSchedules = scheduleResult.allSchedules || [];
-            if (currentTeacherId) {
-                allSchedules = allSchedules.filter((s) => String(s.teacherId) === String(currentTeacherId));
-            }
             earliestSchedule = allSchedules.length > 0 ? allSchedules[0].schedule : null;
             
             // 로컬에도 없으면 전체 일정 재로드 후 다시 시도
@@ -1979,9 +1991,6 @@ async function processAttendanceFromQR(qrData, authMeta = null) {
                     await loadAllSchedulesForOwner();
                     scheduleResult = findEarliestScheduleForStudent(studentId, dateStr);
                     allSchedules = scheduleResult.allSchedules || [];
-                    if (currentTeacherId) {
-                        allSchedules = allSchedules.filter((s) => String(s.teacherId) === String(currentTeacherId));
-                    }
                     earliestSchedule = allSchedules.length > 0 ? allSchedules[0].schedule : null;
                 } catch (reloadError) {
                     console.error('[processAttendanceFromQR] 전체 일정 재로드 실패:', reloadError);
@@ -2103,7 +2112,10 @@ async function processAttendanceFromQR(qrData, authMeta = null) {
                     qrJudgment: isPhoneAuthMode
                         ? `미처리(전화번호 인증 · 자동일정 ${autoStartTime})`
                         : `미처리(QR 스캔 · 자동일정 ${autoStartTime})`,
-                    attendance_source: isPhoneAuthMode ? 'teacher_manual' : 'qr_student',
+                    attendance_source: 'emergency',
+                    authTime: nowIso,
+                    presenceChecked: false,
+                    processedAt: nowIso,
                     memo: isPhoneAuthMode
                         ? `[자동일정생성] 일정 미등록 상태에서 전화번호 인증(${phoneSuffix4}) → ${autoStartTime} 일정 생성, 출석 미처리 저장`
                         : `[자동일정생성] 일정 미등록 상태에서 QR 스캔 → ${autoStartTime} 일정 생성, 출석 미처리 저장`,
@@ -2256,7 +2268,10 @@ async function processAttendanceFromQR(qrData, authMeta = null) {
                         qrScanned: !isPhoneAuthMode,
                         qrScanTime: !isPhoneAuthMode ? today.toISOString() : null,
                         qrJudgment: isPhoneAuthMode ? `${judgmentText} · 전화번호인증(${phoneSuffix4})` : judgmentText,
-                        attendance_source: isPhoneAuthMode ? 'teacher_manual' : 'qr_student',
+                        attendance_source: isPhoneAuthMode ? 'phone' : 'qr',
+                        authTime: today.toISOString(),
+                        presenceChecked: false,
+                        processedAt: today.toISOString(),
                         memo: isPhoneAuthMode
                             ? (() => {
                                 const prev = String(existingRecord?.memo || '').trim();
@@ -3255,38 +3270,56 @@ window.loadStudentAttendanceHistory = async function() {
         const schedulesInMonth = (schedules || []).filter(s => s.schedule_date >= startDate && s.schedule_date <= endDateStr);
 
         // ★ 배정된 선생님의 일정/기록만 메인으로, 나머지는 "기타" 정보로
-        const primaryScheduleByDate = new Map();
-        const otherScheduleByDate = new Map();
+        // 슬롯 키(날짜+시간) 단위로 묶어 동일 날짜 다중 수업(예: 19:00/22:00)이
+        // 이력 화면에서 한 건으로 덮어써 보이지 않도록 처리한다.
+        const normalizeTimeKey = (raw) => {
+            if (!raw) return 'default';
+            const text = String(raw);
+            if (text.length >= 5 && text.indexOf(':') > -1) return text.substring(0, 5);
+            return 'default';
+        };
+        const toSlotKey = (dateVal, timeVal) => `${dateVal}__${normalizeTimeKey(timeVal)}`;
+        const fromSlotKey = (slotKey) => {
+            const idx = slotKey.lastIndexOf('__');
+            if (idx < 0) return { date: slotKey, time: 'default' };
+            return {
+                date: slotKey.substring(0, idx),
+                time: slotKey.substring(idx + 2) || 'default'
+            };
+        };
+
+        const primaryScheduleBySlot = new Map();
+        const otherScheduleBySlot = new Map();
         schedulesInMonth.forEach(s => {
-            const key = s.schedule_date;
+            const key = toSlotKey(s.schedule_date, s.start_time);
             if (primaryTeacherId && String(s.teacher_id) === primaryTeacherId) {
-                if (!primaryScheduleByDate.has(key)) primaryScheduleByDate.set(key, []);
-                primaryScheduleByDate.get(key).push(s);
+                if (!primaryScheduleBySlot.has(key)) primaryScheduleBySlot.set(key, []);
+                primaryScheduleBySlot.get(key).push(s);
             } else {
-                if (!otherScheduleByDate.has(key)) otherScheduleByDate.set(key, []);
-                otherScheduleByDate.get(key).push(s);
+                if (!otherScheduleBySlot.has(key)) otherScheduleBySlot.set(key, []);
+                otherScheduleBySlot.get(key).push(s);
             }
         });
 
-        const primaryRecordByDate = new Map();
-        const otherRecordByDate = new Map();
+        const primaryRecordBySlot = new Map();
+        const otherRecordBySlot = new Map();
         (records || []).forEach(r => {
-            const key = r.attendance_date;
+            const key = toSlotKey(r.attendance_date, r.scheduled_time);
             if (primaryTeacherId && String(r.teacher_id) === primaryTeacherId) {
-                if (!primaryRecordByDate.has(key)) primaryRecordByDate.set(key, []);
-                primaryRecordByDate.get(key).push(r);
+                if (!primaryRecordBySlot.has(key)) primaryRecordBySlot.set(key, []);
+                primaryRecordBySlot.get(key).push(r);
             } else {
-                if (!otherRecordByDate.has(key)) otherRecordByDate.set(key, []);
-                otherRecordByDate.get(key).push(r);
+                if (!otherRecordBySlot.has(key)) otherRecordBySlot.set(key, []);
+                otherRecordBySlot.get(key).push(r);
             }
         });
 
-        // ★ 담당 선생님 일정/기록이 있는 날짜 + 담당 없을 때 다른 선생님 날짜도 포함
-        const primaryDates = new Set([...primaryScheduleByDate.keys(), ...primaryRecordByDate.keys()]);
-        const otherDates = new Set([...otherScheduleByDate.keys(), ...otherRecordByDate.keys()]);
-        const allDates = new Set([...primaryDates, ...otherDates]);
+        // ★ 담당 선생님 슬롯 + 담당 없을 때 다른 선생님 슬롯도 포함
+        const primarySlots = new Set([...primaryScheduleBySlot.keys(), ...primaryRecordBySlot.keys()]);
+        const otherSlots = new Set([...otherScheduleBySlot.keys(), ...otherRecordBySlot.keys()]);
+        const allSlots = new Set([...primarySlots, ...otherSlots]);
         
-        if (allDates.size === 0) {
+        if (allSlots.size === 0) {
             const teacherName = primaryTeacherId ? getTeacherNameById(primaryTeacherId) : '선생님';
             contentDiv.innerHTML = `<p style="color: #64748b; text-align: center;">
                 ${year}년 ${month}월에 출석 기록이 없습니다.
@@ -3295,21 +3328,84 @@ window.loadStudentAttendanceHistory = async function() {
         }
         
         const stats = { present: 0, late: 0, absent: 0, makeup: 0 };
+        const formatHistoryTime = (raw, withSeconds = false) => {
+            if (!raw) return '';
+            const dt = new Date(raw);
+            if (Number.isNaN(dt.getTime())) return '';
+            const opts = withSeconds
+                ? { hour: '2-digit', minute: '2-digit', second: '2-digit' }
+                : { hour: '2-digit', minute: '2-digit' };
+            return dt.toLocaleTimeString('ko-KR', opts);
+        };
+        const resolveHistoryMeta = (recordLike) => {
+            if (!recordLike) {
+                return {
+                    sourceLabel: '미처리',
+                    sourceStyle: 'color:#475569;background:#e2e8f0;',
+                    authTime: '',
+                    processedTime: '',
+                    presenceCheckLabel: '미확인',
+                    presenceCheckStyle: 'color:#6b7280;background:#f1f5f9;'
+                };
+            }
+            const judgment = String(recordLike?.qr_judgment || '');
+            const memoText = String(recordLike?.memo || '');
+            const source = String(recordLike?.attendance_source || '').trim();
+            const hasPhoneAuth = source === 'phone' || source === 'teacher_manual' || judgment.includes('전화번호인증') || memoText.includes('[전화번호인증]');
+            const hasTeacherPresenceCheck = (recordLike?.presence_checked === true) || /(재석 확인|지각 확인|부재 확인|보강 처리)/.test(judgment);
+            const isEmergency = source === 'emergency' || judgment.includes('임시출석');
 
-        const dateList = Array.from(allDates).sort((a, b) => new Date(b) - new Date(a));
-        const totalDays = dateList.length;
+            let sourceLabel = '선생님 체크';
+            let sourceStyle = 'color:#6366f1;background:#eef2ff;';
+            if (source === 'unknown') {
+                sourceLabel = '기존기록';
+                sourceStyle = 'color:#475569;background:#e2e8f0;';
+            } else if (isEmergency) {
+                sourceLabel = '임시출석';
+                sourceStyle = 'color:#b45309;background:#fef3c7;';
+            } else if (source === 'qr' || source === 'qr_student' || recordLike?.qr_scanned) {
+                sourceLabel = 'QR 스캔';
+                sourceStyle = 'color:#047857;background:#d1fae5;';
+            } else if (hasPhoneAuth) {
+                sourceLabel = '번호 입력';
+                sourceStyle = 'color:#1d4ed8;background:#dbeafe;';
+            }
+
+            const authTime = formatHistoryTime(recordLike?.auth_time, true)
+                || (recordLike?.qr_scanned
+                    ? formatHistoryTime(recordLike?.qr_scan_time, true)
+                    : (hasPhoneAuth ? formatHistoryTime(recordLike?.check_in_time, true) : ''));
+            const processedTime = formatHistoryTime(recordLike?.processed_at, true) || formatHistoryTime(recordLike?.check_in_time, true);
+            const presenceCheckLabel = hasTeacherPresenceCheck ? '확인함' : '미확인';
+            const presenceCheckStyle = hasTeacherPresenceCheck
+                ? 'color:#065f46;background:#d1fae5;'
+                : 'color:#6b7280;background:#f1f5f9;';
+
+            return { sourceLabel, sourceStyle, authTime, processedTime, presenceCheckLabel, presenceCheckStyle };
+        };
+
+        const slotList = Array.from(allSlots).sort((a, b) => {
+            const slotA = fromSlotKey(a);
+            const slotB = fromSlotKey(b);
+            if (slotA.date !== slotB.date) return slotA.date < slotB.date ? 1 : -1;
+            return slotA.time < slotB.time ? 1 : -1;
+        });
+        const totalSlots = slotList.length;
         
         let detailsHtml = '';
 
-        for (const dateKey of dateList) {
+        for (const slotKey of slotList) {
+            const parsedSlot = fromSlotKey(slotKey);
+            const dateKey = parsedSlot.date;
+            const slotTimeKey = parsedSlot.time;
             const date = new Date(dateKey);
             const dateStr = `${date.getMonth() + 1}/${date.getDate()}`;
 
             // 배정된 선생님의 기록/일정
-            const myRecords = primaryRecordByDate.get(dateKey) || [];
-            const mySchedules = primaryScheduleByDate.get(dateKey) || [];
-            const otherRecords = otherRecordByDate.get(dateKey) || [];
-            const otherSchedules = otherScheduleByDate.get(dateKey) || [];
+            const myRecords = primaryRecordBySlot.get(slotKey) || [];
+            const mySchedules = primaryScheduleBySlot.get(slotKey) || [];
+            const otherRecords = otherRecordBySlot.get(slotKey) || [];
+            const otherSchedules = otherScheduleBySlot.get(slotKey) || [];
             
             // 담당 선생님 기록 우선, 없으면 다른 선생님 기록도 표시 (QR 스캔 등으로 다른 teacher_id로 저장된 경우 대응)
             const effectiveRecord = myRecords[0] || otherRecords[0] || null;
@@ -3325,7 +3421,8 @@ window.loadStudentAttendanceHistory = async function() {
             else if (statusValue === 'makeup' || statusValue === 'etc') stats.makeup++;
             const { statusBadge, statusColor, bgColor, borderColor } = getStatusStyle(statusValue);
 
-            let timeLabel = '-';
+            const fallbackScheduledTime = slotTimeKey !== 'default' ? slotTimeKey : '';
+            let timeLabel = fallbackScheduledTime ? formatKoreanTimeLabel(fallbackScheduledTime) : '-';
             if (effectiveRecord && effectiveRecord.check_in_time) {
                 timeLabel = new Date(effectiveRecord.check_in_time).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
             } else if (effectiveSchedule && effectiveSchedule.start_time) {
@@ -3370,7 +3467,7 @@ window.loadStudentAttendanceHistory = async function() {
 
                 tooltipHtml = `
                     <div class="att-day-tooltip" style="display:none;position:absolute;bottom:calc(100% + 8px);left:16px;background:#1e293b;color:white;padding:12px 14px;border-radius:10px;font-size:13px;min-width:220px;max-width:320px;z-index:9999;box-shadow:0 8px 24px rgba(0,0,0,0.25);line-height:1.5;">
-                        <div style="font-weight:700;margin-bottom:6px;font-size:12px;color:#94a3b8;letter-spacing:0.5px;">${dateStr} 전체 일정</div>
+                        <div style="font-weight:700;margin-bottom:6px;font-size:12px;color:#94a3b8;letter-spacing:0.5px;">${dateStr} ${timeLabel} 슬롯</div>
                         ${tooltipItems}
                         <div style="position:absolute;bottom:-6px;left:24px;width:12px;height:12px;background:#1e293b;rotate:45deg;border-radius:2px;"></div>
                     </div>`;
@@ -3378,7 +3475,13 @@ window.loadStudentAttendanceHistory = async function() {
 
             const existingMemo = (effectiveRecord && effectiveRecord.memo) ? effectiveRecord.memo : '';
             const escapedMemo = (existingMemo || '').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-            const scheduledTimeVal = effectiveRecord && effectiveRecord.scheduled_time ? effectiveRecord.scheduled_time : (effectiveSchedule && effectiveSchedule.start_time ? effectiveSchedule.start_time : '');
+            const scheduledTimeVal = effectiveRecord && effectiveRecord.scheduled_time
+                ? effectiveRecord.scheduled_time
+                : (effectiveSchedule && effectiveSchedule.start_time ? effectiveSchedule.start_time : fallbackScheduledTime);
+            const historyMeta = resolveHistoryMeta(effectiveRecord);
+            const classTimeLabel = fallbackScheduledTime ? formatKoreanTimeLabel(fallbackScheduledTime) : '-';
+            const processedTimeLabel = historyMeta.processedTime || '-';
+            const authTimeLabel = historyMeta.authTime || '-';
 
             detailsHtml += `
                 <div class="att-day-row" style="position:relative;display:flex;flex-direction:column;padding:16px 18px;background:${bgColor};border-radius:12px;border-left:4px solid ${statusColor};border-top:1px solid ${borderColor};border-right:1px solid ${borderColor};border-bottom:1px solid ${borderColor};cursor:${hasOtherTeachers ? 'pointer' : 'default'};" ${hasOtherTeachers ? 'data-has-tooltip="true"' : ''}>
@@ -3386,14 +3489,21 @@ window.loadStudentAttendanceHistory = async function() {
                     <div style="display:flex;justify-content:space-between;align-items:center;">
                         <div style="flex:1;min-width:0;">
                             <div style="display:flex;align-items:center;gap:6px;font-weight:700;font-size:15px;color:#1e293b;margin-bottom:6px;">
-                                <span>${dateStr} (${getDayOfWeek(date)})</span>
+                                <span>${dateStr} (${getDayOfWeek(date)}) · ${fallbackScheduledTime ? formatKoreanTimeLabel(fallbackScheduledTime) : '-'}</span>
                                 ${isFallback && fallbackTeacherName ? `<span style="font-size:11px;color:#8b5cf6;background:#ede9fe;padding:2px 7px;border-radius:5px;font-weight:600;">${fallbackTeacherName}</span>` : ''}
                             </div>
                             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
                                 <span style="font-size:13px;color:#64748b;display:flex;align-items:center;gap:4px;">
-                                    <span style="opacity:0.7;">⏰</span> ${timeLabel}
+                                    <span style="opacity:0.7;">🕒</span> 수업시간 ${classTimeLabel}
                                 </span>
-                                ${effectiveRecord && effectiveRecord.qr_scanned ? `<span style="font-size:12px;color:#10b981;background:#dcfce7;padding:3px 8px;border-radius:6px;font-weight:600;">📱 학생 QR ${effectiveRecord.qr_scan_time ? new Date(effectiveRecord.qr_scan_time).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''}</span>` : (effectiveRecord && effectiveRecord.check_in_time && !effectiveRecord.qr_scanned ? `<span style="font-size:12px;color:#6366f1;background:#eef2ff;padding:3px 8px;border-radius:6px;font-weight:600;">✅ 선생님 체크 ${new Date(effectiveRecord.check_in_time).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</span>` : '')}
+                                <span style="font-size:13px;color:#64748b;display:flex;align-items:center;gap:4px;">
+                                    <span style="opacity:0.7;">✅</span> 처리시간 ${processedTimeLabel}
+                                </span>
+                            </div>
+                            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:6px;">
+                                <span style="font-size:12px;${historyMeta.sourceStyle}padding:3px 8px;border-radius:6px;font-weight:600;">처리방식 ${historyMeta.sourceLabel}</span>
+                                <span style="font-size:12px;color:#334155;background:#e2e8f0;padding:3px 8px;border-radius:6px;font-weight:600;">인증시간 ${authTimeLabel}</span>
+                                <span style="font-size:12px;${historyMeta.presenceCheckStyle}padding:3px 8px;border-radius:6px;font-weight:600;">자리확인 ${historyMeta.presenceCheckLabel}</span>
                             </div>
                         </div>
                         <select
@@ -3450,7 +3560,7 @@ window.loadStudentAttendanceHistory = async function() {
                     <h3 style="margin: 0; font-size: 18px; color: #1e293b;">상세 기록</h3>
                     ${teacherChip}
                 </div>
-                <span style="font-size: 14px; color: #64748b; font-weight: 500;">총 ${totalDays}일</span>
+                <span style="font-size: 14px; color: #64748b; font-weight: 500;">총 ${totalSlots}건</span>
             </div>
             <div style="display: flex; flex-direction: column; gap: 10px;">
                 ${detailsHtml}
@@ -3491,15 +3601,6 @@ async function updateAttendanceStatusFromHistory(studentId, dateStr, nextStatus,
             return;
         }
         const teacherIds = await getTeacherIdsForStudentDate(studentId, dateStr);
-        let scope = 'current';
-
-        if (teacherIds.size > 1) {
-            scope = await showAttendanceScopeModal();
-            if (!scope) {
-                await loadStudentAttendanceHistory();
-                return;
-            }
-        }
 
         const currentId = currentTeacherId ? String(currentTeacherId) : null;
         const defaultTeacherId = currentId && teacherIds.has(currentId)
@@ -3517,62 +3618,30 @@ async function updateAttendanceStatusFromHistory(studentId, dateStr, nextStatus,
             }
         }
 
-        if (scope === 'current') {
-            const record = await getAttendanceRecordByStudentAndDate(studentId, dateStr, defaultTeacherId, effectiveScheduledTime);
+        const record = await getAttendanceRecordByStudentAndDate(studentId, dateStr, defaultTeacherId, effectiveScheduledTime);
 
-            // ★ 기존 레코드의 scheduled_time 우선 사용 (onConflict 매칭을 위해)
-            const resolvedScheduledTime = record?.scheduled_time || effectiveScheduledTime || null;
+        // ★ 기존 레코드의 scheduled_time 우선 사용 (onConflict 매칭을 위해)
+        const resolvedScheduledTime = record?.scheduled_time || effectiveScheduledTime || null;
 
-            const payload = {
-                studentId: studentId,
-                teacherId: String(record?.teacher_id || defaultTeacherId || ''),
-                attendanceDate: dateStr,
-                checkInTime: record?.check_in_time || new Date().toISOString(),
-                scheduledTime: resolvedScheduledTime,
-                status: nextStatus,
-                qrScanned: record?.qr_scanned || false,
-                qrScanTime: record?.qr_scan_time || null,
-                qrJudgment: record?.qr_judgment || null,
-                memo: record?.memo || null
-            };
+        const payload = {
+            studentId: studentId,
+            teacherId: String(record?.teacher_id || defaultTeacherId || ''),
+            attendanceDate: dateStr,
+            checkInTime: record?.check_in_time || new Date().toISOString(),
+            scheduledTime: resolvedScheduledTime,
+            status: nextStatus,
+            qrScanned: record?.qr_scanned || false,
+            qrScanTime: record?.qr_scan_time || null,
+            qrJudgment: record?.qr_judgment || null,
+            memo: record?.memo || null
+        };
 
-            await saveAttendanceRecord(payload);
-        } else {
-            for (const teacherId of teacherIds) {
-                const record = await getAttendanceRecordByStudentAndDate(studentId, dateStr, teacherId, effectiveScheduledTime);
-
-                // ★ 기존 레코드의 scheduled_time 우선 사용 (onConflict 매칭을 위해)
-                let resolvedScheduledTime = record?.scheduled_time || effectiveScheduledTime || null;
-                if (!resolvedScheduledTime) {
-                    const tSchedule = (typeof teacherScheduleData !== 'undefined' ? teacherScheduleData : {})[teacherId] || {};
-                    const sSchedule = tSchedule[String(studentId)] || {};
-                    const scheduleEntry = sSchedule[dateStr] || null;
-                    if (scheduleEntry && scheduleEntry.start) {
-                        resolvedScheduledTime = scheduleEntry.start;
-                    }
-                }
-
-                const payload = {
-                    studentId: studentId,
-                    teacherId: String(record?.teacher_id || teacherId || ''),
-                    attendanceDate: dateStr,
-                    checkInTime: record?.check_in_time || new Date().toISOString(),
-                    scheduledTime: resolvedScheduledTime,
-                    status: nextStatus,
-                    qrScanned: record?.qr_scanned || false,
-                    qrScanTime: record?.qr_scan_time || null,
-                    qrJudgment: record?.qr_judgment || null,
-                    memo: record?.memo || null
-                };
-
-                await saveAttendanceRecord(payload);
-            }
-        }
+        await saveAttendanceRecord(payload);
 
         // ★ 로컬 메모리 업데이트 - scheduledTime이 없어도 반드시 갱신
         const memoryKey = effectiveScheduledTime || 'default';
         
-        if (teacherIds.has(String(currentTeacherId || '')) || scope === 'all') {
+        if (teacherIds.has(String(currentTeacherId || ''))) {
             const student = students.find(s => String(s.id) === String(studentId));
             if (student) {
                 if (!student.attendance) student.attendance = {};
@@ -3698,59 +3767,8 @@ async function getTeacherIdsForStudentDate(studentId, dateStr) {
 }
 
 function showAttendanceScopeModal() {
-    return new Promise(resolve => {
-        const existing = document.getElementById('attendance-scope-modal');
-        if (existing) existing.remove();
-
-        const overlay = document.createElement('div');
-        overlay.id = 'attendance-scope-modal';
-        overlay.style.position = 'fixed';
-        overlay.style.top = '0';
-        overlay.style.left = '0';
-        overlay.style.width = '100%';
-        overlay.style.height = '100%';
-        overlay.style.background = 'rgba(15, 23, 42, 0.45)';
-        overlay.style.display = 'flex';
-        overlay.style.alignItems = 'center';
-        overlay.style.justifyContent = 'center';
-        overlay.style.zIndex = '9999';
-
-        overlay.innerHTML = `
-            <div style="background: white; border-radius: 16px; padding: 22px; width: min(380px, 92vw); box-shadow: 0 18px 40px rgba(15, 23, 42, 0.25); border: 1px solid #e2e8f0;">
-                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
-                    <div style="width: 34px; height: 34px; border-radius: 10px; background: #eef2ff; display: flex; align-items: center; justify-content: center; color: #4f46e5; font-size: 16px; font-weight: 700;">!</div>
-                    <div style="font-weight: 800; font-size: 16px; color: #0f172a;">상태 적용 범위</div>
-                </div>
-                <div style="font-size: 13px; color: #64748b; margin-bottom: 18px; line-height: 1.5;">
-                    현재 선생님만 변경하거나, 같은 날짜의 모든 선생님 일정에 동일하게 적용할 수 있습니다.
-                </div>
-                <div style="display: flex; flex-direction: column; gap: 10px;">
-                    <button id="scope-current" style="width: 100%; background: #4f46e5; color: white; border: none; padding: 12px 14px; border-radius: 10px; font-weight: 700; cursor: pointer;">
-                        현재 선생님만 적용
-                    </button>
-                    <button id="scope-all" style="width: 100%; background: #0f172a; color: white; border: none; padding: 12px 14px; border-radius: 10px; font-weight: 700; cursor: pointer;">
-                        전체 선생님 일정에 적용
-                    </button>
-                </div>
-                <button id="scope-cancel" style="margin-top: 12px; width: 100%; background: #f8fafc; color: #475569; border: 1px solid #e2e8f0; padding: 10px 12px; border-radius: 10px; font-weight: 600; cursor: pointer;">취소</button>
-            </div>
-        `;
-
-        document.body.appendChild(overlay);
-
-        overlay.querySelector('#scope-current').onclick = () => {
-            overlay.remove();
-            resolve('current');
-        };
-        overlay.querySelector('#scope-all').onclick = () => {
-            overlay.remove();
-            resolve('all');
-        };
-        overlay.querySelector('#scope-cancel').onclick = () => {
-            overlay.remove();
-            resolve(null);
-        };
-    });
+    // 정책 변경: 상태 적용은 담당 선생님 일정에만 즉시 반영
+    return Promise.resolve('current');
 }
 
 function getDayOfWeek(date) {
@@ -3837,6 +3855,26 @@ async function saveAttendanceRecord(recordData) {
             throw new Error('잘못된 student_id: ' + recordData.studentId);
         }
         
+        const sourceRaw = String(recordData.attendance_source || '').trim();
+        const normalizedSource = (() => {
+            if (['qr', 'phone', 'teacher', 'emergency', 'unknown'].includes(sourceRaw)) return sourceRaw;
+            if (sourceRaw === 'qr_student') return 'qr';
+            if (sourceRaw === 'teacher_manual') return 'phone';
+            if (recordData.qrScanned) return 'qr';
+            const judgmentText = String(recordData.qrJudgment || '');
+            const memoText = String(recordData.memo || '');
+            if (judgmentText.includes('임시출석')) return 'emergency';
+            if (judgmentText.includes('전화번호인증') || memoText.includes('[전화번호인증]')) return 'phone';
+            if (recordData.checkInTime) return 'teacher';
+            return 'unknown';
+        })();
+        const hasPresenceCheckToken = /(재석 확인|지각 확인|부재 확인|보강 처리)/.test(String(recordData.qrJudgment || ''));
+        const authTime = recordData.authTime || recordData.qrScanTime || recordData.checkInTime || null;
+        const processedAt = recordData.processedAt || recordData.checkInTime || new Date().toISOString();
+        const presenceChecked = recordData.presenceChecked !== undefined
+            ? !!recordData.presenceChecked
+            : hasPresenceCheckToken;
+
         const record = {
             student_id: studentIdValue,  // BIGINT (숫자)
             teacher_id: String(recordData.teacherId),  // TEXT (문자열)
@@ -3848,13 +3886,17 @@ async function saveAttendanceRecord(recordData) {
             qr_scanned: recordData.qrScanned || false,
             qr_scan_time: recordData.qrScanTime || null,
             qr_judgment: recordData.qrJudgment || null,
+            attendance_source: normalizedSource,
+            auth_time: authTime,
+            presence_checked: presenceChecked,
+            processed_at: processedAt,
             memo: recordData.memo || null,
             shared_memo: recordData.shared_memo !== undefined ? recordData.shared_memo : null
         };
         
         console.log('[saveAttendanceRecord] 저장 시도:', record);
         
-        const { data, error } = await supabase
+        let { data, error } = await supabase
             .from('attendance_records')
             .upsert(record, { 
                 onConflict: 'student_id,attendance_date,teacher_id,scheduled_time',
@@ -3862,6 +3904,24 @@ async function saveAttendanceRecord(recordData) {
             })
             .select()
             .single();
+        if (error && /attendance_source|auth_time|presence_checked|processed_at/i.test(String(error.message || ''))) {
+            // 운영 DB가 아직 신규 메타 컬럼을 반영하지 않은 경우 레거시 payload로 재시도
+            const legacyRecord = { ...record };
+            delete legacyRecord.attendance_source;
+            delete legacyRecord.auth_time;
+            delete legacyRecord.presence_checked;
+            delete legacyRecord.processed_at;
+            const retry = await supabase
+                .from('attendance_records')
+                .upsert(legacyRecord, {
+                    onConflict: 'student_id,attendance_date,teacher_id,scheduled_time',
+                    ignoreDuplicates: false
+                })
+                .select()
+                .single();
+            data = retry.data;
+            error = retry.error;
+        }
         
         if (error) {
             console.error('[saveAttendanceRecord] Supabase 에러:', error);
@@ -4026,6 +4086,57 @@ async function getAttendanceRecordByStudentAndDate(studentId, dateStr, teacherId
         const ownerId = localStorage.getItem('current_owner_id') || null;
         let scheduledTime = null;
         let allowScheduledFallback = true;
+        const getStatusPriority = (statusValue) => {
+            const key = String(statusValue || '').toLowerCase();
+            if (key === 'present' || key === 'late' || key === 'makeup' || key === 'etc') return 3;
+            if (key === 'absent') return 2;
+            if (key === 'none') return 1;
+            return 0;
+        };
+        const pickBestRecord = (rows, opts = {}) => {
+            if (!Array.isArray(rows) || rows.length === 0) return null;
+            const targetTeacherId = String(opts.teacherId || '').trim();
+            const normalizedVariants = new Set((opts.scheduledVariants || []).map((v) => String(v)));
+            const scoreRow = (row) => {
+                const rowTeacherId = String(row?.teacher_id || '').trim();
+                const rowScheduled = String(row?.scheduled_time || '').trim();
+                const normalizedRowScheduled = normalizeScheduleTimeKey(rowScheduled);
+                let score = 0;
+                if (targetTeacherId && rowTeacherId === targetTeacherId) score += 100;
+                if (normalizedVariants.size > 0) {
+                    if (normalizedVariants.has(rowScheduled) || normalizedVariants.has(normalizedRowScheduled)) {
+                        score += 30;
+                    }
+                }
+                score += getStatusPriority(row?.status) * 5;
+                return score;
+            };
+            const toTs = (row) => {
+                const raw = row?.processed_at || row?.check_in_time || row?.updated_at || row?.created_at || '';
+                const ts = new Date(raw).getTime();
+                return Number.isFinite(ts) ? ts : 0;
+            };
+            const sorted = [...rows].sort((a, b) => {
+                const scoreDiff = scoreRow(b) - scoreRow(a);
+                if (scoreDiff !== 0) return scoreDiff;
+                return toTs(b) - toTs(a);
+            });
+            return sorted[0] || null;
+        };
+        const normalizeScheduledVariants = (value) => {
+            const raw = String(value || '').trim();
+            if (!raw) return [];
+            const variants = new Set([raw]);
+            const hhmmMatch = raw.match(/^(\d{1,2}):(\d{2})$/);
+            const hhmmssMatch = raw.match(/^(\d{1,2}):(\d{2}):(\d{2})$/);
+            if (hhmmMatch) {
+                variants.add(`${String(parseInt(hhmmMatch[1], 10)).padStart(2, '0')}:${hhmmMatch[2]}:00`);
+            }
+            if (hhmmssMatch) {
+                variants.add(`${String(parseInt(hhmmssMatch[1], 10)).padStart(2, '0')}:${hhmmssMatch[2]}`);
+            }
+            return Array.from(variants);
+        };
         if (arguments.length > 3) {
             scheduledTime = arguments[3];
         }
@@ -4034,7 +4145,7 @@ async function getAttendanceRecordByStudentAndDate(studentId, dateStr, teacherId
         }
         let query = supabase
             .from('attendance_records')
-            .select('id, student_id, teacher_id, attendance_date, status, scheduled_time, check_in_time, qr_scanned, qr_scan_time, qr_judgment, memo, shared_memo')
+            .select('*')
             .eq('student_id', numericId)
             .eq('attendance_date', dateStr);
         if (ownerId) {
@@ -4052,26 +4163,49 @@ async function getAttendanceRecordByStudentAndDate(studentId, dateStr, teacherId
             console.warn('[getAttendanceRecordByStudentAndDate] maybeSingle 에러, limit(1) 재시도:', error.message);
             let retryQuery = supabase
                 .from('attendance_records')
-                .select('id, student_id, teacher_id, attendance_date, status, scheduled_time, check_in_time, qr_scanned, qr_scan_time, qr_judgment, memo, shared_memo')
+                .select('*')
                 .eq('student_id', numericId)
                 .eq('attendance_date', dateStr);
             if (ownerId) retryQuery = retryQuery.eq('owner_user_id', ownerId);
             if (teacherId) retryQuery = retryQuery.eq('teacher_id', String(teacherId));
             if (scheduledTime) retryQuery = retryQuery.eq('scheduled_time', scheduledTime);
-            const { data: retryData } = await retryQuery.order('created_at', { ascending: false }).limit(1);
-            return retryData && retryData.length > 0 ? retryData[0] : null;
+            const { data: retryData } = await retryQuery.order('created_at', { ascending: false }).limit(50);
+            return pickBestRecord(retryData || [], {
+                teacherId: teacherId || '',
+                scheduledVariants: normalizeScheduledVariants(scheduledTime)
+            });
+        }
+        // scheduled_time 포맷 차이(HH:MM vs HH:MM:SS) 보정 재시도
+        if (!data && scheduledTime) {
+            const variants = normalizeScheduledVariants(scheduledTime).filter((v) => v !== String(scheduledTime));
+            for (const variant of variants) {
+                let variantQuery = supabase
+                    .from('attendance_records')
+                    .select('*')
+                    .eq('student_id', numericId)
+                    .eq('attendance_date', dateStr);
+                if (ownerId) variantQuery = variantQuery.eq('owner_user_id', ownerId);
+                if (teacherId) variantQuery = variantQuery.eq('teacher_id', String(teacherId));
+                variantQuery = variantQuery.eq('scheduled_time', variant);
+                const { data: variantData, error: variantError } = await variantQuery.maybeSingle();
+                if (variantError) continue;
+                if (variantData) return variantData;
+            }
         }
         // scheduledTime 필터로 못 찾으면 필터 없이 재시도
         if (!data && scheduledTime && allowScheduledFallback) {
             let fallbackQuery = supabase
                 .from('attendance_records')
-                .select('id, student_id, teacher_id, attendance_date, status, scheduled_time, check_in_time, qr_scanned, qr_scan_time, qr_judgment, memo, shared_memo')
+                .select('*')
                 .eq('student_id', numericId)
                 .eq('attendance_date', dateStr);
             if (ownerId) fallbackQuery = fallbackQuery.eq('owner_user_id', ownerId);
             if (teacherId) fallbackQuery = fallbackQuery.eq('teacher_id', String(teacherId));
-            const { data: fbData } = await fallbackQuery.order('created_at', { ascending: false }).limit(1);
-            return fbData && fbData.length > 0 ? fbData[0] : null;
+            const { data: fbData } = await fallbackQuery.order('created_at', { ascending: false }).limit(50);
+            return pickBestRecord(fbData || [], {
+                teacherId: teacherId || '',
+                scheduledVariants: normalizeScheduledVariants(scheduledTime)
+            });
         }
         return data;
     } catch (error) {
@@ -4080,17 +4214,27 @@ async function getAttendanceRecordByStudentAndDate(studentId, dateStr, teacherId
     }
 }
 
-async function getAttendanceRecordsByDate(dateStr) {
+async function getAttendanceRecordsByDate(dateStr, options = {}) {
     try {
         const ownerId = localStorage.getItem('current_owner_id');
-        
-        const { data, error } = await supabase
+        const includeAllTeachers = !!(options && options.includeAllTeachers);
+        const explicitTeacherId = options && options.teacherId != null
+            ? String(options.teacherId).trim()
+            : '';
+
+        let query = supabase
             .from('attendance_records')
-            .select('id, student_id, teacher_id, attendance_date, status, scheduled_time, check_in_time, qr_scanned, qr_scan_time, qr_judgment, memo, shared_memo')
+            .select('*')
             .eq('owner_user_id', ownerId)
-            .eq('teacher_id', currentTeacherId)
             .eq('attendance_date', dateStr)
             .order('check_in_time', { ascending: false });
+
+        const effectiveTeacherId = explicitTeacherId || String(currentTeacherId || '').trim();
+        if (!includeAllTeachers && effectiveTeacherId) {
+            query = query.eq('teacher_id', effectiveTeacherId);
+        }
+
+        const { data, error } = await query;
         
         if (error) throw error;
         return data || [];
@@ -4111,7 +4255,7 @@ async function getStudentAttendanceRecordsByMonth(studentId, year, month) {
         
         let query = supabase
             .from('attendance_records')
-            .select('id, student_id, teacher_id, attendance_date, status, scheduled_time, check_in_time, qr_scanned, qr_scan_time, qr_judgment, memo, shared_memo')
+            .select('*')
             .eq('owner_user_id', ownerId)
             .eq('student_id', numericId)
             .gte('attendance_date', startDate)

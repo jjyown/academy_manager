@@ -541,10 +541,17 @@ textarea:focus:not(:focus-visible) {
     padding: 0 20px 10px;
     flex-shrink: 0;
 }
+.tt-search-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
 .tt-search-input-wrap {
     position: relative;
     display: flex;
     align-items: center;
+    flex: 1;
 }
 .tt-search-icon {
     position: absolute;
@@ -584,6 +591,64 @@ textarea:focus:not(:focus-visible) {
     transition: color 0.15s;
 }
 .tt-search-clear:hover { color: #475569; }
+.tt-scope-wrap {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+.tt-scope-wrap label {
+    font-size: 12px;
+    color: #64748b;
+    font-weight: 700;
+}
+.tt-scope-select {
+    min-width: 118px;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 10px;
+    background: #f8fafc;
+    color: #0f172a;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 8px 10px;
+    outline: none;
+}
+.tt-scope-select:focus {
+    border-color: var(--primary);
+}
+.tt-scope-hint {
+    margin-top: 6px;
+    font-size: 11px;
+    color: #64748b;
+    line-height: 1.4;
+}
+.timetable-scope-main-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: rgba(15, 23, 42, 0.06);
+}
+.timetable-scope-main-wrap label {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--gray);
+}
+.timetable-scope-main-select {
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--white);
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 700;
+    padding: 6px 10px;
+    outline: none;
+}
+.timetable-scope-main-select:focus {
+    border-color: var(--primary);
+}
 
 /* 시간표 블록 하이라이트 */
 .event-block.tt-highlight {
@@ -690,6 +755,33 @@ textarea:focus:not(:focus-visible) {
     flex-direction: column;
     gap: 4px;
     overflow: hidden;
+}
+.evt-teacher {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-right: 6px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--evt-teacher-border, rgba(147, 197, 253, 0.45));
+    background: var(--evt-teacher-bg, linear-gradient(135deg, #1d4ed8, #2563eb));
+    color: #eff6ff;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.1px;
+    box-shadow: 0 2px 10px var(--evt-teacher-shadow, rgba(37, 99, 235, 0.35));
+}
+
+.evt-teacher::before {
+    content: "담당";
+    font-size: 9px;
+    font-weight: 700;
+    opacity: 0.9;
+}
+
+.merged-header .evt-teacher,
+.evt-title .evt-teacher {
+    transform: translateY(-1px);
 }
 
 .event-block:hover {
