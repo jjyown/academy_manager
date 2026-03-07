@@ -213,7 +213,7 @@ window.deleteStudent = async function(studentId) {
 
 // ========== 출석 기록 조회 ==========
 
-window.getAttendanceRecordsByOwner = async function(teacherId = null) {
+window.getAttendanceRecordsByOwner = async function(teacherId = undefined) {
     try {
         const ownerId = _getOwnerId();
         if (!ownerId) return [];
@@ -224,7 +224,14 @@ window.getAttendanceRecordsByOwner = async function(teacherId = null) {
             .eq('owner_user_id', ownerId)
             .order('attendance_date', { ascending: true });
 
-        const effectiveTeacherId = teacherId || (typeof currentTeacherId !== 'undefined' ? currentTeacherId : null);
+        let effectiveTeacherId = null;
+        if (teacherId === undefined) {
+            effectiveTeacherId = (typeof currentTeacherId !== 'undefined' ? currentTeacherId : null);
+        } else if (teacherId === null || String(teacherId).trim() === '') {
+            effectiveTeacherId = null; // 명시적으로 전체 조회
+        } else {
+            effectiveTeacherId = String(teacherId).trim();
+        }
         if (effectiveTeacherId) {
             query = query.eq('teacher_id', String(effectiveTeacherId));
         }

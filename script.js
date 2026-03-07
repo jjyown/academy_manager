@@ -626,12 +626,12 @@ function persistTeacherScheduleLocalFor(teacherId) {
 function resolveScheduleOwnerTeacherId(studentId, dateStr, startTime) {
     const sid = String(studentId || '');
     const dateKey = String(dateStr || '');
-    const startKey = String(startTime || '');
+    const startKey = normalizeScheduleTimeKey(String(startTime || ''));
     if (!sid || !dateKey) return String(currentTeacherId || '');
     for (const tid of Object.keys(teacherScheduleData || {})) {
         const entries = getScheduleEntries(tid, sid, dateKey);
         if (startKey) {
-            if (entries.some((entry) => String(entry?.start || '') === startKey)) return String(tid);
+            if (entries.some((entry) => normalizeScheduleTimeKey(entry?.start || '') === startKey)) return String(tid);
         } else if (entries.length > 0) {
             return String(tid);
         }
@@ -758,7 +758,22 @@ function resolveOwnerTeacherIdForModal(studentId, dateStr, startTime, preferredO
     const known = candidates.find((id) => isKnownTeacherId(id));
     if (known) return known;
 
-    // legacy 값만 남은 경우에는 현재 선생님으로 보수 fallback (불필요한 관리자 인증 방지)
+    // known id로 해석되지 않더라도, 후보 이름이 현재 선생님과 일치하면 현재 id로 정규화
+    const myName = String(getCurrentTeacherName() || '').trim();
+    if (myName) {
+        const matchMyName = candidates.find((id) => {
+            const label = String(getTeacherNameById(id) || '').trim();
+            return !!label && label !== '선생님' && label === myName;
+        });
+        if (matchMyName) {
+            return String(currentTeacherId || '');
+        }
+    }
+
+    // legacy owner만 남은 경우 원본 owner를 유지해 저장 teacher_id가 schedule owner와 어긋나지 않도록 처리
+    // (현재교사 강제 fallback은 묶음 일정에서 결석 재역전의 원인이 될 수 있음)
+    const rawOwnerCandidate = rawCandidates.find(Boolean);
+    if (rawOwnerCandidate) return rawOwnerCandidate;
     return String(currentTeacherId || '');
 }
 
@@ -822,6 +837,8 @@ async function autoMarkAbsentForPastSchedules() {
 
     const nowKst = getKstNow();
     const todayKst = formatDateToYYYYMMDD(nowKst);
+    const statusPriority = { present: 5, late: 4, makeup: 3, etc: 3, absent: 2, none: 1 };
+    const pickPriority = (value) => statusPriority[String(value || '').toLowerCase()] || 0;
     let updated = false;
 
     // ★ 모든 선생님의 일정을 순회 (현재 선생님뿐 아니라 전체)
@@ -847,17 +864,16 @@ async function autoMarkAbsentForPastSchedules() {
                     const duration = schedule?.duration || 60;
 
                     let shouldCheck = false;
-                    if (dateStr < todayKst) {
+                    const [sh, sm] = startTime.split(':').map(Number);
+                    const [yy, mm, dd] = String(dateStr || '').split('-').map(Number);
+                    if (isNaN(sh) || isNaN(sm) || isNaN(yy) || isNaN(mm) || isNaN(dd)) continue;
+                    // 날짜 문자열(dateStr)을 기준으로 실제 수업 종료 시각을 계산한다.
+                    // 자정 넘김 수업(예: 23:30~01:10)도 종료 전에는 자동 결석 처리하지 않도록 보정.
+                    const classStart = new Date(yy, mm - 1, dd, sh, sm, 0, 0);
+                    const classEnd = new Date(classStart);
+                    classEnd.setMinutes(classEnd.getMinutes() + Number(duration || 0));
+                    if (nowKst >= classEnd) {
                         shouldCheck = true;
-                    } else if (dateStr === todayKst) {
-                        const [sh, sm] = startTime.split(':').map(Number);
-                        if (isNaN(sh) || isNaN(sm)) continue;
-                        const classEnd = new Date(nowKst);
-                        classEnd.setHours(sh, sm, 0, 0);
-                        classEnd.setMinutes(classEnd.getMinutes() + duration);
-                        if (nowKst >= classEnd) {
-                            shouldCheck = true;
-                        }
                     }
 
                     if (!shouldCheck) continue;
@@ -867,22 +883,32 @@ async function autoMarkAbsentForPastSchedules() {
                     if (typeof window.getAttendanceRecordByStudentAndDate === 'function') {
                         try {
                             // 1) 일정 소유 teacher_id 기준 조회
-                            let dbRecord = await window.getAttendanceRecordByStudentAndDate(
+                            const ownerScopedRecord = await window.getAttendanceRecordByStudentAndDate(
                                 studentId,
                                 dateStr,
                                 String(teacherId),
                                 normalizedStartTime,
                                 false
                             );
-                            // 2) 과거 잘못 저장된 teacher_id를 흡수하기 위한 owner 기준 보조 조회
-                            if (!dbRecord) {
-                                dbRecord = await window.getAttendanceRecordByStudentAndDate(
-                                    studentId,
-                                    dateStr,
-                                    null,
-                                    normalizedStartTime,
-                                    false
-                                );
+                            // 2) 과거 잘못 저장된 teacher_id/legacy key를 흡수하기 위한 owner 기준 조회
+                            const ownerAllRecord = await window.getAttendanceRecordByStudentAndDate(
+                                studentId,
+                                dateStr,
+                                null,
+                                normalizedStartTime,
+                                false
+                            );
+                            let dbRecord = ownerScopedRecord || ownerAllRecord || null;
+                            if (ownerScopedRecord && ownerAllRecord) {
+                                const ownerPriority = pickPriority(ownerScopedRecord?.status);
+                                const allPriority = pickPriority(ownerAllRecord?.status);
+                                if (allPriority > ownerPriority) {
+                                    dbRecord = ownerAllRecord;
+                                } else if (allPriority === ownerPriority) {
+                                    const ownerTs = new Date(ownerScopedRecord?.processed_at || ownerScopedRecord?.check_in_time || ownerScopedRecord?.updated_at || ownerScopedRecord?.created_at || 0).getTime();
+                                    const allTs = new Date(ownerAllRecord?.processed_at || ownerAllRecord?.check_in_time || ownerAllRecord?.updated_at || ownerAllRecord?.created_at || 0).getTime();
+                                    if (allTs >= ownerTs) dbRecord = ownerAllRecord;
+                                }
                             }
                             const dbStatus = String(dbRecord?.status || '').toLowerCase();
                             if (dbStatus === 'present' || dbStatus === 'late' || dbStatus === 'makeup' || dbStatus === 'etc') {
@@ -933,6 +959,13 @@ async function autoMarkAbsentForPastSchedules() {
 
                     if (typeof window.saveAttendanceRecord === 'function') {
                         try {
+                            console.log('[ATT-BOX][autoAbsent][write]', {
+                                studentId,
+                                teacherId: String(teacherId || ''),
+                                dateStr,
+                                startTime: normalizedStartTime,
+                                status: 'absent'
+                            });
                             await window.saveAttendanceRecord({
                                 studentId: studentId,
                                 teacherId: String(teacherId),
@@ -3317,6 +3350,67 @@ window.renderDayEvents = function(dateStr) {
     const usedHues = [];
     const distinctTeacherKeys = [...new Set(layoutEvents.map(ev => String(ev.teacherId || ev.groupTeacherKey || ev.teacherName || 'unknown')))]
         .sort();
+    const resolveTeacherNameFromMemberCandidates = (members) => {
+        if (!Array.isArray(members) || members.length === 0) return '';
+        const counts = new Map();
+        const addCount = (name) => {
+            const key = String(name || '').trim();
+            if (!key || key === '선생님' || key === '미확인' || key === '담당 미확인') return;
+            counts.set(key, (counts.get(key) || 0) + 1);
+        };
+        members.forEach((m) => {
+            const student = m?.student;
+            const candidateIds = [
+                String(m?.teacherId || '').trim(),
+                String(student?.teacher_id || '').trim(),
+                (student?.id && typeof getAssignedTeacherId === 'function') ? String(getAssignedTeacherId(String(student.id)) || '').trim() : ''
+            ].filter(Boolean);
+            candidateIds.forEach((candidateId) => {
+                const knownId = resolveKnownTeacherId(candidateId);
+                addCount(getTeacherNameById(knownId || candidateId));
+            });
+        });
+        if (counts.size === 0) return '';
+        const ranked = Array.from(counts.entries()).sort((a, b) => {
+            if (b[1] !== a[1]) return b[1] - a[1];
+            return String(a[0]).localeCompare(String(b[0]));
+        });
+        return String(ranked[0]?.[0] || '').trim();
+    };
+    const resolveTeacherNameByModalPolicy = (ev) => {
+        const members = ev?.members || [];
+        if (!Array.isArray(members) || members.length === 0) return '';
+        const nameCount = new Map();
+        const addName = (name) => {
+            const key = String(name || '').trim();
+            if (!key || key === '선생님' || key === '미확인' || key === '담당 미확인') return;
+            nameCount.set(key, (nameCount.get(key) || 0) + 1);
+        };
+        members.forEach((m) => {
+            const student = m?.student;
+            const sid = String(student?.id || '').trim();
+            const candidateIds = [
+                String(m?.teacherId || '').trim(),
+                resolveScheduleOwnerTeacherId(sid, dateStr, String(ev?.originalStart || '')),
+                String(student?.teacher_id || '').trim(),
+                (sid && typeof getAssignedTeacherId === 'function') ? String(getAssignedTeacherId(sid) || '').trim() : '',
+                String(currentTeacherId || '').trim()
+            ].filter(Boolean);
+            const uniqueCandidates = [...new Set(candidateIds)];
+            for (const candidateId of uniqueCandidates) {
+                const knownId = resolveKnownTeacherId(candidateId);
+                if (!knownId) continue;
+                addName(getTeacherNameById(knownId));
+                break;
+            }
+        });
+        if (nameCount.size === 0) return '';
+        const ranked = Array.from(nameCount.entries()).sort((a, b) => {
+            if (b[1] !== a[1]) return b[1] - a[1];
+            return String(a[0]).localeCompare(String(b[0]));
+        });
+        return String(ranked[0]?.[0] || '').trim();
+    };
     const resolveTeacherLabelForEvent = (ev) => {
         const eventTeacherId = String(ev.teacherId || '').trim();
         const resolvedEventTeacherId = resolveKnownTeacherId(eventTeacherId) || String(legacyTeacherResolutionMap.get(eventTeacherId) || '');
@@ -3328,7 +3422,11 @@ window.renderDayEvents = function(dateStr) {
         if (baseName && baseName !== '선생님') return baseName;
         const inferredName = inferTeacherNameFromMembers(ev.members || []);
         if (inferredName && inferredName !== '선생님') return inferredName;
-        return '담당 미확인';
+        const candidateName = resolveTeacherNameFromMemberCandidates(ev.members || []);
+        if (candidateName) return candidateName;
+        const modalPolicyName = resolveTeacherNameByModalPolicy(ev);
+        if (modalPolicyName) return modalPolicyName;
+        return '미확인';
     };
     distinctTeacherKeys.forEach((teacherKey) => {
         let hue = toStableHash(teacherKey) % 360;
@@ -3653,7 +3751,26 @@ window.openAttendanceModal = async function(sid, dateStr, startTime, ownerTeache
     const sIdx = students.findIndex(x => String(x.id) === String(sid));
     if (sIdx === -1) return;
     const s = students[sIdx];
-    const effectiveOwnerTeacherId = resolveOwnerTeacherIdForModal(sid, dateStr, startTime, ownerTeacherId);
+    let effectiveOwnerTeacherId = resolveOwnerTeacherIdForModal(sid, dateStr, startTime, ownerTeacherId);
+    const normalizedRequestedStart = normalizeScheduleTimeKey(startTime || '');
+    if (normalizedRequestedStart && normalizedRequestedStart !== 'default') {
+        const currentOwnerEntries = getScheduleEntries(effectiveOwnerTeacherId, String(sid), dateStr);
+        const hasCurrentOwnerSlot = currentOwnerEntries.some(
+            (entry) => normalizeScheduleTimeKey(entry?.start || '') === normalizedRequestedStart
+        );
+        if (!hasCurrentOwnerSlot) {
+            const resolvedScheduleOwner = String(resolveScheduleOwnerTeacherId(sid, dateStr, startTime) || '').trim();
+            if (resolvedScheduleOwner) {
+                const resolvedEntries = getScheduleEntries(resolvedScheduleOwner, String(sid), dateStr);
+                const hasResolvedOwnerSlot = resolvedEntries.some(
+                    (entry) => normalizeScheduleTimeKey(entry?.start || '') === normalizedRequestedStart
+                );
+                if (hasResolvedOwnerSlot) {
+                    effectiveOwnerTeacherId = resolvedScheduleOwner;
+                }
+            }
+        }
+    }
     const isOwnerSchedule = String(effectiveOwnerTeacherId || '') === String(currentTeacherId || '');
     let adminOverride = false;
     if (!isOwnerSchedule) {
@@ -3759,9 +3876,9 @@ window.openAttendanceModal = async function(sid, dateStr, startTime, ownerTeache
     // 선생님별 일정 데이터 사용
     const entries = getScheduleEntries(effectiveOwnerTeacherId, String(sid), dateStr);
     const target = startTime
-        ? entries.find(item => item.start === startTime) || null
+        ? entries.find(item => normalizeScheduleTimeKey(item?.start || '') === normalizedRequestedStart) || null
         : getEarliestScheduleEntry(entries);
-    const detail = target || { start: '16:00', duration: 90 };
+    const detail = target || { start: normalizedRequestedStart || '16:00', duration: 90 };
     document.getElementById('att-edit-time').value = detail.start;
     document.getElementById('att-edit-duration').value = detail.duration;
     document.getElementById('att-original-time').value = detail.start;
@@ -3871,17 +3988,18 @@ window.setAttendance = async function(status, options = {}) {
     const rawStartTime = options && options.startTime ? options.startTime : document.getElementById('att-edit-time').value;
     const startTime = normalizeScheduleTimeKey(rawStartTime);
     const ownerTeacherId = String(document.getElementById('att-owner-teacher-id')?.value || currentTeacherId || '');
+    const resolvedStartTime = resolveAttendanceSlotStartTime(ownerTeacherId, sid, dateStr, startTime);
     const sIdx = students.findIndex(s => String(s.id) === String(sid));
-    if(sIdx > -1 && startTime) {
+    if(sIdx > -1 && resolvedStartTime) {
         if(!students[sIdx].attendance) students[sIdx].attendance = {};
         if(!students[sIdx].attendance[dateStr]) students[sIdx].attendance[dateStr] = {};
-        students[sIdx].attendance[dateStr][startTime] = status;
+        students[sIdx].attendance[dateStr][resolvedStartTime] = status;
         if(!students[sIdx].records) students[sIdx].records = {};
         if(!students[sIdx].records[dateStr]) students[sIdx].records[dateStr] = {};
-        students[sIdx].records[dateStr][startTime] = memo;
+        students[sIdx].records[dateStr][resolvedStartTime] = memo;
         if(!students[sIdx].shared_records) students[sIdx].shared_records = {};
         if(!students[sIdx].shared_records[dateStr]) students[sIdx].shared_records[dateStr] = {};
-        students[sIdx].shared_records[dateStr][startTime] = sharedMemo;
+        students[sIdx].shared_records[dateStr][resolvedStartTime] = sharedMemo;
 
         updateAttendanceStatusDisplay(status);
 
@@ -3896,7 +4014,7 @@ window.setAttendance = async function(status, options = {}) {
             dateStr,
             status,
             ownerTeacherId,
-            startTime,
+            resolvedStartTime,
             memoData
         );
         if (typeof window.updateAttendanceSourceDisplay === 'function') {
@@ -3911,13 +4029,13 @@ window.setAttendance = async function(status, options = {}) {
         if (currentStudentIdx > -1) {
             if(!currentTeacherStudents[currentStudentIdx].attendance) currentTeacherStudents[currentStudentIdx].attendance = {};
             if(!currentTeacherStudents[currentStudentIdx].attendance[dateStr]) currentTeacherStudents[currentStudentIdx].attendance[dateStr] = {};
-            currentTeacherStudents[currentStudentIdx].attendance[dateStr][startTime] = status;
+            currentTeacherStudents[currentStudentIdx].attendance[dateStr][resolvedStartTime] = status;
             if(!currentTeacherStudents[currentStudentIdx].records) currentTeacherStudents[currentStudentIdx].records = {};
             if(!currentTeacherStudents[currentStudentIdx].records[dateStr]) currentTeacherStudents[currentStudentIdx].records[dateStr] = {};
-            currentTeacherStudents[currentStudentIdx].records[dateStr][startTime] = memo;
+            currentTeacherStudents[currentStudentIdx].records[dateStr][resolvedStartTime] = memo;
             if(!currentTeacherStudents[currentStudentIdx].shared_records) currentTeacherStudents[currentStudentIdx].shared_records = {};
             if(!currentTeacherStudents[currentStudentIdx].shared_records[dateStr]) currentTeacherStudents[currentStudentIdx].shared_records[dateStr] = {};
-            currentTeacherStudents[currentStudentIdx].shared_records[dateStr][startTime] = sharedMemo;
+            currentTeacherStudents[currentStudentIdx].shared_records[dateStr][resolvedStartTime] = sharedMemo;
         }
 
         // 반드시 최신 참조로 갱신
@@ -3925,7 +4043,7 @@ window.setAttendance = async function(status, options = {}) {
             await refreshCurrentTeacherStudents();
         }
 
-        console.log('[setAttendance] 상태 저장됨:', { sid, dateStr, startTime, status, student: students[sIdx].name });
+        console.log('[setAttendance] 상태 저장됨:', { sid, dateStr, startTime: resolvedStartTime, status, student: students[sIdx].name });
 
         // 화면 즉시 업데이트
         renderCalendar();
@@ -4076,16 +4194,24 @@ function hasTeacherScheduleAtSlot(teacherId, studentId, dateStr, startTime) {
     return entries.some((entry) => normalizeScheduleTimeKey(entry?.start || '') === normalizedStart);
 }
 
+function resolveAttendanceSlotStartTime(teacherId, studentId, dateStr, preferredStartTime) {
+    const normalizedPreferred = normalizeScheduleTimeKey(preferredStartTime);
+    const entries = getScheduleEntries(String(teacherId || ''), String(studentId || ''), dateStr);
+    if (!Array.isArray(entries) || entries.length === 0) return normalizedPreferred;
+    const exact = entries.find((entry) => normalizeScheduleTimeKey(entry?.start || '') === normalizedPreferred);
+    if (exact) return normalizeScheduleTimeKey(exact.start || normalizedPreferred);
+    if (entries.length === 1) return normalizeScheduleTimeKey(entries[0]?.start || normalizedPreferred);
+    return normalizedPreferred;
+}
+
 async function cleanupLegacyAbsentShadowRecord(studentId, dateStr, ownerTeacherId, startTime, appliedStatus) {
     if (typeof supabase === 'undefined') return;
     const normalizedOwnerTeacherId = String(ownerTeacherId || '').trim();
-    const normalizedCurrentTeacherId = String(currentTeacherId || '').trim();
     const normalizedStatus = String(appliedStatus || '').toLowerCase();
     const normalizedStart = normalizeScheduleTimeKey(startTime);
-    if (!normalizedOwnerTeacherId || !normalizedCurrentTeacherId || normalizedOwnerTeacherId === normalizedCurrentTeacherId) return;
+    if (!normalizedOwnerTeacherId) return;
     if (!normalizedStart) return;
     if (!['present', 'late', 'makeup', 'etc'].includes(normalizedStatus)) return;
-    if (hasTeacherScheduleAtSlot(normalizedCurrentTeacherId, studentId, dateStr, normalizedStart)) return;
 
     try {
         const ownerId = cachedLsGet('current_owner_id');
@@ -4093,16 +4219,22 @@ async function cleanupLegacyAbsentShadowRecord(studentId, dateStr, ownerTeacherI
         const numericStudentId = parseInt(studentId, 10);
         if (Number.isNaN(numericStudentId)) return;
         const timeVariants = Array.from(new Set([normalizedStart, `${normalizedStart}:00`]));
-        const { data: shadowRows, error: fetchError } = await supabase
+        const { data: shadowRowsRaw, error: fetchError } = await supabase
             .from('attendance_records')
-            .select('id')
+            .select('id, teacher_id, status')
             .eq('owner_user_id', ownerId)
             .eq('student_id', numericStudentId)
             .eq('attendance_date', dateStr)
-            .eq('teacher_id', normalizedCurrentTeacherId)
-            .eq('status', 'absent')
             .in('scheduled_time', timeVariants);
-        if (fetchError || !shadowRows || shadowRows.length === 0) return;
+        if (fetchError || !shadowRowsRaw || shadowRowsRaw.length === 0) return;
+        const shadowRows = shadowRowsRaw.filter((row) => {
+            const rowTeacherId = String(row?.teacher_id || '').trim();
+            const statusValue = String(row?.status || '').toLowerCase();
+            if (!rowTeacherId || rowTeacherId === normalizedOwnerTeacherId) return false;
+            if (statusValue !== 'absent') return false;
+            if (hasTeacherScheduleAtSlot(rowTeacherId, studentId, dateStr, normalizedStart)) return false;
+            return true;
+        });
         const shadowIds = shadowRows.map((row) => row.id).filter((id) => !!id);
         if (shadowIds.length === 0) return;
         const { error: deleteError } = await supabase
@@ -4161,11 +4293,54 @@ async function persistAttendanceStatusToDbForTeacher(studentId, dateStr, status,
     let savedRecord = null;
     try {
         savedRecord = await window.saveAttendanceRecord(payload);
+        console.log('[ATT-BOX][persist][write]', {
+            studentId: String(studentId || ''),
+            teacherId: String(payload.teacherId || ''),
+            dateStr,
+            startTime: String(payload.scheduledTime || ''),
+            status: String(status || '')
+        });
     } catch (e) {
         console.error('[persistAttendanceStatusToDbForTeacher] 상태 저장 실패:', e);
     }
 
     await cleanupLegacyAbsentShadowRecord(studentId, dateStr, teacherId, startTime, status);
+
+    // 저장 직후 owner 전체 조회 기준으로 최종 상태를 재확인해 결석 재역전 경로를 즉시 보정
+    // (묶음 일정/legacy teacher key 혼재 환경에서 stale absent가 재선택되는 케이스 대응)
+    try {
+        const normalizedDesired = String(status || '').toLowerCase();
+        if (typeof window.getAttendanceRecordByStudentAndDate === 'function' && ['present', 'late', 'makeup', 'etc'].includes(normalizedDesired)) {
+            const ownerAllAfterSave = await window.getAttendanceRecordByStudentAndDate(studentId, dateStr, null, startTime, false);
+            const normalizedAfter = String(ownerAllAfterSave?.status || '').toLowerCase();
+            if (normalizedAfter !== normalizedDesired) {
+                const reconcilePayload = {
+                    studentId: studentId,
+                    teacherId: String(teacherId || currentTeacherId || ''),
+                    attendanceDate: dateStr,
+                    checkInTime: ownerAllAfterSave?.check_in_time || existing?.check_in_time || new Date().toISOString(),
+                    scheduledTime: startTime,
+                    status: status,
+                    qrScanned: ownerAllAfterSave?.qr_scanned || existing?.qr_scanned || false,
+                    qrScanTime: ownerAllAfterSave?.qr_scan_time || existing?.qr_scan_time || null,
+                    qrJudgment: ownerAllAfterSave?.qr_judgment || existing?.qr_judgment || null,
+                    attendance_source: ownerAllAfterSave?.attendance_source || existing?.attendance_source || (existing?.qr_scanned ? 'qr' : 'teacher'),
+                    authTime: ownerAllAfterSave?.auth_time || existing?.auth_time || new Date().toISOString(),
+                    presenceChecked: ownerAllAfterSave?.presence_checked || existing?.presence_checked || false,
+                    processedAt: new Date().toISOString(),
+                    memo: memoValue,
+                    shared_memo: sharedMemoValue
+                };
+                savedRecord = await window.saveAttendanceRecord(reconcilePayload);
+                await cleanupLegacyAbsentShadowRecord(studentId, dateStr, teacherId, startTime, status);
+                console.log('[persistAttendanceStatusToDbForTeacher] 상태 재정합화 적용:', {
+                    studentId, dateStr, startTime, desired: normalizedDesired, before: normalizedAfter
+                });
+            }
+        }
+    } catch (reconcileError) {
+        console.warn('[persistAttendanceStatusToDbForTeacher] 상태 재정합화 실패:', reconcileError);
+    }
 
     // ★ 출석 조회 모달이 열려있으면 즉시 갱신 (student-attendance-history-modal)
     const historyModal = document.getElementById('student-attendance-history-modal');
@@ -4188,24 +4363,25 @@ window.saveOnlyMemo = async function() {
     const dateStr = document.getElementById('att-date').value;
     const startTime = document.getElementById('att-original-time').value;
     const ownerTeacherId = String(document.getElementById('att-owner-teacher-id')?.value || currentTeacherId || '');
+    const resolvedStartTime = resolveAttendanceSlotStartTime(ownerTeacherId, sid, dateStr, startTime);
     const privateMemo = document.getElementById('att-memo').innerHTML;
     const sharedMemo = document.getElementById('att-shared-memo').innerHTML;
     const sIdx = students.findIndex(s => String(s.id) === String(sid));
     if(sIdx > -1) {
         // 개인 메모 저장 (로컬 + 기존 records 구조)
         if(!students[sIdx].records) students[sIdx].records = {};
-        if (startTime) {
+        if (resolvedStartTime) {
             if (typeof students[sIdx].records[dateStr] !== 'object') students[sIdx].records[dateStr] = {};
-            students[sIdx].records[dateStr][startTime] = privateMemo;
+            students[sIdx].records[dateStr][resolvedStartTime] = privateMemo;
         } else {
             students[sIdx].records[dateStr] = privateMemo;
         }
 
         // 공유 메모 저장 (로컬 shared_records + DB)
         if(!students[sIdx].shared_records) students[sIdx].shared_records = {};
-        if (startTime) {
+        if (resolvedStartTime) {
             if (typeof students[sIdx].shared_records[dateStr] !== 'object') students[sIdx].shared_records[dateStr] = {};
-            students[sIdx].shared_records[dateStr][startTime] = sharedMemo;
+            students[sIdx].shared_records[dateStr][resolvedStartTime] = sharedMemo;
         } else {
             students[sIdx].shared_records[dateStr] = sharedMemo;
         }
@@ -4216,15 +4392,15 @@ window.saveOnlyMemo = async function() {
         try {
             if (typeof window.saveAttendanceRecord === 'function') {
                 const existing = typeof window.getAttendanceRecordByStudentAndDate === 'function'
-                    ? await window.getAttendanceRecordByStudentAndDate(sid, dateStr, ownerTeacherId, startTime)
+                    ? await window.getAttendanceRecordByStudentAndDate(sid, dateStr, ownerTeacherId, resolvedStartTime)
                     : null;
-                const localStatus = getSlotValueByNormalizedTime(students[sIdx].attendance?.[dateStr], startTime);
+                const localStatus = getSlotValueByNormalizedTime(students[sIdx].attendance?.[dateStr], resolvedStartTime);
                 const currentStatus = existing?.status || localStatus || 'none';
                 await window.saveAttendanceRecord({
                     studentId: sid,
                     teacherId: ownerTeacherId,
                     attendanceDate: dateStr,
-                    scheduledTime: startTime || null,
+                    scheduledTime: resolvedStartTime || null,
                     status: currentStatus,
                     checkInTime: existing ? existing.check_in_time : null,
                     qrScanned: existing ? existing.qr_scanned : false,
@@ -4478,6 +4654,89 @@ function ensureOwnedScheduleDeleteContext(actionLabel) {
     return false;
 }
 
+function removeTimeScopedValue(container, dateKey, timeKey) {
+    if (!container || !container[dateKey]) return;
+    const dateValue = container[dateKey];
+    if (!timeKey) {
+        delete container[dateKey];
+        return;
+    }
+    if (typeof dateValue === 'object' && dateValue !== null) {
+        const normalizedTime = normalizeScheduleTimeKey(timeKey);
+        const targetKey = Object.keys(dateValue).find((k) => normalizeScheduleTimeKey(k) === normalizedTime) || timeKey;
+        delete dateValue[targetKey];
+        const remainKeys = Object.keys(dateValue).filter(k => k !== 'default');
+        if (remainKeys.length === 0) delete container[dateKey];
+    } else {
+        delete container[dateKey];
+    }
+}
+
+async function deleteAttendanceRecordBySlotFromDb(studentId, dateStr, teacherId, startTime) {
+    if (typeof supabase === 'undefined') return;
+    const ownerId = cachedLsGet('current_owner_id');
+    if (!ownerId) return;
+    const numericStudentId = parseInt(studentId, 10);
+    if (Number.isNaN(numericStudentId)) return;
+    const normalizedStart = normalizeScheduleTimeKey(startTime);
+    if (!dateStr || !teacherId) return;
+
+    try {
+        let query = supabase
+            .from('attendance_records')
+            .delete()
+            .eq('owner_user_id', ownerId)
+            .eq('student_id', numericStudentId)
+            .eq('attendance_date', dateStr)
+            .eq('teacher_id', String(teacherId));
+        if (normalizedStart) {
+            const timeVariants = Array.from(new Set([normalizedStart, `${normalizedStart}:00`]));
+            query = query.in('scheduled_time', timeVariants);
+        }
+        const { error } = await query;
+        if (error) {
+            console.error('[deleteAttendanceRecordBySlotFromDb] 삭제 실패:', error);
+        }
+    } catch (e) {
+        console.error('[deleteAttendanceRecordBySlotFromDb] 예외:', e);
+    }
+}
+
+async function collectScheduleSlotsByRangeFromDb(studentId, startDate, endDate, teacherId) {
+    if (typeof supabase === 'undefined') return [];
+    const ownerId = cachedLsGet('current_owner_id');
+    if (!ownerId) return [];
+    const numericStudentId = parseInt(studentId, 10);
+    if (Number.isNaN(numericStudentId)) return [];
+    if (!startDate || !endDate || !teacherId) return [];
+
+    try {
+        const { data, error } = await supabase
+            .from('schedules')
+            .select('schedule_date, start_time')
+            .eq('owner_user_id', ownerId)
+            .eq('student_id', numericStudentId)
+            .eq('teacher_id', String(teacherId))
+            .gte('schedule_date', startDate)
+            .lte('schedule_date', endDate);
+        if (error) {
+            console.error('[collectScheduleSlotsByRangeFromDb] 조회 실패:', error);
+            return [];
+        }
+        return (Array.isArray(data) ? data : [])
+            .map((row) => ({
+                studentId,
+                dateStr: row?.schedule_date,
+                teacherId: String(teacherId),
+                startTime: normalizeScheduleTimeKey(row?.start_time || '')
+            }))
+            .filter((row) => row.dateStr && row.startTime && row.startTime !== 'default');
+    } catch (e) {
+        console.error('[collectScheduleSlotsByRangeFromDb] 예외:', e);
+        return [];
+    }
+}
+
 window.executeBulkDelete = async function() {
     if (!ensureOwnedScheduleDeleteContext('기간 삭제')) return;
     const sid = document.getElementById('bulk-del-sid').value;
@@ -4488,13 +4747,14 @@ window.executeBulkDelete = async function() {
     if(sIdx === -1) return;
     const deleteCount = countStudentSchedulesInRange(sid, startStr, endStr);
     const monthSpan = getMonthSpanCount(startStr, endStr);
-    const confirmMessage = `선택한 기간의 일정을 삭제하시겠습니까?\n\n- 기간: ${startStr} ~ ${endStr}${monthSpan > 1 ? ` (${monthSpan}개월)` : ''}\n- 삭제 예정: ${deleteCount}건\n- 대상: 내가 등록한 일정만\n\n삭제 후 복구할 수 없습니다.`;
+    const confirmMessage = `선택한 기간의 일정을 삭제하시겠습니까?\n\n- 기간: ${startStr} ~ ${endStr}${monthSpan > 1 ? ` (${monthSpan}개월)` : ''}\n- 삭제 예정: ${deleteCount}건\n- 대상: 내가 등록한 일정만\n\n삭제한 일정의 같은 시간 슬롯 출석기록도 함께 삭제됩니다.\n삭제 후 복구할 수 없습니다.`;
     if(!(await showConfirm(confirmMessage, { type: 'danger', title: '삭제 확인', okText: '삭제' }))) return;
     const startDate = new Date(startStr); const endDate = new Date(endStr);
     
     let deletedCount = 0;
     let deletedAny = false;
     let deleteDates = [];
+    const deleteSlotTargets = [];
     
     // 현재 선생님의 schedule 데이터에서 삭제할 일정 수집
     if(teacherScheduleData[currentTeacherId] && teacherScheduleData[currentTeacherId][sid]) {
@@ -4502,10 +4762,23 @@ window.executeBulkDelete = async function() {
             const d = new Date(dStr);
             return d >= startDate && d <= endDate;
         });
+        deleteDates.forEach((dStr) => {
+            const entries = getScheduleEntries(currentTeacherId, String(sid), dStr);
+            entries.forEach((entry) => {
+                const st = normalizeScheduleTimeKey(entry?.start || '');
+                if (!st || st === 'default') return;
+                deleteSlotTargets.push({ studentId: sid, dateStr: dStr, teacherId: currentTeacherId, startTime: st });
+            });
+        });
     }
 
     if (deleteDates.length > 0) deletedAny = true;
     try {
+        const dbSlotTargets = await collectScheduleSlotsByRangeFromDb(sid, startStr, endStr, currentTeacherId);
+        if (dbSlotTargets.length > 0) {
+            deleteSlotTargets.push(...dbSlotTargets);
+        }
+
         if (typeof deleteSchedulesByRange === 'function') {
             await deleteSchedulesByRange(sid, startStr, endStr, currentTeacherId);
             deletedAny = true;
@@ -4519,10 +4792,20 @@ window.executeBulkDelete = async function() {
         deleteDates.forEach(dStr => {
             const entries = getScheduleEntries(currentTeacherId, String(sid), dStr);
             if (entries.length > 0) {
+                entries.forEach((entry) => {
+                    removeTimeScopedValue(students[sIdx].attendance, dStr, entry?.start || '');
+                    removeTimeScopedValue(students[sIdx].records, dStr, entry?.start || '');
+                    removeTimeScopedValue(students[sIdx].shared_records, dStr, entry?.start || '');
+                });
                 setScheduleEntries(currentTeacherId, String(sid), dStr, []);
                 deletedCount += entries.length;
             }
         });
+        if (deleteSlotTargets.length > 0) {
+            await Promise.allSettled(
+                deleteSlotTargets.map((t) => deleteAttendanceRecordBySlotFromDb(t.studentId, t.dateStr, t.teacherId, t.startTime))
+            );
+        }
 
         await loadTeacherScheduleData(currentTeacherId);
     } catch (dbError) {
@@ -4609,25 +4892,9 @@ window.deleteSingleSchedule = async function() {
     const sIdx = students.findIndex(s => String(s.id) === String(sid));
     if(sIdx > -1) {
         // 1. 로컬 메모리에서 먼저 삭제
-        const removeTimeScopedValue = (container, dateKey, timeKey) => {
-            if (!container || !container[dateKey]) return;
-            const dateValue = container[dateKey];
-            if (!timeKey) {
-                delete container[dateKey];
-                return;
-            }
-            if (typeof dateValue === 'object' && dateValue !== null) {
-                delete dateValue[timeKey];
-                // default 외 남은 시간 슬롯이 없으면 날짜 키 정리
-                const remainKeys = Object.keys(dateValue).filter(k => k !== 'default');
-                if (remainKeys.length === 0) delete container[dateKey];
-            } else {
-                // 레거시 문자열 형태는 시간 슬롯 구분이 없어 단건 삭제로 간주
-                delete container[dateKey];
-            }
-        };
         removeTimeScopedValue(students[sIdx].attendance, dateStr, originalStart || '');
         removeTimeScopedValue(students[sIdx].records, dateStr, originalStart || '');
+        removeTimeScopedValue(students[sIdx].shared_records, dateStr, originalStart || '');
         // 현재 선생님의 일정 데이터 삭제
         const entries = getScheduleEntries(targetTeacherId, String(sid), dateStr);
         const nextEntries = originalStart ? entries.filter(item => item.start !== originalStart) : [];
@@ -4641,9 +4908,19 @@ window.deleteSingleSchedule = async function() {
         
         showToast(permission.adminOverride ? '일정이 삭제되었습니다. (관리자 권한)' : '일정이 삭제되었습니다.', 'success');
 
-        // 3. 데이터베이스 삭제는 백그라운드 처리
-        deleteScheduleFromDatabase(sid, dateStr, targetTeacherId, originalStart || null)
-            .then(result => console.log('[deleteSingleSchedule] 데이터베이스 삭제:', result))
+        // 3. 데이터베이스 삭제는 백그라운드 처리 (일정 + 동일 슬롯 출석기록)
+        Promise.allSettled([
+            deleteScheduleFromDatabase(sid, dateStr, targetTeacherId, originalStart || null),
+            deleteAttendanceRecordBySlotFromDb(sid, dateStr, targetTeacherId, originalStart || null)
+        ])
+            .then((results) => {
+                const failed = results.filter((r) => r.status === 'rejected');
+                if (failed.length > 0) {
+                    console.warn('[deleteSingleSchedule] 일부 DB 삭제 실패:', failed);
+                } else {
+                    console.log('[deleteSingleSchedule] DB 일정/출석 삭제 완료');
+                }
+            })
             .catch(dbError => {
                 console.error('[deleteSingleSchedule] 데이터베이스 삭제 실패:', dbError);
             });
@@ -4776,7 +5053,7 @@ window.executePeriodDelete = async function() {
             expectedCount += countStudentSchedulesInRange(sid, startDate, endDate);
         });
     }
-    const confirmMessage = `${startDate} ~ ${endDate}${monthSpan > 1 ? ` (${monthSpan}개월)` : ''} 기간의 일정을 삭제하시겠습니까?\n\n- 범위: ${scopeLabel}\n- 삭제 예정: ${expectedCount}건\n- 대상: 내가 등록한 일정만\n\n출석/상담 기록은 남고, 예정 일정만 삭제됩니다.\n삭제 후 복구할 수 없습니다.`;
+    const confirmMessage = `${startDate} ~ ${endDate}${monthSpan > 1 ? ` (${monthSpan}개월)` : ''} 기간의 일정을 삭제하시겠습니까?\n\n- 범위: ${scopeLabel}\n- 삭제 예정: ${expectedCount}건\n- 대상: 내가 등록한 일정만\n\n삭제한 일정의 같은 시간 슬롯 출석기록도 함께 삭제됩니다.\n삭제 후 복구할 수 없습니다.`;
     if (!(await showConfirm(confirmMessage, { type: 'danger', title: '삭제 확인', okText: '삭제' }))) return;
     
     let deletedCount = 0;
@@ -4784,6 +5061,7 @@ window.executePeriodDelete = async function() {
 
     // 1. 데이터베이스에서 먼저 삭제 (병렬 처리)
     const deleteRequests = [];
+    const attendanceDeleteTargets = [];
 
     if (scope === 'all' && typeof deleteSchedulesByTeacherRange === 'function') {
         deleteRequests.push(deleteSchedulesByTeacherRange(startDate, endDate, currentTeacherId));
@@ -4792,6 +5070,10 @@ window.executePeriodDelete = async function() {
 
     for (const sid of targetStudentIds) {
         const student = students.find(s => String(s.id) === String(sid));
+        const dbSlotTargets = await collectScheduleSlotsByRangeFromDb(sid, startDate, endDate, currentTeacherId);
+        if (dbSlotTargets.length > 0) {
+            attendanceDeleteTargets.push(...dbSlotTargets);
+        }
 
         // 항상 DB 삭제 요청을 보냄 (로컬에 없어도 DB에 있을 수 있음)
         if (typeof deleteSchedulesByRange === 'function') {
@@ -4801,26 +5083,35 @@ window.executePeriodDelete = async function() {
         // 로컬에서도 삭제 (있을 경우)
         if (teacherScheduleData[currentTeacherId] && teacherScheduleData[currentTeacherId][sid]) {
             const eventsToDelete = Object.keys(teacherScheduleData[currentTeacherId][sid]).filter(dateStr => {
-                if (dateStr < startDate || dateStr > endDate) return false;
-                // ★ 객체 형태 호환: 빈 객체 {}도 출석 없음으로 처리
-                let hasAttendance = false;
-                if (student && student.attendance && student.attendance[dateStr]) {
-                    if (typeof student.attendance[dateStr] === 'object') {
-                        hasAttendance = Object.keys(student.attendance[dateStr]).length > 0;
-                    } else {
-                        hasAttendance = true;
-                    }
-                }
-                return !hasAttendance;
+                return !(dateStr < startDate || dateStr > endDate);
             });
             eventsToDelete.forEach(dateStr => {
                 const entries = getScheduleEntries(currentTeacherId, String(sid), dateStr);
                 if (entries.length > 0) {
+                    entries.forEach((entry) => {
+                        const st = normalizeScheduleTimeKey(entry?.start || '');
+                        if (!st || st === 'default') return;
+                        attendanceDeleteTargets.push({ studentId: sid, dateStr, teacherId: currentTeacherId, startTime: st });
+                        if (student) {
+                            removeTimeScopedValue(student.attendance, dateStr, st);
+                            removeTimeScopedValue(student.records, dateStr, st);
+                            removeTimeScopedValue(student.shared_records, dateStr, st);
+                        }
+                    });
                     setScheduleEntries(currentTeacherId, String(sid), dateStr, []);
                     deletedCount += entries.length;
                 }
             });
         }
+    }
+
+    if (attendanceDeleteTargets.length > 0) {
+        const uniqueTargets = Array.from(new Map(
+            attendanceDeleteTargets.map((t) => [`${t.studentId}|${t.dateStr}|${t.teacherId}|${t.startTime}`, t])
+        ).values());
+        deleteRequests.push(
+            Promise.allSettled(uniqueTargets.map((t) => deleteAttendanceRecordBySlotFromDb(t.studentId, t.dateStr, t.teacherId, t.startTime)))
+        );
     }
 
     if (deletedCount > 0) {
@@ -5922,13 +6213,22 @@ async function loadAndCleanData() {
     }
 
     try {
-        // 출석 기록: 소유자 기준으로 로드하여 학생에 반영 (모든 선생님 공통)
+        // 출석 기록: 소유자 기준 전체 레코드를 로드해 학생에 반영 (모든 선생님 공통)
         // ★ 시간별 객체 형태로 저장: student.attendance[date][scheduled_time] = status
         if (typeof getAttendanceRecordsByOwner === 'function') {
-            const records = await getAttendanceRecordsByOwner(currentTeacherId || null);
+            const records = await getAttendanceRecordsByOwner(null);
             if (records && records.length > 0 && students.length > 0) {
                 // scheduled_time까지 포함한 키로 중복 제거
                 const recordMap = new Map();
+                const statusPriority = {
+                    present: 5,
+                    late: 4,
+                    makeup: 3,
+                    etc: 3,
+                    absent: 2,
+                    none: 1
+                };
+                const pickPriority = (value) => statusPriority[String(value || '').toLowerCase()] || 0;
                 records.forEach(r => {
                     const timeKey = normalizeScheduleTimeKey(r.scheduled_time);
                     const key = `${r.student_id}__${r.attendance_date}__${timeKey}`;
@@ -5937,10 +6237,18 @@ async function loadAndCleanData() {
                         recordMap.set(key, { record: r, time: timeVal });
                     } else {
                         const existing = recordMap.get(key);
-                        const existingTime = existing.time ? new Date(existing.time).getTime() : 0;
-                        const currentTime = timeVal ? new Date(timeVal).getTime() : 0;
-                        if (currentTime >= existingTime) {
+                        const existingPriority = pickPriority(existing?.record?.status);
+                        const currentPriority = pickPriority(r?.status);
+                        if (currentPriority > existingPriority) {
                             recordMap.set(key, { record: r, time: timeVal });
+                            return;
+                        }
+                        if (currentPriority === existingPriority) {
+                            const existingTime = existing.time ? new Date(existing.time).getTime() : 0;
+                            const currentTime = timeVal ? new Date(timeVal).getTime() : 0;
+                            if (currentTime >= existingTime) {
+                                recordMap.set(key, { record: r, time: timeVal });
+                            }
                         }
                     }
                 });

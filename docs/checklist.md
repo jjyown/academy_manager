@@ -1,6 +1,6 @@
 # 출석관리앱 체크리스트
 
-- 문서 기준일: 2026-03-06
+- 문서 기준일: 2026-03-01
 
 ## 공통 품질 체크
 - [x] 요구사항 재확인 후 구현 시작
@@ -217,6 +217,18 @@
 | 2026-03-06 | 학생관리 73차(묶음 라벨 실명 우선 고정 + `선생님A/B` fallback 제거) | `script.js`(`resolveKnownTeacherId`, `renderDayEvents`) 수정 + `node --check script.js` + `ReadLints` + 문서 3종 동기화 | PASS | 레거시 teacher key를 렌더 단계에서 등록 teacher id로 즉시 해석하고, 묶음 라벨의 별칭 fallback(`선생님A/B`)을 제거해 등록 선생님명 우선 정책을 강화. 복원 실패 시 `담당 미확인`으로 명시 |
 | 2026-03-06 | 학생관리 74차(출석 역전 재발 차단: 날짜동기화 병합 + 결석 그림자 정리) | `script.js`, `qr-attendance.js` 수정 + `node --check script.js` + `node --check qr-attendance.js` + `ReadLints` + 문서 3종 동기화 | PASS | 날짜별 출석 보강 조회를 owner 전체 teacher 병합으로 확장하고 슬롯 중복 상태를 우선순위/최신시각으로 통합. 관리자 모드 타교사 저장 시 남아 있던 과거 결석 그림자 레코드를 조건부 정리해 `출석->결석` 재역전 경로를 추가 차단 |
 | 2026-03-06 | 학생관리 75차(단건 조회 우선순위 + 메모저장 결석 강제저장 차단) | `qr-attendance.js`, `script.js` 수정 + `node --check qr-attendance.js` + `node --check script.js` + `ReadLints` + 문서 3종 동기화 | PASS | 단건 조회 다중 레코드에서 `maybeSingle` 복수결과를 `teacher_id 일치 > scheduled_time 일치 > 상태 우선순위 > 최신시각`으로 점수화 선택하고, fallback 조회도 동일 규칙으로 통일. 메모 저장 시 `absent` 강제 업서트를 제거해 재역전 가능성을 추가 축소 |
+| 2026-03-06 | 학생관리 76차(묶음 담당 라벨 미복원 보정 + `담당 담당` 중복 제거) | `script.js` 수정 + `node --check script.js` + `ReadLints` + 문서 3종 동기화 | PASS | 라벨 해석 실패 시 멤버 후보(`member.teacherId`, `student.teacher_id`, 배정 teacher)를 재해석해 다수결로 실명 복원을 보강하고, 모달 owner 해석 우선순위 fallback을 추가해 모달/블록 불일치를 줄임. 최종 폴백은 `미확인`으로 조정해 배지 접두어 중복 문구를 제거 |
+| 2026-03-06 | 학생관리 77차(시간표 렌더 중단 긴급복구: 라벨 fallback 참조 오류) | `script.js` 수정 + `node --check script.js` + `ReadLints` + 문서 3종 동기화 | PASS | `resolveTeacherNameByModalPolicy`가 함수 내부에서 미정의 `ev`를 참조해 `renderDayEvents`가 중단되던 문제를 수정. 이벤트 객체를 인자로 받도록 함수/호출부를 정정해 시간축/일정 블록 미표시 현상 복구 |
+| 2026-03-06 | 학생관리 78차(출석 재역전 보강: 초기 동기화 범위/병합 규칙 수정) | `script.js` 수정 + `node --check script.js` + `ReadLints` + 문서 3종 동기화 | PASS | `loadAndCleanData` 출석 동기화를 current teacher 필터에서 owner 전체 조회로 변경하고, 동일 슬롯 병합을 상태 우선순위(`present/late/makeup > absent > none`) + 동률 최신시각으로 보강해 결석 그림자 레코드 역선택 가능성을 축소 |
+| 2026-03-06 | 학생관리 79차(로그 분석 기반 핫픽스: owner 전체 조회 필터 명시 지원) | `database.js` 수정 + `node --check database.js` + `ReadLints` + 문서 3종 동기화 | PASS | `getAttendanceRecordsByOwner(null)`이 내부 fallback으로 현재교사 필터를 타던 문제를 수정. `undefined`일 때만 현재교사 fallback, `null/''`은 owner 전체 조회로 명시 처리해 동기화 필터 오동작을 제거 |
+| 2026-03-06 | 학생관리 80차(묶음 일정 재역전 보강: 자동결석 비교/그림자 정리 확장) | `script.js` 수정 + `node --check script.js` + `ReadLints` + 문서 3종 동기화 | PASS | 자동결석 사전확인을 owner teacher + owner 전체 조회 병합(상태 우선순위+최신시각)으로 보강하고, stale absent 정리 대상을 owner teacher 외 전체 teacher_id로 확장해 묶음 일정의 `출석->결석` 재역전 경로를 추가 차단 |
+| 2026-03-06 | 학생관리 82차(묶음 일정 저장 슬롯 가드: owner 슬롯 강제 보정) | `script.js` 수정 + `node --check script.js` + `ReadLints` + 문서 3종 동기화 | PASS | `setAttendance/saveOnlyMemo` 저장 직전에 `resolveAttendanceSlotStartTime`으로 owner teacher 슬롯을 재확인해 `scheduled_time` 오저장을 방지. 묶음 일정에서 상태/메모가 다른 시간 슬롯으로 기록되며 재역전되는 경로를 추가 차단 |
+| 2026-03-06 | 학생관리 82차(자정 넘김 수업 자동결석 판정 보정) | `script.js` 수정 + `node --check script.js` + `ReadLints` + 문서 3종 동기화 | PASS | 자동결석 판정을 날짜 단순비교에서 실제 수업 종료시각(`dateStr+startTime+duration`) 기준으로 변경해 23:30~01:10 같은 야간 묶음 수업의 조기 결석 처리 경로를 차단 |
+| 2026-03-06 | 학생관리 83차(묶음 일정 재현 로그 보강) | `script.js` 수정 + `node --check script.js` + `ReadLints` + 문서 3종 동기화 | PASS | 상태 저장/자동결석 write 지점에 `[ATT-BOX]` 로그를 추가해 `teacherId/scheduledTime/status` write 순서를 즉시 추적 가능하게 보강 |
+| 2026-03-06 | 학생관리 81차(묶음 일정 owner/start 정합성 보강) | `script.js` 수정 + `node --check script.js` + `ReadLints` + 문서 3종 동기화 | PASS | 묶음 모달 진입 시 owner/slot 재매칭과 시간키 정규화 비교를 적용해 `23:30` 클릭이 `18:00` 등 다른 슬롯으로 저장되는 경로를 차단 |
+| 2026-03-06 | 학생관리 81차(묶음 일정 owner 폴백 수정: 현재교사 강제치환 제거) | `script.js` 수정 + `node --check script.js` + `ReadLints` + 문서 3종 동기화 | PASS | `resolveOwnerTeacherIdForModal`에서 known teacher 미해석 시 currentTeacherId로 강제치환되던 fallback을 제거하고, 슬롯 일치 owner를 우선 유지하도록 보강해 묶음 일정 저장 `teacher_id` 불일치를 완화 |
+| 2026-03-01 | 학생관리 84차(일정 삭제 시 출석기록 동시 삭제) | `script.js` 수정 + `node --check script.js` + `ReadLints` + 문서 3종 동기화 | PASS | 단건/기간/기간별 일정 삭제 경로에서 같은 시간 슬롯 출석기록(DB/로컬 캐시)도 함께 정리하고, 기간 삭제는 DB `schedules` 슬롯 조회 기반으로 동일 슬롯만 정밀 삭제해 타기기 생성 레코드까지 정리 |
+| 2026-03-01 | 학생관리 84차 후속 안정화 점검(커서 불안정 재확인) | `node --check script.js` + `ReadLints(script.js)` + 삭제 확인문구/삭제경로 코드 재대조 | PASS | 일정 삭제 시 출석 동시삭제 정책 문구가 `단건/기간/기간별` 경로에 일치하고, 정적 검증 결과 오류 없음 |
 
 ## 학생관리 58~64차 실기기 회귀 결과 템플릿 (복붙용)
 - 아래 1줄을 복붙해서 PASS/FAIL만 채워 주세요.
@@ -253,6 +265,42 @@
 ## 학생관리 75차 결과 입력 템플릿 (복붙용)
 - 아래 1줄을 복붙해서 결과만 수정
 `75: PASS/FAIL (묶음 일정/관리자모드에서 결석->출석 변경 후 메모저장/재진입/자동타이머 이후에도 결석 재역전 없음)`
+
+## 학생관리 76차 결과 입력 템플릿 (복붙용)
+- 아래 1줄을 복붙해서 결과만 수정
+`76: PASS/FAIL (동일 담당 묶음 블록에서 담당 라벨이 등록 선생님명으로 표시되고 '담당 담당 미확인' 중복 문구가 사라졌는지)`
+
+## 학생관리 77차 결과 입력 템플릿 (복붙용)
+- 아래 1줄을 복붙해서 결과만 수정
+`77: PASS/FAIL (전체 선생님 보기에서 시간축/일정 블록이 정상 렌더되고, 검색/스크롤/묶음라벨이 함께 정상 동작하는지)`
+
+## 학생관리 78차 결과 입력 템플릿 (복붙용)
+- 아래 1줄을 복붙해서 결과만 수정
+`78: PASS/FAIL (묶음 일정/타교사 수정에서 결석->출석 변경 후 재진입/새로고침 시 결석 재역전이 없는지)`
+
+## 학생관리 79차 결과 입력 템플릿 (복붙용)
+- 아래 1줄을 복붙해서 결과만 수정
+`79: PASS/FAIL (결석->출석 변경 후 강력새로고침 시 owner 전체 동기화가 적용되어 결석으로 재역전되지 않는지)`
+
+## 학생관리 80차 결과 입력 템플릿 (복붙용)
+- 아래 1줄을 복붙해서 결과만 수정
+`80: PASS/FAIL (묶음 일정에서 결석->출석 변경 후 메모저장/재진입/새로고침/자동타이머 이후에도 결석 재역전이 없는지)`
+
+## 학생관리 81차 결과 입력 템플릿 (복붙용)
+- 아래 1줄을 복붙해서 결과만 수정
+`81: PASS/FAIL (묶음 일정 모달 진입 시 owner teacher가 현재교사로 강제치환되지 않고, 상태 저장 teacher_id가 실제 일정 owner와 일치하는지)`
+
+## 학생관리 82차 결과 입력 템플릿 (복붙용)
+- 아래 1줄을 복붙해서 결과만 수정
+`82: PASS/FAIL (묶음 일정에서 상태/메모 저장 후 콘솔 startTime/DB scheduled_time이 실제 슬롯으로 유지되고, 23:30~01:10 같은 자정 넘김 수업에서 종료시각 전 재역전 없이 종료시각 이후에만 자동결석 동작하는지)`
+
+## 학생관리 83차 결과 입력 템플릿 (복붙용)
+- 아래 1줄을 복붙해서 결과만 수정
+`83: PASS/FAIL (재역전 재현 시 [ATT-BOX][persist][write]와 [ATT-BOX][autoAbsent][write] 로그 시간순서가 캡처되고, 마지막 absent write 경로를 특정할 수 있는지)`
+
+## 학생관리 84차 결과 입력 템플릿 (복붙용)
+- 아래 1줄을 복붙해서 결과만 수정
+`84: PASS/FAIL (일정 단건삭제/기간삭제/기간별삭제 후 출석기록에서도 같은 날짜·시간 슬롯 기록이 함께 삭제되고, 재진입/새로고침 후에도 복원되지 않는지)`
 
 ## 릴리즈 전 최종 확인
 - [x] 치명 이슈 없음
