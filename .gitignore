@@ -33,3 +33,7 @@ yarn-error.log
 
 # Vercel
 .vercel/
+
+.venv/
+grading-server/.venv/
+__pycache__/
