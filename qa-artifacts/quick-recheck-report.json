@@ -1,0 +1,281 @@
+{
+  "generatedAt": "2026-02-28T16:42:55.603Z",
+  "results": [
+    {
+      "page": "http://127.0.0.1:8000/grading/",
+      "mode": "desktop",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "screenshot": "../qa-artifacts/quick-grading-desktop.png",
+      "corsSignals": [],
+      "consoleMessages": [
+        "[log] [채점관리] supabase-client에서 선생님 로드 성공: 2 명"
+      ],
+      "pageErrors": [],
+      "failedRequests": [
+        {
+          "url": "https://unpkg.com/mathlive@0.108.3/mathlive.min.js",
+          "method": "HEAD",
+          "errorText": "net::ERR_ABORTED"
+        }
+      ],
+      "goldButtons": [
+        {
+          "tag": "button",
+          "cls": "btn btn-primary",
+          "text": "입장",
+          "bg": "rgb(201, 167, 74)",
+          "fg": "rgb(16, 33, 63)",
+          "darkText": true
+        },
+        {
+          "tag": "button",
+          "cls": "tab-btn active",
+          "text": "📅 달력",
+          "bg": "rgb(201, 167, 74)",
+          "fg": "rgb(16, 33, 63)",
+          "darkText": true
+        },
+        {
+          "tag": "button",
+          "cls": "btn btn-primary btn-sm",
+          "text": "교재 등록",
+          "bg": "rgb(201, 167, 74)",
+          "fg": "rgb(16, 33, 63)",
+          "darkText": true
+        },
+        {
+          "tag": "button",
+          "cls": "btn btn-sm btn-primary",
+          "text": "✅ 확정",
+          "bg": "rgb(201, 167, 74)",
+          "fg": "rgb(16, 33, 63)",
+          "darkText": true
+        },
+        {
+          "tag": "button",
+          "cls": "btn btn-sm btn-primary",
+          "text": "저장",
+          "bg": "rgb(201, 167, 74)",
+          "fg": "rgb(16, 33, 63)",
+          "darkText": true
+        },
+        {
+          "tag": "button",
+          "cls": "btn btn-primary btn-sm",
+          "text": "확인",
+          "bg": "rgb(201, 167, 74)",
+          "fg": "rgb(16, 33, 63)",
+          "darkText": true
+        },
+        {
+          "tag": "button",
+          "cls": "btn btn-primary",
+          "text": "저장",
+          "bg": "rgb(201, 167, 74)",
+          "fg": "rgb(16, 33, 63)",
+          "darkText": true
+        },
+        {
+          "tag": "button",
+          "cls": "btn btn-primary",
+          "text": "배정",
+          "bg": "rgb(201, 167, 74)",
+          "fg": "rgb(16, 33, 63)",
+          "darkText": true
+        },
+        {
+          "tag": "button",
+          "cls": "btn btn-sm",
+          "text": "프린트 과제",
+          "bg": "rgb(201, 167, 74)",
+          "fg": "rgb(16, 33, 63)",
+          "darkText": true
+        },
+        {
+          "tag": "button",
+          "cls": "btn btn-primary",
+          "text": "등록 및 정답 추출",
+          "bg": "rgb(201, 167, 74)",
+          "fg": "rgb(16, 33, 63)",
+          "darkText": true
+        }
+      ],
+      "layout": {
+        "innerWidth": 1440,
+        "overflowX": 0,
+        "hasHorizontalOverflow": false,
+        "overflowing": []
+      }
+    },
+    {
+      "page": "http://127.0.0.1:8000/grading/",
+      "mode": "mobile390",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "screenshot": "../qa-artifacts/quick-grading-mobile390.png",
+      "corsSignals": [],
+      "consoleMessages": [
+        "[log] [채점관리] supabase-client에서 선생님 로드 성공: 2 명"
+      ],
+      "pageErrors": [],
+      "failedRequests": [
+        {
+          "url": "https://unpkg.com/mathlive@0.108.3/mathlive.min.js",
+          "method": "HEAD",
+          "errorText": "net::ERR_ABORTED"
+        }
+      ],
+      "goldButtons": [
+        {
+          "tag": "button",
+          "cls": "btn btn-primary",
+          "text": "입장",
+          "bg": "rgb(201, 167, 74)",
+          "fg": "rgb(16, 33, 63)",
+          "darkText": true
+        },
+        {
+          "tag": "button",
+          "cls": "tab-btn active",
+          "text": "📅 달력",
+          "bg": "rgb(201, 167, 74)",
+          "fg": "rgb(16, 33, 63)",
+          "darkText": true
+        },
+        {
+          "tag": "button",
+          "cls": "btn btn-primary btn-sm",
+          "text": "교재 등록",
+          "bg": "rgb(201, 167, 74)",
+          "fg": "rgb(16, 33, 63)",
+          "darkText": true
+        },
+        {
+          "tag": "button",
+          "cls": "btn btn-sm btn-primary",
+          "text": "✅ 확정",
+          "bg": "rgb(201, 167, 74)",
+          "fg": "rgb(16, 33, 63)",
+          "darkText": true
+        },
+        {
+          "tag": "button",
+          "cls": "btn btn-sm btn-primary",
+          "text": "저장",
+          "bg": "rgb(201, 167, 74)",
+          "fg": "rgb(16, 33, 63)",
+          "darkText": true
+        },
+        {
+          "tag": "button",
+          "cls": "btn btn-primary btn-sm",
+          "text": "확인",
+          "bg": "rgb(201, 167, 74)",
+          "fg": "rgb(16, 33, 63)",
+          "darkText": true
+        },
+        {
+          "tag": "button",
+          "cls": "btn btn-primary",
+          "text": "저장",
+          "bg": "rgb(201, 167, 74)",
+          "fg": "rgb(16, 33, 63)",
+          "darkText": true
+        },
+        {
+          "tag": "button",
+          "cls": "btn btn-primary",
+          "text": "배정",
+          "bg": "rgb(201, 167, 74)",
+          "fg": "rgb(16, 33, 63)",
+          "darkText": true
+        },
+        {
+          "tag": "button",
+          "cls": "btn btn-sm",
+          "text": "프린트 과제",
+          "bg": "rgb(201, 167, 74)",
+          "fg": "rgb(16, 33, 63)",
+          "darkText": true
+        },
+        {
+          "tag": "button",
+          "cls": "btn btn-primary",
+          "text": "등록 및 정답 추출",
+          "bg": "rgb(201, 167, 74)",
+          "fg": "rgb(16, 33, 63)",
+          "darkText": true
+        }
+      ],
+      "layout": {
+        "innerWidth": 390,
+        "overflowX": 0,
+        "hasHorizontalOverflow": false,
+        "overflowing": []
+      }
+    },
+    {
+      "page": "http://127.0.0.1:8000/homework/",
+      "mode": "desktop",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "screenshot": "../qa-artifacts/quick-homework-desktop.png",
+      "corsSignals": [],
+      "consoleMessages": [],
+      "pageErrors": [],
+      "failedRequests": [],
+      "goldButtons": [
+        {
+          "tag": "button",
+          "cls": "",
+          "text": "처음으로 돌아가기",
+          "bg": "rgb(201, 167, 74)",
+          "fg": "rgb(10, 31, 71)",
+          "darkText": true
+        }
+      ],
+      "layout": {
+        "innerWidth": 1440,
+        "overflowX": 0,
+        "hasHorizontalOverflow": false,
+        "overflowing": []
+      }
+    },
+    {
+      "page": "http://127.0.0.1:8000/homework/",
+      "mode": "mobile390",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "screenshot": "../qa-artifacts/quick-homework-mobile390.png",
+      "corsSignals": [],
+      "consoleMessages": [],
+      "pageErrors": [],
+      "failedRequests": [],
+      "goldButtons": [
+        {
+          "tag": "button",
+          "cls": "",
+          "text": "처음으로 돌아가기",
+          "bg": "rgb(201, 167, 74)",
+          "fg": "rgb(10, 31, 71)",
+          "darkText": true
+        }
+      ],
+      "layout": {
+        "innerWidth": 390,
+        "overflowX": 0,
+        "hasHorizontalOverflow": false,
+        "overflowing": []
+      }
+    }
+  ]
+}

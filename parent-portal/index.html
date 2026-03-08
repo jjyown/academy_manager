@@ -1,0 +1,971 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+	<title>하이로드 수학 | 학부모 포털</title>
+	<link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.8/dist/web/static/pretendard.css" />
+	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+	<link rel="stylesheet" href="../css/sub-shared.css">
+	<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+	<style>
+		#page-dashboard { display: none; min-height: 100vh; min-height: 100dvh; }
+
+		/* ===== Dashboard ===== */
+		.dash-header {
+			background: var(--brand-gradient);
+			padding: 20px 20px 72px;
+			position: relative;
+		}
+		.dash-header::after {
+			content: '';
+			position: absolute;
+			left: 20px;
+			right: 20px;
+			bottom: 14px;
+			height: 2px;
+			background: linear-gradient(90deg, rgba(201,167,74,0.15), rgba(201,167,74,0.95), rgba(201,167,74,0.15));
+			border-radius: 999px;
+		}
+
+		.dash-top-bar {
+			display: flex; align-items: center; justify-content: space-between;
+			margin-bottom: 20px;
+		}
+
+		.dash-back-btn {
+			background: rgba(255,255,255,0.15); border: none;
+			color: white; width: 38px; height: 38px;
+			border-radius: 12px; cursor: pointer;
+			display: flex; align-items: center; justify-content: center;
+			font-size: 16px;
+			transition: all var(--transition);
+			backdrop-filter: blur(4px);
+		}
+		.dash-back-btn:hover { background: rgba(255,255,255,0.25); }
+
+		.dash-top-label { font-size: 13px; color: var(--accent); font-weight: 600; }
+
+		.dash-student-info { text-align: center; }
+		.dash-student-name { font-size: 24px; font-weight: 800; color: white; letter-spacing: -0.5px; text-shadow: 0 1px 8px rgba(201,167,74,0.25); }
+		.dash-student-meta {
+			display: flex; align-items: center; justify-content: center; gap: 8px;
+			margin-top: 6px; font-size: 13px; color: rgba(255,255,255,0.75);
+		}
+		.dash-student-meta .sep { opacity: 0.4; }
+
+		.dash-container {
+			max-width: 640px;
+			margin: -52px auto 0;
+			padding: 0 16px 32px;
+			padding-bottom: calc(32px + env(safe-area-inset-bottom, 0px));
+			position: relative;
+		}
+
+		/* Quick Stats */
+		.quick-stats {
+			display: grid; grid-template-columns: repeat(4, 1fr);
+			gap: 8px; margin-bottom: 16px;
+		}
+		.qs-item {
+			background: var(--card);
+			border: 1px solid var(--border);
+			border-radius: var(--radius-lg);
+			padding: 16px 8px;
+			text-align: center;
+			box-shadow: var(--shadow);
+			transition: transform var(--transition), box-shadow var(--transition);
+		}
+		.qs-item:active { transform: scale(0.97); }
+		.qs-icon { font-size: 18px; margin-bottom: 6px; }
+		.qs-value { font-size: 20px; font-weight: 800; }
+		.qs-label { font-size: 10px; color: var(--text-sec); margin-top: 3px; font-weight: 500; }
+
+		/* Tabs */
+		.dash-tabs {
+			display: flex; gap: 4px;
+			background: var(--card);
+			border-radius: 14px;
+			padding: 4px;
+			margin-bottom: 16px;
+			border: 1px solid var(--border);
+			box-shadow: var(--shadow);
+		}
+		.dash-tab {
+			flex: 1; padding: 11px 8px;
+			background: transparent; border: none;
+			border-radius: 10px;
+			font-size: 13px; font-weight: 600; font-family: inherit;
+			color: var(--text-sec);
+			cursor: pointer;
+			transition: all var(--transition);
+			display: flex; align-items: center; justify-content: center; gap: 6px;
+		}
+		.dash-tab.active {
+			background: var(--brand-gradient);
+			color: white;
+			box-shadow: 0 2px 8px rgba(17,55,119,0.35);
+		}
+		.dash-tab:not(.active):hover { background: rgba(255,255,255,0.05); color: var(--text); }
+
+		/* Tab content */
+		.tab-panel { display: none; }
+		.tab-panel.active { display: block; animation: fadeSlideIn 0.3s ease; }
+
+		@keyframes fadeSlideIn {
+			from { opacity: 0; transform: translateY(8px); }
+			to { opacity: 1; transform: translateY(0); }
+		}
+		/* Month selector */
+		.month-nav {
+			display: flex; align-items: center; gap: 6px;
+			background: var(--bg-elevated);
+			padding: 6px 8px;
+			border-radius: 12px;
+			border: 1px solid var(--border);
+			margin-bottom: 14px;
+		}
+		.month-arrow {
+			width: 36px; height: 36px;
+			background: transparent; border: 1px solid var(--border);
+			border-radius: 10px; color: var(--text-sec);
+			cursor: pointer; font-size: 13px;
+			display: flex; align-items: center; justify-content: center;
+			transition: all var(--transition);
+		}
+		.month-arrow:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-light); }
+
+		.month-input {
+			flex: 1; padding: 8px; text-align: center;
+			background: transparent; border: none;
+			font-size: 15px; font-weight: 700; font-family: inherit;
+			color: var(--text); outline: none;
+		}
+
+		/* Monthly stats bar */
+		.month-stats {
+			display: grid; grid-template-columns: repeat(4,1fr);
+			gap: 6px; margin-bottom: 14px;
+		}
+		.ms-item {
+			text-align: center;
+			padding: 10px 4px;
+			border-radius: 10px;
+			background: var(--bg-elevated);
+		}
+		.ms-value { font-size: 18px; font-weight: 800; }
+		.ms-label { font-size: 10px; color: var(--text-sec); margin-top: 2px; }
+
+		.att-badge {
+			font-size: 11px; font-weight: 700;
+			padding: 5px 12px;
+			border-radius: 20px;
+			white-space: nowrap;
+		}
+		.att-badge.present { background: var(--green-bg); color: var(--green); }
+		.att-badge.late { background: var(--yellow-bg); color: var(--yellow); }
+		.att-badge.absent { background: var(--red-bg); color: var(--red); }
+		.att-badge.makeup { background: var(--teal-bg); color: var(--teal); }
+
+		.att-empty {
+			text-align: center; padding: 48px 20px;
+			color: var(--gray); font-size: 13px;
+			line-height: 1.6;
+		}
+		.att-empty i {
+			font-size: 32px; display: block; margin-bottom: 12px; opacity: 0.3;
+			animation: emptyPulse 2s ease-in-out infinite;
+		}
+		@keyframes emptyPulse {
+			0%, 100% { opacity: 0.3; }
+			50% { opacity: 0.5; }
+		}
+
+		/* Admin login modal */
+		.pp-admin-modal {
+			display: none; position: fixed; inset: 0;
+			background: rgba(0,0,0,0.5);
+			backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+			z-index: 9999;
+			align-items: center; justify-content: center;
+			padding: 20px;
+			animation: ppModalFadeIn 0.2s ease;
+		}
+		.pp-admin-modal.active { display: flex; }
+		.pp-admin-modal-box {
+			background: var(--card);
+			border-radius: 20px;
+			padding: 28px 24px;
+			max-width: 400px; width: 100%;
+			border: 1px solid var(--border);
+			box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+			animation: ppModalSlideUp 0.3s ease;
+		}
+		.pp-admin-modal-header {
+			display: flex; align-items: center; justify-content: space-between;
+			margin-bottom: 14px;
+		}
+		.pp-admin-modal-header h2 { font-size: 17px; font-weight: 800; }
+		.pp-admin-modal-close {
+			width: 34px; height: 34px;
+			background: var(--bg-elevated); border: none;
+			border-radius: 10px; color: var(--gray);
+			cursor: pointer;
+			display: flex; align-items: center; justify-content: center;
+			font-size: 14px; transition: all 0.2s;
+		}
+		.pp-admin-modal-close:hover { background: rgba(255,255,255,0.08); color: var(--text); }
+		@keyframes ppModalFadeIn { from { opacity: 0; } to { opacity: 1; } }
+		@keyframes ppModalSlideUp { from { opacity: 0; transform: translateY(20px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+
+		/* Evaluation panel */
+		.eval-lock {
+			text-align: center;
+			padding: 32px 20px;
+			background: rgba(139,92,246,0.06);
+			border: 1.5px dashed rgba(139,92,246,0.2);
+			border-radius: var(--radius);
+		}
+		.eval-lock-icon {
+			width: 56px; height: 56px;
+			background: rgba(139,92,246,0.12);
+			border-radius: 50%;
+			display: flex; align-items: center; justify-content: center;
+			margin: 0 auto 14px;
+			font-size: 22px; color: var(--accent);
+		}
+		.eval-lock p { font-size: 13px; color: var(--text-sec); margin-bottom: 16px; line-height: 1.6; }
+
+		.btn-auth {
+			padding: 12px 24px;
+			background: var(--primary-light);
+			color: var(--primary);
+			border: 1.5px solid rgba(129,140,248,0.25);
+			border-radius: var(--radius);
+			font-size: 14px; font-weight: 700; font-family: inherit;
+			cursor: pointer;
+			transition: all var(--transition);
+		}
+		.btn-auth:hover { background: rgba(129,140,248,0.2); border-color: var(--primary); }
+
+		.eval-content { display: none; }
+		.eval-content.visible { display: block; }
+
+		.eval-textarea {
+			width: 100%;
+			min-height: 140px;
+			padding: 14px;
+			background: var(--bg-elevated);
+			border: 1.5px solid var(--border);
+			border-radius: var(--radius);
+			font-size: 14px; font-family: inherit;
+			color: var(--text);
+			resize: vertical;
+			line-height: 1.7;
+			transition: all var(--transition);
+			outline: none;
+		}
+		.eval-textarea:focus {
+			border-color: var(--primary);
+			box-shadow: 0 0 0 3px rgba(129,140,248,0.15);
+		}
+		.eval-textarea:read-only {
+			opacity: 0.7; cursor: default;
+		}
+
+		.eval-footer {
+			display: flex; align-items: center; justify-content: space-between;
+			margin-top: 10px;
+		}
+		.eval-char { font-size: 11px; color: var(--gray); }
+		.eval-hint { font-size: 11px; color: var(--text-sec); font-style: italic; }
+
+		.eval-save-row {
+			display: flex; gap: 8px; margin-top: 14px;
+		}
+		.btn-save {
+			flex: 1; padding: 12px;
+			background: var(--brand-gradient);
+			color: white; border: none;
+			border-radius: var(--radius);
+			font-size: 14px; font-weight: 700; font-family: inherit;
+			cursor: pointer;
+			transition: all var(--transition);
+		}
+		.btn-save:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(17,55,119,0.35); }
+
+		.btn-cancel {
+			padding: 12px 18px;
+			background: var(--bg-elevated);
+			color: var(--text-sec);
+			border: 1.5px solid var(--border);
+			border-radius: var(--radius);
+			font-size: 14px; font-weight: 600; font-family: inherit;
+			cursor: pointer;
+			transition: all var(--transition);
+		}
+		.btn-cancel:hover { background: rgba(255,255,255,0.08); }
+
+		/* ===== Modals ===== */
+		.pp-modal {
+			display: none; position: fixed; inset: 0;
+			background: rgba(0,0,0,0.5);
+			backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+			z-index: 1000;
+			align-items: center; justify-content: center;
+			padding: 16px;
+		}
+		.pp-modal.active { display: flex; }
+
+		.pp-modal-box {
+			background: var(--card);
+			border-radius: var(--radius-xl);
+			padding: 28px 24px;
+			max-width: 400px; width: 100%;
+			border: 1px solid var(--border);
+			box-shadow: 0 32px 64px rgba(0,0,0,0.3);
+			animation: modalIn 0.25s cubic-bezier(0.16,1,0.3,1);
+		}
+		@keyframes modalIn {
+			from { opacity: 0; transform: scale(0.95) translateY(12px); }
+			to { opacity: 1; transform: scale(1) translateY(0); }
+		}
+
+		.pp-modal-header {
+			display: flex; align-items: center; justify-content: space-between;
+			margin-bottom: 18px;
+		}
+		.pp-modal-header h2 { font-size: 17px; font-weight: 800; }
+
+		.pp-modal-close {
+			width: 34px; height: 34px;
+			background: var(--bg-elevated); border: none;
+			border-radius: 10px; color: var(--gray);
+			cursor: pointer;
+			display: flex; align-items: center; justify-content: center;
+			transition: all var(--transition);
+		}
+		.pp-modal-close:hover { background: rgba(255,255,255,0.08); color: var(--text); }
+
+		.pp-modal-input {
+			width: 100%; padding: 12px 14px;
+			background: var(--bg-elevated);
+			border: 1.5px solid var(--border);
+			border-radius: 10px;
+			font-size: 14px; font-family: inherit;
+			color: var(--text); outline: none;
+			transition: all var(--transition);
+			margin-top: 10px;
+		}
+		.pp-modal-input:focus {
+			border-color: var(--primary);
+			box-shadow: 0 0 0 3px rgba(129,140,248,0.15);
+		}
+
+		.pp-modal-hint {
+			font-size: 11px; color: var(--text-sec); margin-top: 8px;
+			padding: 8px 12px;
+			background: rgba(129,140,248,0.06);
+			border-radius: 8px;
+			line-height: 1.5;
+		}
+
+		.pp-modal-btn {
+			width: 100%; padding: 13px;
+			background: var(--brand-gradient);
+			color: white; border: none;
+			border-radius: var(--radius);
+			font-size: 14px; font-weight: 700; font-family: inherit;
+			cursor: pointer; margin-top: 14px;
+			transition: all var(--transition);
+		}
+		.pp-modal-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(17,55,119,0.35); }
+
+		/* ===== Responsive (page-specific) ===== */
+		@media (max-width: 640px) {
+			.dash-header { padding: 16px 16px 64px; }
+			.dash-container { padding: 0 12px 24px; }
+			.dash-student-name { font-size: 20px; }
+			.quick-stats { gap: 6px; }
+			.qs-item { padding: 12px 4px; }
+			.qs-value { font-size: 17px; }
+			.qs-icon { font-size: 16px; }
+			.pp-modal-box { padding: 22px 18px; border-radius: 20px; }
+		}
+
+		@media (max-width: 400px) {
+			.quick-stats { grid-template-columns: repeat(2, 1fr); }
+			.month-stats { grid-template-columns: repeat(2, 1fr); }
+			.dash-tabs { font-size: 12px; }
+			.dash-tab { padding: 10px 4px; font-size: 12px; }
+		}
+
+		@media (hover: none) and (pointer: coarse) {
+			.btn-save:hover { transform: none; box-shadow: none; }
+		}
+
+
+		/* ===== Homework Calendar (parent portal) ===== */
+		.hw-cal-grid {
+			display: grid; grid-template-columns: repeat(7, 1fr);
+			gap: 4px;
+		}
+		.hw-cal-dow {
+			text-align: center; font-size: 11px; font-weight: 600;
+			color: var(--gray); padding: 6px 0;
+		}
+		.hw-cal-dow.sun { color: var(--red); }
+		.hw-cal-dow.sat { color: #60a5fa; }
+		.hw-cal-cell {
+			aspect-ratio: 1; display: flex; flex-direction: column;
+			align-items: center; justify-content: center;
+			border-radius: 10px; cursor: pointer;
+			transition: all var(--transition);
+			position: relative; font-size: 13px; font-weight: 500;
+			color: var(--text-sec);
+		}
+		.hw-cal-cell:hover { background: rgba(255,255,255,0.06); }
+		.hw-cal-cell.empty { cursor: default; }
+		.hw-cal-cell.empty:hover { background: transparent; }
+		.hw-cal-cell.today {
+			border: 1.5px solid var(--primary);
+			color: var(--primary); font-weight: 700;
+		}
+		.hw-cal-cell.selected {
+			background: var(--primary-light);
+			color: var(--primary); font-weight: 700;
+		}
+		.hw-cal-cell.future { opacity: 0.3; cursor: default; }
+		.hw-cal-cell.future:hover { background: transparent; }
+		.hw-cal-cell.sun-day { color: var(--red); }
+		.hw-cal-cell.sat-day { color: #60a5fa; }
+		.hw-cal-cell.selected.sun-day, .hw-cal-cell.selected.sat-day { color: var(--primary); }
+		.hw-cal-cell.hw-ontime::after,
+		.hw-cal-cell.hw-late::after,
+		.hw-cal-cell.hw-missed::after,
+		.hw-cal-cell.hw-manual::after,
+		.hw-cal-cell.hw-submitted::after,
+		.hw-cal-cell.att-present::after,
+		.hw-cal-cell.att-late::after,
+		.hw-cal-cell.att-absent::after,
+		.hw-cal-cell.att-makeup::after {
+			position: absolute; bottom: 3px;
+			font-size: 12px; font-weight: 800; line-height: 1;
+		}
+		.hw-cal-cell.hw-ontime::after { content: '\2713'; color: var(--green); }
+		.hw-cal-cell.hw-late::after { content: '\25b3'; color: var(--yellow); }
+		.hw-cal-cell.hw-missed::after { content: '\2717'; color: var(--red); }
+		.hw-cal-cell.hw-manual::after { content: '\2713'; color: var(--teal); }
+		.hw-cal-cell.hw-submitted::after { content: '\2713'; color: var(--green); }
+		.hw-cal-cell.hw-missed { background: rgba(248,113,113,0.06); }
+		.hw-cal-cell.hw-scheduled { border-bottom: 2px solid rgba(129,140,248,0.25); }
+
+		.hw-stats {
+			display: flex; gap: 6px; margin-top: 14px;
+			padding: 10px;
+			background: var(--bg-elevated);
+			border-radius: 10px;
+		}
+		.hw-stat { flex: 1; text-align: center; padding: 6px 2px; border-radius: 8px; }
+		.hw-stat-num { font-size: 18px; font-weight: 800; }
+		.hw-stat-label { font-size: 10px; color: var(--text-sec); margin-top: 2px; }
+
+		.hw-detail-empty {
+			text-align: center; padding: 28px 16px;
+			color: var(--gray); font-size: 13px;
+		}
+		.hw-detail-empty i { font-size: 28px; margin-bottom: 10px; display: block; opacity: 0.4; }
+		.hw-detail-item {
+			display: flex; align-items: center; gap: 12px;
+			padding: 14px;
+			background: var(--bg-elevated);
+			border-radius: var(--radius);
+			border: 1px solid var(--border);
+			margin-bottom: 8px;
+			animation: fadeIn 0.2s;
+		}
+		.hw-detail-icon {
+			width: 40px; height: 40px;
+			border-radius: 10px;
+			display: flex; align-items: center; justify-content: center;
+			font-size: 16px; flex-shrink: 0;
+		}
+		.hw-detail-info { flex: 1; min-width: 0; }
+		.hw-detail-name {
+			font-size: 13px; font-weight: 600;
+			overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+		}
+		.hw-detail-meta {
+			font-size: 11px; color: var(--text-sec); margin-top: 3px;
+			display: flex; flex-wrap: wrap; gap: 8px;
+		}
+		.hw-status-badge {
+			display: inline-flex; align-items: center; gap: 3px;
+			padding: 2px 7px; border-radius: 6px;
+			font-size: 10px; font-weight: 600;
+		}
+		.hw-status-badge.on-time { background: var(--green-bg); color: var(--green); }
+		.hw-status-badge.late { background: var(--yellow-bg); color: var(--yellow); }
+		.hw-status-badge.manual { background: var(--teal-bg); color: var(--teal); }
+		.hw-sched-info {
+			display: flex; align-items: center; gap: 8px;
+			padding: 10px 12px;
+			background: var(--primary-light);
+			border-radius: 8px;
+			margin-bottom: 10px;
+			font-size: 12px; color: var(--primary); font-weight: 600;
+		}
+		/* Attendance calendar status marks (content only, base styles shared above) */
+		.hw-cal-cell.att-present::after { content: '\2713'; color: var(--green); }
+		.hw-cal-cell.att-late::after { content: '\25b3'; color: var(--yellow); }
+		.hw-cal-cell.att-absent::after { content: '\2717'; color: var(--red); }
+		.hw-cal-cell.att-makeup::after { content: '\2713'; color: var(--teal); }
+		.hw-cal-cell.att-absent { background: rgba(248,113,113,0.06); }
+
+		.att-detail-item {
+			display: flex; align-items: flex-start; gap: 12px;
+			padding: 14px;
+			background: var(--bg-elevated);
+			border-radius: var(--radius);
+			border: 1px solid var(--border);
+			margin-bottom: 8px;
+			animation: fadeIn 0.2s;
+			border-left: 3px solid transparent;
+		}
+		.att-detail-item.st-present { border-left-color: var(--green); }
+		.att-detail-item.st-late { border-left-color: var(--yellow); }
+		.att-detail-item.st-absent { border-left-color: var(--red); }
+		.att-detail-item.st-makeup { border-left-color: var(--teal); }
+		.att-detail-icon {
+			width: 40px; height: 40px;
+			border-radius: 10px;
+			display: flex; align-items: center; justify-content: center;
+			font-size: 18px; flex-shrink: 0;
+		}
+		.att-detail-info { flex: 1; min-width: 0; }
+		.att-detail-status {
+			font-size: 14px; font-weight: 700;
+			display: flex; align-items: center; gap: 8px;
+		}
+		.att-detail-meta {
+			font-size: 12px; color: var(--text-sec); margin-top: 4px;
+			display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+		}
+		.att-detail-meta i { margin-right: 3px; font-size: 10px; opacity: 0.6; }
+		.att-teacher-label {
+			display: inline-flex; align-items: center; gap: 4px;
+			padding: 2px 8px; border-radius: 6px;
+			font-size: 10px; font-weight: 600;
+			background: var(--primary-light); color: var(--primary);
+		}
+
+		@media (max-width: 640px) {
+			.hw-cal-cell { font-size: 12px; }
+		}
+
+		/* Loading spinner */
+		.pp-spinner {
+			width: 32px; height: 32px;
+			border: 3px solid var(--border);
+			border-top-color: var(--primary);
+			border-radius: 50%;
+			animation: spin 0.7s linear infinite;
+			margin: 0 auto;
+		}
+		/* Skeleton loading */
+		.skeleton-row {
+			display: flex; align-items: center; gap: 10px;
+			padding: 13px 14px;
+			background: var(--bg-elevated);
+			border-radius: 12px;
+			border-left: 3px solid var(--border);
+		}
+		.skeleton-block {
+			border-radius: 6px;
+			background: linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.04) 75%);
+			background-size: 200% 100%;
+			animation: shimmer 1.5s infinite;
+		}
+		@keyframes shimmer {
+			0% { background-position: 200% 0; }
+			100% { background-position: -200% 0; }
+		}
+	</style>
+</head>
+<body>
+
+<!-- ===== LANDING PAGE ===== -->
+<div id="page-landing">
+	<div class="landing-hero">
+		<div class="landing-icon">
+			<i class="fas fa-graduation-cap"></i>
+		</div>
+		<h1 class="landing-title">학부모 포털</h1>
+		<p class="landing-subtitle">하이로드 수학에서 우리 아이의 출결 현황과<br>선생님 메모를 간편하게 확인하세요</p>
+	</div>
+
+	<div class="landing-form">
+		<div class="landing-card">
+			<div class="form-group">
+				<label class="form-label">학부모 인증코드</label>
+				<div class="form-input-wrap">
+					<i class="fas fa-key form-icon"></i>
+					<input type="text" id="search-code" class="form-input" placeholder="인증코드를 입력하세요" autocomplete="off" maxlength="20" style="letter-spacing:2px;font-weight:600;">
+				</div>
+				<div class="form-hint">선생님에게 발급받은 학부모 인증코드를 입력하세요</div>
+			</div>
+			<div class="btn-row">
+				<button class="btn-primary" onclick="handleSearch()">
+					<i class="fas fa-right-to-bracket"></i> 조회하기
+				</button>
+			</div>
+			<div id="landing-alert" class="landing-alert"></div>
+		</div>
+	</div>
+
+	<div class="landing-footer" style="margin-bottom:8px;">
+		<i class="fas fa-info-circle"></i> 인증코드는 선생님에게 문의하세요
+	</div>
+	<div style="text-align:center;padding-bottom:32px;">
+		<button onclick="showAdminLoginModal()" style="background:none;border:none;color:var(--text-sec);font-size:12px;cursor:pointer;display:inline-flex;align-items:center;gap:5px;padding:8px 16px;border-radius:8px;transition:all 0.2s;" onmouseover="this.style.color='var(--primary)';this.style.background='rgba(129,140,248,0.08)'" onmouseout="this.style.color='var(--text-sec)';this.style.background='none'">
+			<i class="fas fa-user-shield"></i> 관리자 로그인
+		</button>
+	</div>
+</div>
+
+<!-- ===== ADMIN STUDENT LIST PAGE ===== -->
+<div id="page-admin-students" style="display:none;">
+	<div class="dash-header" style="padding-bottom:24px;">
+		<div class="dash-top-bar">
+			<button class="dash-back-btn" onclick="logoutAdmin()">
+				<i class="fas fa-arrow-left"></i>
+			</button>
+			<span class="dash-top-label" id="admin-list-label">학생 목록</span>
+			<div style="width:38px;"></div>
+		</div>
+	</div>
+	<div style="max-width:640px;margin:0 auto;padding:16px 16px 40px;">
+		<div id="admin-student-list" style="display:flex;flex-direction:column;gap:8px;"></div>
+	</div>
+</div>
+
+<!-- ===== Admin Login Modal ===== -->
+<div id="admin-login-modal" class="pp-admin-modal">
+	<div class="pp-admin-modal-box">
+		<div class="pp-admin-modal-header">
+			<h2><i class="fas fa-user-shield" style="margin-right:8px;color:var(--yellow);"></i>관리자 로그인</h2>
+			<button class="pp-admin-modal-close" onclick="closeAdminLoginModal()"><i class="fas fa-times"></i></button>
+		</div>
+		<p style="font-size:13px;color:var(--text-sec);line-height:1.6;margin-bottom:16px;">관리자 계정으로 로그인합니다.</p>
+		<div class="form-group">
+			<label class="form-label">이메일</label>
+			<div class="form-input-wrap">
+				<i class="fas fa-envelope form-icon"></i>
+				<input type="email" id="admin-email" class="form-input" placeholder="이메일을 입력하세요" autocomplete="email">
+			</div>
+		</div>
+		<div class="form-group">
+			<label class="form-label">비밀번호</label>
+			<div class="form-input-wrap">
+				<i class="fas fa-lock form-icon"></i>
+				<input type="password" id="admin-password" class="form-input" placeholder="비밀번호를 입력하세요" autocomplete="current-password">
+			</div>
+		</div>
+		<div id="admin-login-alert" class="landing-alert" style="margin-bottom:10px;"></div>
+		<div class="btn-row">
+			<button class="btn-cancel" onclick="closeAdminLoginModal()">취소</button>
+			<button class="btn-primary" id="admin-login-btn" onclick="handleAdminLogin()">
+				<i class="fas fa-unlock"></i> 로그인
+			</button>
+		</div>
+	</div>
+</div>
+
+<!-- ===== DASHBOARD PAGE ===== -->
+<div id="page-dashboard">
+	<div class="dash-header">
+		<div class="dash-top-bar">
+			<button class="dash-back-btn" onclick="goBackToLanding()">
+				<i class="fas fa-arrow-left"></i>
+			</button>
+			<span class="dash-top-label">학부모 포털</span>
+			<div style="width:38px;"></div>
+		</div>
+		<div class="dash-student-info">
+			<div class="dash-student-name" id="dash-name">-</div>
+			<div class="dash-student-meta">
+				<span id="dash-grade">-</span>
+				<span class="sep">·</span>
+				<span id="dash-school">-</span>
+			</div>
+		</div>
+	</div>
+
+	<div class="dash-container">
+		<!-- Quick Stats -->
+		<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;padding:0 4px;">
+			<span style="font-size:12px;font-weight:700;color:var(--text-sec);">최근 30일 요약</span>
+			<span style="font-size:10px;color:var(--gray);"><i class="fas fa-clock" style="margin-right:3px;"></i>자동 업데이트</span>
+		</div>
+		<div class="quick-stats" id="quick-stats">
+			<div class="qs-item">
+				<div class="qs-icon" style="color:var(--primary);">📊</div>
+				<div class="qs-value" id="qs-rate" style="color:var(--primary);">-</div>
+				<div class="qs-label">출석률</div>
+			</div>
+			<div class="qs-item">
+				<div class="qs-icon" style="color:var(--green);">✅</div>
+				<div class="qs-value" id="qs-present" style="color:var(--green);">-</div>
+				<div class="qs-label">출석</div>
+			</div>
+			<div class="qs-item">
+				<div class="qs-icon" style="color:var(--yellow);">⏰</div>
+				<div class="qs-value" id="qs-late" style="color:var(--yellow);">-</div>
+				<div class="qs-label">지각</div>
+			</div>
+			<div class="qs-item">
+				<div class="qs-icon" style="color:var(--red);">❌</div>
+				<div class="qs-value" id="qs-absent" style="color:var(--red);">-</div>
+				<div class="qs-label">결석</div>
+			</div>
+		</div>
+
+		<!-- Tabs -->
+		<div class="dash-tabs">
+			<button class="dash-tab active" onclick="switchTab('attendance')">
+				<i class="fas fa-calendar-check"></i> 출결
+			</button>
+			<button class="dash-tab" onclick="switchTab('homework')">
+				<i class="fas fa-book"></i> 숙제
+			</button>
+			<button class="dash-tab" onclick="switchTab('grading')">
+				<i class="fas fa-pen-to-square"></i> 채점
+			</button>
+			<button class="dash-tab" onclick="switchTab('eval')">
+				<i class="fas fa-star"></i> 종합평가
+			</button>
+		</div>
+
+		<!-- TAB: Attendance -->
+		<div id="tab-attendance" class="tab-panel active">
+			<div class="section-card">
+				<div class="section-title">
+					<i class="fas fa-calendar-check"></i>
+					<span>출결 현황</span>
+				</div>
+				<div class="month-nav">
+					<button class="month-arrow" onclick="handlePrevMonth()"><i class="fas fa-chevron-left"></i></button>
+					<input type="month" id="month-selector" class="month-input" onchange="handleMonthChange()" style="display:none;">
+					<span id="att-month-label" style="flex:1;text-align:center;font-size:15px;font-weight:700;">2026년 2월</span>
+					<button class="month-arrow" onclick="handleNextMonth()"><i class="fas fa-chevron-right"></i></button>
+				</div>
+				<div class="hw-cal-grid" id="att-cal-grid">
+					<div class="hw-cal-dow sun">일</div>
+					<div class="hw-cal-dow">월</div>
+					<div class="hw-cal-dow">화</div>
+					<div class="hw-cal-dow">수</div>
+					<div class="hw-cal-dow">목</div>
+					<div class="hw-cal-dow">금</div>
+					<div class="hw-cal-dow sat">토</div>
+				</div>
+				<div class="hw-stats" id="att-stats">
+					<div class="hw-stat">
+						<div class="hw-stat-num" id="ms-rate" style="color:var(--primary);">-</div>
+						<div class="hw-stat-label">출석률</div>
+					</div>
+					<div class="hw-stat">
+						<div class="hw-stat-num" id="ms-present" style="color:var(--green);">-</div>
+						<div class="hw-stat-label">출석</div>
+					</div>
+					<div class="hw-stat">
+						<div class="hw-stat-num" id="ms-late" style="color:var(--yellow);">-</div>
+						<div class="hw-stat-label">지각</div>
+					</div>
+					<div class="hw-stat">
+						<div class="hw-stat-num" id="ms-absent" style="color:var(--red);">-</div>
+						<div class="hw-stat-label">결석</div>
+					</div>
+				</div>
+			</div>
+			<div class="section-card" id="att-detail-card" style="display:none;">
+				<div class="section-title" id="att-detail-title">
+					<i class="fas fa-clipboard-list"></i>
+					<span>-</span>
+				</div>
+				<div id="att-detail-body"></div>
+			</div>
+		</div>
+
+		<!-- TAB: Homework -->
+		<div id="tab-homework" class="tab-panel">
+			<div class="section-card">
+				<div class="section-title">
+					<i class="fas fa-book"></i>
+					<span>숙제 제출 현황</span>
+				</div>
+				<div class="month-nav">
+					<button class="month-arrow" onclick="handlePrevMonthHw()"><i class="fas fa-chevron-left"></i></button>
+					<span id="hw-month-label" style="flex:1;text-align:center;font-size:15px;font-weight:700;">2026년 2월</span>
+					<button class="month-arrow" onclick="handleNextMonthHw()"><i class="fas fa-chevron-right"></i></button>
+				</div>
+				<div class="hw-cal-grid" id="hw-cal-grid">
+					<div class="hw-cal-dow sun">일</div>
+					<div class="hw-cal-dow">월</div>
+					<div class="hw-cal-dow">화</div>
+					<div class="hw-cal-dow">수</div>
+					<div class="hw-cal-dow">목</div>
+					<div class="hw-cal-dow">금</div>
+					<div class="hw-cal-dow sat">토</div>
+				</div>
+				<div class="hw-stats" id="hw-stats">
+					<div class="hw-stat">
+						<div class="hw-stat-num" id="hw-st-submit" style="color:var(--green);">0</div>
+						<div class="hw-stat-label">제출</div>
+					</div>
+					<div class="hw-stat">
+						<div class="hw-stat-num" id="hw-st-late" style="color:var(--yellow);">0</div>
+						<div class="hw-stat-label">늦게 제출</div>
+					</div>
+					<div class="hw-stat">
+						<div class="hw-stat-num" id="hw-st-missed" style="color:var(--red);">0</div>
+						<div class="hw-stat-label">미제출</div>
+					</div>
+					<div class="hw-stat">
+						<div class="hw-stat-num" id="hw-st-total" style="color:var(--primary);">0</div>
+						<div class="hw-stat-label">수업일</div>
+					</div>
+				</div>
+			</div>
+			<div class="section-card" id="hw-detail-card" style="display:none;">
+				<div class="section-title" id="hw-detail-title">
+					<i class="fas fa-file-lines"></i>
+					<span>-</span>
+				</div>
+				<div id="hw-detail-body"></div>
+			</div>
+		</div>
+
+		<!-- TAB: Grading Results -->
+		<div id="tab-grading" class="tab-panel">
+			<div class="section-card">
+				<div class="section-title">
+					<i class="fas fa-pen-to-square"></i>
+					<span>채점 결과</span>
+				</div>
+				<div id="grading-results-list" style="padding:4px 0;">
+					<div style="text-align:center;padding:30px 0;color:var(--gray);font-size:13px;">
+						<i class="fas fa-inbox" style="font-size:28px;margin-bottom:8px;opacity:0.4;display:block;"></i>
+						채점 결과가 없습니다
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- TAB: Evaluation -->
+		<div id="tab-eval" class="tab-panel">
+			<div class="section-card">
+				<div class="section-title">
+					<i class="fas fa-star"></i>
+					<span id="eval-month-label">종합 평가</span>
+					<span style="margin-left:auto;font-size:11px;color:var(--gray);font-weight:500;">선생님만 수정 가능</span>
+				</div>
+				<div class="month-nav">
+					<button class="month-arrow" onclick="handlePrevMonthEval()"><i class="fas fa-chevron-left"></i></button>
+					<input type="month" id="eval-month-selector" class="month-input" onchange="handleEvalMonthChange()">
+					<button class="month-arrow" onclick="handleNextMonthEval()"><i class="fas fa-chevron-right"></i></button>
+				</div>
+
+				<!-- Lock -->
+				<div id="eval-lock" class="eval-lock">
+					<div class="eval-lock-icon"><i class="fas fa-key"></i></div>
+					<p>선생님이 발급한 인증코드로<br>종합 평가를 확인할 수 있습니다</p>
+					<button class="btn-auth" onclick="openParentAuthModal()">
+						<i class="fas fa-user-check"></i> 학부모 인증
+					</button>
+				</div>
+
+				<!-- Content (hidden until auth) -->
+				<div id="eval-content" class="eval-content">
+					<textarea id="eval-textarea" class="eval-textarea" placeholder="이번 달 종합 평가가 아직 작성되지 않았습니다." maxlength="500" readonly></textarea>
+					<div class="eval-footer">
+						<span class="eval-char"><span id="eval-char-count">0</span>/500</span>
+						<span class="eval-hint">읽기 전용</span>
+					</div>
+					<div class="eval-save-row" id="eval-save-row" style="display:none;">
+						<button class="btn-save" onclick="saveEvaluation()"><i class="fas fa-save"></i> 저장</button>
+						<button class="btn-cancel" onclick="resetEvaluation()"><i class="fas fa-undo"></i></button>
+					</div>
+				</div>
+			</div>
+		</div>
+
+	</div>
+</div>
+
+
+<!-- ===== Parent Auth Modal ===== -->
+<div id="parent-auth-modal" class="pp-modal">
+	<div class="pp-modal-box">
+		<div class="pp-modal-header">
+			<h2><i class="fas fa-key" style="margin-right:8px;color:var(--accent);"></i>학부모 인증</h2>
+			<button class="pp-modal-close" onclick="closeParentAuthModal()"><i class="fas fa-times"></i></button>
+		</div>
+		<p style="font-size:13px;color:var(--text-sec);line-height:1.6;">선생님에게 받은 인증코드 6자리를 입력하세요.</p>
+		<input id="parent-auth-password" class="pp-modal-input" type="text" placeholder="인증코드 6자리" maxlength="6" inputmode="numeric" style="font-size:20px;letter-spacing:6px;text-align:center;font-weight:800;">
+		<div class="pp-modal-hint" id="parent-auth-hint">
+			<i class="fas fa-info-circle" style="color:var(--primary);margin-right:4px;"></i>
+			인증코드는 선생님이 발급한 6자리 숫자입니다
+		</div>
+		<div id="parent-auth-fail-msg" style="display:none;margin-top:8px;padding:8px 12px;border-radius:8px;background:var(--red-bg);color:var(--red);font-size:12px;font-weight:500;"></div>
+		<button class="pp-modal-btn" id="parent-auth-btn" onclick="handleParentAuth()">
+			<i class="fas fa-check"></i> 인증하기
+		</button>
+	</div>
+</div>
+
+<!-- ===== Teacher Auth Modal ===== -->
+<div id="admin-auth-modal" class="pp-modal">
+	<div class="pp-modal-box">
+		<div class="pp-modal-header">
+			<h2><i class="fas fa-chalkboard-user" style="margin-right:8px;color:var(--primary);"></i>선생님 인증</h2>
+			<button class="pp-modal-close" onclick="closeTeacherAuthModal()"><i class="fas fa-times"></i></button>
+		</div>
+		<p style="font-size:13px;color:var(--text-sec);margin-bottom:4px;">평가 수정은 선생님 인증이 필요합니다.</p>
+		<select id="teacher-auth-select" class="pp-modal-input" style="margin-top:8px;">
+			<option value="">선생님 선택</option>
+		</select>
+		<input id="teacher-auth-password" class="pp-modal-input" type="password" placeholder="비밀번호">
+		<button class="pp-modal-btn" onclick="handleTeacherAuth()">
+			<i class="fas fa-lock-open"></i> 인증하기
+		</button>
+	</div>
+</div>
+
+<!-- Toast -->
+<div id="toast-container" style="position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:99999;display:flex;flex-direction:column;gap:8px;pointer-events:none;max-width:360px;width:calc(100% - 32px);"></div>
+
+<script>
+// Toast
+window.ppShowToast = function(msg, type) {
+	type = type || 'info';
+	var c = document.getElementById('toast-container'); if(!c) return;
+	var colors = {success:'#22c55e',error:'#ef4444',warning:'#f59e0b',info:'#113777'};
+	var icons = {success:'fa-check-circle',error:'fa-xmark-circle',warning:'fa-exclamation-circle',info:'fa-info-circle'};
+	var t = document.createElement('div');
+	t.style.cssText = 'display:flex;align-items:center;gap:10px;padding:13px 16px;border-radius:14px;background:var(--card);box-shadow:0 8px 32px rgba(0,0,0,0.3);pointer-events:auto;cursor:pointer;animation:toastSlide 0.3s ease;border:1px solid var(--border);';
+	var safeMsg = String(msg).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+	t.innerHTML = '<i class="fas '+(icons[type]||icons.info)+'" style="font-size:16px;color:'+(colors[type]||colors.info)+';flex-shrink:0;"></i><span style="flex:1;font-size:13px;color:var(--text);line-height:1.4;">'+safeMsg+'</span>';
+	t.onclick = function(){ t.style.opacity='0'; t.style.transform='translateY(-20px)'; setTimeout(function(){t.remove()},300); };
+	c.appendChild(t);
+	while(c.children.length > 3) c.firstChild.remove();
+	setTimeout(function(){ if(t.parentElement){t.style.opacity='0';t.style.transform='translateY(-20px)';setTimeout(function(){t.remove()},300);} }, 3000);
+};
+window.showToast = window.ppShowToast;
+</script>
+<style>
+@keyframes toastSlide { from{opacity:0;transform:translateY(-20px)} to{opacity:1;transform:translateY(0)} }
+</style>
+
+<script src="report.js"></script>
+</body>
+</html>

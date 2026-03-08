@@ -1,0 +1,1191 @@
+/* ============================================
+   Mobile Responsive - Tablet (≤ 1024px)
+   ============================================ */
+@media (max-width: 1024px) {
+    .main-header {
+        padding: 10px 16px;
+        gap: 8px;
+    }
+
+    .header-left h1 {
+        font-size: 16px !important;
+    }
+
+    #current-display {
+        font-size: 16px !important;
+        min-width: 120px !important;
+    }
+
+    .calendar-wrapper {
+        padding: 0;
+        max-width: 100%;
+        margin: 16px 12px;
+    }
+
+    .grid-cell {
+        aspect-ratio: 1 / 0.8;
+    }
+
+    .drawer {
+        width: 380px;
+    }
+}
+
+/* ============================================
+   Mobile Responsive - Mobile Landscape (≤ 768px)
+   ============================================ */
+@media (max-width: 768px) {
+    /* --- Header --- */
+    .main-header {
+        flex-wrap: wrap;
+        padding: 8px 12px;
+        gap: 6px;
+    }
+
+    .header-left {
+        order: 1;
+        flex: 1 1 auto;
+    }
+
+    .header-left h1 {
+        font-size: 15px !important;
+    }
+
+    .teacher-chip {
+        font-size: 11px;
+        padding: 4px 8px;
+        gap: 6px;
+    }
+
+    .header-center {
+        order: 3;
+        flex: 0 0 100%;
+        justify-content: center;
+        gap: 8px;
+        padding: 6px 0 2px;
+    }
+
+    .header-right {
+        order: 2;
+        flex: 0 0 auto;
+        gap: 6px;
+    }
+
+    .btn-today {
+        padding: 6px 12px;
+        font-size: 12px;
+    }
+
+    .date-controller {
+        gap: 8px;
+    }
+
+    #current-display {
+        font-size: 15px !important;
+        min-width: 110px !important;
+    }
+
+    .nav-arrow {
+        width: 32px;
+        height: 32px;
+        font-size: 13px;
+    }
+
+    .btn-theme-toggle {
+        width: 34px;
+        height: 34px;
+        font-size: 13px;
+    }
+
+    .theme-picker-popup {
+        width: 250px;
+        padding: 14px;
+        right: -40px;
+    }
+
+    .btn-header-action {
+        padding: 8px 12px !important;
+        font-size: 12px !important;
+    }
+
+    .jump-date-input {
+        font-size: 11px;
+        padding: 5px 8px;
+    }
+
+    /* --- Calendar --- */
+    .calendar-wrapper {
+        margin: 12px 8px;
+        padding: 0;
+        border-radius: 14px;
+    }
+
+    .weekday-header {
+        padding: 10px 0;
+        font-size: 11px;
+    }
+
+    .grid-cell {
+        aspect-ratio: 1 / 0.85;
+        padding: 4px 5px;
+    }
+
+    .date-num {
+        font-size: 12px;
+        width: 24px;
+        height: 24px;
+    }
+
+    .holiday-name {
+        font-size: 8px;
+    }
+
+    .summary-badge {
+        font-size: 9px;
+        padding: 3px 7px;
+    }
+
+    /* --- View Tabs --- */
+    .view-btn {
+        padding: 7px 14px;
+        font-size: 12px;
+    }
+
+    /* --- Drawer --- */
+    .drawer {
+        width: 90vw !important;
+        max-width: 420px;
+    }
+
+    .feature-drawer {
+        width: 85vw !important;
+        max-width: 340px;
+    }
+
+    .drawer-header {
+        padding: 14px 16px;
+    }
+
+    .drawer-controls {
+        padding: 12px 16px;
+    }
+
+    /* --- Modals --- */
+    .modal {
+        padding: 12px;
+        align-items: flex-end;
+    }
+
+    .modal-card {
+        width: 100% !important;
+        max-width: 100% !important;
+        max-height: 92vh;
+        border-radius: 20px 20px 0 0;
+        animation: modalSlideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    @keyframes modalSlideUp {
+        from { opacity: 0; transform: translateY(100%); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    .modal-card .modal-header {
+        padding: 20px 22px 14px;
+    }
+
+    .modal-header h2 {
+        font-size: 17px !important;
+    }
+
+    .modal-body-scrollable {
+        padding: 0 22px;
+        max-height: 60vh;
+    }
+
+    /* --- Attendance Modal --- */
+    .attendance-card {
+        max-width: 100% !important;
+        max-height: 92vh !important;
+    }
+
+    .attendance-modal-body {
+        padding: 0 16px 16px;
+    }
+
+    .attendance-options {
+        grid-template-columns: repeat(4, 1fr);
+        gap: 6px;
+    }
+
+    .att-btn {
+        padding: 12px 6px;
+        font-size: 12px;
+        gap: 4px;
+        min-height: 64px;
+    }
+
+    .att-btn i {
+        font-size: 18px !important;
+    }
+
+    .current-attendance-status {
+        padding: 12px 10px;
+        margin-bottom: 14px;
+    }
+
+    .attendance-modal-footer {
+        padding: 12px 16px;
+    }
+
+    /* --- Day Settings Card --- */
+    .day-settings-card {
+        max-width: 100% !important;
+    }
+
+    /* --- Schedule Modal --- */
+    .schedule-modal-card {
+        max-width: 100% !important;
+    }
+
+    .sch-section { padding: 0 18px; }
+
+    .schedule-action-buttons { padding: 12px 18px 18px; }
+
+    .qr-list-card { max-width: 100% !important; }
+    .qr-list-toolbar { padding: 0 18px 12px; }
+    .qr-item-header { padding: 10px 14px; }
+    .qr-item-avatar { width: 32px; height: 32px; font-size: 13px; }
+
+    /* --- Payment Modal --- */
+    .payment-card {
+        height: calc(100dvh - 12px) !important;
+        max-height: calc(100dvh - 12px);
+        max-width: 100%;
+    }
+
+    .pay-header-top { padding: 14px 16px 8px; }
+    .pay-header-top h2 { font-size: 16px; }
+    .pay-month-nav { padding: 4px 16px 12px; gap: 12px; }
+    .pay-month-nav h3 { font-size: 15px; }
+
+    .pay-dashboard { padding: 12px 14px; gap: 10px; }
+    .pay-progress-ring-container { width: 60px; height: 60px; }
+    .pay-progress-pct { font-size: 14px; }
+    .pay-stats-grid { gap: 6px; }
+    .pay-stat-card { padding: 8px 4px; }
+    .pay-stat-value { font-size: 13px; }
+    .pay-stat-label { font-size: 10px; }
+
+    .pay-toolbar { padding: 8px 12px; gap: 6px; flex-wrap: wrap; }
+    .pay-main-tabs { padding: 0 12px 10px; }
+    .pay-main-tab-btn { font-size: 11px; padding: 6px 10px; }
+    .pay-income-layout { display: flex; flex-direction: column; }
+    .pay-income-students-head { padding: 8px 10px; }
+    .pay-income-students-title { font-size: 11px; }
+    .pay-income-students-note { font-size: 10px; }
+    .pay-search-wrap { min-width: 0; }
+    .pay-filter-pills { gap: 3px; }
+    .pay-pill { padding: 5px 10px; font-size: 11px; }
+    .pay-batch-btn { padding: 6px 10px; font-size: 11px; }
+    .pay-ledger-btn { padding: 6px 10px; font-size: 11px; }
+    .pay-ai-btn { padding: 6px 10px; font-size: 11px; }
+    .pay-close-cards,
+    .pay-channel-grid { grid-template-columns: 1fr 1fr; }
+    .pay-channel-reconcile { flex-direction: column; align-items: stretch; gap: 4px; }
+    .pay-channel-actual-input { font-size: 10px; padding: 4px 6px; }
+    .pay-channel-diff { font-size: 10px; text-align: center; }
+    .pay-reconcile-total { font-size: 11px; padding: 6px 8px; }
+    .pay-report-btn { font-size: 11px; }
+    .pay-close-panel { padding: 8px 10px; gap: 6px; }
+    .pay-close-panel-title { font-size: 11px; }
+    .pay-close-toggle-btn { font-size: 10px; padding: 3px 7px; }
+    .pay-unmatched-panel { padding: 7px 10px; }
+    .pay-unmatched-select { min-width: 0; flex: 1 1 100%; }
+    .pay-unmatched-actions { gap: 5px; }
+    .pay-unmatched-btn { font-size: 10px; padding: 5px 7px; }
+
+    .pay-list { padding: 8px 10px 20px; gap: 6px; }
+    .pay-card-head { padding: 10px 12px; gap: 8px; }
+    .pay-card-name { font-size: 13px; }
+    .pay-card-amounts { font-size: 12px; }
+    .pay-badge { font-size: 10px; padding: 2px 6px; }
+
+    .pay-fee-row { padding: 6px 8px; }
+    .pay-fee-label { font-size: 12px; }
+    .pay-fee-amount { font-size: 12px; }
+    .pay-fee-btn { font-size: 11px; padding: 4px 8px; }
+
+    .pay-amount-editor { flex-direction: column; gap: 6px; }
+    .pay-edit-field input { font-size: 12px; }
+    .pay-card-detail-scroll { max-height: min(46vh, 360px); }
+    .pay-ledger-summary,
+    .pay-ledger-grid { grid-template-columns: 1fr; }
+    .pay-expense-toolbar { flex-direction: column; align-items: stretch; padding: 10px 12px 8px; }
+    .pay-expense-summary { margin: 0 10px; grid-template-columns: 1fr 1fr; }
+    .pay-expense-report-actions { margin: 8px 10px 4px; }
+    .pay-expense-item { flex-direction: column; align-items: stretch; }
+    .pay-expense-item-side { align-items: flex-start; }
+    .pay-payroll-fields { padding: 8px; }
+    .pay-payroll-title { font-size: 11px; }
+    .pay-payroll-help { font-size: 10px; }
+    .pay-payroll-note { font-size: 10px; }
+    .pay-ai-multi-grid { grid-template-columns: 1fr; }
+    .pay-ai-multi-row { padding: 10px; }
+    .pay-ai-review-actions { flex-direction: column-reverse; }
+    .pay-ai-secondary-btn,
+    .pay-ai-review-actions .btn-save-main { width: 100%; }
+
+    /* --- Event Block --- */
+    .event-block {
+        font-size: 11px;
+        padding: 6px 8px;
+    }
+
+    /* --- Auth Page --- */
+    .auth-box {
+        padding: 28px 24px;
+    }
+
+    .auth-logo {
+        font-size: 22px;
+        margin-bottom: 24px;
+    }
+
+    /* --- History Card --- */
+    .history-card {
+        max-width: 100% !important;
+    }
+
+    .history-card .modal-body {
+        padding: 16px 20px;
+    }
+    .hist-overview {
+        grid-template-columns: 1fr;
+        gap: 6px;
+        padding-bottom: 6px;
+    }
+    .hist-overview-card {
+        min-height: 74px;
+    }
+    .hist-overview-card .value {
+        font-size: 15px;
+    }
+    .hist-overview-action-btn {
+        width: 100%;
+    }
+
+    /* 종합평가 모바일 */
+    .eval-section {
+        margin-top: 14px;
+        padding: 14px;
+    }
+    .eval-textarea-main {
+        min-height: 80px;
+        font-size: 13px;
+    }
+    .eval-save-btn {
+        padding: 8px 14px;
+        font-size: 11.5px;
+    }
+    .test-score-form-row {
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+    .test-score-sync-row {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 6px;
+    }
+    .test-score-sync-check-btn {
+        width: 100%;
+    }
+    .test-score-form-row .m-input {
+        flex: 1 1 120px;
+    }
+    .test-score-save-btn {
+        width: 100%;
+        justify-content: center;
+    }
+    .test-score-summary {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .test-score-trend {
+        min-height: 84px;
+    }
+    .test-score-item-title {
+        font-size: 12px;
+    }
+    .test-score-item-meta {
+        font-size: 10.5px;
+    }
+    .schedule-delete-preview {
+        font-size: 11px;
+    }
+    .schedule-delete-warning {
+        font-size: 10.5px;
+        padding: 8px 9px;
+    }
+
+    /* --- Register Modal --- */
+    #register-modal .modal-card #edit-mode-actions {
+        padding: 14px 20px;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    /* --- QR Scan Toast --- */
+    .qr-scan-toast {
+        top: 10px;
+        min-width: 260px;
+        padding: 14px 18px;
+    }
+
+    .qr-toast-icon { font-size: 28px; }
+    .qr-toast-name { font-size: 15px; }
+    .qr-toast-status { font-size: 13px; }
+
+    /* --- Time Edit --- */
+    .time-edit-container {
+        gap: 8px !important;
+    }
+
+    .time-row {
+        gap: 6px !important;
+    }
+
+    .btn-time-update {
+        padding: 8px 12px !important;
+        font-size: 12px !important;
+    }
+
+    /* --- Student Attendance History Modal --- */
+    #student-attendance-history-modal .modal-card {
+        max-width: 100% !important;
+    }
+
+    /* --- Attendance Check Modal --- */
+    #attendance-check-modal .modal-card {
+        max-width: 100% !important;
+    }
+}
+
+/* ============================================
+   Mobile Responsive - Mobile Portrait (≤ 480px)
+   ============================================ */
+@media (max-width: 480px) {
+    .main-header {
+        padding: 6px 10px;
+    }
+
+    .header-left {
+        gap: 8px;
+    }
+
+    .header-left h1 {
+        font-size: 13px !important;
+    }
+
+    .teacher-chip {
+        font-size: 10px;
+        padding: 3px 6px;
+        gap: 4px;
+    }
+
+    .teacher-chip-label { display: none; }
+
+    .teacher-switch-btn {
+        padding: 3px 6px;
+        font-size: 10px;
+    }
+
+    /* Header buttons - icon only on small screens */
+    .btn-header-action {
+        padding: 8px !important;
+        min-width: 36px;
+        font-size: 13px !important;
+        justify-content: center;
+        gap: 0 !important;
+    }
+
+    .btn-header-action > span {
+        display: none;
+    }
+
+    .header-center {
+        gap: 6px;
+    }
+
+    #current-display {
+        font-size: 14px !important;
+        min-width: 100px !important;
+    }
+
+    .nav-arrow {
+        width: 30px;
+        height: 30px;
+        font-size: 12px;
+    }
+
+    .btn-today {
+        padding: 5px 10px;
+        font-size: 11px;
+    }
+
+    .jump-date-wrapper {
+        display: none;
+    }
+
+    /* --- Calendar --- */
+    .calendar-wrapper {
+        margin: 8px 4px;
+        padding: 0;
+        border-radius: 12px;
+    }
+
+    .weekday-header {
+        padding: 8px 0;
+        font-size: 10px;
+    }
+
+    .grid-cell {
+        aspect-ratio: 1 / 0.9;
+        padding: 3px;
+    }
+
+    .date-num {
+        font-size: 11px;
+        width: 22px;
+        height: 22px;
+    }
+
+    .holiday-name {
+        font-size: 7px;
+        min-height: 0;
+    }
+
+    .summary-badge {
+        font-size: 8px;
+        padding: 2px 6px;
+    }
+
+    /* --- View Tabs --- */
+    .view-btn {
+        padding: 6px 12px;
+        font-size: 11px;
+    }
+
+    /* --- Drawer --- */
+    .drawer {
+        width: 100vw !important;
+        max-width: 100vw;
+    }
+
+    .feature-drawer {
+        width: 100vw !important;
+        max-width: 100vw;
+    }
+
+    .drawer-header {
+        padding: 12px 14px;
+    }
+
+    .drawer-header h2 {
+        font-size: 16px !important;
+    }
+
+    .drawer-controls {
+        padding: 10px 14px;
+    }
+
+    .student-tab-group {
+        gap: 6px;
+    }
+
+    .student-tab-btn {
+        font-size: 12px;
+        padding: 6px 10px;
+    }
+
+    .student-sort-btn {
+        font-size: 11px;
+        padding: 4px 8px;
+    }
+
+    .student-item {
+        padding: 10px 12px;
+    }
+    .student-quick-actions {
+        width: 100%;
+        justify-content: flex-start;
+        margin-top: 6px;
+    }
+    .student-quick-btn {
+        min-height: 34px;
+        font-size: 11px;
+        padding: 6px 10px;
+    }
+
+    .student-info b {
+        font-size: 14px;
+    }
+
+    .drawer-group-header {
+        padding: 7px 12px;
+        font-size: 12px;
+        border-radius: 8px;
+    }
+    .drawer-group .student-item {
+        margin-left: 4px;
+    }
+
+    /* --- Modals --- */
+    .modal {
+        padding: 0;
+    }
+
+    .modal-card {
+        border-radius: 18px 18px 0 0;
+        max-height: 95vh;
+    }
+
+    .modal-card .modal-header {
+        padding: 18px 18px 12px;
+    }
+
+    .modal-header h2 {
+        font-size: 16px !important;
+    }
+
+    .modal-body-scrollable {
+        padding: 0 18px;
+    }
+
+    /* --- Attendance Modal --- */
+    .attendance-card {
+        max-height: 95vh !important;
+    }
+
+    .attendance-modal-body {
+        padding: 0 14px 14px;
+    }
+
+    .att-info {
+        font-size: 13px;
+        margin-bottom: 14px;
+    }
+
+    .attendance-options {
+        gap: 5px;
+    }
+
+    .att-btn {
+        padding: 10px 4px;
+        font-size: 11px;
+        gap: 3px;
+        min-height: 58px;
+        border-radius: 10px;
+    }
+
+    .att-btn i {
+        font-size: 16px !important;
+    }
+
+    .current-attendance-status {
+        padding: 10px 8px;
+    }
+
+    .status-display {
+        font-size: 14px;
+        padding: 10px;
+    }
+
+    .section-label {
+        font-size: 13px !important;
+    }
+
+    .memo-editor {
+        min-height: 80px;
+        font-size: 13px;
+    }
+
+    .attendance-modal-footer {
+        padding: 10px 14px;
+        gap: 8px;
+    }
+
+    .btn-history, .btn-delete-schedule {
+        padding: 9px 10px;
+        font-size: 12px;
+    }
+
+    /* --- Schedule Modal --- */
+    .sch-section { padding: 0 14px; }
+
+    .schedule-modal-card .day-chip-container { gap: 4px; }
+
+    .schedule-modal-card .day-chip-container label {
+        width: 36px;
+        height: 36px;
+        font-size: 12px;
+        border-radius: 10px;
+    }
+
+    .sch-time-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+
+    .schedule-action-buttons {
+        padding: 12px 14px 16px;
+        flex-direction: column;
+    }
+
+    .sch-btn-primary, .sch-btn-secondary {
+        width: 100%;
+        padding: 11px 14px;
+    }
+
+    /* QR List (small) */
+    .qr-list-toolbar { padding: 0 14px 10px; flex-direction: column; gap: 6px; }
+    .qr-schedule-missing-btn { width: 100%; }
+    .qr-ops-cards { grid-template-columns: 1fr; }
+    .qr-ops-actions { flex-direction: column; }
+    .qr-ops-btn { width: 100%; }
+
+    .emg-row-top {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+    }
+
+    .emg-queue-toolbar {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .emg-filter-select {
+        width: 100%;
+    }
+
+    .emg-actions {
+        justify-content: stretch;
+    }
+
+    .emg-confirm-btn {
+        width: 100%;
+    }
+    .qr-item-name { font-size: 13px; }
+    .qr-item-grade { font-size: 10px; }
+    .qr-regenerate-btn { padding: 5px 10px; font-size: 10px; }
+    .qr-item-avatar { width: 30px; height: 30px; font-size: 12px; border-radius: 8px; }
+
+    /* --- Payment Modal (small) --- */
+    .payment-card {
+        max-width: 100%;
+        height: calc(100dvh - 10px) !important;
+        max-height: calc(100dvh - 10px);
+    }
+    .pay-dashboard { flex-direction: column; align-items: stretch; padding: 10px 12px; }
+    .pay-progress-wrap { flex-direction: row; gap: 8px; }
+    .pay-progress-ring-container { width: 48px; height: 48px; }
+    .pay-progress-pct { font-size: 12px; }
+    .pay-progress-label { font-size: 10px; }
+    .pay-stats-grid { grid-template-columns: repeat(4, 1fr); gap: 4px; }
+    .pay-stat-card { padding: 6px 2px; border-radius: 8px; }
+    .pay-stat-value { font-size: 12px; }
+    .pay-stat-label { font-size: 9px; }
+
+    .pay-toolbar { flex-wrap: wrap; padding: 6px 10px; gap: 5px; }
+    .pay-search-wrap { order: 1; flex: 1 1 100%; }
+    .pay-filter-pills { order: 2; }
+    .pay-batch-btn { order: 3; }
+    .pay-ledger-btn { order: 4; }
+    .pay-ai-btn { order: 5; }
+    .pay-pill { padding: 4px 8px; font-size: 10px; }
+    .pay-batch-btn { padding: 5px 8px; font-size: 10px; }
+    .pay-ledger-btn { padding: 5px 8px; font-size: 10px; }
+    .pay-ai-btn { padding: 5px 8px; font-size: 10px; }
+    .pay-close-cards,
+    .pay-channel-grid { grid-template-columns: 1fr 1fr; }
+    .pay-channel-reconcile { flex-direction: column; align-items: stretch; gap: 4px; }
+    .pay-channel-actual-input { font-size: 10px; padding: 4px 6px; }
+    .pay-channel-diff { font-size: 9px; text-align: center; }
+    .pay-reconcile-total { font-size: 10px; padding: 5px 7px; }
+    .pay-reconcile-help { font-size: 10px; }
+    .pay-report-actions { gap: 5px; }
+    .pay-report-options { gap: 4px 8px; }
+    .pay-report-option { font-size: 10px; gap: 4px; }
+    .pay-report-option input { width: 12px; height: 12px; }
+    .pay-tax-deadline-guide { padding: 7px 8px; border-radius: 8px; }
+    .pay-tax-deadline-title { font-size: 11px; }
+    .pay-tax-deadline-item, .pay-tax-deadline-note { font-size: 10px; }
+    .pay-tax-checklist-guide { padding: 7px 8px; border-radius: 8px; }
+    .pay-tax-checklist-title { font-size: 11px; }
+    .pay-tax-check-item { font-size: 10px; gap: 5px; }
+    .pay-tax-check-item input { width: 12px; height: 12px; }
+    .pay-field-legend { gap: 4px; margin-bottom: 8px; }
+    .pay-field-legend-text { font-size: 10px; }
+    .pay-field-badge { height: 18px; padding: 0 6px; font-size: 10px; }
+    .pay-term-help { width: 14px; height: 14px; font-size: 9px; }
+    .pay-term-popup { font-size: 11px; max-width: calc(100vw - 20px); }
+    .pay-report-btn { font-size: 10px; padding: 5px 8px; }
+    .pay-close-panel { padding: 7px 9px; gap: 5px; }
+    .pay-close-panel-title { font-size: 10px; }
+    .pay-close-toggle-btn { font-size: 10px; padding: 3px 6px; }
+    .pay-unmatched-panel { padding: 6px 9px; }
+    .pay-unmatched-title { font-size: 11px; }
+    .pay-unmatched-count { font-size: 10px; }
+
+    .pay-list { padding: 6px 8px 18px; gap: 5px; }
+    .pay-main-tabs { padding: 0 10px 8px; }
+    .pay-main-tab-btn { font-size: 10px; padding: 5px 9px; }
+    .pay-card-head { padding: 8px 10px; }
+    .pay-card-name { font-size: 12px; }
+    .pay-card-grade { font-size: 10px; }
+    .pay-card-amounts { font-size: 11px; }
+    .pay-badge { font-size: 9px; padding: 2px 5px; }
+    .pay-chevron { font-size: 10px; }
+
+    .pay-fee-row { padding: 5px 6px; }
+    .pay-fee-label { font-size: 11px; }
+    .pay-fee-amount { font-size: 11px; }
+    .pay-fee-btn { font-size: 10px; padding: 3px 6px; }
+    .pay-fee-date { font-size: 10px; }
+    .pay-payroll-fields { padding: 7px; }
+    .pay-payroll-title { font-size: 10px; }
+    .pay-payroll-help { font-size: 9px; }
+    .pay-payroll-note { font-size: 9px; }
+
+    .pay-amount-editor { padding: 8px; }
+    .pay-edit-field input { font-size: 11px; padding: 5px 6px; }
+    .pay-card-detail-scroll { max-height: min(44vh, 320px); }
+    .pay-ledger-summary,
+    .pay-ledger-grid { grid-template-columns: 1fr; }
+    .pay-expense-toolbar { flex-direction: column; align-items: stretch; padding: 8px 10px 6px; }
+    .pay-expense-summary { margin: 0 8px; grid-template-columns: 1fr; }
+    .pay-expense-report-actions { margin: 6px 8px 2px; }
+    .pay-expense-item { padding: 8px 10px; }
+    .pay-expense-item-top,
+    .pay-expense-item-meta { font-size: 11px; }
+    .pay-ai-multi-grid { grid-template-columns: 1fr; }
+    .pay-ai-multi-row { padding: 10px; }
+    .pay-ai-review-actions { flex-direction: column-reverse; }
+    .pay-ai-secondary-btn,
+    .pay-ai-review-actions .btn-save-main { width: 100%; }
+
+    /* --- Event Block --- */
+    .event-block {
+        font-size: 10px;
+        padding: 4px 6px;
+        min-height: 50px;
+    }
+
+    /* --- Auth Box --- */
+    .auth-box {
+        padding: 24px 20px;
+        border-radius: 16px;
+    }
+
+    .auth-logo {
+        font-size: 20px;
+        margin-bottom: 20px;
+    }
+
+    .auth-input {
+        padding: 11px 12px;
+        font-size: 14px;
+    }
+
+    .auth-btn {
+        padding: 12px 14px;
+        font-size: 14px;
+    }
+
+    /* --- Feature Menu Buttons --- */
+    .feature-main-btn {
+        padding: 14px 16px;
+        font-size: 14px;
+        border-radius: 12px;
+    }
+
+    .feature-main-btn i {
+        font-size: 15px;
+    }
+
+    /* --- QR Scan Page --- */
+    #qr-scan-page > div,
+    .qr-scan-layout {
+        padding: 12px !important;
+    }
+
+    #qr-scan-page h2 {
+        font-size: 16px !important;
+    }
+    .qr-phone-auth-row {
+        flex-direction: column;
+    }
+    .qr-phone-auth-btn {
+        width: 100%;
+        min-height: 42px;
+    }
+
+    /* --- Day Detail Timetable --- */
+    .day-detail-card {
+        max-width: 100% !important;
+        max-height: 95vh !important;
+        border-radius: 16px !important;
+    }
+
+    .tt-search-bar { padding: 0 14px 8px; }
+    .tt-search-input { font-size: 13px; padding: 8px 32px 8px 32px; }
+
+    .timetable-container {
+        min-height: 400px;
+    }
+
+    .time-axis {
+        width: 44px;
+    }
+
+    .time-label {
+        font-size: 10px;
+        width: 44px;
+        padding-right: 8px;
+    }
+
+    /* --- Attendance Check Modal --- */
+    #attendance-check-modal .modal-card {
+        border-radius: 16px 16px 0 0;
+    }
+
+    /* --- Footer --- */
+    .app-footer {
+        padding: 12px 16px;
+        margin-top: 24px;
+    }
+
+    .footer-content {
+        font-size: 11px;
+        gap: 8px;
+    }
+}
+
+/* ============================================
+   Mobile Responsive - Very Small (≤ 360px)
+   ============================================ */
+@media (max-width: 360px) {
+    .header-left h1 {
+        font-size: 12px !important;
+    }
+
+    .teacher-chip {
+        display: none;
+    }
+
+    .grid-cell {
+        aspect-ratio: 1 / 0.95;
+        padding: 2px;
+    }
+
+    .date-num {
+        font-size: 10px;
+        width: 20px;
+        height: 20px;
+    }
+
+    .summary-badge {
+        font-size: 7px;
+        padding: 2px 5px;
+    }
+
+    #current-display {
+        font-size: 13px !important;
+        min-width: 90px !important;
+    }
+
+    .att-btn {
+        padding: 8px 3px;
+        font-size: 10px;
+        min-height: 52px;
+    }
+
+    .att-btn i {
+        font-size: 14px !important;
+    }
+}
+
+/* ============================================
+   Touch Optimizations
+   ============================================ */
+@media (hover: none) and (pointer: coarse) {
+    /* Increase touch targets for touch devices */
+    .nav-arrow {
+        min-width: 40px;
+        min-height: 40px;
+    }
+
+    .btn-close-x {
+        min-width: 40px;
+        min-height: 40px;
+    }
+
+    .btn-today {
+        min-height: 36px;
+    }
+
+    .btn-header-action {
+        min-height: 40px;
+    }
+
+    .view-btn {
+        min-height: 36px;
+    }
+
+    .student-tab-btn {
+        min-height: 36px;
+    }
+
+    .p-filter-btn {
+        min-height: 36px;
+    }
+
+    .att-btn {
+        min-height: 60px;
+    }
+
+    .feature-main-btn {
+        min-height: 56px;
+    }
+
+    /* Disable hover effects on touch */
+    .event-block:hover {
+        transform: none;
+    }
+
+    .student-item:hover {
+        transform: none;
+    }
+
+    .summary-badge:hover {
+        transform: none;
+    }
+
+    .btn-save-main:hover {
+        transform: none;
+    }
+}
+
+/* ============================================
+   Safe Area (Notch) Support
+   ============================================ */
+@supports (padding-top: env(safe-area-inset-top)) {
+    .main-header {
+        padding-top: max(10px, env(safe-area-inset-top));
+    }
+
+    .modal {
+        padding-bottom: env(safe-area-inset-bottom);
+    }
+
+    .drawer {
+        padding-bottom: env(safe-area-inset-bottom);
+    }
+
+    .feature-drawer {
+        padding-bottom: env(safe-area-inset-bottom);
+    }
+
+    .app-footer {
+        padding-bottom: max(16px, env(safe-area-inset-bottom));
+    }
+}
+
+/* ============================================
+   Landscape Orientation Adjustments
+   ============================================ */
+@media (max-height: 500px) and (orientation: landscape) {
+    .modal-card {
+        max-height: 95vh;
+    }
+
+    .attendance-card {
+        max-height: 95vh !important;
+    }
+
+    .payment-card {
+        height: 95vh !important;
+    }
+
+    .grid-cell {
+        aspect-ratio: 1 / 0.9;
+    }
+}
+
+/* ============================================
+   Print Styles
+   ============================================ */
+@media print {
+    .main-header,
+    .drawer-overlay,
+    .drawer,
+    .feature-overlay,
+    .feature-drawer,
+    .modal,
+    .app-footer,
+    .btn-header-action,
+    .view-btn {
+        display: none !important;
+    }
+
+    .calendar-wrapper {
+        border: none;
+        box-shadow: none;
+    }
+
+    body {
+        background: white;
+    }
+}
+
+/* ============================================
+   Toast & Confirm Dialog Mobile
+   ============================================ */
+@media (max-width: 600px) {
+    #toast-container {
+        top: 12px;
+        right: 12px;
+        left: 12px;
+        max-width: none;
+    }
+
+    .toast {
+        min-width: 0;
+        max-width: none;
+        padding: 12px 14px;
+        border-radius: 12px;
+    }
+
+    .toast-icon {
+        width: 28px;
+        height: 28px;
+        font-size: 12px;
+    }
+
+    .toast-title { font-size: 12px; }
+    .toast-msg { font-size: 11px; }
+
+    .confirm-overlay { padding: 16px; }
+
+    .confirm-card {
+        padding: 24px 20px 18px;
+        border-radius: 18px;
+        max-width: 340px;
+    }
+
+    .confirm-icon {
+        width: 48px;
+        height: 48px;
+        font-size: 20px;
+    }
+
+    .confirm-title { font-size: 15px; }
+    .confirm-message { font-size: 12px; }
+    .confirm-btn { padding: 11px 14px; font-size: 13px; }
+}

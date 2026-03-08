@@ -1,0 +1,12 @@
+{
+  "name": "tmp-e2e-runner",
+  "private": true,
+  "version": "1.0.0",
+  "type": "commonjs",
+  "scripts": {
+    "test:e2e": "node polling-e2e-runner.js"
+  },
+  "dependencies": {
+    "playwright": "^1.58.2"
+  }
+}

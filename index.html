@@ -1,0 +1,2102 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>하이로드 수학 출석관리</title>
+    <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.8/dist/web/static/pretendard.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="mobile.css">
+    <!-- Supabase 라이브러리 -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- 다음 주소 검색 API -->
+    <script src="https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js"></script>
+    <!-- QR 코드 라이브러리 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://unpkg.com/html5-qrcode@2.3.8"></script>
+    <!-- Google Identity Services (OAuth 2.0) -->
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <!-- 환경 변수 로더 (로컬 개발용) -->
+    <script>
+        // 로컬 개발용 환경변수 로더
+        (async () => {
+            if (window.location.protocol === 'file:') {
+                console.warn('[env-loader] ⚠️ file:// 프로토콜 감지 - 로컬 서버를 실행하세요: python -m http.server 8000');
+                window.env = {};
+                return;
+            }
+
+            const parseEnvText = (text) => {
+                const env = {};
+                text.split('\n').forEach((line) => {
+                    if (!line || line.startsWith('#')) return;
+                    const [key, ...valueParts] = line.split('=');
+                    const value = valueParts.join('=').trim();
+                    if (key && key.trim()) env[key.trim()] = value;
+                });
+                return env;
+            };
+
+            // Live Server가 dotfile(.env.local) 서빙을 막는 경우를 대비해 env.local도 시도
+            const candidates = ['.env.local', 'env.local'];
+            window.env = {};
+            for (const fileName of candidates) {
+                try {
+                    const response = await fetch(fileName, { cache: 'no-store' });
+                    if (!response.ok) continue;
+                    const text = await response.text();
+                    window.env = parseEnvText(text);
+                    console.log(`[env-loader] 환경 변수 로드 완료 (${fileName})`);
+                    return;
+                } catch (e) {
+                    // 다음 후보 파일 시도
+                }
+            }
+            console.log('[env-loader] 로컬 env 파일 없음 - 기본값 사용');
+        })();
+    </script>
+</head>
+<body>
+
+    <!-- 초기 로딩 중 표시 -->
+    <div id="initial-loader" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #ffffff; display: flex; align-items: center; justify-content: center; z-index: 9999;">
+        <div style="text-align: center;">
+            <div style="width: 50px; height: 50px; border: 4px solid #f3f4f6; border-top: 4px solid var(--primary); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto;"></div>
+        </div>
+    </div>
+    <style>
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+
+    <!-- 로그인 페이지 -->
+    <div id="auth-page" class="auth-page" style="display: none; visibility: hidden;">
+        <div class="auth-container">
+            <div class="auth-box">
+                <h1 class="auth-logo">하이로드 수학</h1>
+                
+                <!-- 로그인 폼 -->
+                <div id="login-form" class="auth-form">
+                    <h2>로그인</h2>
+                    <div class="form-group">
+                        <label>이메일</label>
+                        <input type="email" id="login-email" class="auth-input" placeholder="example@email.com">
+                    </div>
+                    <div class="form-group">
+                        <label>비밀번호</label>
+                        <input type="password" id="login-password" class="auth-input" placeholder="비밀번호를 입력하세요">
+                    </div>
+                    <div class="form-group" style="display: flex; flex-direction: row; align-items: center; gap: 8px; margin-top: 8px; padding: 10px 12px; background: #f5f7ff; border-radius: 10px; align-self: flex-start;">
+                        <input type="checkbox" id="remember-me" style="width: 18px; height: 18px; margin: 0; cursor: pointer; accent-color: var(--primary);">
+                        <label for="remember-me" style="margin: 0; cursor: pointer; font-weight: 600; color: var(--primary);">로그인 유지</label>
+                    </div>
+                    <button class="auth-btn" onclick="signIn()">로그인</button>
+                    <p class="auth-toggle">계정이 없으신가요? <a href="#" onclick="toggleAuthForm(); return false;">회원가입</a></p>
+                    <p class="auth-reset">비밀번호를 변경하세요. <a href="#" class="auth-reset-link" onclick="openAdminPasswordResetModal(); return false;">비밀번호 변경</a></p>
+                </div>
+
+                <!-- 회원가입 폼 -->
+                <div id="signup-form" class="auth-form" style="display: none;">
+                    <h2>회원가입</h2>
+                    <div class="form-group">
+                        <label>이름</label>
+                        <input type="text" id="signup-name" class="auth-input" placeholder="관리자 이름">
+                    </div>
+                    <div class="form-group">
+                        <label>이메일 (구글 인증)</label>
+                        <div id="admin-google-email-section">
+                            <button type="button" id="admin-google-auth-btn" onclick="startGoogleAuthAdmin()" class="google-auth-btn">
+                                <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+                                구글 이메일 인증
+                            </button>
+                            <div id="admin-google-verified-email" style="display:none;">
+                                <div class="google-verified-info">
+                                    <span id="admin-verified-email-text" class="verified-email-text"></span>
+                                    <span class="verified-badge"><i class="fas fa-check-circle"></i> 인증됨</span>
+                                </div>
+                                <button type="button" class="google-change-btn" onclick="startGoogleAuthAdmin()">
+                                    <i class="fas fa-sync-alt"></i> 다른 계정으로 변경
+                                </button>
+                            </div>
+                            <input type="hidden" id="signup-email">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>비밀번호</label>
+                        <input type="password" id="signup-password" class="auth-input" placeholder="비밀번호를 입력하세요">
+                    </div>
+                    <div class="form-group">
+                        <label>비밀번호 확인</label>
+                        <input type="password" id="signup-password-confirm" class="auth-input" placeholder="비밀번호를 다시 입력하세요">
+                    </div>
+                    <button class="auth-btn" onclick="signUp()">회원가입</button>
+                    <p class="auth-toggle">이미 계정이 있으신가요? <a href="#" onclick="toggleAuthForm(); return false;">로그인</a></p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 로그인 이후 선생님 선택 페이지 -->
+    <div id="teacher-select-page" class="auth-page" style="display: none;">
+        <div class="auth-container">
+            <button onclick="backToAdminLogin()" style="align-self: flex-start; background: none; border: none; color: rgba(255,255,255,0.85); font-size: 14px; font-weight: 600; cursor: pointer; padding: 8px 4px; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='rgba(255,255,255,0.85)'"><i class="fas fa-arrow-left"></i> 관리자 로그인으로 돌아가기</button>
+            <div class="auth-box" style="position:relative;">
+                <button onclick="showQRPasswordModal()" style="position:absolute;top:18px;right:18px;background:linear-gradient(135deg,var(--primary),var(--primary-end));color:white;border:none;width:42px;height:42px;border-radius:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:17px;box-shadow:0 4px 12px rgba(17,55,119,0.35);transition:all 0.2s;" title="QR코드 스캔" onmouseover="this.style.transform='scale(1.08)';this.style.boxShadow='0 6px 18px rgba(17,55,119,0.45)'" onmouseout="this.style.transform='';this.style.boxShadow='0 4px 12px rgba(17,55,119,0.35)'"><i class="fas fa-qrcode"></i></button>
+                <h1 class="auth-logo">선생님 선택</h1>
+                
+                <!-- 선생님 선택 폼 -->
+                <div id="teacher-select-form" class="auth-form">
+                    <div class="form-group">
+                        <label>등록된 선생님</label>
+                        <select id="teacher-dropdown" class="auth-input" onchange="onTeacherSelected()">
+                            <option value="">선생님을 선택해주세요</option>
+                        </select>
+                    </div>
+                    
+                    <!-- 모든 선생님 비밀번호 입력 -->
+                    <div id="teacher-password-section" style="display: none;">
+                        <div class="form-group">
+                            <label>비밀번호</label>
+                            <input type="password" id="teacher-select-password" class="auth-input" placeholder="비밀번호">
+                        </div>
+                    </div>
+                    
+                    <button class="auth-btn" onclick="confirmTeacher()">입장</button>
+                    <button class="auth-btn" style="background-color:#b91c1c; margin-top:8px;" onclick="adminDeleteTeacher()">선생님 삭제</button>
+                    <p class="auth-toggle">아직 등록된 선생님이 없으신가요? <a href="#" onclick="toggleTeacherForm(); return false;">선생님 등록</a></p>
+                    <p class="auth-reset">비밀번호를 변경하세요. <a href="#" class="auth-reset-link" onclick="openTeacherPasswordResetModal(); return false;">비밀번호 변경</a></p>
+                </div>
+
+                <!-- 선생님 등록 폼 -->
+                <div id="teacher-register-form" class="auth-form" style="display: none; max-height: 70vh; overflow-y: auto;">
+                    <div class="form-group">
+                        <label>선생님 이름</label>
+                        <input type="text" id="new-teacher-name" class="auth-input" placeholder="선생님 이름">
+                    </div>
+                    <div class="form-group">
+                        <label>이메일 (구글 인증)</label>
+                        <div id="google-email-section">
+                            <button type="button" id="google-auth-btn" onclick="startGoogleAuth()" class="google-auth-btn">
+                                <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+                                구글 이메일 인증
+                            </button>
+                            <div id="google-verified-email" style="display:none;">
+                                <div class="google-verified-info">
+                                    <span id="verified-email-text" class="verified-email-text"></span>
+                                    <span class="verified-badge"><i class="fas fa-check-circle"></i> 인증됨</span>
+                                </div>
+                                <button type="button" class="google-change-btn" onclick="startGoogleAuth()">
+                                    <i class="fas fa-sync-alt"></i> 다른 계정으로 변경
+                                </button>
+                            </div>
+                            <input type="hidden" id="new-teacher-email">
+                            <input type="hidden" id="new-teacher-google-sub">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>연락처</label>
+                        <input type="text" id="new-teacher-phone" class="auth-input" placeholder="010-0000-0000" maxlength="13" oninput="formatPhoneNumber(this)">
+                    </div>
+                    <div class="form-group">
+                        <label>주소</label>
+                        <div style="display: flex; gap: 8px;">
+                            <input type="text" id="new-teacher-address" class="auth-input" placeholder="주소를 검색하세요" readonly style="flex: 1; cursor: pointer;" onclick="searchAddress()">
+                            <button type="button" onclick="searchAddress()" style="padding: 12px 20px; background: var(--primary); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 500;">검색</button>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>상세주소 (동/호수)</label>
+                        <input type="text" id="new-teacher-address-detail" class="auth-input" placeholder="예: 101동 1202호">
+                    </div>
+                    <div class="form-group">
+                        <label>비밀번호</label>
+                        <input type="password" id="register-teacher-password" class="auth-input" placeholder="비밀번호">
+                    </div>
+                    <div class="form-group">
+                        <label>비밀번호 확인</label>
+                        <input type="password" id="register-teacher-password-confirm" class="auth-input" placeholder="비밀번호 확인">
+                    </div>
+                    <button class="auth-btn" onclick="registerTeacher()">등록하기</button>
+                    <p class="auth-toggle">이미 등록된 선생님이 있으신가요? <a href="#" onclick="toggleTeacherForm(); return false;">선생님 선택</a></p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- QR 스캔 비밀번호 입력 모달 -->
+    <div id="qr-password-modal" style="display:none;position:fixed;inset:0;z-index:20000;background:rgba(0,0,0,0.5);backdrop-filter:blur(4px);justify-content:center;align-items:center;">
+        <div style="background:white;border-radius:16px;padding:28px 24px;width:90%;max-width:360px;box-shadow:0 20px 60px rgba(0,0,0,0.3);text-align:center;">
+            <div style="width:56px;height:56px;border-radius:14px;background:linear-gradient(135deg,var(--primary),var(--primary-end));display:flex;align-items:center;justify-content:center;margin:0 auto 16px;"><i class="fas fa-qrcode" style="color:white;font-size:24px;"></i></div>
+            <h3 style="margin:0 0 4px;font-size:18px;font-weight:700;color:#1e293b;">QR 코드 스캔</h3>
+            <p style="margin:0 0 20px;font-size:13px;color:#64748b;">선생님 비밀번호를 입력해주세요</p>
+            <div style="margin-bottom:12px;">
+                <select id="qr-teacher-dropdown" style="width:100%;padding:12px 14px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:14px;color:#334155;background:#f8fafc;outline:none;margin-bottom:10px;" onchange="document.getElementById('qr-scan-password').focus()">
+                    <option value="">선생님 선택</option>
+                </select>
+                <input type="password" id="qr-scan-password" placeholder="비밀번호" style="width:100%;padding:12px 14px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:14px;outline:none;box-sizing:border-box;" onkeydown="if(event.key==='Enter')confirmQRPassword()">
+            </div>
+            <div style="display:flex;gap:8px;">
+                <button onclick="closeQRPasswordModal()" style="flex:1;padding:12px;border:1.5px solid #e2e8f0;border-radius:10px;background:white;color:#64748b;font-size:14px;font-weight:600;cursor:pointer;">취소</button>
+                <button onclick="confirmQRPassword()" style="flex:1;padding:12px;border:none;border-radius:10px;background:linear-gradient(135deg,var(--primary),var(--primary-end));color:white;font-size:14px;font-weight:600;cursor:pointer;">확인</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 관리자 비밀번호 변경 -->
+    <div id="admin-password-reset-modal" class="modal auth-modal" style="display: none;">
+        <div class="modal-card" style="max-width: 460px;">
+            <div class="modal-header" style="border-bottom: 1px solid #e2e8f0;">
+                <h2>관리자 비밀번호 변경</h2>
+                <button class="btn-close-x" onclick="closeAdminPasswordResetModal()"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body-scrollable" style="padding: 20px 24px;">
+                <div class="form-group">
+                    <label>관리자 이메일</label>
+                    <input type="email" id="admin-reset-email" class="auth-input" placeholder="example@email.com">
+                </div>
+                <div class="form-group">
+                    <label>기존 비밀번호</label>
+                    <input type="password" id="admin-current-password" class="auth-input" placeholder="현재 비밀번호를 입력하세요">
+                </div>
+                <div class="form-group">
+                    <label>새 비밀번호</label>
+                    <input type="password" id="admin-reset-new-password" class="auth-input" placeholder="새 비밀번호">
+                </div>
+                <div class="form-group">
+                    <label>새 비밀번호 확인</label>
+                    <input type="password" id="admin-reset-new-password-confirm" class="auth-input" placeholder="새 비밀번호 확인">
+                </div>
+                <button class="auth-btn" onclick="confirmAdminPasswordChange()">비밀번호 변경</button>
+                <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #e2e8f0;">
+                    <p style="font-size: 12px; color: var(--gray); margin-bottom: 8px;">
+                        기존 비밀번호가 기억나지 않으시면 초기화해주세요.
+                    </p>
+                    <button class="auth-btn" style="background: #ef4444;" onclick="resetAdminPassword()">비밀번호 초기화 (이메일 발송)</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 관리자 비밀번호 업데이트 (메일 링크 진입 시 표시) -->
+    <div id="admin-password-update-modal" class="modal auth-modal" style="display: none;">
+        <div class="modal-card" style="max-width: 460px;">
+            <div class="modal-header" style="border-bottom: 1px solid #e2e8f0;">
+                <h2>새 비밀번호 설정</h2>
+                <button class="btn-close-x" onclick="closeAdminPasswordUpdateModal()"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body-scrollable" style="padding: 20px 24px;">
+                <div class="form-group">
+                    <label>새 비밀번호</label>
+                    <input type="password" id="admin-new-password" class="auth-input" placeholder="새 비밀번호">
+                </div>
+                <div class="form-group">
+                    <label>새 비밀번호 확인</label>
+                    <input type="password" id="admin-new-password-confirm" class="auth-input" placeholder="새 비밀번호 확인">
+                </div>
+                <button class="auth-btn" onclick="confirmAdminPasswordReset()">비밀번호 변경</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 선생님 비밀번호 변경 -->
+    <div id="teacher-password-reset-modal" class="modal auth-modal" style="display: none;">
+        <div class="modal-card" style="max-width: 460px;">
+            <div class="modal-header" style="border-bottom: 1px solid #e2e8f0;">
+                <h2>선생님 비밀번호 변경</h2>
+                <button class="btn-close-x" onclick="closeTeacherPasswordResetModal()"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body-scrollable" style="padding: 20px 24px;">
+                <div class="form-group">
+                    <label>선생님 선택</label>
+                    <select id="reset-teacher-dropdown" class="auth-input">
+                        <option value="">선생님을 선택해주세요</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>기존 비밀번호</label>
+                    <input type="password" id="reset-teacher-current-password" class="auth-input" placeholder="현재 비밀번호를 입력하세요">
+                </div>
+                <div class="form-group">
+                    <label>새 비밀번호</label>
+                    <input type="password" id="reset-teacher-password" class="auth-input" placeholder="새 비밀번호">
+                </div>
+                <div class="form-group">
+                    <label>새 비밀번호 확인</label>
+                    <input type="password" id="reset-teacher-password-confirm" class="auth-input" placeholder="새 비밀번호 확인">
+                </div>
+                <button class="auth-btn" onclick="confirmTeacherPasswordReset()">비밀번호 변경</button>
+                <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #e2e8f0;">
+                    <p style="font-size: 12px; color: var(--gray); margin-bottom: 8px;">
+                        기존 비밀번호가 기억나지 않으시면 등록된 구글 이메일로 인증번호가 발송됩니다.
+                    </p>
+                    <div id="reset-teacher-email-display" style="display:none; margin-bottom: 8px; padding: 8px 12px; background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px; font-size: 13px; color: #166534; font-weight: 600;">
+                        <i class="fas fa-envelope" style="margin-right: 6px;"></i>
+                        <span id="reset-teacher-email-text"></span>
+                    </div>
+                    <div id="reset-teacher-no-email" style="display:none; margin-bottom: 8px; padding: 8px 12px; background: #fff1f2; border: 1px solid #fecaca; border-radius: 8px; font-size: 12px; color: #991b1b;">
+                        등록된 구글 이메일이 없습니다. 선생님 등록 시 구글 인증을 진행해주세요.
+                    </div>
+                    <input type="hidden" id="reset-teacher-email">
+
+                    <!-- Step 1: 인증번호 발송 -->
+                    <div id="reset-step1">
+                        <button class="auth-btn" style="background: #ef4444;" onclick="sendResetCode()">
+                            <i class="fas fa-paper-plane" style="margin-right: 6px;"></i>인증번호 발송
+                        </button>
+                    </div>
+
+                    <!-- Step 2: 인증번호 입력 및 확인 -->
+                    <div id="reset-step2" style="display: none;">
+                        <div style="padding: 12px; background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 10px; margin-bottom: 10px;">
+                            <p style="font-size: 12px; color: #4338ca; margin: 0 0 8px; font-weight: 600;">
+                                <i class="fas fa-check-circle" style="margin-right: 4px;"></i> 인증번호가 발송되었습니다
+                            </p>
+                            <p style="font-size: 11px; color: var(--primary); margin: 0;">5분 이내에 입력해주세요.</p>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 10px;">
+                            <label style="font-size: 13px; font-weight: 600;">인증번호 6자리</label>
+                            <input type="text" id="reset-verify-code" class="auth-input" placeholder="000000" maxlength="6" style="text-align: center; font-size: 24px; letter-spacing: 8px; font-weight: 700;">
+                        </div>
+                        <button class="auth-btn" style="background: #ef4444;" onclick="verifyAndResetTeacherPassword()">
+                            <i class="fas fa-key" style="margin-right: 6px;"></i>확인 및 비밀번호 초기화
+                        </button>
+                        <button class="auth-btn" style="background: #94a3b8; margin-top: 6px;" onclick="sendResetCode()">
+                            <i class="fas fa-redo" style="margin-right: 6px;"></i>인증번호 재발송
+                        </button>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- 메인 앱 페이지 -->
+    <div id="main-app" style="display: none !important;">
+        <header class="main-header">
+        <div class="header-left">
+            <h1 style="font-size: 20px; font-weight: 800; color: var(--primary);">하이로드 수학</h1>
+            <div class="teacher-chip">
+                <span class="teacher-chip-label">현재 선생님</span>
+                <span id="current-teacher-name" class="teacher-chip-name">미선택</span>
+                <button class="teacher-edit-btn" onclick="openMyInfoEditModal()">내 정보수정</button>
+                <button class="teacher-switch-btn" onclick="showTeacherSelectPage()">변경</button>
+            </div>
+        </div>
+        
+        <div class="header-center">
+            <button class="btn-today" onclick="goToday()">Today</button>
+            <div class="date-controller">
+                <button class="nav-arrow" id="prev-btn"><i class="fas fa-chevron-left"></i></button>
+                <div class="date-display-wrapper">
+                    <h2 id="current-display">2026년 1월</h2>
+                </div>
+                <button class="nav-arrow" id="next-btn"><i class="fas fa-chevron-right"></i></button>
+            </div>
+            <div class="jump-date-wrapper">
+                <input type="date" id="jump-date-picker" class="jump-date-input" title="날짜 바로 이동">
+            </div>
+        </div>
+
+        <div class="header-right">
+            <div class="theme-picker-wrapper">
+                <button class="btn-theme-toggle" onclick="toggleThemePicker()" title="테마 색상 변경">
+                    <i class="fas fa-palette"></i>
+                </button>
+                <div class="theme-picker-popup" id="theme-picker-popup">
+                    <div class="theme-picker-title">페이지 테마</div>
+                    <div class="theme-picker-grid" id="theme-picker-grid">
+                        <!-- JS에서 동적 생성 -->
+                    </div>
+                </div>
+            </div>
+            <button class="btn-header-action" onclick="toggleFeaturePanel()" title="기능 메뉴">
+                <i class="fas fa-bars"></i> <span>메뉴</span>
+            </button>
+            <button class="btn-header-action btn-logout" onclick="signOut()" style="background-color: #ef4444;">
+                <i class="fas fa-sign-out-alt"></i> <span>로그아웃</span>
+            </button>
+        </div>
+    </header>
+
+    <div style="display: flex; justify-content: center; align-items: center; margin-top: 20px; gap: 10px; flex-wrap: wrap;">
+        <button class="view-btn active" id="tab-month" onclick="switchView('month')">월간</button>
+        <button class="view-btn" id="tab-week" onclick="switchView('week')">주간</button>
+        <div class="timetable-scope-main-wrap">
+            <label for="tt-scope-main-select">시간표</label>
+            <select id="tt-scope-main-select" class="timetable-scope-main-select" onchange="setTimetableScope(this.value)">
+                <option value="all">전체 선생님</option>
+                <option value="mine">내 학생만</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="calendar-wrapper">
+        <div class="weekday-header">
+            <div class="sun">일</div><div>월</div><div>화</div><div>수</div><div>목</div><div>금</div><div class="sat">토</div>
+        </div>
+        <div id="calendar-grid" class="calendar-grid"></div>
+    </div>
+
+    <div class="drawer-overlay" id="drawer-overlay" onclick="toggleStudentList()"></div>
+    <div class="drawer" id="student-drawer">
+        <div class="drawer-header">
+            <h2 style="margin: 0; font-size: 18px;">학생 목록 <span id="student-list-count" style="font-size:14px; color:var(--primary);">0명</span></h2>
+            <button onclick="toggleStudentList()" style="border:none; background:none; font-size: 24px; cursor: pointer;">&times;</button>
+        </div>
+        <div class="drawer-controls">
+            <button class="btn-save-main" onclick="prepareRegister()">+ 학생 등록</button>
+            <div class="student-tab-group">
+                <button class="student-tab-btn active" id="student-tab-all" onclick="setStudentListTab('all')">전체 학생</button>
+                <button class="student-tab-btn" id="student-tab-mine" onclick="setStudentListTab('mine')">내 학생</button>
+            </div>
+            <div class="student-sort-group">
+                <span class="student-sort-label">정렬</span>
+                <button class="student-sort-btn active" id="student-sort-default" onclick="setStudentSort('default')">기본</button>
+                <button class="student-sort-btn" id="student-sort-grade" onclick="setStudentSort('grade')">학년별</button>
+                <button class="student-sort-btn" id="student-sort-school" onclick="setStudentSort('school')">학교별</button>
+            </div>
+            <input type="text" id="drawer-search-input" class="m-input" placeholder="이름, 학년, 학교로 검색..." style="margin-top: 10px;">
+            <div class="checkbox-group" style="justify-content: flex-end; margin-top: 10px;">
+                <input type="checkbox" id="show-archived" class="custom-checkbox" onchange="renderDrawerList()">
+                <label for="show-archived" class="checkbox-label" style="font-size: 13px !important; color: var(--gray);">퇴원/휴원생만 보기</label>
+            </div>
+        </div>
+        <div id="drawer-content" class="custom-scroll" style="flex: 1; overflow-y: auto; padding: 10px;"></div>
+    </div>
+
+    <!-- 기능 메뉴 드로어 -->
+    <div class="feature-overlay" id="feature-overlay" onclick="closeFeaturePanel()"></div>
+    <div class="feature-drawer" id="feature-drawer">
+        <div class="drawer-header" style="padding:18px 20px;">
+            <h2 style="margin:0;font-size:17px;font-weight:700;color:#0f172a;">메뉴</h2>
+            <button onclick="closeFeaturePanel()" style="border:none;background:none;font-size:28px;cursor:pointer;color:#64748b;">&times;</button>
+        </div>
+        <div class="feature-content custom-scroll">
+            <button class="feature-main-btn" id="payment-menu-btn" onclick="openPaymentModal(); closeFeaturePanel();">
+                <i class="fas fa-won-sign"></i> 수납/비용 관리
+            </button>
+            <button class="feature-main-btn" onclick="openModal('schedule-modal'); closeFeaturePanel();">
+                <i class="fas fa-calendar-plus"></i> 일정 등록
+            </button>
+            <button class="feature-main-btn" onclick="openModal('period-delete-modal'); closeFeaturePanel();">
+                <i class="fas fa-calendar-times"></i> 일정 삭제
+            </button>
+            <button class="feature-main-btn" onclick="toggleStudentList(); closeFeaturePanel();">
+                <i class="fas fa-users"></i> 학생 관리
+            </button>
+            <button class="feature-main-btn" id="qr-attendance-menu-btn" onclick="openQRScanPage(); closeFeaturePanel();">
+                <i class="fas fa-camera"></i> QR코드 스캔
+            </button>
+            <button class="feature-main-btn" id="teacher-menu-btn" onclick="openTeacherModal(); closeFeaturePanel();">
+                <i class="fas fa-chalkboard-user"></i> 선생님
+            </button>
+            <button class="feature-main-btn" id="force-reset-menu-btn" onclick="openForceResetModal(); closeFeaturePanel();">
+                <i class="fas fa-unlock-alt"></i> 비밀번호 강제 초기화
+            </button>
+            <button class="feature-main-btn" onclick="openParentPortal(); closeFeaturePanel();">
+                <i class="fas fa-people-roof"></i> 학부모 포털
+            </button>
+            <button class="feature-main-btn" onclick="openHomeworkPage(); closeFeaturePanel();">
+                <i class="fas fa-file-arrow-up"></i> 숙제 제출 페이지
+            </button>
+            <button class="feature-main-btn" onclick="openGradingPage(); closeFeaturePanel();">
+                <i class="fas fa-pen-to-square"></i> 채점 관리
+            </button>
+        </div>
+    </div>
+
+    <div id="register-modal" class="modal" style="display: none;">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h2 id="reg-title">학생 등록</h2>
+                <button class="btn-close-x" onclick="closeModal('register-modal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body-scrollable custom-scroll">
+                <input type="hidden" id="edit-id">
+                <div class="input-group">
+                    <label>등록일 <span style="color:#ef4444;font-weight:700;">*</span></label>
+                    <input type="date" id="reg-register-date" class="m-input">
+                </div>
+                <div class="input-group">
+                    <label>재원 상태</label>
+                    <select id="reg-status" class="m-input">
+                        <option value="active">재원</option>
+                        <option value="paused">휴원</option>
+                        <option value="archived">퇴원</option>
+                    </select>
+                </div>
+                <div class="input-group">
+                    <label>수강 기간</label>
+                    <div class="form-row">
+                        <input type="date" id="reg-enroll-start-date" class="m-input" title="시작일">
+                        <input type="date" id="reg-enroll-end-date" class="m-input" title="종료일">
+                    </div>
+                </div>
+                <div class="input-group">
+                    <label>기본 정보 <span style="color:#ef4444;font-weight:700;">*</span></label>
+                    <div class="form-row">
+                        <input type="text" id="reg-name" class="m-input" placeholder="이름 (필수)" required>
+                    </div>
+                    <div class="form-row">
+                        <input type="text" id="reg-school" class="m-input" placeholder="학교">
+                        <select id="reg-grade" class="m-input" title="학년(필수)">
+                            <option value="초1">초1</option><option value="초2">초2</option><option value="초3">초3</option>
+                            <option value="초4">초4</option><option value="초5">초5</option><option value="초6">초6</option>
+                            <option value="중1">중1</option><option value="중2">중2</option><option value="중3">중3</option>
+                            <option value="고1">고1</option><option value="고2">고2</option><option value="고3">고3</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="input-group">
+                    <label>학생 연락처</label>
+                    <input type="text" id="reg-student-phone" class="m-input" placeholder="010-0000-0000" maxlength="13" oninput="formatPhoneNumber(this)">
+                </div>
+                <div class="input-group">
+                    <label>학부모 연락처</label>
+                    <input type="text" id="reg-parent-phone" class="m-input" placeholder="010-0000-0000" maxlength="13" oninput="formatPhoneNumber(this)">
+                </div>
+                <div class="input-group">
+                    <label>보호자 이름</label>
+                    <input type="text" id="reg-guardian-name" class="m-input" placeholder="예: 홍길동(부)">
+                </div>
+                <div class="input-group">
+                    <div style="margin-top:-4px;font-size:12px;color:#64748b;">
+                        필수 입력: 이름, 등록일, 시작일, 연락처 1개 이상(학생/학부모 중 선택)
+                    </div>
+                </div>
+                <div class="input-group">
+                    <label>기본 수강료 (원)</label>
+                    <input type="text" id="reg-default-fee" class="m-input" placeholder="250,000" oninput="formatNumberWithComma(this)">
+                </div>
+                <div class="input-group">
+                    <label>특강비 (원)</label>
+                    <input type="text" id="reg-special-fee" class="m-input" placeholder="100,000" oninput="formatNumberWithComma(this)">
+                </div>
+                <div class="input-group">
+                    <label>기본 교재비 (원)</label>
+                    <input type="text" id="reg-default-textbook-fee" class="m-input" placeholder="30,000" oninput="formatNumberWithComma(this)">
+                </div>
+                <div class="input-group">
+                    <label>메모</label>
+                    <textarea id="reg-memo" class="m-input m-textarea" placeholder="특이사항..."></textarea>
+                </div>
+                <!-- 코드 관리 통합 섹션 (수정 모드에서만 표시, 아코디언) -->
+                <div id="reg-code-section" class="reg-code-section" style="display:none;">
+                    <button type="button" class="reg-code-toggle" onclick="toggleCodeSection()">
+                        <span><i class="fas fa-shield-halved"></i> 코드 관리</span>
+                        <i class="fas fa-chevron-down reg-code-arrow"></i>
+                    </button>
+                    <div id="reg-code-body" class="reg-code-body">
+                        <!-- 학부모 인증코드 -->
+                        <div class="reg-code-block">
+                            <div class="reg-code-block-label"><i class="fas fa-key"></i> 학부모 인증코드</div>
+                            <div class="reg-code-row">
+                                <input type="text" id="reg-parent-code" class="reg-code-value" readonly>
+                                <button type="button" class="reg-code-btn" onclick="copyParentCode()" title="복사"><i class="fas fa-copy"></i></button>
+                                <button type="button" class="reg-code-btn danger" onclick="regenerateParentCode(document.getElementById('edit-id').value)" title="재발급"><i class="fas fa-rotate"></i></button>
+                            </div>
+                            <div class="reg-code-hint">학부모에게 전달하세요. 학부모 포털에서 종합평가 조회 시 필요합니다.</div>
+                        </div>
+
+                        <!-- 학생 인증코드 -->
+                        <div class="reg-code-block">
+                            <div class="reg-code-block-label"><i class="fas fa-id-badge"></i> 학생 인증코드</div>
+                            <div class="reg-code-row">
+                                <input type="text" id="reg-student-code" class="reg-code-value" readonly>
+                                <button type="button" class="reg-code-btn" onclick="copyStudentCode()" title="복사"><i class="fas fa-copy"></i></button>
+                            </div>
+                            <div class="reg-code-hint">학생에게 전달하세요. 숙제 제출 시 이 코드로 인증합니다.</div>
+                        </div>
+
+                        <!-- QR 출석 코드 -->
+                        <div class="reg-code-block">
+                            <div class="reg-code-block-label"><i class="fas fa-qrcode"></i> QR 출석 코드</div>
+                            <div id="reg-qr-container" class="reg-qr-preview"></div>
+                            <div class="reg-code-row" style="justify-content:center;margin-top:8px;">
+                                <button type="button" class="reg-code-btn wide" onclick="downloadStudentQR(document.getElementById('edit-id').value)"><i class="fas fa-download"></i> 다운로드</button>
+                                <button type="button" class="reg-code-btn wide danger" onclick="regenerateStudentQR(document.getElementById('edit-id').value)"><i class="fas fa-rotate"></i> 재생성</button>
+                            </div>
+                            <div class="reg-code-hint">학생에게 QR코드를 전달하세요. 출석 체크 시 스캔합니다. <strong>재생성 시 학생 인증코드도 함께 변경됩니다.</strong></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div id="edit-mode-actions">
+                <button class="btn-sub-action success" onclick="showStudentAttendanceHistory(document.getElementById('edit-id').value)" id="view-attendance-btn" style="display: none;">
+                    <i class="fas fa-clipboard-check"></i> 출석 조회
+                </button>
+                <button class="btn-sub-action danger" onclick="prepareBulkDelete()" id="bulk-delete-btn" style="display: none;">
+                    <i class="fas fa-trash"></i> 일정 삭제
+                </button>
+                <button class="btn-save-main" id="student-save-btn" onclick="handleStudentSave()">
+                    <i class="fas fa-check"></i> 저장
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="schedule-modal" class="modal" style="display: none;">
+        <div class="modal-card schedule-modal-card">
+            <div class="modal-header">
+                <h2><i class="fas fa-calendar-plus" style="color:var(--primary);font-size:15px;"></i> 일정 생성</h2>
+                <button class="btn-close-x" onclick="closeModal('schedule-modal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body-scrollable custom-scroll" style="padding-bottom:0;">
+                <!-- 섹션 1: 학생 선택 -->
+                <div class="sch-section">
+                    <div class="sch-section-label"><i class="fas fa-user-graduate"></i> 대상 학생</div>
+                    <div class="student-search-wrapper">
+                        <i class="fas fa-search sch-search-icon"></i>
+                        <input type="text" id="sch-student-search" class="m-input sch-search-input" placeholder="학생명 또는 학년으로 검색...">
+                        <input type="hidden" id="sch-student-select">
+                        <div id="sch-student-dropdown" class="student-search-dropdown"></div>
+                    </div>
+                    <div id="sch-selected-students" class="schedule-selected-students"></div>
+                </div>
+
+                <!-- 섹션 2: 요일 선택 -->
+                <div class="sch-section">
+                    <div class="sch-section-label"><i class="fas fa-redo"></i> 요일 반복</div>
+                    <p class="sch-section-hint">미선택 시 시작일 하루만 등록됩니다</p>
+                    <div class="day-chip-container">
+                        <input type="checkbox" id="d1" value="1" class="day-check"><label for="d1">월</label>
+                        <input type="checkbox" id="d2" value="2" class="day-check"><label for="d2">화</label>
+                        <input type="checkbox" id="d3" value="3" class="day-check"><label for="d3">수</label>
+                        <input type="checkbox" id="d4" value="4" class="day-check"><label for="d4">목</label>
+                        <input type="checkbox" id="d5" value="5" class="day-check"><label for="d5">금</label>
+                        <input type="checkbox" id="d6" value="6" class="day-check"><label for="d6">토</label>
+                        <input type="checkbox" id="d0" value="0" class="day-check"><label for="d0">일</label>
+                    </div>
+                </div>
+
+                <!-- 섹션 3: 기간 & 시간 -->
+                <div class="sch-section">
+                    <div class="sch-section-label"><i class="fas fa-clock"></i> 기간 및 시간</div>
+                    <div class="sch-time-grid">
+                        <div class="sch-field">
+                            <span class="sch-field-label">시작일</span>
+                            <input type="date" id="sch-start-date" class="m-input">
+                        </div>
+                        <div class="sch-field">
+                            <span class="sch-field-label">반복 주</span>
+                            <div class="sch-input-unit">
+                                <input type="number" id="sch-weeks" class="m-input" value="4" min="1">
+                                <span class="sch-unit">주</span>
+                            </div>
+                        </div>
+                        <div class="sch-field">
+                            <span class="sch-field-label">수업 시작 시간</span>
+                            <input type="time" id="sch-time" class="m-input" value="16:00">
+                        </div>
+                        <div class="sch-field">
+                            <span class="sch-field-label">수업 시간</span>
+                            <div class="sch-input-unit">
+                                <input type="number" id="sch-duration-min" class="m-input" value="90" min="10" step="10">
+                                <span class="sch-unit">분</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="sch-duration-hint" class="sch-duration-hint" style="display:none;"></div>
+                </div>
+            </div>
+            <div class="schedule-action-buttons">
+                <button class="sch-btn-secondary" id="schedule-save-without-btn" onclick="generateScheduleWithoutHolidays()"><i class="fas fa-umbrella-beach"></i> 공휴일 제외</button>
+                <button class="sch-btn-primary" id="schedule-save-btn" onclick="generateSchedule()"><i class="fas fa-plus-circle"></i> 일정 생성</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="bulk-delete-modal" class="modal" style="display: none;">
+        <div class="modal-card" style="max-width: 380px;">
+            <div class="modal-header">
+                <h2>일정 일괄 삭제</h2>
+                <button class="btn-close-x" onclick="closeModal('bulk-delete-modal')"><i class="fas fa-times"></i></button>
+            </div>
+            <p style="font-size: 13px; color: var(--gray); margin-bottom: 20px; line-height: 1.5;">
+                선택한 기간 내의 <b>예정된 수업 일정</b>을 삭제합니다.<br>
+                <span style="color: var(--red);">* 이미 작성된 출석/상담 기록은 삭제되지 않습니다.</span>
+            </p>
+            <input type="hidden" id="bulk-del-sid">
+            <div class="input-group">
+                <label>삭제 시작 날짜</label>
+                    <input type="date" id="bulk-del-start" class="m-input" onchange="updateBulkDeletePreview()">
+            </div>
+            <div class="input-group">
+                <label>삭제 종료 날짜</label>
+                    <input type="date" id="bulk-del-end" class="m-input" onchange="updateBulkDeletePreview()">
+            </div>
+                <div id="bulk-del-preview" class="schedule-delete-preview">삭제 예정 일정: 0건</div>
+                <div id="bulk-del-warning" class="schedule-delete-warning">
+                    기간을 선택하면 삭제 범위 안내가 표시됩니다.
+                </div>
+            <button class="btn-save-main" style="background-color: var(--red);" onclick="executeBulkDelete()">일정 삭제하기</button>
+        </div>
+    </div>
+
+    <div id="period-delete-modal" class="modal" style="display: none;">
+        <div class="modal-card period-delete-card" style="max-width: 460px;">
+            <div class="modal-header">
+                <h2>기간별 일정 삭제</h2>
+                <button class="btn-close-x" onclick="closeModal('period-delete-modal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-content-padding">
+                <p style="font-size: 13px; color: var(--gray); margin-bottom: 20px; line-height: 1.5;">
+                    지정한 기간 내의 일정을 삭제합니다.<br>
+                    <span style="color: var(--red);">* 출석체크가 되지 않은 예정된 일정만 삭제됩니다.</span>
+                </p>
+                <div class="input-group">
+                    <label>삭제 범위</label>
+                    <select id="period-del-scope" class="m-input" onchange="togglePeriodDeleteStudent(); updatePeriodDeletePreview();">
+                        <option value="all">기간 내 전체 일정 삭제</option>
+                        <option value="student">특정 학생만 삭제</option>
+                    </select>
+                </div>
+                <div class="input-group" id="period-del-student-group" style="display:none;">
+                    <label>대상 학생</label>
+                    <div class="student-search-wrapper">
+                        <input type="text" id="period-del-student-search" class="m-input" placeholder="학생명 또는 학년으로 검색...">
+                        <div id="period-del-student-dropdown" class="student-search-dropdown"></div>
+                    </div>
+                    <div id="period-del-student-selected" class="schedule-selected-students"></div>
+                </div>
+                <div class="input-group">
+                    <label>삭제 시작 날짜</label>
+                    <input type="date" id="period-del-start" class="m-input" onchange="updatePeriodDeletePreview()">
+                </div>
+                <div class="input-group">
+                    <label>삭제 종료 날짜</label>
+                    <input type="date" id="period-del-end" class="m-input" onchange="updatePeriodDeletePreview()">
+                </div>
+                <div id="period-del-preview" class="schedule-delete-preview">삭제 예정 일정: 0건</div>
+                <div id="period-del-warning" class="schedule-delete-warning">
+                    기간과 범위를 선택하면 삭제 영향 안내가 표시됩니다.
+                </div>
+            </div>
+            <div class="modal-footer-actions">
+                <button class="btn-delete-action" onclick="executePeriodDelete()">
+                    <i class="fas fa-trash-alt"></i> 일정 삭제하기
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="day-detail-modal" class="modal" style="display: none;">
+        <div class="modal-card day-detail-card">
+            <div class="modal-header">
+                <h2 id="day-detail-title">날짜</h2>
+                <button class="btn-close-x" onclick="closeModal('day-detail-modal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="tt-search-bar">
+                <div class="tt-search-row">
+                <div class="tt-search-input-wrap">
+                    <i class="fas fa-search tt-search-icon"></i>
+                    <input type="text" id="tt-search-input" class="tt-search-input" placeholder="학생 이름 검색" oninput="searchStudentInTimetable(this.value)">
+                    <button type="button" class="tt-search-clear" id="tt-search-clear" onclick="clearTimetableSearch()" style="display:none;"><i class="fas fa-times"></i></button>
+                </div>
+                <div class="tt-scope-wrap">
+                    <label for="tt-scope-select">표시 범위</label>
+                    <select id="tt-scope-select" class="tt-scope-select" onchange="setTimetableScope(this.value)">
+                        <option value="all">전체 선생님</option>
+                        <option value="mine">내 학생만</option>
+                    </select>
+                </div>
+                </div>
+                <div id="tt-scope-hint" class="tt-scope-hint">모든 선생님의 학생 일정을 함께 표시합니다.</div>
+            </div>
+            <div class="modal-body custom-scroll">
+                <div class="timetable-container">
+                    <div class="time-axis" id="time-axis"></div>
+                    <div class="time-grid" id="time-grid"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="attendance-modal" class="modal" style="display: none;">
+        <div class="modal-card attendance-card">
+            <div class="modal-header">
+                <h2 id="att-modal-title">수업 관리</h2>
+                <button class="btn-close-x" onclick="closeModal('attendance-modal')"><i class="fas fa-times"></i></button>
+            </div>
+            <input type="hidden" id="att-student-id">
+            <input type="hidden" id="att-date">
+            <input type="hidden" id="att-original-time">
+            <input type="hidden" id="att-owner-teacher-id">
+            <div class="attendance-modal-body custom-scroll">
+                <!-- 상단: 학생 정보 + 출석 상태 -->
+                <div class="am-header-row">
+                    <div class="am-info" id="att-info-text"></div>
+                    <div class="am-status-wrap">
+                        <div id="current-status-display" class="am-status-badge">미등록</div>
+                        <div id="attendance-source-display" class="am-source-badge source-unknown">출석 방식: 미확인</div>
+                    </div>
+                </div>
+
+                <!-- 출석 버튼 -->
+                <div class="am-attendance-row">
+                    <button class="am-att-btn present" onclick="setAttendance('present', { startTime: document.getElementById('att-original-time').value })"><i class="fas fa-check-circle"></i> 출석</button>
+                    <button class="am-att-btn late" onclick="setAttendance('late', { startTime: document.getElementById('att-original-time').value })"><i class="fas fa-clock"></i> 지각</button>
+                    <button class="am-att-btn absent" onclick="setAttendance('absent', { startTime: document.getElementById('att-original-time').value })"><i class="fas fa-times-circle"></i> 결석</button>
+                    <button class="am-att-btn etc" onclick="setAttendance('makeup', { startTime: document.getElementById('att-original-time').value })"><i class="fas fa-redo"></i> 보강</button>
+                </div>
+
+                <!-- 일정 변경 (접기/펼치기) -->
+                <div class="am-collapse-section">
+                    <button class="am-collapse-toggle" onclick="this.parentElement.classList.toggle('open')">
+                        <i class="fas fa-calendar-alt"></i> 일정 변경 <i class="fas fa-chevron-down am-chevron"></i>
+                    </button>
+                    <div class="am-collapse-body">
+                        <input type="date" id="att-edit-date" class="m-input">
+                        <div class="am-time-row">
+                            <input type="time" id="att-edit-time" class="m-input">
+                            <div class="am-dur-wrap">
+                                <input type="number" id="att-edit-duration" class="m-input" placeholder="90">
+                                <span class="am-dur-unit">분</span>
+                            </div>
+                            <button class="am-btn-change" onclick="updateClassTime()">변경</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 수업 기록 탭 (개인 / 공유) -->
+                <div class="am-memo-section">
+                    <div class="am-memo-tabs">
+                        <button class="am-memo-tab active" data-tab="private" onclick="switchMemoTab('private')">
+                            <i class="fas fa-lock"></i> 개인 메모
+                        </button>
+                        <button class="am-memo-tab" data-tab="shared" onclick="switchMemoTab('shared')">
+                            <i class="fas fa-users"></i> 공유 메모
+                        </button>
+                    </div>
+                    <div class="am-memo-hint" id="am-memo-hint">나만 볼 수 있는 기록입니다.</div>
+                    <div class="memo-editor-toolbar">
+                        <button type="button" class="color-btn" onclick="applyMemoColor('#ef4444')" style="background:#ef4444;" title="빨강"></button>
+                        <button type="button" class="color-btn" onclick="applyMemoColor('#f97316')" style="background:#f97316;" title="주황"></button>
+                        <button type="button" class="color-btn" onclick="applyMemoColor('#eab308')" style="background:#eab308;" title="노랑"></button>
+                        <button type="button" class="color-btn" onclick="applyMemoColor('#22c55e')" style="background:#22c55e;" title="초록"></button>
+                        <button type="button" class="color-btn" onclick="applyMemoColor('#0ea5e9')" style="background:#0ea5e9;" title="파랑"></button>
+                        <button type="button" class="color-btn" onclick="applyMemoColor('#c9a74a')" style="background:#c9a74a;" title="골드"></button>
+                        <button type="button" class="color-btn" onclick="applyMemoColor('#000000')" style="background:#000000;" title="검정"></button>
+                    </div>
+                    <div id="att-memo" class="m-input m-textarea memo-editor" contenteditable="true" placeholder="진도 내용, 숙제 등"></div>
+                    <div id="att-shared-memo-others" style="display:none;"></div>
+                    <div id="att-shared-memo" class="m-input m-textarea memo-editor" contenteditable="true" placeholder="모든 선생님이 볼 수 있는 공유 기록" style="display:none;"></div>
+                    <button class="am-btn-save-memo" onclick="saveOnlyMemo()"><i class="fas fa-save"></i> 저장</button>
+                </div>
+            </div>
+            <div class="attendance-modal-footer">
+                <button class="btn-history" onclick="openHistoryModal()"><i class="fas fa-history"></i> 이번달 기록</button>
+                <button class="btn-delete-schedule" onclick="deleteSingleSchedule()"><i class="fas fa-trash"></i> 일정 삭제</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="day-settings-modal" class="modal" style="display: none;">
+        <div class="modal-card day-settings-card">
+            <div class="modal-header">
+                <h2 id="day-settings-title"><i class="fas fa-calendar-day" style="color:var(--primary);font-size:14px;"></i> 날짜 설정</h2>
+                <button class="btn-close-x" onclick="closeModal('day-settings-modal')"><i class="fas fa-times"></i></button>
+            </div>
+            <input type="hidden" id="setting-date-str">
+
+            <!-- 스케줄 등록 섹션 -->
+            <input type="hidden" id="is-schedule-register" value="true">
+            <div id="schedule-register-section" class="dset-body">
+                <!-- 유형 & 이름 -->
+                <div class="dset-row">
+                    <div class="dset-field" style="flex:0 0 auto;min-width:140px;">
+                        <span class="dset-label">유형</span>
+                        <select id="schedule-type" class="m-input">
+                            <option value="academy">학원 전체</option>
+                            <option value="personal">개인 스케줄</option>
+                        </select>
+                    </div>
+                    <div class="dset-field" style="flex:1;">
+                        <span class="dset-label">스케줄 이름</span>
+                        <input type="text" id="schedule-name" class="m-input" placeholder="시험기간, 방학 등">
+                    </div>
+                </div>
+
+                <!-- 기간 -->
+                <div class="dset-section-label"><i class="fas fa-calendar-week"></i> 기간</div>
+                <div class="dset-date-range">
+                    <input type="date" id="schedule-start-date" class="m-input">
+                    <span class="dset-date-sep"><i class="fas fa-arrow-right"></i></span>
+                    <input type="date" id="schedule-end-date" class="m-input">
+                </div>
+
+                <!-- 색상 -->
+                <div class="dset-section-label"><i class="fas fa-palette"></i> 표시 색상</div>
+                <div class="dset-color-row" id="holiday-color-options">
+                    <button type="button" class="dset-color-chip" data-color="#ef4444" onclick="setHolidayColor('#ef4444')" style="background:#ef4444;"></button>
+                    <button type="button" class="dset-color-chip" data-color="#f97316" onclick="setHolidayColor('#f97316')" style="background:#f97316;"></button>
+                    <button type="button" class="dset-color-chip" data-color="#eab308" onclick="setHolidayColor('#eab308')" style="background:#eab308;"></button>
+                    <button type="button" class="dset-color-chip" data-color="#0ea5e9" onclick="setHolidayColor('#0ea5e9')" style="background:#0ea5e9;"></button>
+                    <button type="button" class="dset-color-chip" data-color="#10b981" onclick="setHolidayColor('#10b981')" style="background:#10b981;"></button>
+                    <button type="button" class="dset-color-chip" data-color="#c9a74a" onclick="setHolidayColor('#c9a74a')" style="background:#c9a74a;"></button>
+                </div>
+                <input type="hidden" id="holiday-color" value="#ef4444">
+            </div>
+
+            <!-- 빨간날 (휴원) 지정은 숨김 처리된 hidden 필드로 유지 -->
+            <input type="hidden" id="is-red-day" value="">
+            <input type="hidden" id="day-name" value="">
+
+            <div class="dset-footer" id="day-settings-buttons">
+                <button class="dset-btn-delete" id="schedule-delete-btn" style="display:none;" onclick="deleteScheduleFromModal()"><i class="fas fa-trash-alt"></i> 삭제</button>
+                <button class="dset-btn-save" onclick="saveDaySettings()"><i class="fas fa-check"></i> 저장</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="history-modal" class="modal" style="display: none;">
+        <div class="modal-card history-card">
+            <div class="modal-header">
+                <div>
+                    <h2 id="hist-title">학생 이름</h2>
+                    <span id="hist-subtitle" class="hist-subtitle"></span>
+                </div>
+                <button class="btn-close-x" onclick="closeModal('history-modal')"><i class="fas fa-times"></i></button>
+            </div>
+            <!-- 통계 요약 -->
+            <div class="hist-stats" id="hist-stats"></div>
+            <div class="hist-overview" id="hist-overview"></div>
+            <div class="modal-body custom-scroll">
+                <div id="history-timeline" class="hist-list"></div>
+                <!-- 종합평가 섹션 -->
+                <div class="eval-section" id="eval-section">
+                    <div class="eval-section-header">
+                        <div class="eval-section-title"><i class="fas fa-star"></i> 종합 평가</div>
+                        <span class="eval-month-label" id="eval-current-month"></span>
+                    </div>
+                    <textarea id="eval-textarea-main" class="eval-textarea-main" placeholder="이번 달 학생에 대한 종합 평가를 작성하세요..." maxlength="500"></textarea>
+                    <div class="eval-bottom-row">
+                        <span class="eval-char-info"><span id="eval-char-main">0</span>/500</span>
+                        <button class="eval-save-btn" id="eval-save-btn" onclick="window.saveEvalFromHistory()">
+                            <i class="fas fa-save"></i> 저장
+                        </button>
+                    </div>
+                </div>
+                <div class="eval-section test-score-section" id="test-score-section">
+                    <div class="eval-section-header">
+                        <div class="eval-section-title"><i class="fas fa-chart-line"></i> 테스트 점수</div>
+                        <span class="eval-month-label" id="test-score-month-label"></span>
+                    </div>
+                    <div class="test-score-sync-row">
+                        <span id="test-score-sync-status" class="test-score-sync-status unknown">동기화 상태 확인 전</span>
+                        <button type="button" id="test-score-sync-check-btn" class="test-score-sync-check-btn" onclick="runTestScoreSyncCheck()">
+                            <i class="fas fa-stethoscope"></i> 동기화 점검
+                        </button>
+                    </div>
+                    <div class="test-score-form-row">
+                        <input type="text" id="test-score-name" class="m-input" placeholder="시험명 (예: 3월 모의고사)">
+                        <input type="date" id="test-score-date" class="m-input">
+                    </div>
+                    <div class="test-score-form-row">
+                        <input type="number" id="test-score-value" class="m-input" min="0" placeholder="점수">
+                        <input type="number" id="test-score-max" class="m-input" min="1" value="100" placeholder="만점">
+                        <button class="eval-save-btn test-score-save-btn" id="test-score-save-btn" onclick="saveTestScoreFromHistory()">
+                            <i class="fas fa-plus"></i> 점수 저장
+                        </button>
+                    </div>
+                    <div id="test-score-summary" class="test-score-summary"></div>
+                    <div id="test-score-trend" class="test-score-trend"></div>
+                    <div id="test-score-list" class="test-score-list"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="payment-modal" class="modal" style="display: none;">
+        <div class="modal-card payment-card">
+            <div class="pay-header">
+                <div class="pay-header-top">
+                    <h2><i class="fas fa-won-sign"></i> 수납/비용 관리</h2>
+                    <button class="btn-close-x" onclick="closeModal('payment-modal')"><i class="fas fa-times"></i></button>
+                </div>
+                <div class="pay-month-nav">
+                    <button class="pay-month-btn" onclick="movePaymentMonth(-1)"><i class="fas fa-chevron-left"></i></button>
+                    <h3 id="payment-month-title">2026년 2월</h3>
+                    <button class="pay-month-btn" onclick="movePaymentMonth(1)"><i class="fas fa-chevron-right"></i></button>
+                </div>
+                <div class="pay-main-tabs">
+                    <button id="pay-main-tab-income" class="pay-main-tab-btn active" onclick="switchPaymentManagementTab('income')">
+                        <i class="fas fa-won-sign"></i> 수납
+                    </button>
+                    <button id="pay-main-tab-expense" class="pay-main-tab-btn" onclick="switchPaymentManagementTab('expense')">
+                        <i class="fas fa-receipt"></i> 비용
+                    </button>
+                </div>
+            </div>
+
+            <div id="pay-main-section-income">
+            <div class="pay-income-layout">
+            <div class="pay-income-main">
+            <div class="pay-dashboard">
+                <div class="pay-progress-wrap">
+                    <div class="pay-progress-ring-container">
+                        <svg class="pay-progress-ring" viewBox="0 0 80 80">
+                            <circle class="ring-bg" cx="40" cy="40" r="34" />
+                            <circle class="ring-fill" id="pay-progress-fill" cx="40" cy="40" r="34" stroke-dasharray="213.6" stroke-dashoffset="213.6" />
+                        </svg>
+                        <span class="pay-progress-pct" id="pay-progress-pct">0%</span>
+                    </div>
+                    <div class="pay-progress-label">수납률</div>
+                </div>
+                <div class="pay-stats-grid">
+                    <div class="pay-stat-card">
+                        <span class="pay-stat-value" id="total-collected">0</span>
+                        <span class="pay-stat-label">총 수납액</span>
+                    </div>
+                    <div class="pay-stat-card">
+                        <span class="pay-stat-value paid-color" id="count-paid">0</span>
+                        <span class="pay-stat-label">완납</span>
+                    </div>
+                    <div class="pay-stat-card">
+                        <span class="pay-stat-value unpaid-color" id="count-unpaid">0</span>
+                        <span class="pay-stat-label">미납</span>
+                    </div>
+                    <div class="pay-stat-card">
+                        <span class="pay-stat-value" id="total-due-amount">0</span>
+                        <span class="pay-stat-label">총 청구액</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="pay-toolbar">
+                <div class="pay-search-wrap">
+                    <i class="fas fa-search"></i>
+                    <input type="text" id="pay-search-input" placeholder="학생 이름 검색..." oninput="renderPaymentList()">
+                </div>
+                <div class="pay-filter-pills">
+                    <button class="pay-pill active" onclick="setPaymentFilter('all')">전체</button>
+                    <button class="pay-pill" onclick="setPaymentFilter('unpaid')">미납</button>
+                    <button class="pay-pill" onclick="setPaymentFilter('paid')">완납</button>
+                </div>
+                <button class="pay-batch-btn" onclick="batchQuickPayAll()" title="미납 학생 전원 일괄 완납">
+                    <i class="fas fa-check-double"></i> 일괄 완납
+                </button>
+                <button class="pay-ledger-btn" onclick="openPaymentLedgerModal()" title="학생별 원장 항목 입력">
+                    <i class="fas fa-receipt"></i> 원장 입력
+                </button>
+                <button class="pay-ai-btn" onclick="openPaymentAiModal()" title="증빙 업로드 후 AI 추출">
+                    <i class="fas fa-camera"></i> 증빙+AI
+                </button>
+            </div>
+
+            <div class="pay-close-panel">
+                <div class="pay-close-panel-head">
+                    <span class="pay-close-panel-title">일마감/월마감 요약</span>
+                    <button class="pay-close-toggle-btn" id="pay-close-toggle-btn" onclick="togglePaymentClosePanel()">
+                        요약 접기
+                    </button>
+                </div>
+                <div class="pay-close-cards">
+                    <div class="pay-close-card">
+                        <span class="pay-close-label">오늘 수납액</span>
+                        <strong id="pay-close-today-amount">0원</strong>
+                    </div>
+                    <div class="pay-close-card">
+                        <span class="pay-close-label">오늘 수납건수</span>
+                        <strong id="pay-close-today-count">0건</strong>
+                    </div>
+                    <div class="pay-close-card">
+                        <span class="pay-close-label">월 미수금</span>
+                        <strong id="pay-close-outstanding">0원</strong>
+                    </div>
+                    <div class="pay-close-card">
+                        <span class="pay-close-label">미확인입금</span>
+                        <strong id="pay-close-unmatched">0건</strong>
+                    </div>
+                </div>
+                <div class="pay-channel-grid">
+                    <div class="pay-channel-item">
+                        <div class="pay-channel-item-main">
+                            <span>결제선생</span>
+                            <strong id="pay-channel-kpay">0원</strong>
+                        </div>
+                        <div class="pay-channel-reconcile">
+                            <input id="pay-channel-kpay-actual" class="pay-channel-actual-input" type="text" placeholder="외부 실합계"
+                                   oninput="formatNumberWithComma(this)" onchange="updateCloseReconcileInput('kpay', this.value)">
+                            <div id="pay-channel-kpay-diff" class="pay-channel-diff is-zero">차이 0원</div>
+                        </div>
+                    </div>
+                    <div class="pay-channel-item">
+                        <div class="pay-channel-item-main">
+                            <span>비즐</span>
+                            <strong id="pay-channel-bizzle">0원</strong>
+                        </div>
+                        <div class="pay-channel-reconcile">
+                            <input id="pay-channel-bizzle-actual" class="pay-channel-actual-input" type="text" placeholder="외부 실합계"
+                                   oninput="formatNumberWithComma(this)" onchange="updateCloseReconcileInput('bizzle', this.value)">
+                            <div id="pay-channel-bizzle-diff" class="pay-channel-diff is-zero">차이 0원</div>
+                        </div>
+                    </div>
+                    <div class="pay-channel-item">
+                        <div class="pay-channel-item-main">
+                            <span>통장</span>
+                            <strong id="pay-channel-bank">0원</strong>
+                        </div>
+                        <div class="pay-channel-reconcile">
+                            <input id="pay-channel-bank-actual" class="pay-channel-actual-input" type="text" placeholder="외부 실합계"
+                                   oninput="formatNumberWithComma(this)" onchange="updateCloseReconcileInput('bank', this.value)">
+                            <div id="pay-channel-bank-diff" class="pay-channel-diff is-zero">차이 0원</div>
+                        </div>
+                    </div>
+                    <div class="pay-channel-item">
+                        <div class="pay-channel-item-main">
+                            <span>기타</span>
+                            <strong id="pay-channel-etc">0원</strong>
+                        </div>
+                        <div class="pay-channel-reconcile">
+                            <input id="pay-channel-etc-actual" class="pay-channel-actual-input" type="text" placeholder="외부 실합계"
+                                   oninput="formatNumberWithComma(this)" onchange="updateCloseReconcileInput('etc', this.value)">
+                            <div id="pay-channel-etc-diff" class="pay-channel-diff is-zero">차이 0원</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="pay-reconcile-total-wrap">
+                    <div id="pay-reconcile-total" class="pay-reconcile-total is-zero">
+                        장부와 실제 합계 차이 0원
+                        <span class="pay-term-help" title="장부와 실제 합계 차이: 앱 원장 합계에서 외부 실합계를 뺀 값입니다. 0원에 가까울수록 정산이 맞습니다.">?</span>
+                    </div>
+                    <div class="pay-reconcile-help">앱 원장 합계 - 외부 실합계의 전체 차이입니다. 0원에 가까울수록 정산이 맞습니다.</div>
+                </div>
+                <div class="pay-report-actions">
+                    <button class="pay-report-btn" onclick="downloadMonthlyLedgerCsv()"><i class="fas fa-file-csv"></i> 월 원장 CSV</button>
+                    <button class="pay-report-btn" onclick="downloadOutstandingCsv()"><i class="fas fa-file-csv"></i> 미수금 CSV</button>
+                    <button class="pay-report-btn" onclick="downloadMethodSummaryCsv()"><i class="fas fa-file-csv"></i> 수단별 합계 CSV</button>
+                    <button class="pay-report-btn" onclick="downloadRefundCsv()"><i class="fas fa-file-csv"></i> 환불내역 CSV</button>
+                </div>
+                <div class="pay-report-options">
+                    <label class="pay-report-option">
+                        <input id="pay-csv-option-reconcile" type="checkbox">
+                        <span>월 원장/수단별 CSV에 장부-실제 차이값 추가</span>
+                    </label>
+                    <label class="pay-report-option">
+                        <input id="pay-csv-option-payroll" type="checkbox">
+                        <span>월 원장/수단별 CSV에 인건비 상세 메타 추가</span>
+                    </label>
+                </div>
+                <div class="pay-tax-deadline-guide">
+                    <div class="pay-tax-deadline-title">교습소 주요 신고 일정(기본 안내)</div>
+                    <div class="pay-tax-deadline-item">사업장 현황신고: 매년 1월 1일 ~ 2월 10일</div>
+                    <div class="pay-tax-deadline-item">종합소득세 신고: 매년 5월 1일 ~ 5월 31일</div>
+                    <div class="pay-tax-deadline-item">원천세 신고: 인건비 지급이 있으면 다음 달 10일까지 확인</div>
+                    <div class="pay-tax-deadline-note">수납 화면 진입 시 신고 완료 여부 확인창이 자동으로 뜹니다(해당 기간/대상일 때).</div>
+                </div>
+                <div class="pay-tax-checklist-guide">
+                    <div class="pay-tax-checklist-title">월별 세무 체크리스트</div>
+                    <div id="pay-tax-monthly-checklist" class="pay-tax-checklist-items"></div>
+                </div>
+                <div class="pay-tax-checklist-guide">
+                    <div class="pay-tax-checklist-title">월별 노무 체크리스트</div>
+                    <div id="pay-labor-monthly-checklist" class="pay-tax-checklist-items"></div>
+                </div>
+                <div class="pay-tax-checklist-guide">
+                    <div class="pay-tax-checklist-title">월별 회계 체크리스트</div>
+                    <div id="pay-accounting-monthly-checklist" class="pay-tax-checklist-items"></div>
+                </div>
+            </div>
+
+            <div class="pay-unmatched-panel">
+                <div class="pay-unmatched-head">
+                    <span class="pay-unmatched-title">입금 확인대기함</span>
+                    <span class="pay-unmatched-count" id="pay-unmatched-queue-count">0건</span>
+                </div>
+                <div id="pay-unmatched-list" class="pay-unmatched-list">
+                    <!-- 미확인입금 목록 -->
+                </div>
+            </div>
+
+            </div>
+
+            <aside class="pay-income-students-pane">
+                <div class="pay-income-students-head">
+                    <span class="pay-income-students-title">학생 목록</span>
+                    <span class="pay-income-students-note">오른쪽에서 바로 선택/수정</span>
+                </div>
+                <div id="payment-list-container" class="pay-list custom-scroll">
+                    <!-- 학생별 수납 카드가 여기에 렌더링됩니다 -->
+                </div>
+            </aside>
+            </div>
+            </div>
+
+            <div id="pay-main-section-expense" class="hidden">
+                <div class="pay-expense-toolbar">
+                    <div class="pay-expense-guide">
+                        소모품/비품/운영비를 별도 기록하고 월마감에서 수납과 함께 비교하세요.
+                    </div>
+                    <button class="pay-ledger-btn" onclick="openExpenseLedgerModal()" title="비용 내역 등록">
+                        <i class="fas fa-plus"></i> 비용 등록
+                    </button>
+                </div>
+                <div class="pay-expense-summary">
+                    <div class="pay-close-card">
+                        <span class="pay-close-label">월 비용합계</span>
+                        <strong id="pay-expense-month-total">0원</strong>
+                    </div>
+                    <div class="pay-close-card">
+                        <span class="pay-close-label">등록 건수</span>
+                        <strong id="pay-expense-month-count">0건</strong>
+                    </div>
+                    <div class="pay-close-card">
+                        <span class="pay-close-label">소모품</span>
+                        <strong id="pay-expense-consumable-total">0원</strong>
+                    </div>
+                    <div class="pay-close-card">
+                        <span class="pay-close-label">비품</span>
+                        <strong id="pay-expense-fixture-total">0원</strong>
+                    </div>
+                </div>
+                <div class="pay-report-actions pay-expense-report-actions">
+                    <button class="pay-report-btn" onclick="downloadExpenseCsv()"><i class="fas fa-file-csv"></i> 비용 CSV</button>
+                </div>
+                <div id="pay-expense-list" class="pay-list custom-scroll">
+                    <!-- 월별 비용 목록 -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="payment-ledger-modal" class="modal" style="display: none;">
+        <div class="modal-card" style="max-width: 520px;">
+            <div class="modal-header">
+                <h2><i class="fas fa-receipt"></i> 수납 원장 입력</h2>
+                <button class="btn-close-x" onclick="closeModal('payment-ledger-modal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body-scrollable custom-scroll" style="padding: 20px;">
+                <div class="pay-field-legend">
+                    <span class="pay-field-badge is-manual">직접입력</span>
+                    <span class="pay-field-badge is-auto">자동계산</span>
+                    <span class="pay-field-legend-text">파란 테두리는 직접 입력, 회색 테두리는 자동 계산값입니다.</span>
+                </div>
+                <div class="pay-ledger-grid">
+                    <div class="input-group">
+                        <label>학생 <span class="pay-field-badge is-manual">직접입력</span></label>
+                        <select id="ledger-student-id" class="m-input"></select>
+                    </div>
+                    <div class="input-group">
+                        <label title="청구월: 이번 달에 청구한 기준 월입니다.">청구월(청구 기준 월) <span class="pay-term-help" title="청구월: 이번 달에 청구한 기준 월">?</span> <span class="pay-field-badge is-manual">직접입력</span></label>
+                        <input type="month" id="ledger-month-key" class="m-input">
+                    </div>
+                    <div class="input-group">
+                        <label>청구금액 <span class="pay-field-badge is-manual">직접입력</span></label>
+                        <input type="text" id="ledger-due-amount" class="m-input" placeholder="예: 350,000" oninput="formatNumberWithComma(this)">
+                    </div>
+                    <div class="input-group">
+                        <label>수납금액 <span class="pay-field-badge is-manual">직접입력</span></label>
+                        <input type="text" id="ledger-paid-amount" class="m-input" placeholder="예: 200,000" oninput="formatNumberWithComma(this); onPaymentPaidAmountInput(this.value)">
+                    </div>
+                    <div class="input-group">
+                        <label title="공급가액: 세금(부가세)을 제외한 금액입니다.">세금 제외 금액(공급가액) <span class="pay-term-help" title="세금 제외 금액(공급가액): 부가세를 제외한 금액">?</span> <span class="pay-field-badge is-auto">자동계산</span></label>
+                        <input type="text" id="ledger-supply-amount" class="m-input pay-auto-input" placeholder="수납금액 기준 자동 계산" readonly>
+                    </div>
+                    <div class="input-group">
+                        <label title="세액: 부가세 금액입니다.">부가세(세액) <span class="pay-term-help" title="부가세(세액): 공급가액에 붙는 세금 금액">?</span> <span class="pay-field-badge is-auto">자동계산</span></label>
+                        <input type="text" id="ledger-vat-amount" class="m-input pay-auto-input" placeholder="수납금액 기준 자동 계산" readonly>
+                    </div>
+                    <div class="input-group">
+                        <label>수납일시</label>
+                        <input type="date" id="ledger-paid-at" class="m-input">
+                    </div>
+                    <div class="input-group">
+                        <label>결제경로</label>
+                        <select id="ledger-channel" class="m-input">
+                            <option value="결제선생">결제선생</option>
+                            <option value="비즐">비즐</option>
+                            <option value="통장">통장</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
+                        <label>결제수단</label>
+                        <select id="ledger-method" class="m-input">
+                            <option value="카드">카드</option>
+                            <option value="동백전">동백전</option>
+                            <option value="계좌이체">계좌이체</option>
+                            <option value="현금">현금</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
+                        <label>거래확인번호</label>
+                        <input type="text" id="ledger-reference-id" class="m-input" placeholder="승인번호/이체확인번호">
+                    </div>
+                    <div class="input-group">
+                        <label title="증빙유형: 어떤 영수증/증빙으로 처리할지 선택합니다.">영수증 종류(증빙유형) <span class="pay-term-help" title="영수증 종류(증빙유형): 세금계산서/카드전표/현금영수증 등">?</span></label>
+                        <select id="ledger-evidence-type" class="m-input">
+                            <option value="manual">수기입력</option>
+                            <option value="세금계산서">세금계산서</option>
+                            <option value="카드전표">카드전표</option>
+                            <option value="현금영수증">현금영수증</option>
+                            <option value="간이영수증">간이영수증</option>
+                            <option value="기타">기타</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
+                        <label title="증빙번호: 영수증이나 계산서에 있는 승인번호/문서번호입니다.">영수증 번호(증빙번호) <span class="pay-term-help" title="영수증 번호(증빙번호): 승인번호/계산서번호/거래번호">?</span></label>
+                        <input type="text" id="ledger-evidence-number" class="m-input" placeholder="승인번호/계산서번호">
+                    </div>
+                    <div class="input-group" style="grid-column: 1 / -1;">
+                        <label style="display:flex; align-items:center; gap:8px;">
+                            <input type="checkbox" id="ledger-unmatched">
+                            미확인입금으로 보관(학생 미선택 저장 가능)
+                        </label>
+                    </div>
+                    <div class="input-group">
+                        <label>환불금액(선택)</label>
+                        <input type="text" id="ledger-refund-amount" class="m-input" placeholder="예: 50,000" oninput="formatNumberWithComma(this)">
+                    </div>
+                    <div class="input-group">
+                        <label>환불사유(선택)</label>
+                        <input type="text" id="ledger-refund-reason" class="m-input" placeholder="예: 결제취소/과오납">
+                    </div>
+                    <div class="input-group" style="grid-column: 1 / -1;">
+                        <label>메모</label>
+                        <textarea id="ledger-note" class="m-input" rows="3" placeholder="예: 결제선생 링크결제, 3월분 일부 수납"></textarea>
+                    </div>
+                </div>
+                <button class="btn-save-main" onclick="savePaymentLedger()">원장 저장</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="payment-ai-modal" class="modal" style="display: none;">
+        <div class="modal-card" style="max-width: 560px;">
+            <div class="modal-header">
+                <h2><i class="fas fa-camera"></i> 결제 증빙 업로드 + AI 추출</h2>
+                <button class="btn-close-x" onclick="closeModal('payment-ai-modal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body-scrollable custom-scroll" style="padding: 20px;">
+                <p class="pay-ai-desc">결제선생/비즐/통장 증빙 이미지를 업로드하면 원장 입력 초안을 제안합니다.</p>
+                <div class="pay-ledger-grid pay-ai-suggested-zone">
+                    <div class="input-group">
+                        <label>학생(힌트)</label>
+                        <select id="pay-ai-student-id" class="m-input"></select>
+                    </div>
+                    <div class="input-group">
+                        <label>청구월(힌트)</label>
+                        <input type="month" id="pay-ai-month-key" class="m-input">
+                    </div>
+                    <div class="input-group">
+                        <label>증빙 유형</label>
+                        <select id="pay-ai-source-type" class="m-input">
+                            <option value="결제선생 화면">결제선생 화면</option>
+                            <option value="비즐 화면">비즐 화면</option>
+                            <option value="이체내역">이체내역</option>
+                            <option value="기타">기타</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
+                        <label>추출 모드</label>
+                        <select id="pay-ai-extract-mode" class="m-input">
+                            <option value="single">단건(기본)</option>
+                            <option value="multi">다건(1장 이미지에서 여러 건)</option>
+                        </select>
+                    </div>
+                    <div class="input-group" style="grid-column: 1 / -1;">
+                        <label>증빙 이미지</label>
+                        <input type="file" id="pay-ai-image-file" class="m-input" accept="image/*">
+                    </div>
+                </div>
+                <button class="btn-save-main" id="pay-ai-run-btn" onclick="runPaymentAiExtract()">AI 추출 실행</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="payment-ai-review-modal" class="modal" style="display: none;">
+        <div class="modal-card" style="max-width: 620px;">
+            <div class="modal-header">
+                <h2><i class="fas fa-clipboard-check"></i> AI 추출 결과 검토</h2>
+                <button class="btn-close-x" onclick="closeModal('payment-ai-review-modal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body-scrollable custom-scroll" style="padding: 20px;">
+                <div class="pay-ai-review-notice">
+                    아래 정보는 자동 추출값입니다. 원본 이미지와 비교 후 확정해주세요.
+                </div>
+                <div id="pay-ai-review-notes" class="pay-ai-review-notes" style="display:none;"></div>
+                <div class="pay-ledger-grid">
+                    <div class="input-group">
+                        <label>학생</label>
+                        <select id="pay-ai-review-student-id" class="m-input"></select>
+                    </div>
+                    <div class="input-group">
+                        <label>청구월</label>
+                        <input type="month" id="pay-ai-review-month-key" class="m-input">
+                    </div>
+                    <div class="input-group">
+                        <label>청구금액</label>
+                        <input type="text" id="pay-ai-review-due-amount" class="m-input" oninput="formatNumberWithComma(this)">
+                    </div>
+                    <div class="input-group">
+                        <label>수납금액</label>
+                        <input type="text" id="pay-ai-review-paid-amount" class="m-input" oninput="formatNumberWithComma(this)">
+                    </div>
+                    <div class="input-group">
+                        <label>수납일시</label>
+                        <input type="date" id="pay-ai-review-paid-at" class="m-input">
+                    </div>
+                    <div class="input-group">
+                        <label>결제경로</label>
+                        <select id="pay-ai-review-channel" class="m-input">
+                            <option value="결제선생">결제선생</option>
+                            <option value="비즐">비즐</option>
+                            <option value="통장">통장</option>
+                            <option value="기타">기타</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
+                        <label>결제수단</label>
+                        <select id="pay-ai-review-method" class="m-input">
+                            <option value="카드">카드</option>
+                            <option value="동백전">동백전</option>
+                            <option value="계좌이체">계좌이체</option>
+                            <option value="현금">현금</option>
+                            <option value="기타">기타</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
+                        <label>거래확인번호</label>
+                        <input type="text" id="pay-ai-review-reference-id" class="m-input">
+                    </div>
+                    <div class="input-group" style="grid-column: 1 / -1;">
+                        <label style="display:flex; align-items:center; gap:8px;">
+                            <input type="checkbox" id="pay-ai-review-unmatched">
+                            미확인입금으로 보관(학생 미선택 저장 가능)
+                        </label>
+                    </div>
+                    <div class="input-group">
+                        <label>환불금액(선택)</label>
+                        <input type="text" id="pay-ai-review-refund-amount" class="m-input" oninput="formatNumberWithComma(this)">
+                    </div>
+                    <div class="input-group">
+                        <label>환불사유(선택)</label>
+                        <input type="text" id="pay-ai-review-refund-reason" class="m-input">
+                    </div>
+                    <div class="input-group" style="grid-column: 1 / -1;">
+                        <label>메모</label>
+                        <textarea id="pay-ai-review-note" class="m-input" rows="3"></textarea>
+                    </div>
+                </div>
+                <div class="pay-ai-review-actions">
+                    <button class="pay-ai-secondary-btn" onclick="savePaymentAiReview(true)">미확인입금으로 저장</button>
+                    <button class="btn-save-main" onclick="savePaymentAiReview(false)">확정 저장</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="payment-ai-multi-review-modal" class="modal" style="display: none;">
+        <div class="modal-card" style="max-width: 980px;">
+            <div class="modal-header">
+                <h2><i class="fas fa-table"></i> AI 다건 추출 검토</h2>
+                <button class="btn-close-x" onclick="closeModal('payment-ai-multi-review-modal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body-scrollable custom-scroll" style="padding: 20px;">
+                <div class="pay-ai-review-notice">
+                    다건 추출 결과입니다. 각 행을 확인/수정 후 일괄 저장하세요.
+                </div>
+                <div id="pay-ai-multi-review-notes" class="pay-ai-review-notes" style="display:none;"></div>
+                <div id="pay-ai-multi-review-table-wrap" class="pay-ai-multi-wrap"></div>
+                <div class="pay-ai-review-actions">
+                    <button class="pay-ai-secondary-btn" onclick="savePaymentAiMultiReview(true)">전체 미확인입금 저장</button>
+                    <button class="btn-save-main" onclick="savePaymentAiMultiReview(false)">검토 내용 일괄 저장</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="expense-ledger-modal" class="modal" style="display: none;">
+        <div class="modal-card" style="max-width: 560px;">
+            <div class="modal-header">
+                <h2><i class="fas fa-receipt"></i> 비용 등록</h2>
+                <button class="btn-close-x" onclick="closeModal('expense-ledger-modal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body-scrollable custom-scroll" style="padding: 20px;">
+                <div class="pay-field-legend">
+                    <span class="pay-field-badge is-manual">직접입력</span>
+                    <span class="pay-field-badge is-auto">자동계산</span>
+                    <span class="pay-field-legend-text">세무 필수값 위주로 입력하면 공급가액/세액은 자동 계산됩니다.</span>
+                </div>
+                <div class="pay-ledger-grid">
+                    <div class="input-group">
+                        <label title="귀속월: 이 비용이 반영되는 정산 기준 월입니다.">정산 기준 월(귀속월) <span class="pay-term-help" title="정산 기준 월(귀속월): 비용을 어느 달로 반영할지 선택">?</span> <span class="pay-field-badge is-manual">직접입력</span></label>
+                        <input type="month" id="expense-month-key" class="m-input">
+                    </div>
+                    <div class="input-group">
+                        <label>지출일 <span class="pay-field-badge is-manual">직접입력</span></label>
+                        <input type="date" id="expense-date" class="m-input">
+                    </div>
+                    <div class="input-group">
+                        <label>비용 분류</label>
+                        <select id="expense-category" class="m-input" onchange="toggleExpensePayrollFields(this.value)">
+                            <option value="소모품">소모품</option>
+                            <option value="비품">비품</option>
+                            <option value="운영비">운영비</option>
+                            <option value="임차료">임차료</option>
+                            <option value="인건비">인건비</option>
+                            <option value="강사비">강사비</option>
+                            <option value="기타">기타</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
+                        <label>금액 <span class="pay-field-badge is-manual">직접입력</span></label>
+                        <input type="text" id="expense-amount" class="m-input" placeholder="예: 45,000" oninput="formatNumberWithComma(this); onExpenseAmountInput(this.value)">
+                    </div>
+                    <div class="input-group">
+                        <label title="공급가액: 세금(부가세)을 제외한 금액입니다.">세금 제외 금액(공급가액) <span class="pay-term-help" title="세금 제외 금액(공급가액): 부가세를 제외한 금액">?</span> <span class="pay-field-badge is-auto">자동계산</span></label>
+                        <input type="text" id="expense-supply-amount" class="m-input pay-auto-input" placeholder="금액/부가세구분 기준 자동 계산" readonly>
+                    </div>
+                    <div class="input-group">
+                        <label title="세액: 부가세 금액입니다.">부가세(세액) <span class="pay-term-help" title="부가세(세액): 공급가액에 붙는 세금 금액">?</span> <span class="pay-field-badge is-auto">자동계산</span></label>
+                        <input type="text" id="expense-vat-amount" class="m-input pay-auto-input" placeholder="금액/부가세구분 기준 자동 계산" readonly>
+                    </div>
+                    <div class="input-group">
+                        <label>결제수단</label>
+                        <select id="expense-method" class="m-input">
+                            <option value="계좌이체">계좌이체</option>
+                            <option value="카드">카드</option>
+                            <option value="현금">현금</option>
+                            <option value="기타">기타</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
+                        <label>거래처</label>
+                        <input type="text" id="expense-vendor" class="m-input" placeholder="예: 문구점/온라인몰">
+                    </div>
+                    <div class="input-group">
+                        <label title="부가세 구분: 금액에 부가세가 포함되어 있는지 선택합니다.">부가세 포함 여부(부가세 구분) <span class="pay-term-help" title="부가세 포함 여부: 부가세포함/면세/알수없음">?</span></label>
+                        <select id="expense-vat-type" class="m-input" onchange="onExpenseVatTypeChange(this.value)">
+                            <option value="부가세포함">부가세포함</option>
+                            <option value="면세">면세</option>
+                            <option value="알수없음">알수없음</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
+                        <label title="증빙유형: 어떤 영수증/증빙으로 처리할지 선택합니다.">영수증 종류(증빙유형) <span class="pay-term-help" title="영수증 종류(증빙유형): 세금계산서/카드전표/현금영수증 등">?</span></label>
+                        <select id="expense-evidence-type" class="m-input">
+                            <option value="세금계산서">세금계산서</option>
+                            <option value="카드전표">카드전표</option>
+                            <option value="현금영수증">현금영수증</option>
+                            <option value="간이영수증">간이영수증</option>
+                            <option value="없음">없음</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
+                        <label title="증빙번호: 영수증이나 계산서에 있는 승인번호/문서번호입니다.">영수증 번호(증빙번호) <span class="pay-term-help" title="영수증 번호(증빙번호): 승인번호/계산서번호/거래번호">?</span></label>
+                        <input type="text" id="expense-evidence-number" class="m-input" placeholder="승인번호/계산서번호">
+                    </div>
+                    <div class="input-group" style="grid-column: 1 / -1;">
+                        <label>메모</label>
+                        <textarea id="expense-note" class="m-input" rows="3" placeholder="예: 화이트보드 마커 10개 구입"></textarea>
+                    </div>
+                    <div id="expense-payroll-fields" class="pay-payroll-fields hidden" style="grid-column: 1 / -1;">
+                        <div class="pay-payroll-title">인건비/강사비 상세 (세무용)</div>
+                        <div id="expense-payroll-help" class="pay-payroll-help">소득유형을 먼저 선택하면 필요한 항목이 자동으로 안내됩니다.</div>
+                        <div class="pay-ledger-grid">
+                            <div class="input-group">
+                                <label>소득유형(세무기준) <span class="pay-field-badge is-manual">직접입력</span></label>
+                                <select id="expense-payroll-income-type" class="m-input" onchange="onExpensePayrollTypeChange()">
+                                    <option value="">선택해주세요</option>
+                                    <option value="비율제강사">비율제 강사(사업소득)</option>
+                                    <option value="월급제강사">월급제 강사(근로소득)</option>
+                                </select>
+                            </div>
+                            <div class="input-group">
+                                <label>지급 대상</label>
+                                <input type="text" id="expense-payroll-target" class="m-input" placeholder="예: 홍길동 강사">
+                            </div>
+                            <div class="input-group">
+                                <label>지급월</label>
+                                <input type="month" id="expense-payroll-month" class="m-input">
+                            </div>
+                            <div class="input-group">
+                                <label>원천세 <span id="expense-payroll-withholding-badge" class="pay-field-badge is-auto">자동계산</span></label>
+                                <input type="text" id="expense-payroll-withholding" class="m-input pay-auto-input" placeholder="유형 기준 자동 계산" readonly oninput="formatNumberWithComma(this); onExpensePayrollDeductionInput()">
+                            </div>
+                            <div class="input-group">
+                                <label>지방소득세 <span id="expense-payroll-local-tax-badge" class="pay-field-badge is-auto">자동계산</span></label>
+                                <input type="text" id="expense-payroll-local-tax" class="m-input pay-auto-input" placeholder="유형 기준 자동/직접 입력" readonly oninput="formatNumberWithComma(this); onExpensePayrollDeductionInput()">
+                            </div>
+                            <div class="input-group">
+                                <label>4대보험/기타 공제 <span class="pay-field-badge is-manual">직접입력</span></label>
+                                <input type="text" id="expense-payroll-insurance" class="m-input" placeholder="예: 120,000" oninput="formatNumberWithComma(this); onExpensePayrollDeductionInput()">
+                            </div>
+                            <div class="input-group">
+                                <label>실지급액 <span class="pay-field-badge is-auto">자동계산</span></label>
+                                <input type="text" id="expense-payroll-net" class="m-input pay-auto-input" placeholder="금액-원천세-지방소득세-공제" readonly>
+                            </div>
+                        </div>
+                        <div class="pay-payroll-note">비율제 강사(사업소득)는 기본 3.3%(원천세 3.0% + 지방소득세 0.3%) 기준으로 자동 계산됩니다. 예외 케이스는 월급제 강사(근로소득)로 선택 후 직접 입력해주세요.</div>
+                    </div>
+                </div>
+                <button class="btn-save-main" onclick="saveExpenseLedgerEntry()">비용 저장</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="calendar-tooltip" class="calendar-tooltip" style="display: none;"></div>
+
+    <!-- 선생님 관리 모달 -->
+    <div id="teacher-modal" class="modal" style="display: none;">
+        <div class="modal-card" style="max-width: 600px;">
+            <div class="modal-header">
+                <h2>선생님</h2>
+                <button class="btn-close-x" onclick="closeModal('teacher-modal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body-scrollable custom-scroll">
+                <div id="teacher-list-container" style="padding: 10px;">
+                    <!-- 선생님 목록이 여기에 동적으로 렌더링됩니다 -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 선생님 상세 정보 모달 -->
+    <div id="teacher-detail-modal" class="modal" style="display: none;">
+        <div class="modal-card" style="max-width: 500px;">
+            <div class="modal-header">
+                <h2>선생님 상세 정보</h2>
+                <button class="btn-close-x" onclick="closeModal('teacher-detail-modal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body-scrollable custom-scroll" style="padding: 20px;">
+                <div class="input-group">
+                    <label>이름</label>
+                    <input type="text" id="detail-teacher-name" class="m-input" placeholder="이름을 입력하세요">
+                </div>
+                <div class="input-group">
+                    <label>전화번호</label>
+                    <input type="text" id="detail-teacher-phone" class="m-input" placeholder="010-0000-0000" maxlength="13" oninput="formatPhoneNumber(this)">
+                </div>
+                <div class="input-group">
+                    <label>인증 이메일 (구글)</label>
+                    <div id="detail-teacher-email-display" style="display:none; padding: 10px 14px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px;">
+                        <span style="font-size: 13px; color: #16a34a;"><i class="fas fa-check-circle" style="margin-right: 6px;"></i><span id="detail-teacher-email-text"></span></span>
+                    </div>
+                    <div id="detail-teacher-no-email" style="display:none; padding: 10px 14px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
+                        <span style="font-size: 13px; color: #94a3b8;"><i class="fas fa-envelope" style="margin-right: 6px;"></i>등록된 이메일 없음</span>
+                    </div>
+                </div>
+                <div class="input-group">
+                    <label>주소</label>
+                    <div style="display: flex; gap: 8px;">
+                        <input type="text" id="detail-teacher-address" class="m-input" placeholder="주소를 검색하세요" readonly style="flex: 1; cursor: pointer;" onclick="searchAddressForDetail()">
+                        <button type="button" onclick="searchAddressForDetail()" style="padding: 12px 20px; background: var(--primary); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 500;">검색</button>
+                    </div>
+                </div>
+                <div class="input-group">
+                    <label>상세주소 (동/호수)</label>
+                    <input type="text" id="detail-teacher-address-detail" class="m-input" placeholder="예: 101동 1202호">
+                </div>
+                <div class="input-group">
+                    <label>메모</label>
+                    <textarea id="detail-teacher-memo" class="m-input" rows="5" placeholder="선생님에 대한 메모를 입력하세요" style="resize: vertical; min-height: 100px;"></textarea>
+                </div>
+                <button class="btn-save-main" onclick="saveTeacherDetail()">저장</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 관리자 비밀번호 강제 초기화 모달 -->
+    <div id="force-reset-modal" class="modal" style="display: none;">
+        <div class="modal-card" style="max-width: 440px;">
+            <div class="modal-header" style="border-bottom: 1px solid #e2e8f0;">
+                <h2 style="display: flex; align-items: center; gap: 8px;">
+                    <i class="fas fa-unlock-alt" style="color: #dc2626;"></i> 비밀번호 강제 초기화
+                </h2>
+                <button class="btn-close-x" onclick="closeForceResetModal()"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body-scrollable" style="padding: 20px 24px;">
+                <div style="padding: 12px; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 10px; margin-bottom: 16px;">
+                    <p style="font-size: 12px; color: #9a3412; margin: 0; line-height: 1.6;">
+                        <i class="fas fa-exclamation-triangle" style="margin-right: 4px;"></i>
+                        이메일 인증이 불가능한 경우 (퇴사, 연락두절 등)<br>
+                        관리자 비밀번호 확인 후 선생님에게 랜덤 임시 비밀번호가 발급됩니다.
+                    </p>
+                </div>
+                <div class="form-group" style="margin-bottom: 14px;">
+                    <label style="font-weight: 600;">초기화할 선생님</label>
+                    <select id="force-reset-teacher-dropdown" class="auth-input">
+                        <option value="">선생님을 선택해주세요</option>
+                    </select>
+                </div>
+                <div class="form-group" style="margin-bottom: 16px;">
+                    <label style="font-weight: 600;">관리자 비밀번호</label>
+                    <input type="password" id="force-reset-admin-password" class="auth-input" placeholder="관리자 비밀번호를 입력하세요">
+                </div>
+                <button class="auth-btn" style="background: #dc2626;" onclick="forceResetTeacherPassword()">
+                    <i class="fas fa-lock-open" style="margin-right: 6px;"></i>비밀번호 강제 초기화
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 선생님 비밀번호 인증 모달 (일반 선생님/직원용) -->
+    <div id="teacher-password-modal" class="modal" style="display: none;">
+        <div class="modal-card" style="max-width: 400px;">
+            <div class="modal-header">
+                <h2>비밀번호 인증</h2>
+                <button class="btn-close-x" onclick="closeModal('teacher-password-modal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body-scrollable custom-scroll" style="padding: 20px;">
+                <p style="margin-bottom: 20px; color: var(--gray);">선생님의 비밀번호를 입력해주세요.</p>
+                <div class="input-group">
+                    <label>비밀번호</label>
+                    <input type="password" id="teacher-login-password" class="m-input" placeholder="비밀번호">
+                </div>
+                <button class="btn-save-main" onclick="confirmTeacherPasswordLogin()">인증</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 관리자 비밀번호 확인 모달 (역할 변경용) -->
+    <div id="admin-verify-modal" class="modal" style="display: none;">
+        <div class="modal-card" style="max-width: 400px;">
+            <div class="modal-header">
+                <h2>관리자 인증</h2>
+                <button class="btn-close-x" onclick="closeAdminVerifyModal()"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body-scrollable custom-scroll" style="padding: 20px;">
+                <div style="padding: 12px; background: #fef3c7; border: 1px solid #fcd34d; border-radius: 10px; margin-bottom: 16px;">
+                    <p style="font-size: 13px; color: #92400e; margin: 0; font-weight: 600;">
+                        <i class="fas fa-shield-alt" style="margin-right: 6px;"></i>관리자 권한 부여를 위해 인증이 필요합니다
+                    </p>
+                </div>
+                <div class="input-group">
+                    <label>관리자 이메일</label>
+                    <input type="email" id="admin-verify-email" class="m-input" placeholder="관리자 이메일">
+                </div>
+                <div class="input-group">
+                    <label>관리자 비밀번호</label>
+                    <input type="password" id="admin-verify-password" class="m-input" placeholder="관리자 비밀번호">
+                </div>
+                <input type="hidden" id="admin-verify-teacher-id">
+                <input type="hidden" id="admin-verify-new-role">
+                <button class="btn-save-main" onclick="confirmAdminVerifyAndChangeRole()">인증 및 권한 변경</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 관리자 인증 모달 (관리자용) -->
+    <div id="admin-teacher-login-modal" class="modal" style="display: none;">
+        <div class="modal-card" style="max-width: 400px;">
+            <div class="modal-header">
+                <h2>관리자 인증</h2>
+                <button class="btn-close-x" onclick="closeModal('admin-teacher-login-modal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body-scrollable custom-scroll" style="padding: 20px;">
+                <p style="margin-bottom: 20px; color: var(--gray);">관리자의 이메일과 비밀번호를 입력해주세요.</p>
+                <div class="input-group">
+                    <label>이메일</label>
+                    <input type="email" id="admin-login-email" class="m-input" placeholder="관리자 이메일">
+                </div>
+                <div class="input-group">
+                    <label>비밀번호</label>
+                    <input type="password" id="admin-login-password" class="m-input" placeholder="관리자 비밀번호">
+                </div>
+                <button class="btn-save-main" onclick="confirmAdminTeacherLogin()">인증</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- QR 출석 관리 모달 -->
+    <div id="qr-attendance-modal" class="modal" style="display: none;">
+        <div class="modal-card" style="max-width: 520px;">
+            <div class="modal-header">
+                <h2><i class="fas fa-qrcode" style="color:var(--primary);font-size:15px;"></i> QR 출석 관리</h2>
+                <button class="btn-close-x" onclick="closeModal('qr-attendance-modal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body-scrollable custom-scroll">
+                <!-- 오늘 요약 -->
+                <div id="qr-today-summary" class="qr-today-summary"></div>
+                <!-- 액션 버튼 -->
+                <div style="display: flex; gap: 10px; margin-bottom: 16px;">
+                    <button class="sch-btn-primary" onclick="openQRScanPage()" style="flex:1;padding:14px;">
+                        <i class="fas fa-camera"></i> QR 스캔
+                    </button>
+                    <button class="sch-btn-primary" onclick="showStudentQRList()" style="flex:1;padding:14px;background:linear-gradient(135deg,#10b981,#059669);box-shadow:0 2px 8px rgba(16,185,129,0.25);">
+                        <i class="fas fa-qrcode"></i> QR코드 관리
+                    </button>
+                </div>
+                <div id="qr-attendance-content">
+                    <div id="today-attendance-list"></div>
+                    <div id="emergency-attendance-queue" class="emergency-attendance-queue"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- QR 스캔 페이지 (전체 화면) -->
+    <div id="qr-scan-page" class="auth-page qr-scan-page-wrap" style="display: none; background: #1e293b !important;">
+        <div class="qr-scan-layout">
+            <div class="qr-scan-main">
+                <div class="qr-scan-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <div class="qr-header-title-wrap">
+                        <h2 id="qr-fullscreen-gesture-zone" class="qr-header-title-gesture" ondblclick="toggleQRFullscreen()" ontouchend="handleQRFullscreenGestureTouch(event)" style="color: white; margin: 0;">QR 코드 스캔</h2>
+                        <div class="qr-header-gesture-hint">상단 제목을 빠르게 2번 터치하면 전체화면 전환</div>
+                    </div>
+                    <div id="qr-camera-actions" class="qr-camera-actions-panel qr-camera-actions-hidden" aria-hidden="true">
+                        <button onclick="switchCamera()" id="qr-switch-camera-btn" class="qr-top-btn qr-top-btn-info">
+                        <i class="fas fa-camera-rotate"></i> 카메라 전환
+                        </button>
+                    </div>
+                    <div style="display: flex; gap: 10px;">
+                        <button onclick="closeQRScanPage()" class="qr-top-btn qr-top-btn-danger">
+                        <i class="fas fa-times"></i> 닫기
+                        </button>
+                    </div>
+                </div>
+                <div id="qr-corner-admin-trigger" class="qr-corner-admin-trigger"
+                     ontouchstart="handleQRCornerPressStart(event)" ontouchend="handleQRCornerPressEnd(event)" ontouchcancel="handleQRCornerPressEnd(event)"
+                     onmousedown="handleQRCornerPressStart(event)" onmouseup="handleQRCornerPressEnd(event)" onmouseleave="handleQRCornerPressEnd(event)"
+                     aria-hidden="true"></div>
+
+                <div id="qr-scan-mode-qr" class="qr-scan-mode-panel active">
+                    <div id="qr-reader" style="width: 100%; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.3);"></div>
+                    <!-- 하단 결과 패널 제거: 상단 토스트만 사용 -->
+                </div>
+
+                <div id="qr-scan-mode-phone" class="qr-scan-mode-panel active">
+                    <div class="qr-phone-auth-panel">
+                        <div class="qr-phone-auth-title"><i class="fas fa-mobile-screen-button"></i> 전화번호 인증 출석</div>
+                        <div class="qr-phone-auth-desc">학생 연락처의 뒷자리 4자리를 입력해 출석 인증합니다.</div>
+                        <div class="qr-phone-auth-row">
+                            <input type="text" id="qr-phone-last4-input" class="m-input qr-phone-last4-input" placeholder="예: 1234" maxlength="4" inputmode="numeric" oninput="handlePhoneAuthInputChange(this)" onkeydown="if(event.key==='Enter') submitPhoneAttendanceAuth()">
+                        </div>
+                        <div class="qr-phone-keypad" aria-label="전화번호 입력 키패드">
+                            <button type="button" class="qr-phone-key" onclick="handlePhoneAuthKeypadKey('1')">1</button>
+                            <button type="button" class="qr-phone-key" onclick="handlePhoneAuthKeypadKey('2')">2</button>
+                            <button type="button" class="qr-phone-key" onclick="handlePhoneAuthKeypadKey('3')">3</button>
+                            <button type="button" class="qr-phone-key" onclick="handlePhoneAuthKeypadKey('4')">4</button>
+                            <button type="button" class="qr-phone-key" onclick="handlePhoneAuthKeypadKey('5')">5</button>
+                            <button type="button" class="qr-phone-key" onclick="handlePhoneAuthKeypadKey('6')">6</button>
+                            <button type="button" class="qr-phone-key" onclick="handlePhoneAuthKeypadKey('7')">7</button>
+                            <button type="button" class="qr-phone-key" onclick="handlePhoneAuthKeypadKey('8')">8</button>
+                            <button type="button" class="qr-phone-key" onclick="handlePhoneAuthKeypadKey('9')">9</button>
+                            <button type="button" class="qr-phone-key qr-phone-key-action" onclick="handlePhoneAuthKeypadAction('clear')">초기화</button>
+                            <button type="button" class="qr-phone-key" onclick="handlePhoneAuthKeypadKey('0')">0</button>
+                            <button type="button" class="qr-phone-key qr-phone-key-action" onclick="handlePhoneAuthKeypadAction('backspace')">지우기</button>
+                        </div>
+                        <div id="qr-phone-auth-result" class="qr-phone-auth-result"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 학생 QR 코드 목록 모달 -->
+    <div id="student-qr-list-modal" class="modal" style="display: none;">
+        <div class="modal-card qr-list-card">
+            <div class="modal-header">
+                <h2><i class="fas fa-qrcode" style="color:var(--primary);font-size:15px;"></i> 학생 QR 코드</h2>
+                <button class="btn-close-x" onclick="closeModal('student-qr-list-modal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="qr-list-toolbar">
+                <div class="qr-search-wrap">
+                    <i class="fas fa-search"></i>
+                    <input type="text" id="qr-student-search" placeholder="학생명으로 검색..." onkeyup="filterQRStudentList()">
+                </div>
+                <span class="qr-student-count" id="qr-student-count"></span>
+            </div>
+            <div class="modal-body-scrollable custom-scroll" style="padding-top:0;">
+                <div id="student-qr-list"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 내 정보 수정 모달 -->
+    <div id="my-info-modal" class="modal" style="display: none;">
+        <div class="modal-card" style="max-width: 460px;">
+            <div class="modal-header">
+                <h2><i class="fas fa-user-pen" style="color:var(--primary);font-size:15px;"></i> 내 정보수정</h2>
+                <button class="btn-close-x" onclick="closeModal('my-info-modal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body-scrollable custom-scroll" style="padding:20px 24px;">
+                <div class="form-group">
+                    <label>이름</label>
+                    <input type="text" id="my-info-name" class="m-input" placeholder="선생님 이름">
+                </div>
+                <div class="form-group">
+                    <label>연락처</label>
+                    <input type="text" id="my-info-phone" class="m-input" placeholder="010-0000-0000" maxlength="13" oninput="formatPhoneNumber(this)">
+                </div>
+                <div class="form-group">
+                    <label>이메일 (구글 인증)</label>
+                    <div id="my-info-email-display" style="padding:10px 14px;background:#f0fdf4;border:1px solid #86efac;border-radius:10px;font-size:13px;color:#166534;font-weight:600;display:none;">
+                        <i class="fas fa-check-circle" style="margin-right:4px;"></i> <span id="my-info-email-text"></span>
+                    </div>
+                    <div id="my-info-no-email" style="padding:10px 14px;background:#fef2f2;border:1px solid #fca5a5;border-radius:10px;font-size:13px;color:#991b1b;display:none;">
+                        <i class="fas fa-exclamation-circle" style="margin-right:4px;"></i> 이메일 미등록
+                    </div>
+                    <button type="button" onclick="startGoogleAuthForMyInfo()" style="margin-top:8px;width:100%;padding:10px 14px;background:white;border:1.5px solid var(--border);border-radius:10px;cursor:pointer;font-size:13px;font-weight:600;color:#334155;display:flex;align-items:center;justify-content:center;gap:8px;transition:all 0.15s;" onmouseover="this.style.borderColor='var(--primary)';this.style.color='var(--primary)'" onmouseout="this.style.borderColor='';this.style.color='#334155'">
+                        <svg width="16" height="16" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+                        다른 계정으로 변경
+                    </button>
+                </div>
+                <div class="form-group">
+                    <label>주소</label>
+                    <div style="display:flex;gap:8px;">
+                        <input type="text" id="my-info-address" class="m-input" placeholder="주소를 검색하세요" readonly style="flex:1;cursor:pointer;" onclick="searchAddressForMyInfo()">
+                        <button type="button" onclick="searchAddressForMyInfo()" style="padding:10px 16px;background:var(--primary);color:white;border:none;border-radius:10px;cursor:pointer;font-weight:600;font-size:13px;white-space:nowrap;">검색</button>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>상세주소</label>
+                    <input type="text" id="my-info-address-detail" class="m-input" placeholder="예: 101동 1202호">
+                </div>
+            </div>
+            <div style="padding:16px 24px;border-top:1px solid var(--border);display:flex;gap:8px;">
+                <button onclick="closeModal('my-info-modal')" style="flex:1;padding:12px;border:1.5px solid var(--border);border-radius:10px;background:white;color:var(--gray);font-size:14px;font-weight:600;cursor:pointer;">취소</button>
+                <button onclick="saveMyInfo()" style="flex:1;padding:12px;border:none;border-radius:10px;background:var(--primary);color:white;font-size:14px;font-weight:600;cursor:pointer;">저장</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 상태 변경 사유 입력 모달 -->
+    <div id="attendance-change-reason-modal" class="modal" style="display: none;">
+        <div class="modal-card" style="max-width: 480px;">
+            <div class="modal-header">
+                <h2>출석 상태 변경</h2>
+                <button class="btn-close-x" onclick="closeModal('attendance-change-reason-modal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body-scrollable custom-scroll">
+                <div style="padding: 24px;">
+                    <div class="input-group">
+                        <label>학생</label>
+                        <input type="text" id="change-student-name" class="m-input" readonly style="background: #f8fafc; color: var(--gray); cursor: not-allowed;">
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
+                        <div style="flex: 1;">
+                            <label style="display: block; font-size: 12px; color: var(--gray); margin-bottom: 6px;">기존 상태</label>
+                            <input type="text" id="change-original-status" class="m-input" readonly style="background: #f8fafc; color: var(--gray); cursor: not-allowed; text-align: center; font-weight: 700; width: 100%;">
+                        </div>
+                        <div style="padding-bottom: 6px; font-size: 20px; font-weight: 700; color: var(--primary);">→</div>
+                        <div style="flex: 1;">
+                            <label style="display: block; font-size: 12px; color: var(--primary); margin-bottom: 6px;">변경 상태</label>
+                            <input type="text" id="change-new-status" class="m-input" readonly style="background: #eef2ff; color: var(--primary); cursor: not-allowed; text-align: center; font-weight: 700; border: 2px solid var(--primary); width: 100%;">
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label>변경 사유</label>
+                        <textarea id="change-reason-text" class="m-input m-textarea" placeholder="변경 사유를 입력하세요..." maxlength="200" style="resize: none;"></textarea>
+                        <div style="font-size: 12px; color: var(--gray); margin-top: 6px; text-align: right;">
+                            <span id="change-reason-count">0</span>/200
+                        </div>
+                    </div>
+                </div>
+                <input type="hidden" id="change-student-id">
+                <input type="hidden" id="change-attendance-date">
+            </div>
+            <div class="modal-footer-actions">
+                <button class="btn-cancel" onclick="closeModal('attendance-change-reason-modal')" style="flex: 1;">
+                    <i class="fas fa-times"></i> 취소
+                </button>
+                <button class="btn-save-main" onclick="confirmAttendanceChange()" style="flex: 1; margin-top: 0;">
+                    <i class="fas fa-check"></i> 변경 저장
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 학생별 출석 기록 모달 -->
+    <div id="student-attendance-history-modal" class="modal" style="display: none;">
+        <div class="modal-card" style="max-width: 750px;">
+            <div class="modal-header" style="border-bottom: 2px solid #e2e8f0;">
+                <h2 id="attendance-history-title" style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 24px;">📊</span>
+                    <span id="attendance-student-name-title">출석 기록</span>
+                </h2>
+                <button class="btn-close-x" onclick="closeModal('student-attendance-history-modal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body-scrollable custom-scroll" style="padding: 25px;">
+                <div style="margin-bottom: 25px;">
+                    <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #475569; font-size: 14px;">조회 기간</label>
+                    <input type="month" id="attendance-history-month" class="m-input" onchange="loadStudentAttendanceHistory()" style="width: 100%; font-size: 15px; padding: 12px 16px; border: 2px solid #e2e8f0; border-radius: 10px; transition: all 0.2s;" onfocus="this.style.borderColor='var(--primary)'" onblur="this.style.borderColor='#e2e8f0'">
+                </div>
+                <div id="attendance-history-content"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 학생 재석 확인 알림 모달 -->
+    <div id="attendance-check-modal" class="modal" style="display: none; z-index: 10000;">
+        <div class="modal-card att-check-card">
+            <div class="att-check-header">
+                <div class="att-check-header-content">
+                    <span class="att-check-icon">🔔</span>
+                    <div>
+                        <h2 id="attendance-check-title">수업 시간 확인</h2>
+                        <p id="attendance-check-subtitle"></p>
+                    </div>
+                </div>
+            </div>
+            <div class="att-check-toolbar">
+                <label class="att-check-select-all">
+                    <input type="checkbox" id="att-check-select-all" onchange="toggleAllAttCheck(this.checked)">
+                    <span>전체 선택</span>
+                </label>
+                <span class="att-check-count" id="att-check-count">0명 선택</span>
+            </div>
+            <div class="modal-body-scrollable custom-scroll att-check-body">
+                <div id="attendance-check-list" class="att-check-list"></div>
+            </div>
+            <div class="att-check-footer">
+                <div class="att-check-actions">
+                    <button class="att-check-btn present" onclick="handleAttendanceCheckSelected('present')"><i class="fas fa-check"></i> 출석</button>
+                    <button class="att-check-btn late" onclick="handleAttendanceCheckSelected('late')"><i class="fas fa-clock"></i> 지각</button>
+                    <button class="att-check-btn absent" onclick="handleAttendanceCheckSelected('absent')"><i class="fas fa-times"></i> 결석</button>
+                    <button class="att-check-btn makeup" onclick="handleAttendanceCheckSelected('makeup')"><i class="fas fa-redo"></i> 보강</button>
+                </div>
+                <button class="att-check-btn-later" onclick="snoozeAttendanceCheck()">나중에 (5분 후 재알림)</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+        <div class="footer-content">
+            <span class="footer-copyright">Copyright</span>
+            <span class="footer-divider">|</span>
+            <a href="mailto:jjyown@gmail.com" class="footer-email">jjyown@gmail.com</a>
+        </div>
+    </footer>
+
+    <!-- 글로벌 토스트 알림 컨테이너 -->
+    <div id="toast-container"></div>
+
+    <!-- 글로벌 확인 다이얼로그 -->
+    <div id="confirm-dialog" class="confirm-overlay" style="display:none;">
+        <div class="confirm-card">
+            <div class="confirm-icon" id="confirm-icon">
+                <i class="fas fa-question-circle"></i>
+            </div>
+            <h3 class="confirm-title" id="confirm-title">확인</h3>
+            <p class="confirm-message" id="confirm-message"></p>
+            <div class="confirm-buttons">
+                <button class="confirm-btn cancel" id="confirm-cancel">취소</button>
+                <button class="confirm-btn ok" id="confirm-ok">확인</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Supabase와의 연동을 위한 스크립트 -->
+    <script src="supabase-config.js"></script>
+    <script src="database.js"></script>
+    <script src="auth.js"></script>
+    <script src="qr-attendance.js"></script>
+    <script src="script.js"></script>
+    <script src="js/payment.js"></script>
+    <script src="js/teacher-manage.js"></script>
+    <!-- 개발용 디버그 도구 (프로덕션에서는 자동 스킵) -->
+    <script>
+        if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
+            const s = document.createElement('script');
+            s.src = 'qr-token-test.js';
+            document.body.appendChild(s);
+        }
+    </script>
+</body>
+</html>

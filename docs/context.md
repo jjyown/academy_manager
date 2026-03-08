@@ -1,0 +1,618 @@
+# 출석관리앱 컨텍스트 노트
+
+- 문서 기준일: 2026-03-08
+
+## 제품/운영 컨텍스트
+- 대상 사용자: 교사(관리), 학생(조회)
+- 핵심 데이터: 학생, 반, 수업, 날짜, 출석상태, 수정자, 수정시각
+- 운영 제약: 중복 기록 방지, 권한 분리, 이력 추적
+
+## 현재 구조 요약
+- 프론트엔드: 정적 HTML 기반 화면(`index.html`, `grading/index.html` 등), `supabase-js` 사용
+- 백엔드: `FastAPI` 기반(`grading-server`), 결과/채점 관련 라우터 운영
+- DB/스토리지: `Supabase` 연동(클라우드 데이터 저장/조회)
+
+## 최근 의사결정 로그
+| 날짜 | 결정 | 이유 | 영향 범위 |
+|---|---|---|---|
+| 2026-03-01 | 문서 3종 중심 워크플로우 고정 | 채팅이 바뀌어도 작업 연속성 확보 | 전체 개발 프로세스 |
+| 2026-03-01 | 재채점 시 문항 데이터가 없으면 전체 재채점 fallback 허용 | 재채점 실패 케이스를 복구 가능하게 처리 | 결과 API, 재채점 UX |
+| 2026-03-01 | 브랜드명을 `하이로드 수학`으로 1차 통일 | 향후 `학원` 표기 전환 전, 브랜드 인지 우선 | 메인/결과/서브 주요 타이틀 |
+| 2026-03-01 | 리디자인 톤을 네이비 기반 + 골드 포인트로 확정 | 로고 톤을 반영하되 과도한 장식은 지양 | `style.css`, `grading/index.html`, `css/sub-shared.css` |
+| 2026-03-01 | 인라인 하드코딩 색상/문구를 2차 정리 | 1차 반영 후 잔여 색상/문구 일관성 보강 | `index.html`, `parent-portal/index.html`, `send-reset-code` |
+| 2026-03-01 | 리디자인 QA는 공개 페이지 기준(비로그인) 데스크톱+모바일(390px)으로 수행 | 배포 전 사용자 첫 진입 품질을 우선 검증 | `/`, `/grading/`, `/parent-portal/`, `/homework/` |
+| 2026-03-01 | 패치 후 빠른 재검증을 동일 조건(로컬, 390px 포함)으로 수행 | 회귀 여부를 즉시 확인해 이슈 상태를 최신화 | `/grading/`, `/homework/` |
+| 2026-03-06 | 문서 기준일은 작업일마다 재갱신(고정값 금지)으로 운영 규칙 강화 | 동일 작업 흐름에서도 날짜가 과거값으로 남는 반복 이슈 차단 | `docs/plan.md`, `docs/context.md`, `docs/checklist.md`, `.cursor/rules/workflow-doc-driven.mdc` |
+| 2026-03-06 | 학생관리 58~64차 실기기 회귀 보고를 1줄 템플릿으로 표준화 | 다교사/권한/시간키 회귀를 한 번에 누락 없이 보고하도록 강제 | `docs/checklist.md`, `docs/plan.md` |
+| 2026-03-06 | 학생관리 58~64차 실기기 점검 순서를 1->7로 표준화 | 현장 테스트 시 체크 순서 누락/중복을 줄이고 결과 품질을 균일화 | `docs/checklist.md`, `docs/plan.md` |
+| 2026-03-06 | 출석기록 카드에 처리 메타(방식/인증시간/자리확인/처리시간)를 동시 표시 | "QR 스캔 시간만 보이는" 상태로는 현장 문의 대응이 느려, 처리 경로를 카드 한 장에서 바로 설명할 수 있게 하기 위함 | `qr-attendance.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-06 | 출석기록 메타를 DB 컬럼으로 정규화(2단계)하고 앱은 레거시 폴백을 유지 | 운영 DB 반영 전후를 모두 안전하게 지원하면서, 장기적으로 처리 경로/시각 추적을 쿼리 가능한 구조로 고정하기 위함 | `ATTENDANCE_RECORD_META_UPDATE.sql`, `SUPABASE_COMPLETE_SETUP.sql`, `qr-attendance.js`, `database.js`, `docs/*` |
+| 2026-03-06 | 타교사 일정 권한 정책을 `관리자 인증 후 조회+수정 허용`으로 조정 | 현장 운영 요청이 "관리자 인증 시 바로 수정 가능"으로 변경되어, 기존 보기전용 고정 정책이 실제 운영 동선을 막았기 때문 | `script.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-06 | 묶음 블록 담당 라벨에서 `선생님` 일반 폴백을 축소 | teacher id 해석이 부분 실패해도 UUID/난독화 키가 아닌 레거시 식별자는 라벨로 유지해야 운영자가 담당자를 구분할 수 있기 때문 | `script.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-06 | 전체 일정 로드시 타교사 이름맵을 별도로 동기화 | `teacherList` 반영 타이밍 지연 시 묶음 블록 라벨이 `선생님`으로 떨어지는 문제를 줄이기 위해 owner 범위 `teachers` 조회값을 라벨 해석에 직접 사용 | `script.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-06 | 묶음 블록 라벨 해석 실패 시 교사별 별칭(`선생님A/B`)을 부여 | 실명 매핑이 누락된 환경에서도 묶음 간 담당 구분이 가능해야 운영자 오판을 줄일 수 있기 때문 | `script.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-06 | 묶음 담당 라벨을 학생-교사 매핑 점수화로 실명 우선 복원 | 교사 키 매칭만으로 실패하는 레거시 환경에서도 묶음 멤버(학생 집합)와 등록 선생님 매핑의 교집합으로 실제 담당명을 복원하기 위함 | `script.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-06 | 결석->출석 후 다시 결석으로 돌아가는 경로를 구조 이슈로 분류하고 저장/자동결석 경로를 동시 보강 | 관리자 모드 타교사 일정 편집 시 저장 `teacher_id` 불일치와 자동결석의 로컬기준 덮어쓰기가 결합되면 상태 역전이 재발할 수 있기 때문 | `script.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-06 | 레거시 teacher key를 등록 teacher id로 정규화해 라벨/상태 역전 공통 원인을 제거 | 일정 소유 키가 과거 값으로 남아 있으면 실명 라벨 복원 실패와 자동결석 teacher_id 불일치가 동시에 발생할 수 있기 때문 | `script.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-06 | 묶음 라벨 fallback을 `선생님A/B`에서 제거하고 렌더 단계 레거시 teacher key 해석을 추가 | 사용자 요구가 "등록된 선생님 실명 우선"으로 확정되어 별칭보다 실명 복원 강화를 우선하고, 복원 실패는 `담당 미확인`으로 명시하기 위함 | `script.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-06 | 날짜별 출석 동기화를 owner 전체 teacher 병합으로 전환하고, 과거 오저장 결석 그림자 레코드를 조건부 정리 | 관리자 모드 타교사 편집 이력 때문에 남아 있는 결석 레코드가 최신 출석 상태를 다시 덮는 재발 경로를 구조적으로 줄이기 위함 | `script.js`, `qr-attendance.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-06 | 단건 조회 다중 레코드는 상태 우선순위 기반으로 선택하고, 메모 저장 시 결석 강제 업서트를 금지 | 동일 학생/날짜/시간에 과거 그림자 레코드가 섞이면 단순 최신 선택/기본 결석 저장이 재역전을 만들 수 있어, 출석계열 우선 선택과 보수 저장 정책이 필요하기 때문 | `qr-attendance.js`, `script.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-06 | 묶음 라벨 해석 실패 시 멤버 후보 teacher id를 재해석하고 폴백 문구를 `미확인`으로 조정 | 같은 담당 묶음이 `담당 미확인`으로 반복 노출되던 케이스에서 멤버 기반 후보(스케줄 키/학생 교사/배정 교사)를 다시 합성해야 실명 복원률이 올라가고, CSS 접두어 `담당`과 중복 문구도 제거할 수 있기 때문 | `script.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-06 | 라벨 fallback에 모달 owner 해석 우선순위를 추가 | 사용자 화면에서 모달은 담당명이 보이는데 블록 배지가 `미확인`으로 남는 불일치를 줄이기 위해, 라벨 계산이 모달의 owner 판정 순서를 재사용하도록 정렬하기 위함 | `script.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-06 | 시간표 렌더 중단 이슈를 라벨 fallback 참조 오류로 확정하고 즉시 수정 | `resolveTeacherNameByModalPolicy`가 `ev`를 잘못 참조해 `renderDayEvents` 전체가 중단되면서 시간축/일정 블록이 사라지는 현상이 발생했기 때문 | `script.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-06 | 초기 출석 동기화 범위를 owner 전체로 확장하고 상태 우선순위 병합을 적용 | `loadAndCleanData`가 현재 교사 필터 + 최신시각 우선 병합으로 동작해 타교사 수정 출석이 결석 그림자 레코드에 의해 재역전될 수 있었기 때문 | `script.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-06 | `getAttendanceRecordsByOwner(null)`의 fallback 오동작을 수정 | 함수 내부가 `teacherId || currentTeacherId`로 되어 `null` 전달도 현재교사 필터로 좁혀졌고, 이로 인해 owner 전체 동기화 의도가 깨져 결석 재역전 경로를 남겼기 때문 | `database.js`, `script.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-06 | 묶음 일정 모달 owner fallback에서 현재교사 강제치환을 제거 | legacy owner key가 남은 묶음 일정에서 owner teacher가 현재교사로 바뀌면 저장 `teacher_id`가 schedule owner와 분리되어 결석 재역전이 반복될 수 있어, owner 슬롯 일치 우선 + 원본 owner 유지 정책으로 수정하기 위함 | `script.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-06 | 자동결석을 날짜 비교가 아닌 수업 종료시각 기준으로 판정 | 자정 넘김 수업(예: 23:30~01:10)에서 `dateStr < today` 조건만으로 조기 결석 처리되면 출석 저장 후에도 결석 재역전이 발생할 수 있기 때문 | `script.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-06 | 묶음 일정 재역전 대응으로 자동결석 DB 비교와 그림자 결석 정리를 확장 | owner teacher 기준 조회가 결석을 먼저 잡으면 owner 전체의 출석 레코드를 놓칠 수 있어, 자동결석 판단을 병합 우선순위로 바꾸고 stale absent 정리 대상을 owner teacher 외 전체 teacher_id로 넓혀야 했기 때문 | `script.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-06 | 묶음 모달에서 owner/slot 재매칭을 추가 | 박스형 일정 클릭 시 owner 해석이 어긋나면 모달이 다른 시간 슬롯(예: 18:00)을 선택해 저장될 수 있어, 요청 슬롯이 실제 존재하는 owner를 재선정하고 시간 비교를 정규화해야 했기 때문 | `script.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-06 | 묶음 일정 상태/메모 저장에 owner 슬롯 강제 보정 가드를 추가 | 묶음 일정에서 모달 시간값이 어긋날 경우 저장 `scheduled_time`이 잘못된 슬롯으로 기록되어 재조회 시 결석 재역전이 발생할 수 있어, 저장 직전에 owner 슬롯으로 보정해 정합성을 고정하기 위함 | `script.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-06 | 학생관리 82차 문서 항목 중복을 정리해 단일 검증 템플릿으로 통합 | 세션 재연결 중 동일 작업이 중복 기록되면 현장 PASS/FAIL 보고가 분산되어 회귀 판정이 어려워지므로, 82차 슬롯정합+자정넘김 검증을 한 템플릿으로 합쳐 추적성을 높이기 위함 | `docs/plan.md`, `docs/context.md`, `docs/checklist.md` |
+| 2026-03-06 | 파일 정리 1차는 코드 수정보다 안전성 점검(문법검사 + 문서 동기화)을 우선 수행 | 변경 파일이 누적된 상태에서 추가 수정 전에 실행 가능 상태를 먼저 고정해야 회귀 원인 추적이 쉬워지기 때문 | `qr-attendance.js`, `script.js`, `database.js`, `docs/*` |
+| 2026-03-01 | 일정 삭제 시 출석기록도 동일 슬롯 기준으로 함께 삭제하도록 정책 전환 | 일정만 삭제되고 출석기록이 남아 운영 화면/이력 화면이 불일치하는 문제가 반복되어, 단건/기간 삭제 경로 모두에서 일정+출석 정리를 원자적으로 맞출 필요가 있었기 때문 | `script.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-01 | 학생관리 84차 후속으로 기간/기간별 삭제 경로의 문구/정적검증을 재확인 | 커서 불안정 환경에서 일부 패치 누락 가능성을 줄이기 위해 삭제 정책 문구와 실제 코드 경로를 다시 대조하고 문법/린트 PASS를 확인해야 했기 때문 | `script.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-01 | 기간 삭제의 출석 정리는 날짜범위 일괄삭제가 아니라 스케줄 슬롯 조회 기반 정밀삭제로 보정 | 범위 전체 삭제는 일정과 무관한 출석 레코드까지 지울 위험이 있어, DB `schedules`의 실제 삭제 대상 슬롯(`schedule_date/start_time`)만 따라 삭제하도록 정책을 정밀화하기 위함 | `script.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-01 | 기간 삭제는 슬롯기반 삭제 + 날짜범위 삭제를 병행하도록 보강 | 로컬에 없는 일정 슬롯(다른 기기에서 생성/수정)까지 정리하지 않으면 출석 레코드가 잔존할 수 있어, `student/date-range/teacher` 기준 DB 일괄 삭제를 추가해 누락 경로를 차단하기 위함 | `script.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-01 | 최종 패치 재검증에서 CORS 재발은 미재현으로 판단 | `/grading/` 최초 진입 경로에서 `corsSignals`가 비어 있고 콘솔 에러도 미관측 | `/grading/` |
+| 2026-03-01 | `mathlive`를 초기 로딩에서 제거하고 수식 편집 시 지연 로딩으로 전환 | 첫 진입 안정성을 우선 확보하고 외부 스크립트 실패 영향을 기능 진입 시점으로 축소 | `grading/index.html` |
+| 2026-03-01 | `mathlive` `HEAD net::ERR_ABORTED`는 기능 차단 이슈가 아닌 경고성 신호로 분류 | 실제 모달 오픈/입력/저장/닫기 경로가 성공했고, CDN 차단 시 raw fallback 자동 전환도 확인 | `/grading/` |
+| 2026-03-01 | 서브 화면 헤더에 골드 디바이더를 추가해 브랜드 포인트를 강화 | 네이비 중심 톤 유지하면서 시그니처 색(골드) 인지성을 보완 | `/parent-portal/`, `/homework/` |
+| 2026-03-01 | `update_item` API를 허용 필드/타입 검증 방식으로 제한 | 과도한 필드 업데이트/잘못된 타입 입력으로 인한 데이터 오염 위험을 낮춤 | `grading-server/routers/results.py` |
+| 2026-03-01 | `/grading/` 첫 진입 스모크는 로컬 실접속 + 최신 리체크 리포트 기준으로 PASS 판정 | 실시간 검증에서 HTTP 200을 확인했고, `quick-recheck-report.json`에 콘솔/페이지 에러 없음 및 탭 기본 동작 PASS가 기록됨 | `/grading/`, `qa-artifacts/quick-recheck-report.json` |
+| 2026-03-01 | 결과 화면 진행률/상세 폴링에 timeout + 연속 실패 카운트 경고를 추가 | 네트워크 지연/간헐 실패 시 조용히 멈추는 문제를 줄이고 사용자에게 지연 상태를 명확히 전달 | `grading/index.html` |
+| 2026-03-01 | `regrade`/`feedback` 입력을 양의 정수/허용 타입 기반으로 정제 | 무효 ID/오류 유형/과도한 문자열 입력으로 인한 저장 오염과 예외 케이스를 초기 단계에서 차단 | `grading-server/routers/results.py` |
+| 2026-03-01 | 장시간 채점/대용량 E2E를 격리 Playwright 러너로 실행 | 루트 `package.json` 의존성 충돌을 우회해 실브라우저 계측을 완료하기 위함 | `tmp-e2e-runner`, `/grading/` |
+| 2026-03-01 | 상세 폴링 경고 토스트는 `results`만 실패할 때는 발생하지 않음을 확인 | `_pollDetailResult` 내부에서 진행률 요청 성공 시 실패 카운트가 먼저 0으로 리셋되어 경고 조건(4회)에 도달하지 못하는 경로가 있음 | `grading/index.html` 상세 폴링 |
+| 2026-03-01 | 상세 폴링 실패 카운트를 “요청 단위”가 아니라 “폴링 주기 단위(any fail)”로 누적 | `results` 단독 실패가 반복돼도 사용자 경고가 누락되지 않도록 하기 위함 | `grading/index.html` 상세 폴링 |
+| 2026-03-01 | 상세 완료 성공 토스트에 `result_id` 기준 중복 방지 가드를 적용 | 폴링 타이머 경합/연속 완료 감지 시 동일 결과에 대한 성공 토스트 반복 노출을 방지하기 위함 | `grading/index.html` 상세 폴링 |
+| 2026-03-01 | 전체 재채점(full_regrade) 시작→진행률 폴링→완료 반영 경로를 E2E로 확인 | `regradeWithKey` 분기와 `pollGradingProgress` 완료 반영(`loadResults`) 정합성을 실제 실행으로 검증하기 위함 | `grading/index.html`, `tmp-e2e-runner` |
+| 2026-03-01 | full regrade 오류를 유형별로 분리해 HTTP 상태/메시지를 명확화 | 운영 시 원인 파악 속도를 높이고 프론트 토스트가 사용자에게 더 정확한 안내를 하도록 개선 | `grading-server/routers/results.py` |
+| 2026-03-01 | full regrade 실패 분기를 모킹 하네스로 선검증 | 실데이터 대용량 검증 전에 API 상태코드/메시지 계약(502/400/400)을 빠르게 고정하기 위함 | `grading-server/routers/results.py` |
+| 2026-03-01 | 실데이터 full regrade 1건(`result_id=34`)을 재실행해 실패 신호를 확인 | 코드/모킹 검증 이후 실제 운영 데이터에서 진행률/에러메시지 반영이 일관적인지 점검하기 위함 | `/api/results/34/regrade`, `/api/grading-progress` |
+| 2026-03-01 | 브랜드 리디자인 트랙과 재채점 안정화 트랙을 문서상 분리 명시 | 사용자 관점에서 "현재 작업이 디자인 관련인지" 혼선 방지 | `docs/plan.md`, `docs/context.md`, `docs/checklist.md` |
+| 2026-03-01 | 채점 전체 timeout을 고정 5분에서 이미지 수 기반 동적 timeout으로 전환 | 대용량 이미지 채점에서 불필요한 timeout 실패를 줄이고, timeout 기준을 로그/메시지에 명시해 운영 분석성을 높이기 위함 | `grading-server/routers/grading.py`, `grading-server/config.py` |
+| 2026-03-01 | 작업 단위 완료 시 문서 3종을 매번 즉시 업데이트하는 운영 규칙을 고정 | 작업 맥락 유실 방지 및 다음 세션/다음 작업자 인계 품질 유지 | `docs/plan.md`, `docs/context.md`, `docs/checklist.md` |
+| 2026-03-01 | 동적 timeout 적용 후 실데이터 재검증을 진행했으나 운영 API 응답 지연으로 판정을 보류 | 검증 자체가 서비스 지연 영향을 받는지 먼저 분리해 판단해야 오판을 줄일 수 있음 | `/api/results`, `/api/grading-progress`, `/api/results/{id}/items` |
+| 2026-03-01 | 운영 API 응답성 재측정(5/10/20초 probe)으로 ReadTimeout이 일시 해소됨을 확인 | 네트워크/서버 지연 이슈와 채점 로직 이슈를 분리해 다음 검증 단계의 신뢰도를 높이기 위함 | `/api/results`, `/api/grading-progress`, `/api/results/34/items` |
+| 2026-03-01 | `/health/runtime` 엔드포인트를 추가해 런타임 timeout 설정을 외부에서 확인 가능하게 함 | 운영에서 코드 반영/환경변수 반영 여부를 추정이 아닌 값으로 확인하기 위함 | `grading-server/main.py` |
+| 2026-03-01 | 운영 서버 `/health/runtime`가 404임을 확인 | 동적 timeout 코드가 운영에 아직 배포되지 않았을 가능성을 실측으로 확인하기 위함 | `https://academymanager-production.up.railway.app/health/runtime` |
+| 2026-03-01 | 오류 유형별 검증을 위한 재현 픽스처 파일을 사전 생성 | 운영 샘플 부족 상태에서 동일 입력으로 반복 검증 가능하게 준비하기 위함 | `qa-artifacts/generate_regrade_fixtures.py`, `qa-artifacts/regrade-fixtures` |
+| 2026-03-01 | 런타임/재채점 통합 점검 스크립트로 운영 상태를 리포트화 | 수동 점검 반복 시 누락을 줄이고 동일 포맷으로 이력 비교하기 위함 | `qa-artifacts/run_runtime_regrade_check.py`, `qa-artifacts/runtime-regrade-check-report.json` |
+| 2026-03-01 | 배포 반영 검증 절차를 문서로 고정 | 배포 이후 누구나 동일 순서로 `/health/runtime` 반영 여부를 판정하기 위함 | `qa-artifacts/deploy-and-verify-runtime.md` |
+| 2026-03-01 | 배포 후 검증을 원클릭으로 수행하는 PowerShell 스크립트를 추가 | 배포 직후 반복 실행 비용을 줄이고 점검 누락을 방지하기 위함 | `qa-artifacts/verify_runtime_after_deploy.ps1` |
+| 2026-03-01 | 원클릭 검증 재실행에서도 `/health/runtime` 404가 지속됨을 확인 | 일시적 장애가 아닌 미배포 상태일 가능성을 높이고 배포 확인 작업을 우선순위로 고정하기 위함 | `qa-artifacts/verify_runtime_after_deploy.ps1`, `qa-artifacts/runtime-regrade-check-report.json` |
+| 2026-03-01 | 5분 내 실행 가능한 배포 체크리스트를 별도 문서로 제공 | 사용자/작업자가 즉시 따라할 수 있는 최소 절차를 분리해 커뮤니케이션 비용을 줄이기 위함 | `qa-artifacts/deployment-checklist-quick.md` |
+| 2026-03-01 | 배포 사전점검에서 로컬 변경 미커밋/미푸시 상태를 확인 | GitHub 기반 배포가 최신 코드를 반영하지 못하는 근본 원인 후보를 명시하기 위함 | `qa-artifacts/predeploy-readiness.md`, `git status -sb` |
+| 2026-03-01 | 운영 `/health/runtime` 200과 timeout 런타임 값을 확인해 배포 반영을 확정 | 동적 timeout 코드 반영 여부를 추정이 아닌 운영 응답값으로 확정하기 위함 | `https://academymanager-production.up.railway.app/health/runtime`, `qa-artifacts/runtime-regrade-check-report.json` |
+| 2026-03-01 | `trigger_regrade` 포함 통합 점검을 재실행하고 폴링 구간 ReadTimeout을 별도 리스크로 분리 | 재채점 로직 실패와 운영 응답 지연 이슈를 분리해야 후속 조치 우선순위를 정확히 정할 수 있음 | `qa-artifacts/run_runtime_regrade_check.py`, `qa-artifacts/runtime-regrade-check-report.json` |
+| 2026-03-01 | timeout 30초/6회 poll 재검증으로 "진행 신호는 있으나 응답이 간헐 타임아웃" 상태를 확정 | 재채점 로직 자체와 인프라/네트워크 지연을 분리해 추적하기 위함 | `qa-artifacts/runtime-regrade-check-report.json` |
+| 2026-03-01 | Railway 로그 근거를 반영해 timeout 분석을 "외부 호출 지연"보다 "내부 채점 단계 장기 실행" 우선으로 전환 | `result #34`에서 `[TIMEOUT] ... 400s`가 직접 관측되어, 단계별 소요시간 가시화가 우선 과제가 됨 | Railway 운영 로그, `grading-server/routers/grading.py` |
+| 2026-03-01 | 채점 단계 컨텍스트(stage/detail/elapsed)를 타임아웃·치명오류 메시지에 포함 | 재현 시 "어느 단계에서 오래 걸렸는지"를 즉시 식별해 대응 시간을 줄이기 위함 | `grading-server/routers/grading.py` |
+| 2026-03-01 | OCR 타이브레이크에 시간 보호장치(항목 상한/재시도 상한/거부응답 즉시 fallback) 추가 | 거부 응답/저신뢰 대량 케이스에서 타이브레이크가 장시간 누적되는 것을 방지하기 위함 | `grading-server/ocr/engines.py`, `grading-server/config.py` |
+| 2026-03-01 | 배포 후 `/health/runtime`에서 `ocr_tiebreak` 설정 노출을 확인 | 코드 반영 여부를 운영에서 즉시 판정하고, 이후 이슈를 배포 문제와 분리하기 위함 | `https://academymanager-production.up.railway.app/health/runtime` |
+| 2026-03-01 | 배포 후 재검증에서 `regrade_trigger=200`이지만 `results` poll 실패가 지속됨을 확정 | 채점 잡 시작 성공과 조회 API 안정성 문제를 분리해 후속 대응 포인트를 명확히 하기 위함 | `qa-artifacts/runtime-regrade-check-report.json` |
+| 2026-03-01 | 긴급 우회(`USE_GRADING_AGENT=false`) 후 timeout 미재발을 확인 | 운영 안정화를 먼저 확보하고, 이후 에이전트 단계의 근본 수정을 안전하게 진행하기 위함 | `/health/runtime`, `qa-artifacts/runtime-regrade-check-report.json` |
+| 2026-03-01 | `agent_verify`에 hard timeout/문제수 상한/잔여시간 fallback을 동시 적용 | 내부 `agent_verify` 장기 실행이 전체 timeout을 유발한 로그 근거가 있어, 에이전트 단계를 "제한된 보조 검증"으로 고정하기 위함 | `grading-server/routers/grading.py`, `grading-server/ocr/agent.py`, `grading-server/config.py`, `grading-server/main.py` |
+| 2026-03-01 | 세션 재개 시 실행 순서를 커밋/배포/검증 기준으로 고정 | 다음 세션에서 "어디서부터 다시 시작할지" 혼선을 줄이고 복구 시간을 단축하기 위함 | `docs/plan.md`, `docs/context.md`, `docs/checklist.md` |
+| 2026-03-01 | `USE_GRADING_AGENT=true` 복귀 검증에서 timeout 이전에 DB 스키마 오류를 우선 해결하기로 결정 | 재채점 트리거가 `500/PGRST204(grading_items.error_type 미존재)`로 실패하면 agent timeout 검증 자체가 성립하지 않기 때문 | `qa-artifacts/runtime-regrade-check-report.json`, `/api/results/{id}/regrade` |
+| 2026-03-01 | DB 스키마(`grading_items.error_type`) 복구 후 trigger 200 복귀를 확인 | 스키마 불일치 차단요인을 제거해 재검증을 재개하기 위함 | `qa-artifacts/runtime-regrade-check-report.json`, `grading_items` |
+| 2026-03-01 | 장시간 관측(20회 poll)에서 `results/progress` 응답 안정성을 확인 | 재채점 조회 API 불안정성(ReadTimeout 반복) 리스크가 완화되었는지 확인하기 위함 | `qa-artifacts/runtime-regrade-check-report-long.json` |
+| 2026-03-01 | 신규 제출(`result_id=35`)로 장시간 관측(30회 poll)을 추가 수행 | 기존 결과(`34`)의 즉시 확정 편향을 줄이고 실제 운영 신규 제출 경로의 안정성을 확인하기 위함 | `qa-artifacts/runtime-agent-verify-long.json` |
+| 2026-03-01 | StageTiming 직접 캡처는 로그 노이즈로 보류하고 운영 안정성 지표로 안정화 트랙을 PASS 마감 | 의사결정 지연보다 운영 안정성 확보와 다음 핵심 기능(학생/수납) 전환이 더 중요하다고 판단 | `qa-artifacts/runtime-agent-verify-long.json`, `docs/plan.md` |
+| 2026-03-01 | 수납관리 설계의 1차 기준을 "세무 신고 편의 + 운영 실무성"으로 확정 | 교습소 초기 운영에서는 자동화보다 누락 없는 원장(ledger)과 증빙 추적성이 더 중요하기 때문 | `docs/plan.md`, 수납관리 차기 트랙 |
+| 2026-03-01 | 결제 채널(결제선생/Bizzle)은 기능 우위보다 월마감 대사 효율 기준으로 선택 | 초기 운영 리스크는 결제 실패보다 정산/증빙 불일치가 크므로, 대사 시간과 오류율을 1차 KPI로 둠 | 수납관리 트랙, 결제 채널 파일럿 |
+| 2026-03-01 | API 미도입 초기안으로 3채널(결제선생/비즐/사업자통장) 역할 분리 운영을 채택 | 결제선생 초기 비용/비즐 비대면 제약을 고려해 비용 최소화 + 운영 안정성을 우선 확보하기 위함 | 수납관리 트랙, 운영 원장(v1) |
+| 2026-03-01 | 수납 화면은 "원장 입력/상태배지"를 1순위, "사진+AI 보조입력"을 2순위로 단계 적용 | 초기에는 누락 없는 원장 확정이 핵심이며, AI는 보조입력으로 도입해 오인식 리스크를 통제하기 위함 | 학생/수납 화면 설계, 운영 SOP |
+| 2026-03-01 | 1순위 구현에서 카드 상태를 `청구됨/부분수납/완납/미확인입금`으로 고정하고 원장 모달 입력 흐름을 추가 | 세무/운영 관점에서 월마감 누락을 줄이려면 상태 가시성과 거래참조 입력 강제가 선행되어야 하기 때문 | `index.html`, `js/payment.js`, `style.css`, `mobile.css` |
+| 2026-03-01 | 2순위 구현으로 `증빙+AI` 업로드→AI 추출→검토 팝업→사용자 확정 저장 흐름을 적용 | AI는 입력 보조로만 사용하고 최종 확정권한은 사용자에게 유지해 오인식 리스크를 통제하기 위함 | `index.html`, `js/payment.js`, `grading-server/routers/misc.py` |
+| 2026-03-01 | 3순위 구현에서 일마감 요약/채널별 합계/월마감 CSV를 모두 프론트에서 즉시 생성 가능하게 적용 | 사업자/실결제 연동 전에도 내부 원장 데이터만으로 운영 리허설과 세무 산출물 검증을 진행할 수 있게 하기 위함 | `index.html`, `js/payment.js`, `style.css`, `mobile.css` |
+| 2026-03-01 | 미확인입금 상태에서는 학생 미선택 저장을 허용하고 별도 큐(localStorage)로 분리 저장 | 미확인입금의 정의(입금은 있으나 학생 미매칭)와 UI 동작을 일치시키기 위함 | `js/payment.js`, `index.html` |
+| 2026-03-01 | UI 잘림 이슈는 대규모 리디자인 대신 즉시 패치(펼침 자동 스크롤/overflow/모바일 높이)로 처리 | 운영 빈도가 높은 수납 화면에서 입력 필드 가려짐은 데이터 누락 리스크가 크므로 빠른 안정화가 우선 | `js/payment.js`, `style.css`, `mobile.css` |
+| 2026-03-01 | 노트북 좁은 높이/너비에서는 마감 요약 패널을 기본 접힘(컴팩트)으로 시작하도록 보강 | 상단 요약 패널이 리스트 가시영역을 과도하게 차지하는 문제를 줄여 카드 가독성과 스크롤 접근성을 확보하기 위함 | `index.html`, `js/payment.js`, `style.css`, `mobile.css` |
+| 2026-03-01 | 수납 모달 기본 폭을 데스크톱/노트북 중심으로 확대(900~960px) | 모바일 사용 빈도보다 데스크톱 수납 작업 중요도가 높아, 한 화면에서 카드/요약/버튼 가시성을 우선 확보하기 위함 | `style.css` |
+| 2026-03-01 | 미확인입금 큐 목록에서 학생 매칭/삭제 액션을 직접 처리하는 UI를 추가 | 미확인입금 저장 후 후속 정리를 화면 내에서 바로 끝낼 수 있어 운영 누락을 줄이기 위함 | `index.html`, `js/payment.js`, `style.css`, `mobile.css` |
+| 2026-03-01 | 카드 상세 영역에 내부 세로 스크롤을 추가해 겹침/잘림 상황을 완화 | 카드 높이를 무한 확장하기보다 안정적으로 스크롤 가능한 입력 영역으로 만들어 노트북 화면에서도 조작성을 보장하기 위함 | `js/payment.js`, `style.css`, `mobile.css` |
+| 2026-03-01 | 카드를 아코디언(동시 1개 펼침)으로 바꾸고 펼침 카드 시각 강조를 추가 | 여러 카드를 동시에 열 때 목록이 밀리고 잘림처럼 보이는 체감 문제가 커서, 동시 펼침을 제한해 조작 안정성을 높이기 위함 | `js/payment.js`, `style.css`, `mobile.css` |
+| 2026-03-01 | 카드 상세를 오버레이 표시로 전환하고 자동 스크롤 계산을 상세 높이 기준으로 재조정 | 카드 확장 시 하단 학생 카드가 밀리는 구조적 문제를 줄이고, 하단 잘림 체감을 완화하기 위함 | `js/payment.js`, `style.css`, `mobile.css` |
+| 2026-03-01 | AI 수납 추출에 선택형 다건 모드(`single`/`multi`)를 추가하고 검토/일괄 저장 흐름을 분리 | 한 장 이미지에 결제내역이 여러 건인 실사용 케이스를 개별 업로드 없이 처리하기 위함 | `grading-server/routers/misc.py`, `index.html`, `js/payment.js`, `style.css`, `mobile.css` |
+| 2026-03-01 | 문서 기준 현재 메인 트랙을 학생/수납 대규모 업데이트로 재확정 | 재채점 안정화 트랙은 PASS 마감 상태이며, 실제 구현 우선순위는 수납 운영/세무 편의 기능으로 이동했기 때문 | `docs/plan.md`, `docs/context.md`, `docs/checklist.md` |
+| 2026-03-01 | 수납(매출)과 비용(지출)을 화면 탭으로 분리하고 월마감 관점에서 연결하기로 결정 | 입력 필드/검증 규칙이 다른 데이터를 한 화면에 섞으면 실수와 복잡도가 증가하기 때문 | `index.html`, `js/payment.js`, `style.css`, `mobile.css` |
+| 2026-03-01 | 비용 원장은 Supabase 테이블이 준비된 경우 자동 동기화하고, 미구성 환경에서는 로컬 폴백으로 유지 | 초기 배포 환경 편차(테이블 미생성)에서도 기능 중단 없이 운영을 지속하기 위함 | `js/payment.js` |
+| 2026-03-01 | 비용 원장 DB/RLS 적용 절차를 별도 SQL 파일로 고정 | 운영 적용 시 누락(테이블 생성, RLS 활성화, 정책 생성, schema reload)을 한 번에 방지하기 위함 | `EXPENSE_LEDGER_SETUP.sql` |
+| 2026-03-01 | 롤플레잉 요청 시 관련 전문가 의견을 기본 포함하고 문서 3종에도 반영하기로 결정 | 사용자 요구사항(전문가 의견 상시 기록)과 세션 간 일관성을 유지하기 위함 | `.cursor/rules/expert-roleplay-doc-logging.mdc`, `docs/plan.md`, `docs/context.md`, `docs/checklist.md` |
+| 2026-03-01 | 사용자 상황이 명시되지 않아도 요청 맥락에 맞는 전문가를 자동 선택하기로 결정 | 사용자의 추가 설정 부담을 줄이고, 롤플레잉 품질/일관성을 높이기 위함 | `.cursor/rules/expert-roleplay-doc-logging.mdc`, `docs/plan.md`, `docs/context.md`, `docs/checklist.md` |
+| 2026-03-01 | 탭 숨김은 공통 `.hidden` 유틸에 의존하도록 명시하고, 누락된 유틸을 추가하기로 결정 | 비용 탭에서 수납 영역이 동시에 보이는 UI 혼선을 즉시 제거하고 탭 전환 동작을 일관화하기 위함 | `style.css`, `index.html`, `js/payment.js` |
+| 2026-03-01 | 일마감 대사는 외부 채널 실합계를 월 기준 수동 입력받고 내부 원장 대비 차이를 즉시 계산해 표시하기로 결정 | API 미연동 초기 운영 단계에서 대사 누락을 줄이되, 사용자가 채널별 불일치를 즉시 확인/정정할 수 있게 하기 위함 | `index.html`, `js/payment.js`, `style.css`, `mobile.css` |
+| 2026-03-01 | 인건비/강사비는 비용 탭에서 조건부 상세 필드를 노출하고, 상세값은 메모에 구조화 문자열로 저장하기로 결정 | 기존 `expense_ledgers` 스키마 호환을 유지하면서 지급대상/지급월/공제 정보를 누락 없이 함께 기록하기 위함 | `index.html`, `js/payment.js`, `style.css`, `mobile.css` |
+| 2026-03-01 | 수납/비용 모두 세무 공통 필드(공급가액/세액/증빙유형/증빙번호)를 필수 입력 흐름에 포함하기로 결정 | 월마감 후 세금신고 자료를 별도 재정리하지 않고 CSV로 바로 검토 가능하게 하기 위함 | `index.html`, `js/payment.js` |
+| 2026-03-01 | 비용 원장 세무 필드는 Supabase 컬럼(`supply_amount/vat_amount/evidence_type/evidence_number`)으로 우선 동기화하고, 미마이그레이션 환경은 메모 메타 fallback으로 유지 | 운영 DB 반영 전에도 기능 중단 없이 동작하면서, 반영 후에는 메모 파싱 의존을 줄여 다중 기기 동기화 정확도를 높이기 위함 | `js/payment.js`, `EXPENSE_LEDGER_SETUP.sql` |
+| 2026-03-01 | 월 원장/수단별 CSV에 선택형 부가섹션(대사차이/인건비상세 메타)을 추가 | 원장 기본 컬럼은 유지하면서 운영자가 필요할 때만 정산 보조정보를 함께 내보내 회계 전달 편의성을 높이기 위함 | `index.html`, `js/payment.js`, `style.css`, `mobile.css` |
+| 2026-03-01 | 수납/비용 입력 모달에서 직접입력/자동계산/AI추출을 시각적으로 분리하고, 자동 계산값은 읽기전용으로 고정 | 사용자가 “어디를 입력해야 하는지” 즉시 이해하고 세무 핵심값 오입력을 줄이기 위함 | `index.html`, `js/payment.js`, `style.css`, `mobile.css` |
+| 2026-03-01 | 어려운 세무 용어는 쉬운 라벨로 병기하고, 주요 용어는 마우스오버 툴팁으로 즉시 설명 제공 | 일반 사용자(비회계)도 입력 지점을 이해해 입력 누락/오해를 줄이고, 회계사 전달 전에 용어 혼선을 낮추기 위함 | `index.html`, `style.css`, `mobile.css` |
+| 2026-03-01 | 용어 도움말을 클릭형 팝업으로 확장하고 모바일/키보드 접근(Enter/Space/Esc)을 지원 | 터치 환경에서 hover 한계를 보완하고, 접근성/사용성을 함께 확보하기 위함 | `js/payment.js`, `style.css`, `mobile.css` |
+| 2026-03-01 | 실사용 빈도가 높은 텍스트를 일반 표현으로 통일(`결제채널→결제경로`, `거래참조ID→거래확인번호`, `미확인입금 큐→입금 확인대기함`) | 비회계/비개발 사용자도 용어 의미를 직관적으로 이해하도록 하기 위함 | `index.html`, `js/payment.js` |
+| 2026-03-01 | `대사 차이 합계`를 `장부와 실제 합계 차이`로 바꾸고 보조 설명을 함께 노출 | 운영자가 “대사” 용어를 몰라도 숫자의 의미(장부-실제 차이)를 즉시 이해하도록 하기 위함 | `index.html`, `js/payment.js`, `style.css`, `mobile.css` |
+| 2026-03-01 | 인건비 신고친화 설계는 주민번호 미저장 원칙으로 유지하고, 앱에는 최소 신고 필드만 저장하기로 결정 | 개인정보/보안 리스크를 줄이면서도 회계사 제출 준비에 필요한 데이터(지급대상/소득유형/지급월/세액)를 확보하기 위함 | `docs/plan.md`, `docs/context.md`, `docs/checklist.md` |
+| 2026-03-01 | 면세/과세 기본값은 고정 강제가 아니라 거래 성격 기반 선택 + 저장 검증 방식으로 운영하기로 결정 | 업종/거래별 과세 처리 차이를 반영하지 않으면 월마감 정합성 오류가 누적될 수 있기 때문 | 수납/비용 저장 검증 로직(후속 구현) |
+| 2026-03-01 | 수납 화면에 교습소 기준 신고 일정 안내를 상시 노출하고, 기간/대상(인건비 지급 여부) 기반으로 신고 완료 확인창을 자동 표시 | 초보 운영자가 신고 시점을 놓치지 않게 하고, “완료 처리” 기록을 남겨 반복 알림 피로를 줄이기 위함 | `index.html`, `js/payment.js`, `style.css`, `mobile.css` |
+| 2026-03-01 | 수납 모달 요약 패널 자동 접힘 기준을 보수적으로 조정하고, 사용자 선택(접기/펼치기)을 owner 기준으로 기억하도록 변경 | 노트북/일반 해상도에서 요약이 과도하게 접히고 학생 목록 스크롤이 안 되는 체감 이슈를 줄이기 위함 | `js/payment.js`, `style.css` |
+| 2026-03-01 | 월별 세무 체크카드(비용 증빙 정리/인건비 지급/전월 원천세 확인)를 추가하고 monthKey 기준으로 저장 | “연간 일정”만으로는 월 운영 누락이 생기므로 월 체크 루틴을 화면에서 바로 처리하도록 하기 위함 | `index.html`, `js/payment.js`, `style.css`, `mobile.css` |
+| 2026-03-01 | 비용 모달 인건비 입력을 소득유형(비율제강사/월급제강사) 기반으로 분기하고, 비율제는 3.3%(원천세 3.0 + 지방소득세 0.3) 자동 계산 규칙을 기본 적용 | 사용자(비전문가)가 어떤 항목을 직접 입력해야 하는지 혼동하지 않도록 입력 책임(직접/자동)을 분리하고, 세무상 자주 틀리는 원천세 계산을 기본 자동화하기 위함 | `index.html`, `js/payment.js`, `style.css`, `mobile.css` |
+| 2026-03-01 | 수납 탭을 데스크톱 기준 2열로 재배치(좌측 운영/세무 블록, 우측 학생목록 독립 스크롤)하고 결제 모달 폭을 확대 | 세무/요약 정보가 늘어나 학생카드가 하단으로 밀리는 문제를 해소하고, 수납 실작업(학생 선택/수정) 가시성을 최우선으로 유지하기 위함 | `index.html`, `style.css`, `mobile.css` |
+| 2026-03-01 | 2열 레이아웃의 좌측 패널에 독립 스크롤을 추가해 요약 확장 시 하단 잘림을 방지 | 일마감/월마감 요약과 신고 안내가 길어져도 좌측 영역 전체를 스크롤로 탐색할 수 있어 정보 누락/가려짐을 줄이기 위함 | `style.css` |
+| 2026-03-01 | 요약 패널에 월별 노무 체크리스트/회계 체크리스트를 추가하고 기존 monthKey 저장맵(`payment_tax_monthly_checklist`)으로 함께 관리 | 초보 운영자가 월말에 놓치기 쉬운 노무(소득유형/원천세/보험)와 회계(대사/증빙/CSV/전달) 확인 절차를 화면에서 즉시 점검하도록 하기 위함 | `index.html`, `js/payment.js`, `style.css` |
+| 2026-03-01 | 세무/노무/회계 체크리스트를 “현재 월 + 인건비 지급 여부 + 원천세 점검기간(매월 1~20일)” 조건으로 활성화하고, 비활성 항목은 이유 문구를 노출 | 사용자가 “지금 무엇을 체크해야 하는지”만 보게 해 초보 운영 환경에서 선택 피로와 오판을 줄이기 위함 | `js/payment.js` |
+| 2026-03-01 | AI 수납 증빙 추출 시 원본 이미지를 Google Drive `수납증빙/YYYY/MM/DD/항목` 경로로 자동 저장하고, 저장 경로를 원장 메모(`[드라이브증빙]`)에 남기도록 결정 | AI 추출 결과와 원본 증빙의 연결성을 확보해 월마감 누락/오입력 재검증을 쉽게 하기 위함 | `grading-server/routers/misc.py`, `js/payment.js` |
+| 2026-03-01 | Drive 자동 저장 경로에 학원/owner 상위 폴더를 추가(`수납증빙/학원명또는owner/YYYY/MM/DD/항목`) | 다수 사용자 운영 시 증빙이 섞이지 않게 분리하고, 회계사 전달/감사 추적 시 소유자 구분을 명확히 하기 위함 | `grading-server/routers/misc.py` |
+| 2026-03-01 | 학생등록 저장 검증을 "이름/등록일/연락처 1개 이상 + 연락처 형식"으로 강화하고 동일 학생 의심 중복(이름+학년+연락처) 저장을 차단 | 학생관리 1차 단계에서 데이터 품질을 먼저 높여 출석/숙제/수납 연동 시 정합성 오류를 줄이기 위함 | `index.html`, `script.js` |
+| 2026-03-01 | 학생관리 2차에서 일정 삭제 모달에 "삭제 예정 건수" 미리보기를 추가하고, 학생 이력 모달에 월별 테스트 점수 입력/추이 UI를 포함 | 백엔드/프론트/교육운영 전문가 공통 의견: 운영자는 삭제 영향(건수)을 먼저 확인해야 실수를 줄일 수 있고, 성적은 월별 누적과 변화 신호를 한 화면에서 보아야 상담/숙제 피드백 품질이 높아짐 | `index.html`, `script.js`, `style.css`, `mobile.css` |
+| 2026-03-03 | 문서 날짜를 실제 작업일 기준으로 갱신하고, 학생관리 3차 우선순위를 "점수 동기화→스키마 확장→통합 상세"로 정렬 | 사용자 요청(문서 날짜 반영)과 다음 작업 착수 시 혼선을 줄이기 위함 | `docs/plan.md`, `docs/context.md`, `docs/checklist.md` |
+| 2026-03-04 | 테스트 점수 기능을 Supabase 원격 저장 우선 구조로 확장하고, 실패 시 로컬 폴백을 유지 | 다기기 운영(원격 동기화)과 장애 대비(로컬 폴백)를 동시에 확보하기 위함. SQL 미적용 환경에서도 기능이 중단되지 않게 함 | `database.js`, `script.js`, `STUDENT_TEST_SCORE_SETUP.sql` |
+| 2026-03-04 | 학생 스키마를 `재원상태/시작일/종료일/보호자` 기준으로 확장하고, DB 컬럼 미적용 환경은 메모 메타 폴백으로 처리 | 운영 DB 마이그레이션 전후 모두에서 저장 실패를 줄이고, 폼 입력 품질(필수/기간 검증)을 먼저 고정하기 위함 | `index.html`, `script.js`, `database.js`, `SUPABASE_COMPLETE_SETUP.sql`, `STUDENT_SCHEMA_UPDATE.sql` |
+| 2026-03-04 | 학생 이력 모달에 월별 통합 요약(출석/숙제/수납/테스트) 카드를 추가하고, 기록 없는 달에도 요약/평가/점수 섹션을 유지 | 학생 상담/운영 동선을 단일 화면으로 줄이고 "이번 달 기록 없음" 상황에서도 핵심 관리 액션(평가 입력/점수 입력)을 계속 수행할 수 있게 하기 위함 | `index.html`, `script.js`, `style.css`, `mobile.css` |
+| 2026-03-04 | 일정 삭제 모달에 실시간 영향 경고(범위/학생수/건수/월범위)와 상세 확인문구를 추가 | 삭제 작업은 되돌리기 어려워 사전 인지정보가 부족하면 운영 실수가 커지므로, 삭제 직전 의사결정 정보를 단계별로 제공하기 위함 | `index.html`, `script.js`, `style.css`, `mobile.css` |
+| 2026-03-04 | 학생관리 우선순위를 "현장 실패 방지 → 데이터 신뢰성 → 운영 효율 → 고도화" 순으로 재정렬 | 사용자 운영 리스크(일정 누락 시 QR 실패)를 최우선으로 줄이고, 이후 동기화/권한/커뮤니케이션 정합성을 단계적으로 확보하기 위함 | `docs/plan.md`, `docs/context.md`, `docs/checklist.md` |
+| 2026-03-04 | 출석 주체 구분은 신규 컬럼 도입보다 기존 `qr_scanned/check_in_time` 조합을 우선 활용하고, 수동 체크 시 `check_in_time`을 반드시 기록하도록 보강 | 운영 DB 추가 마이그레이션 없이 즉시 적용 가능하고, 기존 데이터와도 호환되며 사용자 요청(학생 QR vs 선생님 체크 구분)을 바로 충족할 수 있기 때문 | `script.js`, `qr-attendance.js`, `index.html`, `style.css` |
+| 2026-03-04 | QR 긴급출석 1차는 일정 미등록 시 임시출석을 허용하되, 기존 출석기록(특히 `qr_scanned`)이 있으면 먼저 `already_processed`로 종료 | 사용자가 우려한 "실수로 반복 스캔 시 임시출석 중복 생성"을 방지하고, 출석 흐름 복구와 데이터 중복 방지를 동시에 달성하기 위함 | `qr-attendance.js` |
+| 2026-03-04 | 임시출석 확정 워크플로우는 QR 모달 내부 대기함에서 건별 확정/사유입력 방식으로 1차 도입하고, 확정 시 `qr_judgment`와 `memo`에 감사 로그를 남기도록 결정 | 새로운 테이블 없이 기존 스키마에서 즉시 운영 가능하며, "누가 어떤 사유로 확정했는지" 추적 근거를 빠르게 확보할 수 있기 때문 | `index.html`, `style.css`, `mobile.css`, `script.js`, `qr-attendance.js` |
+| 2026-03-04 | 임시출석 확정 워크플로우 2차로 확정자(교사명) 기록, 조회기간 필터(7/14/30일), 다중 선택 일괄확정을 추가 | 현장 운영에서 처리자 추적성과 작업 속도를 동시에 높이고, 대기 건이 많을 때 반복 클릭 부담을 줄이기 위함 | `qr-attendance.js`, `style.css`, `mobile.css` |
+| 2026-03-04 | 일정 누락 사전 예방 1차로 QR 모달 당일 누락 경고, QR 진입 전 경고 확인창, 일정등록 빠른제안(오늘 날짜+미등록 학생 자동선택)을 추가 | 일정 등록 누락으로 임시출석이 누적되는 운영 리스크를 스캔 "사전 단계"에서 줄이고, 즉시 복구 동선을 제공하기 위함 | `script.js`, `qr-attendance.js`, `style.css`, `mobile.css` |
+| 2026-03-04 | 학생 상세 통합 화면 액션화 1차로 통합 요약 카드에 도메인별 즉시 조치 버튼(출석/평가/수납/테스트)을 추가 | 조회 후 다시 메뉴를 찾는 왕복 동선을 줄여, 학생 상담/관리 상황에서 "확인→조치" 전환 시간을 단축하기 위함 | `script.js`, `style.css`, `mobile.css` |
+| 2026-03-04 | 테스트 점수 동기화 운영 검증 1차로 동기화 상태 배지와 원격 저장→조회→삭제 자동 점검 버튼을 추가 | SQL/RLS 적용 이후 운영 환경에서 동기화 상태를 즉시 확인하고, 실패 시 로컬 폴백 사실을 화면에서 명확히 인지하도록 하기 위함 | `index.html`, `script.js`, `style.css`, `mobile.css` |
+| 2026-03-04 | 태블릿 가로모드 QR 화면 우측에 전화번호 뒷자리 4자리 출석 인증 패널을 추가하고, 기존 QR 출석 엔진에 동일하게 연결 | 당장 현장에서 QR 미지참/촬영 지연 상황에서도 출석 흐름을 멈추지 않게 하고, 일정 누락/중복 처리/임시출석 확정 워크플로우를 하나의 엔진으로 유지해 회귀를 줄이기 위함 | `index.html`, `qr-attendance.js`, `style.css`, `mobile.css` |
+| 2026-03-04 | 일정생성 모달 선택 학생 칩의 `x` 중복 표시를 스타일 레이어에서 제거 | 기능 로직 변경 없이 UI 중복만 정리해 즉시 현장 혼란(오작동 오인)을 줄이기 위함 | `style.css` |
+| 2026-03-04 | 운영 SQL 반영 검증을 위해 학생관리 전용 검증 쿼리 2종을 별도 파일로 분리 | Supabase SQL Editor 수동 실행 시 검증 누락을 줄이고, "실행 후 정상 판정 기준"을 작업자 간 동일하게 맞추기 위함 | `STUDENT_TEST_SCORE_VERIFY.sql`, `STUDENT_SCHEMA_VERIFY.sql`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-04 | QR 출석 모달 상단을 `오늘 운영 대시보드`로 확장하고 즉시조치 버튼(스캔/누락등록/임시확정 보기)을 추가 | 기능은 이미 충분하나 운영자가 "지금 무엇을 먼저 처리해야 하는지"를 즉시 판단하도록 정보/조치를 한 영역에 묶어 인지부하를 줄이기 위함 | `script.js`, `qr-attendance.js`, `style.css`, `mobile.css` |
+| 2026-03-04 | 출석체크 화면을 3탭(QR/전화번호/수동체크)으로 단순화하고, 탭 전환에 맞춰 카메라 스캐너 수명주기를 제어 | 한 화면에 기능이 동시에 보이는 복잡도를 줄이고, 사용자가 현재 작업 모드를 명확히 인지하도록 하면서 카메라 리소스 점유를 안정적으로 관리하기 위함 | `index.html`, `qr-attendance.js`, `style.css`, `mobile.css` |
+| 2026-03-04 | 10인치 태블릿 전체화면 사용성을 위해 QR 모드에서 카메라+전화번호 입력 패널 동시 표시(듀얼 모드) 적용 | 현장 요구가 "한 화면에서 동시에 보기"에 집중되어 있어, 기능 전환 탭 클릭 없이 즉시 스캔/번호인증을 병행할 수 있도록 조작 단계를 줄이기 위함 | `index.html`, `qr-attendance.js`, `style.css` |
+| 2026-03-04 | 학생용 출석 화면에서 수동체크 노출을 제거하고 QR+번호입력 2패널 고정형으로 재구성 | 학생 오조작 위험을 줄이기 위해 학생 화면의 조작권한을 최소화하고, 출석 입력 수단은 QR/번호 두 경로만 유지해 UX를 단순화하기 위함 | `index.html`, `qr-attendance.js`, `style.css` |
+| 2026-03-04 | 10인치 태블릿 실사용을 고려해 출석 화면 터치 타겟(버튼/입력)과 타이포 스케일을 2차로 확대 | 전체화면 운영에서 빠른 반복 입력 시 오터치/가독성 저하를 줄이고, 학생이 직접 사용하는 입력 패널의 조작성과 신뢰감을 높이기 위함 | `index.html`, `style.css`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-04 | 전화번호 입력 시 키보드 오버레이로 패널이 가려지는 문제를 `visualViewport` 기반 동적 보정으로 완화 | 10인치 태블릿 전체화면에서 숫자패드가 올라올 때 입력창/버튼 접근이 막히는 체감 이슈를 줄이기 위함 | `qr-attendance.js`, `style.css`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-04 | 운영 검증 SQL의 placeholder UUID 미치환 오류를 방지하도록 검증 쿼리를 안전 파라미터 방식으로 수정 | SQL Editor에서 복붙 실행 시 `invalid input syntax for type uuid`가 반복되면 운영 검증 단계가 중단되므로, 치환 여부와 무관하게 실행 가능하도록 안정성을 우선 확보하기 위함 | `STUDENT_TEST_SCORE_VERIFY.sql`, `STUDENT_SCHEMA_VERIFY.sql`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-04 | 학생 스키마 검증 쿼리에서 `updated_at` 컬럼 의존을 제거해 구버전 students 테이블과 호환되게 수정 | 운영 DB 스키마 편차로 `column "updated_at" does not exist`가 발생하면 검증 단계가 멈추므로, 공통 컬럼만 사용하는 안전 쿼리로 전환하기 위함 | `STUDENT_SCHEMA_VERIFY.sql`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-04 | 운영 SQL 반영 검증 결과를 PASS로 확정(`STUDENT_TEST_SCORE_SETUP`, `STUDENT_SCHEMA_UPDATE`) | SQL Editor 실행 성공 및 정책/샘플조회 결과를 확인했으므로, 우선순위 항목에서 SQL 반영 검증을 완료 처리하고 남은 범위를 앱 실데이터 시나리오로 축소하기 위함 | `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-04 | 학생 목록 카드에서 이력/점수 입력으로 바로 진입하는 퀵 액션을 추가 | 사용자가 "테스트 점수 저장 버튼 위치"를 찾기 어렵다는 피드백을 해소하고, 학생 목록→점수 입력까지 클릭 수를 줄이기 위함 | `script.js`, `style.css`, `mobile.css`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-04 | 재석확인 팝업 노출 전에 일정 유효성(오늘/시각/실제 일정 잔존)을 재검증하도록 보강 | 일정 이동(예: 오늘 19시 → 금요일 18시) 직후에도 기존 대기 큐가 남아 오탐 팝업이 뜨는 현상을 방지하기 위함 | `qr-attendance.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-04 | 다음 우선 작업을 테스트 점수 앱 실데이터 운영 검증(저장/조회/삭제)으로 고정 | SQL/RLS 및 스키마 반영 검증은 완료되어, 실제 사용자 흐름 기준 동작 검증으로 최종 리스크를 줄이는 단계가 남았기 때문 | `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-04 | 테스트 점수 앱 실데이터 검증을 자동화로 선시도하고, 로그인 차단 시 BLOCKED로 기록 | 인증 없이는 학생관리/점수 입력 화면까지 진입할 수 없어 검증 신뢰도가 떨어지므로, 차단 요인을 문서에 명시해 재시도 조건(운영 계정)을 고정하기 위함 | `docs/plan.md`, `docs/context.md`, `docs/checklist.md` |
+| 2026-03-04 | 학생용 QR 출석 화면 종료를 선생님 PIN 재인증으로 잠그는 권한 분리 2차를 적용 | 학생이 태블릿에서 닫기 버튼으로 운영 화면으로 이탈할 수 있는 UX 리스크를 구조적으로 차단하기 위함 | `qr-attendance.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-04 | 재석확인 팝업 자동닫힘 판정을 전체 큐 기준에서 "현재 선생님/현재 timeKey" 기준으로 변경 | 다른 선생님 대기건 때문에 현재 화면에서 출석 처리 후에도 팝업이 닫히지 않는 운영 장애를 제거하기 위함 | `qr-attendance.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-04 | 재석확인 팝업 닫힘 로직에 UI 기준 보조 판정을 추가 | 비동기 저장 타이밍으로 큐 상태와 화면 체크박스 상태가 잠깐 어긋나도 팝업이 잔류하지 않게 하기 위함 | `qr-attendance.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-04 | QR 중복 판정에서 `scheduled_time` 불일치 레코드 폴백을 선택적으로 끌 수 있게 확장하고, QR 스캔 경로는 엄격 일치로 적용 | 일정 삭제/재등록 후 같은 시간대에서 과거(또는 임시출석) 레코드가 `already_processed`로 오탐되는 문제를 줄이기 위함 | `qr-attendance.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-04 | 하루 다중 일정 운영 점검을 별도 시나리오(A~D)로 표준화 | 단건 재현으로는 경계 케이스를 놓치기 쉬워, 시간 경계/재등록/임시출석 혼합까지 고정된 테스트 세트로 검증 범위를 명확히 하기 위함 | `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-04 | 전화번호 인증 경로를 QR 토큰 만료 검증과 분리 | 전화번호 인증은 실물 QR 코드 스캔이 아니므로 DB/로컬 토큰 불일치로 `만료된 QR코드`를 띄우는 것은 정책상 부적절하기 때문 | `qr-attendance.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-04 | 출석 판정에 2분 그레이스 윈도우를 도입 | 현장 운영에서 시작 직후(예: 8:01) 지각 판정 체감 이슈가 반복되어, 판정 신뢰도와 재처리 비용을 함께 개선하기 위함 | `qr-attendance.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-04 | 32차 실기기 검증 결과를 한 줄 템플릿으로 수집 | 운영자가 채팅으로 빠르게 PASS/FAIL을 전달해도 항목 누락 없이 문서에 반영하기 위함 | `docs/checklist.md`, `docs/plan.md`, `docs/context.md` |
+| 2026-03-04 | 무일정/재등록 경계에서 `already_processed` 기준을 상태 중심으로 축소하고 일정 조회를 현재 선생님 기준으로 제한 | `absent` 기록까지 처리완료로 간주되거나 타 선생님 일정이 섞여 `결석/이미처리` 오탐이 나는 문제를 줄이기 위함 | `qr-attendance.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-04 | 시간표 상세 화면에서 임시출석을 별도 배너로 가시화 | 임시출석은 `schedules` 기반 블록에 포함되지 않아 화면이 비어 보이는 혼선을 줄이기 위함 | `script.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-04 | 전화번호 인증(`phone_last4`)은 QR 토큰 만료 검증을 건너뛰도록 분리 | 전화번호 인증은 학생 식별을 번호 매칭으로 수행하므로 QR 실물코드 토큰 재발급 상태와 강결합하면 `만료` 오탐이 발생하기 때문 | `qr-attendance.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-04 | 무일정 `already_processed` 판정은 임시출석 기록으로만 제한하고 교사 범위를 현재 교사로 축소 | 다음날 일정만 있는 학생의 당일 스캔에서 일정 기반/타맥락 기록이 섞여 `이미처리` 오탐이 나는 운영 이슈를 줄이기 위함 | `qr-attendance.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-04 | 무일정 중복조회 자체를 `scheduled_time IS NULL` + `owner_user_id/currentTeacherId` 조건으로 제한하고 공통 조회 함수에 owner 필터를 추가 | 임시출석이 아닌 일반 출석 레코드(또는 타 원장 레코드) 혼입으로 `already_processed`가 재발하는 리스크를 구조적으로 줄이기 위함 | `qr-attendance.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-04 | 무일정 스캔 정책을 `임시출석(출석)`에서 `미처리 저장 + 자동일정 생성`으로 전환 | 사용자 요청상 무일정 스캔을 즉시 출석으로 확정하지 않고 후속확인이 가능한 미처리 상태로 남기면서, 시간표에 자동 일정을 생성해 즉시 조치 동선을 확보하기 위함 | `qr-attendance.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-04 | 전화번호 인증 패널에 소형 숫자패드를 추가하고 입력 핸들러를 분리 | 태블릿에서 가상 키보드 호출/가림 이슈를 줄이고, 학생이 4자리 인증을 더 빠르게 입력할 수 있도록 터치 중심 입력 수단을 보강하기 위함 | `index.html`, `style.css`, `qr-attendance.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-04 | 숫자패드 하단 `키패드 확인` 버튼을 추가해 전화번호 인증 동선을 숫자패드 영역으로 일체화 | 숫자 입력 후 별도 인증 버튼으로 이동하는 터치 왕복을 줄여 태블릿 실사용 속도와 한 손 조작 편의성을 높이기 위함 | `index.html`, `style.css`, `qr-attendance.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-04 | 전화번호 4자리 입력 완료 시 즉시 자동 인증되도록 입력 이벤트/숫자패드를 동기화하고 중복 실행 가드를 추가 | 버튼 누르기 단계를 제거해 현장 입력 속도를 높이면서, 자동 트리거 중복 호출로 인한 중복 요청 리스크를 함께 방지하기 위함 | `index.html`, `qr-attendance.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-04 | 자동인증 정책에 맞춰 `인증`/`키패드 확인` 버튼을 제거하고 숫자 입력 전용 UI로 단순화 | 자동인증이 이미 적용된 상태에서 중복 버튼이 남아 있으면 사용자 혼선과 오터치 가능성이 증가하므로, 학생 화면 조작 포인트를 최소화하기 위함 | `index.html`, `style.css`, `qr-attendance.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-04 | 전화번호 인증 대상을 학생+보호자에서 학생 연락처 전용으로 제한 | 사용자 요구사항이 "학생 번호 입력 시에만 인증"으로 명확해졌고, 보호자 번호 허용 시 인증 주체 혼선/오인증 리스크가 커지기 때문 | `qr-attendance.js`, `index.html`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-04 | QR 학생 화면의 `전체화면/카메라전환` 버튼을 숨기고, 제목 영역 더블탭으로만 전체화면을 토글하도록 변경 | 학생이 상단 제어 버튼을 반복 탭해 화면 상태를 바꾸는 오조작을 줄이면서, 선생님은 필요 시 숨은 제스처로 전체화면 전환을 유지하기 위함 | `index.html`, `style.css`, `qr-attendance.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-04 | 카메라 제어는 모서리 3초 롱프레스 시에만 임시 노출하고, 전환 실행에는 선생님 PIN 인증을 필수화 | 학생 화면에서 카메라 제어 버튼 노출을 최소화하면서도, 실제 운영자가 필요할 때는 의도적 제스처+인증으로 안전하게 카메라를 전환하기 위함 | `index.html`, `style.css`, `qr-attendance.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-01 | 출석 이력 모달 집계를 날짜 단위에서 `날짜+수업시간` 슬롯 단위로 확장 | 같은 날 다중 수업(예: 19:00/22:00)에서 첫 번째 기록만 보이고 나머지가 사라진 것처럼 보이는 운영 혼선을 줄이기 위함 | `qr-attendance.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-01 | 일정 겹침 판정에서 `duration` 값을 숫자 정규화 후 비교 | DB/로컬의 duration이 문자열일 때 `끝시간` 계산이 비정상(문자열 결합)으로 커져 19:00/20:00 같은 인접 시간대가 겹침으로 오탐되는 문제를 방지하기 위함 | `script.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-01 | 시간표 상세 모달에 `내 학생만/전체 선생님` 범위 토글을 도입하고 전체 보기에서 담당 선생님 배지를 노출 | 교사 협업 시 전체 스케줄 가시성을 확보하되, 기본값은 `내 학생만`으로 유지해 학생 운영 화면의 인지부하와 오조작 위험을 줄이기 위함 | `index.html`, `style.css`, `script.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-01 | QR/번호인증 출석 처리에서 당일 일정 조회를 전체 선생님 기준으로 확장하되, 팝업 노출은 현재 선생님 필터를 유지 | `19:00 A -> 22:00 B` 같은 다교사 연속 수업에서 후속 큐를 정확히 생성하면서도 알림은 담당 선생님에게만 보이게 하기 위함 | `qr-attendance.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-01 | 메인 월/주간 헤더에도 시간표 범위 토글을 상시 노출 | 사용자가 일자 상세 모달까지 들어가야 범위 전환이 가능한 UX를 줄이고, 월간 화면에서 즉시 `내 학생만/전체 선생님`을 비교할 수 있게 하기 위함 | `index.html`, `style.css`, `script.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-01 | 일정 수정/삭제 권한을 `일정 소유 teacher_id` 기준으로 고정하고 관리자만 PIN 재인증 후 예외 허용 | 일반 선생님의 타 교사 일정 오수정을 차단하고, 관리자 운영 예외는 감사 가능한 PIN 인증 절차로 제한하기 위함 | `script.js`, `index.html`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-01 | 개인/공유 메모 안내 문구를 운영 정책형으로 재정의 | 메모 용도 혼선(개인 기록과 교사간 인수인계 기록의 혼재)을 줄이고 현장 입력 일관성을 높이기 위함 | `script.js`, `index.html`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-01 | 시간표 스코프 운영 기본값을 `내 학생만`에서 `전체 선생님`으로 전환 | 사용자 요구가 "등록된 일정 전체 공유 우선"으로 명확해져 로그인 직후에도 전체 일정이 바로 보여야 운영 혼선을 줄일 수 있기 때문 | `script.js`, `index.html`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-01 | 시간표 선생님 라벨 fallback에서 UUID 직접 노출을 제거 | 이름 매칭 실패 시 `선생님(UUID)`가 그대로 보이면 운영자가 오류/깨짐으로 인식해 신뢰도가 떨어지므로 사용자용 라벨로 정리하기 위함 | `script.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-01 | 시간표 선생님 이름 조회에 `owner_user_id` 보조 매핑을 추가 | 과거/혼합 데이터에서 `schedules.teacher_id`가 `teachers.id`가 아닌 owner UUID로 저장된 경우에도 담당 선생님 이름을 복원하기 위함 | `script.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-01 | 단건 일정 삭제 시 출석/메모를 날짜 단위가 아닌 시간 슬롯 단위로 삭제하도록 변경 | 다중 일정(예: 19시/22시)에서 한 슬롯(22시)만 삭제해도 같은 날짜의 다른 슬롯(19시) 상태가 `미처리`로 초기화되는 운영 회귀를 막기 위함 | `script.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-01 | 묶음 일정 블록의 선생님명은 학생 매핑 fallback까지 사용해 복원 | 시간표 그룹 라벨이 `선생님`으로만 표시되면 담당자 식별이 어려워 운영 혼선을 유발하므로, teacher id 미매칭 시 학생 기반 매핑으로 보완하기 위함 | `script.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-01 | 타 선생님 일정은 관리자 인증 후에도 조회 전용으로만 허용 | 교차 교사 일정의 오수정 리스크가 반복되어, 운영 정책을 "조회 가능/편집 불가"로 단순화하고 소유 교사만 편집권을 갖게 하기 위함 | `script.js`, `index.html`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-01 | 기간/일괄 삭제 경로에도 소유자 컨텍스트 가드와 `내 일정만` 안내를 추가 | 편집 모달 외 삭제 경로에서도 동일 권한 정책을 명시해야 운영자가 교차 교사 일정 삭제로 오해하지 않고 안전하게 사용할 수 있기 때문 | `script.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-01 | 상태 적용 범위 팝업을 제거하고 담당 선생님 단일 반영으로 고정 | 일정 등록 후 담당 선생님이 즉시 상태를 수정하는 흐름에서 추가 선택 팝업이 반복되면 운영 속도와 정책 일관성이 떨어지기 때문 | `script.js`, `qr-attendance.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-01 | 묶음 일정 클릭 시 owner 식별자 정규화로 관리자 인증 과노출을 보정 | legacy `teacher_id` 값이 섞인 블록에서 owner 판정이 실패하면 본인 담당 학생에도 관리자 인증이 떠 운영 동선이 막히므로, 학생 매핑 기반 fallback으로 진입 판정을 안정화하기 위함 | `script.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-01 | 시간표 묶음 규칙을 교사 정규화 키 기준으로 분리 | 같은 시간대 A/B 교사 일정이 하나로 합쳐지는 혼선을 막고, 동일 교사 일정만 묶어 운영자가 담당 교사를 즉시 식별하도록 하기 위함 | `script.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-01 | 시간표 교사 배지를 고대비 강조형으로 조정 | 다교사 분리 후에도 블록 내 교사 식별이 약하면 운영자가 빠르게 구분하기 어려워, 태그를 시각적으로 우선 인지되게 하기 위함 | `style.css`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-01 | 교사 배지 색상을 해시 기반 동적 테마로 전환 | 교사 수를 사전에 고정할 수 없는 운영 환경에서 수동 색상 매핑 없이도 교사별 구분성을 유지하기 위함 | `script.js`, `style.css`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-01 | 동일 화면 내 교사 배지는 hue 간격을 강제해 유사색 충돌을 완화 | 해시만 사용할 경우 특정 조합에서 색상이 비슷하게 보여 식별성이 떨어질 수 있어, 렌더 시점에 최소 색상 간격을 적용하기 위함 | `script.js`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-01 | 출석 상태 키를 `HH:MM` 정규화 기준으로 통일해 자동 결석 덮어쓰기 회귀를 보정 | DB `scheduled_time` 포맷(`HH:MM:SS`)과 로컬 키(`HH:MM`) 불일치가 누적되면 자동 결석 로직이 기존 처리 상태를 못 찾아 `absent`로 재저장할 수 있기 때문 | `script.js`, `docs/plan.md`, `docs/checklist.md` |
+
+## 변경 방향/범위 변경 기록
+- 2026-03-01 - 임시 채팅 맥락 중심 -> 문서 중심 운영으로 변경, 이유: AI 작업 방향 일탈 방지
+- 2026-03-01 - 리디자인 범위를 메인 -> 결과 -> 서브 화면 순으로 확장, 이유: 의뢰인 요청(우선순위 순차 완료)
+- 2026-03-04 - 다음 작업 진행 중 범위를 "테스트 점수 운영 검증 후속"에서 "출석 긴급운영 대응(전화번호 뒷자리 인증)"으로 우선 전환, 이유: 당일 현장 운영에서 출석체크 연속성이 최우선으로 확인됨
+- 2026-03-04 - 다음 작업 진행 중 범위를 "앱 기능 추가"에서 "운영 SQL 실제 반영 준비(검증 쿼리 패키지화)"로 전환, 이유: 코드 반영 완료 항목의 운영 적용/검증 병목을 먼저 해소하기 위함
+- 2026-03-04 - 다음 작업 진행 중 범위를 "운영 SQL 준비"에서 "운영자 작업속도 개선 UI(오늘 운영 대시보드)"로 확장, 이유: 당일 출석 운영에서 즉시 판단/즉시 조치 동선 단축 요구가 높음
+- 2026-03-04 - 다음 작업 진행 중 범위를 "운영 대시보드"에서 "출석체크 화면 모드 단순화(탭 구조)"로 확장, 이유: QR/전화번호/수동체크 동선 분리를 통해 초보 사용자 인지부하와 오조작 가능성을 줄이기 위함
+- 2026-03-04 - 다음 작업 진행 중 범위를 "탭 단순화"에서 "태블릿 전체화면 듀얼 표시"로 확장, 이유: 실제 사용 기기(10인치)에서 QR 스캔과 번호 입력을 동시에 보려는 현장 요구를 직접 반영하기 위함
+- 2026-03-04 - 다음 작업 진행 중 범위를 "듀얼 표시"에서 "학생용 화면 권한 최소화(수동체크 제거)"로 재조정, 이유: 학생이 수동체크를 건드릴 수 있는 UX 리스크를 구조적으로 차단하기 위함
+- 2026-03-04 - 다음 작업 진행 중 범위를 "구조 분리"에서 "10인치 터치 최적화(타겟/가독성 확대)"로 확장, 이유: 실제 태블릿 전체화면 운영 품질을 높이기 위해 입력/버튼 체감을 우선 개선하기 위함
+- 2026-03-01 - 다음 작업 진행 중 범위를 "시간표 선택형 공유(mine/all)"에서 "전체 일정 공유 기본화(all 우선)"로 재조정, 이유: 사용자 운영정책이 "등록된 일정은 기본 공유"로 확정되어 초기 진입 상태를 정책과 일치시켜야 하기 위함
+- 2026-03-06 - 다음 작업 진행 중 범위를 "타교사 일정 보기전용 유지"에서 "관리자 인증 시 수정 허용"으로 조정, 이유: 관리자 인증을 이미 거친 상태에서 수정까지 허용해야 현장 조치 속도가 유지된다는 운영 요청을 반영
+
+## 알려진 이슈/리스크
+- [ ] `grading/index.html`의 선생님 목록 병렬 로딩 로직에 대해 실제 네트워크 환경(서버 지연/실패)에서 동작 확인 필요
+- [ ] `grading-server/routers/results.py`의 전체 재채점 경로에 대해 대용량 ZIP/Drive 오류 시나리오 실검증 필요 (모킹 검증 완료, 실데이터 1건 부분 검증 완료)
+- [ ] 실데이터 `result_id=34` full regrade 재실행에서 채점 시간 초과로 `failed/review_needed` 종료됨 - 동적 timeout 적용 후 재측정 필요
+- [ ] 실데이터 `result_id=34`의 `error_message`가 여전히 "채점 시간 5분 초과"로 남음 - 동적 timeout 코드가 운영에 반영되었는지(배포 반영/실행 경로) 확인 필요
+- [ ] 근본 수정 코드는 반영됨. `USE_GRADING_AGENT=true` 복귀 상태에서 운영 재검증(동일 `result_id=34`) 필요
+- [ ] 로컬 변경사항이 아직 원격에 반영되지 않음(미커밋/미푸시) - 배포 전 커밋/푸시 필요
+- [ ] 생성된 픽스처(`no_images.zip`, `empty.zip`, `not_a_zip.bin`)를 실제 제출/재채점 경로에 연결해 400/400/400(또는 502) 계약 검증 필요
+- [ ] 통합 점검 리포트에서 `result_id=34`가 여전히 `review_needed` + `채점 시간 5분 초과`로 확인됨 - 배포 반영 후 동일 스크립트로 재비교 필요
+- [ ] 긴급 우회 후 poll은 후반부 회복됐으나, 에이전트 비활성 상태 기반 결과이므로 원복 조건 검증 필요
+- [ ] 재개 시점에 로컬 커밋/푸시/배포 적용 여부가 달라질 수 있으므로 `git status`와 `/health/runtime`를 첫 단계에서 재확인 필요
+- [ ] 사진/OCR 보조입력에서 학생명/금액 오인식 가능성 존재 - "검토 후 확정" UX와 미확인 큐 분리 정책 필수
+- [x] 최신 재검증에서 `regrade_trigger=500` (`PGRST204: grading_items.error_type` 컬럼 미존재) 발생 - DB 마이그레이션/스키마 캐시 정합성 복구 필요
+- [x] 스키마 복구 후 실행은 `status=confirmed` 즉시 확정 경로로 종료됨 - 신규 제출(`result_id=35`) 장시간 관측으로 보완 검증 완료
+- [x] 장시간 관측 실행(20 polls)에서 `results/progress` 오류 0건 확인 - 조회 API 안정성 리스크는 완화됨
+- [x] 신규 제출(`result_id=35`) 장시간 관측(30 polls)에서도 `results/progress` 오류 0건 확인
+- [ ] `agent_verify` 단계 StageTiming 직접 캡처는 로그 노이즈로 미확정. 다만 운영 안정성 지표(30/30, 에러 0) 기준으로는 PASS 마감 후 모니터링 유지
+- [ ] 테스트 점수 앱 실데이터(학생 2명/2개 월) 검증은 로그인(auth-page) 차단으로 자동 검증이 중단됨 - 운영 계정 로그인 정보(또는 테스트 계정) 확보 후 재실행 필요
+- [ ] 학생 화면 종료 PIN 잠금 적용으로 선생님 재인증 단계가 추가됨 - 실제 운영에서 비밀번호 입력 피로도(특히 빈번한 종료/재진입) 체감 확인 필요
+- [ ] 재석확인 처리 직후 팝업 닫힘은 코드상 보정 완료. 실기기에서 "긴급출석 후 출석 처리" 동선으로 재현 테스트 1회 추가 필요
+- [ ] 일정 삭제 후 동일시간 재등록 케이스는 QR 중복판정 엄격 일치로 보정 완료. 실기기에서 `8:00 삭제→재등록→재스캔` 회귀 테스트 1회 추가 필요
+- [ ] 다중 일정(동일 학생 하루 2~3타임)에서 재석확인 트리거/중복판정/임시출석 혼합 시나리오의 실기기 PASS 로그가 아직 없음
+- [ ] 전화번호 인증 경로에서 토큰 검증 스킵 반영 후, `일정 삭제→재등록→번호인증` 재현 PASS 로그 확인 필요
+- [ ] 전화번호 인증 정책이 학생 연락처 전용으로 변경됨 - 보호자 번호 입력 시 미인증 동작이 운영 정책과 일치하는지 실기기 확인 필요
+- [ ] 상단 제목 더블탭 전체화면 제스처가 기기별로 일관되게 인식되는지(안드로이드 브라우저별) 실기기 확인 필요
+- [ ] 모서리 3초 롱프레스 제스처(터치 유지/중도 해제/12초 자동 숨김)가 기기별로 일관되게 동작하는지 실기기 확인 필요
+- [ ] 시간 경계 판정은 그레이스 2분으로 변경됨(시작+2분까지 출석). 실기기에서 `정각/1분/2분/3분` 경계 시나리오 PASS 로그 확인 필요
+- [ ] 다중 시간대 이력 슬롯 분리 반영 후, 출석 이력 모달에서 같은 날짜 `19:00/22:00`가 각각 표시되는지 실기기/운영계정 기준 확인 필요
+- [ ] 일정 겹침 보정 반영 후, `duration=60` 기준 `19:00/20:00` 등록이 경고 없이 통과하고 실제 겹치는 시간대(예: `19:00/19:30`)만 경고되는지 확인 필요
+- [ ] 시간표 범위 토글(`내 학생만/전체 선생님`)에서 일자 배지 인원수/시간표 블록/교사 라벨이 일관되게 동작하는지 실기기 확인 필요
+- [ ] 다교사 후속 알림 라우팅(`19:00 A / 22:00 B`)에서 19시 처리 후 22시 팝업이 B 세션에서만 노출되는지 실기기 PASS 확인 필요
+- [ ] 타 선생님 일정의 `변경/삭제` 시 일반 교사 차단, 관리자 PIN 재인증 예외가 정책대로 동작하는지 실기기 PASS 확인 필요
+- [ ] 시간표 기본값이 `전체 선생님`으로 변경되어 월간 뱃지/일자상세 블록 정보량이 증가함 - 실제 태블릿에서 가독성/성능(스크롤, 렌더 지연) 체감 확인 필요
+- [ ] 전체 선생님 보기에서 teacherList 동기화 지연 시 라벨이 `선생님` 일반명으로 표시됨 - 운영상 이름 식별이 꼭 필요하면 교사명 매핑 재동기화 UX(새로고침/재로딩) 후속 보강 필요
+- [ ] `teachers.id`/`owner_user_id`와 모두 매칭되지 않는 legacy `teacher_id` 값은 여전히 일반 라벨(`선생님`)로 표시됨 - 해당 레코드 정리(마이그레이션/정규화) 후속 필요
+- [ ] 다중 일정 삭제 회귀 보정은 단건 삭제 경로(`deleteSingleSchedule`) 기준이며, 기간/일괄 삭제 경로의 동일 보정 적용 여부는 별도 확인 필요
+- [ ] 묶음 블록 선생님명은 fallback 복원 로직에 의존하므로, 학생-선생님 로컬 매핑이 비어 있는 데이터셋에서는 여전히 `선생님`으로 표시될 수 있음(데이터 정규화 필요)
+- [ ] 타 선생님 일정 조회에 관리자 PIN이 매번 요구되므로, 실제 운영에서 인증 빈도(피로도)와 조회 속도 체감 확인 필요
+- [ ] 기간/일괄 삭제는 현재 선생님 컨텍스트 기반으로 제한됨 - 다중 로그인/세션 전환 직후 컨텍스트 누락 케이스 재현 점검 필요
+- [ ] 상태 적용을 현재 선생님 단일로 고정했으므로, 과거 "전체 선생님 동시 반영" 의존 운영 습관이 있다면 전환 안내 필요
+- [ ] owner 정규화 fallback은 로컬 학생-선생님 매핑 품질에 영향을 받음 - 매핑 누락/오염 데이터셋에서 엣지 케이스 재현 점검 필요
+- [ ] 교사 정규화 키가 `unknown`으로 수렴하는 legacy 데이터셋에서는 여전히 예상과 다른 묶임이 생길 수 있어 데이터 정규화 점검 필요
+- [ ] 배지 강조 스타일은 가독성 우선으로 강화됨 - 아주 작은 해상도에서 텍스트 줄바꿈/겹침이 생기지 않는지 실기기 확인 필요
+- [ ] 해시 기반 색상은 케이스에 따라 인접 톤이 나올 수 있으므로, 대규모 교사 환경에서 필요 시 색상 간격(밴딩) 후속 튜닝 여지 있음
+- [ ] hue 간격 강제는 화면 내 최적화이며, 극단적으로 많은 교사 동시 노출 시 일부 유사색이 다시 발생할 수 있어 임계값 추가 튜닝 여지 있음
+- [ ] 자동 결석 보정은 시간키 정규화 기준에 의존하므로, 비표준 시간 문자열(포맷 오류 데이터) 유입 시 fallback 동작 점검 필요
+- [ ] 출석 키 정규화는 신규/조회 경로를 우선 보정함 - 과거 레거시 키(`HH:MM:SS`) 데이터가 섞인 장기 이력에서 집계 표시 차이 여부 추가 확인 필요
+- [x] 전체 재채점 시작 후 진행률 폴링/완료 반영이 프론트와 일치하는지 E2E 확인 필요
+- [x] 리디자인 반영 후 일부 인라인 스타일(구 색상값) 잔존 가능성 확인 필요
+- [x] 다크 톤 화면(`grading/index.html`)에서 골드 포인트 대비(접근성) 수동 점검 필요
+- [x] `grading/index.html` 첫 진입 시 `/api/teachers` CORS 오류 재현 여부 확인 필요
+- [x] 골드 버튼(`#c9a74a`) + 흰색 텍스트 대비가 낮아 가독성 저하(특히 `grading`, `homework`)
+- [ ] `parent-portal`, `homework` 첫 화면 골드 포인트 체감은 추가 사용자 피드백 기반 미세조정 필요
+- [ ] 결제선생/Bizzle 중 단일 채널 통일 여부 결정 필요(SMS 간편결제 + 현장결제 + 정산/환불 지원성 검증)
+- [x] `grading/index.html`에서 `https://cdn.jsdelivr.net/npm/mathlive` `HEAD` 요청이 `net::ERR_ABORTED`로 관측되나, 수식 편집 기능 자체는 정상 동작(기능 영향도 없음) 확인
+- [x] 결과 API의 나머지 엔드포인트(`regrade`, `feedback`)도 동일 수준의 입력 검증 규칙 정리 필요
+- [ ] 운영 로그에서 새 400 응답 증가 여부 모니터링 필요(클라이언트 호출 파라미터 정합성 확인)
+- [ ] 3채널 운영 시 통장 입금자명 미매칭(학생 식별 실패) 리스크 관리 필요(입금 규칙/미확인 큐)
+- [ ] 원장 기반 상태와 기존 과목별(수강료/교재비/특강비) 데이터가 혼재할 때 사용자 혼선 가능 - 안내 문구/헬프텍스트 보완 필요
+- [ ] `POST /api/payments/extract`는 서버 JWT 인증이 활성화된 환경에서 Authorization 헤더가 필요함 - 토큰 누락 시 401 발생 가능
+- [x] 현재 일마감은 내부 원장 합계 기준 요약만 제공함. 외부 채널(결제선생/비즐/통장) 실합계 입력 대비 "대사 차이" 계산 UI는 후속 구현 필요
+- [ ] 외부 채널 실합계 입력값은 현재 월 기준 로컬 저장(localStorage) 방식임. 다중 기기 동기화가 필요하면 Supabase 테이블 확장 후 원격 동기화 설계가 필요
+- [ ] 인건비/강사비 상세값은 현재 메모 문자열에 포함해 저장됨. 조회/집계 자동화를 위해서는 별도 컬럼(또는 JSON 필드) 확장 설계가 후속 필요
+- [x] 비용 원장 세무 공통 필드(공급가액/세액/증빙유형/증빙번호)는 현재 Supabase 테이블 컬럼이 없어 `note` 메타 라인으로 동기화 중 - 컬럼 확장 전까지 메모 파싱 의존 리스크 존재
+- [ ] `EXPENSE_LEDGER_SETUP.sql`의 컬럼 확장 SQL을 운영 Supabase SQL Editor에서 실제 실행해야 완전 전환됨(미실행 환경은 fallback 동작)
+- [ ] 월 원장/수단별 CSV의 부가섹션(`추가섹션/추가항목`)은 1차 운영 포맷이며, 회계사 제출 고정 포맷 합의 전까지 수기 후처리 가능성 존재
+- [ ] 수납 모달의 공급가액/세액은 현재 `수납금액 -> 공급가액 전액, 세액 0` 기본 규칙으로 자동 채움. 과세사업자 기준 고정 산식이 필요하면 과세구분 필드 추가 후 재정의 필요
+- [ ] 용어집은 현재 핵심 용어 위주(귀속월/공급가액/세액/부가세구분/증빙)만 적용됨. 전체 세무 필드 확장은 사용자 피드백 기반 후속 반영 필요
+- [ ] 인건비 신고에 필요한 민감 식별정보(주민번호 등)는 앱 비저장 원칙. 별도 보안 채널 운영 절차가 없으면 제출 직전 수기 보완이 필요
+- [ ] 신고 일정 확인창은 법정신고 전용 캘린더가 아니라 “기본 안내 + 사용자 완료 체크” 보조장치임. 실제 신고대상/기한은 세무사/홈택스 공지로 최종 확인 필요
+- [ ] 접힘 상태를 localStorage에 저장하므로 브라우저/기기별 상태가 다를 수 있음(다중 기기 동기화가 필요하면 원격 설정 저장 후속 설계 필요)
+- [ ] 월별 체크카드 역시 localStorage 기반이므로 기기 간 공유되지 않음. 공동운영 환경은 원격 동기화 후속 필요
+- [ ] 인건비 소득유형/원천세/지방소득세/실지급액은 현재 로컬 row + 메모 라인(`[인건비상세]`) 기반 저장임. 원격 동기화 완전일치를 위해 `expense_ledgers` 컬럼(또는 JSON) 확장이 후속 필요
+- [ ] 수납 2열 레이아웃은 데스크톱(넓은 화면) 최적화 기준이며, 1100px 전후 구간에서는 카드/버튼 폭 체감 차이가 있을 수 있어 실사용 피드백 기반 미세조정이 필요
+- [ ] 좌측/우측 이중 스크롤 구조이므로 터치패드/마우스휠 환경에서 스크롤 포커스 체감 차이가 있을 수 있음(사용자 피드백 기반 감도 조정 필요)
+- [ ] 노무/회계 체크리스트는 현재 “확인 여부 체크” 중심으로 설계되어 법정 제출물 자동판정 기능은 없음(최종 신고대상/기한은 세무사/홈택스 재확인 필요)
+- [ ] 조건부 활성화는 앱 로컬 날짜/월 선택 기준으로 동작하므로, 휴일/신고기한 변경/개별 사업장 예외는 자동 반영되지 않음(최종 판단은 외부 공지 확인 필요)
+- [ ] AI 추출은 Drive 저장 실패 시에도 추출 결과를 우선 반환하도록 설계되어, `drive_reason` 안내를 확인하고 월마감 전 업로드 누락 여부를 재점검해야 함
+- [ ] 학원명 폴더는 `teachers` 테이블 값(academy_name/academy/name) 우선이며, 값이 없으면 owner id로 fallback됨(초기 운영 시 폴더명이 owner 기반으로 보일 수 있음)
+- [ ] AI 다건 모드는 OCR 품질에 따라 행 분리/학생 매칭 오차가 발생할 수 있어, 다건 검토 모달에서 수동 확인이 필요
+- [ ] 비용 원격 동기화는 `expense_ledgers` 테이블 존재를 전제로 함 - 미구성 시 로컬 저장만 동작하므로 운영 DB 스키마 반영 필요
+- [ ] RLS 정책은 `owner_user_id = auth.uid()` 기준이므로, 다중 계정/공동운영 권한 모델이 필요한 경우 정책 확장 설계가 후속 필요
+- [ ] 학생 연락처 형식 검증은 현재 국내 휴대전화(01x) 기준이다. 유선/해외번호 운영이 필요하면 예외 규칙 확장이 필요
+- [ ] 테스트 점수 기능은 현재 localStorage 기반이며 기기 간 동기화가 되지 않음. 운영 확장 시 Supabase 테이블/정책 추가 필요
+- [x] 테스트 점수 원격 동기화 SQL(`STUDENT_TEST_SCORE_SETUP.sql`) 운영 반영 및 정책 검증 완료
+- [x] 학생 스키마 확장 SQL(`STUDENT_SCHEMA_UPDATE.sql`) 운영 반영 및 검증 완료
+- [ ] DB 미마이그레이션 환경에서는 학생 메모에 `[학생확장메타]...` 임시 라인이 저장될 수 있음(마이그레이션 후 신규 저장부터 메타 라인 의존 감소)
+- [ ] 통합 요약의 숙제/수납 집계는 월 단위 합계 중심 1차 버전이므로, 주차/과목 단위 상세 분석은 후속 설계 필요
+- [ ] 삭제 영향 경고는 현재 "일정 건수/월 범위" 중심이며, 향후에는 삭제 후 남는 일정 수(잔여 수업)까지 함께 안내하는 2차 보강 여지 있음
+- [ ] 단순/즉답 요청에서는 전문가 섹션 생략 규칙을 유지하되, "전문가 의견 포함" 요청을 놓치지 않도록 응답 템플릿 일관성 유지 필요
+- [x] 미확인입금 큐 매칭 리스트 UI 반영 완료(월 기준 목록/학생 연결/큐 삭제)
+- [ ] 잘림 패치는 CSS/스크롤 보정 중심으로 적용됨. 다양한 화면 크기에서 실사용 시나리오(데스크톱/모바일) 수동 확인 필요
+- [x] 진행률 폴링 보강 후 실제 장시간 채점(5분+) 시나리오에서 경고 토스트 노이즈/복구 동작 체감 확인 필요
+- [ ] 로컬 자동화 런타임(Python `playwright`/`greenlet` DLL) 환경 정리 필요 - 직접 재실행 경로 안정화 과제
+- [x] 현재 세션에서 브라우저 자동화 도구 미가용(`cursor-ide-browser` 미등록) - 브라우저 계측 E2E 재실행 환경 확보 필요
+- [x] 상세 폴링 경고가 `results` 단독 실패 구간에서도 필요한지 정책 결정 필요(현행: 진행률도 함께 실패해야 경고 발생)
+- [x] 상세 폴링 성공 토스트 중복 노출 가능성(빠른 연속 호출 시) 추가 점검 필요
+- [x] 묶음 일정 결석 재역전 재현 속도 개선을 위해 상태 저장/자동결석 write 지점에 `[ATT-BOX]` 콘솔 로그를 추가해 `teacherId/scheduledTime/status` 추적 경로를 표준화
+
+## 다음 작업자가 바로 알아야 할 것
+- 현재 브랜치: `main`
+- 현재 포커스: 학생관리 84차(일정 삭제 시 출석기록 동시 삭제)까지 코드 반영 완료, 운영 SQL 실행 + 실기기 회귀 검증 대기 상태
+- 최근 핵심 완료:
+  - 학생관리 58~60차: 다교사 일정 권한/묶음 규칙 정교화(타교사 일정 보기 전용 + 교사별 분리 묶음)
+  - 학생관리 61~63차: 교사 배지 가시성/동적 색상/유사색 충돌 완화
+  - 학생관리 64차: 시간키(`HH:MM:SS` vs `HH:MM`) 정규화로 출석 완료가 결석으로 덮이는 회귀 보정
+  - 학생관리 65차: 출석기록 카드에 처리방식/인증시간/자리확인/처리시간 동시 표시
+  - 학생관리 66차: 출석기록 메타 컬럼 정규화 SQL 추가 + 앱 저장 폴백/이력 표시 신규컬럼 우선 해석 적용
+  - 학생관리 67차: 타교사 일정도 관리자 PIN 인증 성공 시 수정/삭제 가능하도록 권한 정책 복원
+  - 학생관리 68차: 묶음 블록 담당 라벨 해석 실패 시 레거시 식별자 폴백을 허용해 `선생님` 일반 라벨 노출 감소
+  - 학생관리 69차: 전체 일정 로드 시 teachers 이름맵(`id/owner_user_id -> name`)을 병행 캐시해 묶음 블록 담당 라벨 복원 강화
+  - 학생관리 70차: 이름 매핑 실패 시에도 묶음 블록이 `선생님A/B`로 구분 표시되도록 라벨 별칭 보강
+  - 학생관리 70차: 묶음 멤버(학생) 기준 교사 매핑 점수화로 등록 선생님명 우선 복원
+  - 학생관리 71차: 상태 저장을 owner teacher 기준으로 통일하고 자동결석 전 DB 최신 상태를 확인해 역전 덮어쓰기 차단
+  - 학생관리 72차: 레거시 teacher key를 등록 teacher id로 병합 정규화하고 자동결석 슬롯 조회 포맷(`HH:MM`/`HH:MM:00`)을 동시 지원
+  - 학생관리 73차: 레거시 teacher key를 렌더 단계에서 즉시 해석하고 `선생님A/B` fallback을 제거해 등록 선생님명 우선 정책을 고정
+  - 학생관리 75차: 단건 조회 다중 레코드를 상태 우선순위로 선택하고 메모 저장의 결석 강제 업서트를 제거해 `출석 -> 결석` 재역전 경로를 추가 차단
+  - 학생관리 76차: 묶음 라벨 해석 실패 시 멤버 후보 재해석 + 모달 owner 우선순위 fallback으로 실명 복원을 보강
+  - 학생관리 77차: 라벨 fallback 함수의 `ev` 참조 오류를 수정해 시간표 렌더 중단(축선/블록 미표시) 현상을 복구
+  - 학생관리 78차: 초기 출석 동기화를 owner 전체 조회 + 상태 우선순위 병합으로 보강해 재로딩 역전 경로를 축소
+  - 학생관리 79차: `getAttendanceRecordsByOwner(null)`의 현재교사 fallback 오동작을 수정해 owner 전체 조회를 명시 지원
+  - 학생관리 80차: 자동결석 사전 비교(owner teacher + owner 전체)와 그림자 결석 정리 확장으로 묶음 일정 재역전 경로를 추가 차단
+  - 학생관리 81차: 묶음 모달 진입 시 owner/slot 재매칭을 추가해 잘못된 슬롯 저장(예: 23:30 -> 18:00) 경로를 차단
+  - 학생관리 82차: 자동결석 판정을 수업 종료시각(classEnd) 기준으로 전환해 자정 넘김 수업의 조기 결석 처리 경로를 차단
+  - 학생관리 83차: 묶음 일정 저장/자동결석 write 지점에 `[ATT-BOX]` 진단 로그를 추가해 재역전 발생 시 write 순서를 즉시 판별 가능하게 보강
+  - 운영 보고 보강: `docs/checklist.md`에 학생관리 58~64차 실기기 PASS/FAIL 통합 템플릿 추가
+  - 운영 실행 보강: `docs/checklist.md`에 학생관리 58~64차 실기기 점검 순서(1->7) 추가
+  - 문서 규칙: `plan/context/checklist` 3개 문서 기준일 불일치 시 작업 완료 금지 규칙 고정
+
+## 현재 리스크/가정
+- 실기기 회귀 전까지 58~64차는 코드 기준 PASS, 운영 기준은 잠정 상태
+- 태블릿 터치 환경(더블탭/롱프레스)에서 기기별 제스처 차이가 존재할 수 있음
+- 다교사 동시 노출 화면(4명 이상)에서 색상 대비 체감은 실제 조도/테마 환경 재확인 필요
+- 자동 결석 타이머/재진입/새로고침 조합에서 시간키 정규화 누락 경로가 없는지 최종 검증 필요
+- 과거 레거시 기록(메타 필드 부족)은 처리방식이 `미처리/선생님 체크`로 보일 수 있어 운영자가 `정보없음` 케이스를 구분해 해석해야 함
+- 운영 DB에 신규 컬럼 미반영 시 앱은 폴백 저장되지만, 정규화 리포트/쿼리 품질은 SQL 실행 전까지 제한됨
+- 타교사 일정 편집 권한이 관리자 인증 성공 시 재활성화되어, 관리자 계정/PIN 공유 운영 시 오수정 리스크 관리(로그/운영수칙) 필요
+- 레거시 식별자 라벨을 허용하면서도 UUID/난독화 키 노출은 계속 차단하므로, 라벨 미복구 케이스는 데이터 정규화(teacher id 정리)로 추가 해소 필요
+- 학생 1명이 복수 교사에 동시에 매핑된 데이터셋에서는 점수 동률로 실명 복원이 실패할 수 있어, 해당 케이스는 데이터 정규화 또는 수동 매핑 점검이 필요
+- 자동결석이 DB 상태를 조회하는 추가 쿼리를 사용하므로, 대량 일정 환경에서는 자정/종료시점 배치 성능 모니터링이 필요
+- 레거시 teacher key 정규화는 점수 기반이므로 동률/매핑 부족 케이스는 보수적으로 미정규화될 수 있으며 이 경우 수동 데이터 정리가 후속 필요
+- `선생님A/B` fallback 제거 후 `담당 미확인`이 반복 노출되면, `teacher_students_mapping` 또는 학생 `teacher_id` 데이터 정규화가 필요
+- owner 전체 teacher 병합 조회는 동일 학생/동일시간 다중 레코드를 우선순위로 통합하므로, 예외 운영(의도적 중복 슬롯) 데이터셋에서는 상태 선택 규칙(우선순위/최신시각)이 기대와 다른지 실기기 검증이 필요
+- 멤버 후보 재해석은 `teacher_students_mapping`/학생 `teacher_id` 품질에 영향을 받으므로, 매핑 누락 데이터셋에서는 여전히 `미확인`이 남을 수 있어 데이터 정규화 점검이 필요
+- 라벨 fallback 함수 변경 이후 시간표 렌더 중단은 해소됐으나, 브라우저 캐시/오래 열린 탭에서는 구 스크립트가 남을 수 있어 강력 새로고침 후 재확인이 필요
+- 슬롯 병합은 교사 구분 없이 학생+시간 기준으로 통합되므로, 동일 학생 동일 시간에 의도적으로 교사별 상태를 분리 운영하는 특수 케이스는 별도 정책 검토가 필요
+- 그림자 결석 정리 대상 확대로 레거시 teacher_id 결석 행은 더 적극적으로 삭제되므로, 감사 목적으로 과거 결석 이력을 teacher_id별로 보존해야 하는 환경은 백업 정책 검토가 필요
+- 일정 삭제 시 출석기록도 같이 삭제되므로, 과거 출석 이력을 보존해야 하는 운영 정책이 있으면 삭제 전 백업(또는 soft-delete 정책) 도입이 필요
+
+## 다음 작업 우선순위 (2026-03-06 기준)
+1) 운영 SQL 적용: `ATTENDANCE_RECORD_META_UPDATE.sql` 실행 후 백필/인덱스/`NOTIFY pgrst`까지 완료 확인
+2) 학생관리 66차 실기기 회귀: QR/번호입력/수동/임시/재석확인 경로의 `처리방식/인증시간/자리확인/처리시간` 표시 정합성 확인
+3) 학생관리 64차 실기기 회귀: `출석/지각/결석` 처리 후 자동타이머·재진입·새로고침에서 상태 유지 확인
+4) 학생관리 60차 실기기 회귀: 동시간대 A/B 교사는 분리, 동일교사 다건은 묶음 유지 확인
+5) 학생관리 56~59차+67차 권한 회귀: 타교사 일정은 관리자 인증 전 차단, 인증 후 수정/삭제 허용이 의도대로 동작하는지 확인
+6) 학생관리 70~84차 라벨/상태/렌더/삭제정책 회귀: 묶음 블록에서 등록 선생님명이 우선 표시되고, 결석->출석 변경 후 메모저장/재진입/자동타이머에서도 상태가 결석으로 역전되지 않으며, 일정 삭제 시 같은 슬롯 출석기록도 함께 삭제되는지 확인
+
+## 재개 시작 순서(고정)
+1) `git status --short`로 로컬 변경 확인
+2) 오늘 실기기 검증 대상(58~64) 중 1건 선택 후 시나리오 재현
+3) PASS/FAIL 및 재현 로그를 `docs/checklist.md` 테스트 기록에 즉시 반영
+4) 판단 근거/리스크를 `docs/context.md`에 갱신
+5) 마감 시 `docs/plan.md` 변경 이력에 작업 1줄 추가
+
+## 2026-03-08 환경설정 의사결정
+- 백엔드 실행 준비 시 `grading-server/.env`는 예시값을 그대로 두지 않고, 실제 Supabase 프로젝트 URL/서비스 키를 우선 반영한다.
+- 프론트 공개키(`sb_publishable_*`)와 백엔드 서비스키(`sb_secret_*`)를 분리해 관리하며, 서비스키는 서버 전용 변수(`SUPABASE_SERVICE_KEY`)로만 사용한다.
+- 신규 노트북 세팅의 다음 단계는 `python main.py` 실행 확인과 `/health` 응답 확인으로 고정한다.
+- 로컬 실행 확인 결과 `/health`는 200(`status=ok`)이며, startup 로그의 `Invalid API key`는 월간 평가 복구 로직 초기화 경고로 분리 관리한다(기본 헬스체크와는 분리).
+
+## 2026-03-08 운영 SQL 점검 결과(API 조회)
+- 점검 방식: Supabase Data API(`service_role`)로 컬럼 선택 조회를 수행해 스키마 반영 여부를 확인.
+- 확인 완료:
+  - `attendance_records` 메타 컬럼(`attendance_source/auth_time/presence_checked/processed_at`) 사용 가능(200)
+  - `students` 확장 컬럼(`guardian_name/enrollment_start_date/enrollment_end_date`) 사용 가능(200)
+  - `student_test_scores` 핵심 컬럼(`exam_name/exam_date/score/max_score`) 사용 가능(200)
+- 후속 확인:
+  - 사용자 수동 실행 후 `expense_ledgers` 세무 컬럼(`supply_amount/vat_amount/evidence_type/evidence_number`) 재조회 결과 200으로 반영 완료
+  - 결론: `EXPENSE_LEDGER_SETUP.sql` 운영 반영은 확인되었고, 다음 우선순위는 학생관리 실기기 회귀 및 결과 기록
+
+## 2026-03-08 묶음 일정 인증팝업 보정
+- 증상: 묶음 일정 클릭 시 담당 선생님 본인 일정인데도 모달 진입 전 관리자 인증 팝업이 노출됨.
+- 원인: 모달 진입 분기에서 owner 판정을 `effectiveOwnerTeacherId === currentTeacherId` 단순 문자열 비교에 의존해, legacy/혼합 식별자 케이스를 본인 일정으로 인식하지 못함.
+- 조치:
+  - 모달 진입 직전 owner id를 `resolveKnownTeacherId`로 정규화
+  - `isScheduleOwnedByCurrentTeacher` 보조 판별 함수 추가(정규화 id + 실명 매칭 보정)
+  - 본인 일정 판정 시 관리자 인증 없이 진입, 타교사 일정만 기존 인증 분기 유지
+- 남은 확인: 실기기에서 "묶음 블록 본인 일정 클릭 시 무인증 진입 / 타교사만 인증" PASS 로그 필요
+
+## 2026-03-08 묶음 일정 인증팝업 보정(2차)
+- 재현: 1차 보정 후에도 일부 묶음 일정에서 본인 일정이 관리자 인증 분기로 진입.
+- 추가 원인: owner key가 legacy/혼합 값일 때 정규화가 실패하면 본인 판정이 여전히 누락될 수 있음.
+- 추가 조치:
+  - 모달 진입 시 슬롯 기준 owner 재해석(`resolveScheduleOwnerTeacherId`)을 2차로 적용
+  - 학생 담당교사 기대치(`student.teacher_id` + `teacher_students_mapping`)를 `resolveExpectedOwnerTeacherIdForStudent`로 계산해 본인 여부를 마지막 보정
+- 기대 효과: 본인 담당 묶음 일정의 관리자 인증 오탐을 추가 감소, 타교사 일정 인증 분기는 유지
+
+## 2026-03-08 묶음 일정 인증팝업 보정(3차)
+- 재현: 실기기에서 본인 담당 묶음(예: `23:30~01:10`) 클릭 시에도 관리자 인증 팝업이 재발.
+- 분석: 동일 학생/시간 슬롯이 다중 owner 후보로 섞인 데이터셋에서 첫 owner 후보만 채택되면 본인 일정이 타교사로 오판정될 수 있음.
+- 추가 조치:
+  - 슬롯 기준 owner 후보 전체 조회 함수(`getScheduleOwnerCandidatesBySlot`) 추가
+  - owner 비교용 정규화 함수(`normalizeTeacherIdForCompare`) 추가
+  - `openAttendanceModal`에서 owner 미해석(`선생님/미확인`) + 학생 기대 담당이 현재교사 + 슬롯 후보에 현재교사가 포함될 때 본인 일정으로 최종 보정
+  - 보정 적용 시 추적 로그(`[openAttendanceModal] owner 미해석 슬롯 보정 적용`)를 남겨 재현 케이스 확인 가능하게 구성
+- 기대 효과: legacy/혼합 owner 키가 남아도 본인 담당 묶음의 관리자 인증 오탐을 줄이고, 타교사 일정 인증 분기는 유지
+
+## 2026-03-08 `maybeSingle` 로그 노이즈 보정
+- 증상: 콘솔에 `[getAttendanceRecordByStudentAndDate] maybeSingle 에러 ... multiple (or no) rows returned` 경고가 반복되어 실제 이슈와 구분이 어려움.
+- 분석: Supabase `maybeSingle()`은 0건과 복수건을 동일 에러 형태로 반환할 수 있어, "중복 없음" 상태에서도 경고가 발생.
+- 조치: 에러 시 동일 조건 `limit(50)` 재조회 후 건수로 분기
+  - 0건: 정상 케이스로 간주하고 무경고(포맷 보정/fallback 경로 계속)
+  - 1건: 해당 레코드 사용
+  - 복수건: 기존 `pickBestRecord` 우선순위 선택 + 경고 로그 유지
+- 기대 효과: 실제 중복 이슈 경고는 유지하면서 정상 0건 케이스의 콘솔 노이즈를 감소
+
+## 2026-03-08 공휴일 API 키 로컬 반영
+- 조치: 프로젝트 루트 `.env.local`에 `DATA_GO_KR_API_KEY`를 설정해 `window.env` 로더가 공휴일 API 키를 읽도록 반영.
+- 기대 효과: 콘솔의 `[공휴일] API 키가 설정되지 않았습니다. 하드코딩 데이터를 사용합니다.` 경고 제거.
+- 성능 메모: 공휴일 API 로드는 백그라운드(preload) 호출이라 체감 초기 렌더 지연 영향은 작고, 네트워크 상황에 따라 달력 갱신 타이밍만 소폭 달라질 수 있음.
+
+## 2026-03-08 공휴일 키 경고 재발 보정(로더 레이스)
+- 재현: `.env.local`에 키를 넣어도 초기 콘솔에 공휴일 키 미설정 경고가 간헐적으로 재발.
+- 원인: `index.html`의 `.env.local` 로더가 비동기(fetch)인데, `fetchPublicHolidays`가 먼저 실행되면 `window.DATA_GO_KR_API_KEY`가 비어 있는 시점이 발생.
+- 조치: `fetchPublicHolidays`에서 `window.DATA_GO_KR_API_KEY` + `window.env.DATA_GO_KR_API_KEY`를 함께 확인하고, 키가 없을 때 180ms 지연 후 1회 재확인하도록 보강.
+- 기대 효과: 로컬 Live Server 환경에서 키 로더 타이밍 차이로 생기던 초기 경고를 감소.
+
+## 2026-03-08 중복 경고 조건 보정(다교사 조회)
+- 관측: SQL 조회 결과 `student/date` 기준 2건은 존재했으나 `teacher_id`가 서로 달라, 다교사 owner 전체 조회에서는 허용 가능한 다건일 수 있음.
+- 문제: 이전 로그 보강은 `rows > 1`이면 모두 중복 경고를 출력해 다교사 정상 케이스도 경고로 보이게 됨.
+- 조치: `getAttendanceRecordByStudentAndDate` 재조회 분기에서 경고 조건을 축소
+  - `teacherId` 명시 조회: 다건이면 경고
+  - `teacherId=null` 조회: 동일 `teacher_id` 내 다건일 때만 경고, teacher_id가 서로 다른 다건은 무경고
+- 기대 효과: 진짜 중복(동일 교사 다건)만 경고로 남기고, owner 전체 집계용 다교사 다건 로그 노이즈를 감소.
+
+## 2026-03-08 Live Server dotfile 로딩 우회
+- 재현: `.env.local`에 키가 있어도 콘솔에 공휴일 키 미설정 경고가 계속 출력.
+- 원인: 일부 Live Server 환경에서 dotfile(`.env.local`) HTTP 서빙이 차단/누락되어 fetch가 실패.
+- 조치:
+  - `index.html` env 로더를 `.env.local` → `env.local` 순차 시도로 확장
+  - `env.local` 파일을 루트에 추가해 dotfile 차단 환경에서도 키 로드 가능하도록 구성
+  - fetch 옵션에 `cache: 'no-store'`를 적용해 이전 실패 응답 캐시 영향을 완화
+- 기대 효과: Live Server 환경에서도 공휴일 API 키 로드 안정성 확보
+
+## 2026-03-08 선생님 선택 -> 메인 진입 지연 보정
+- 재현: 선생님 선택 페이지에서 `입장` 후 메인 화면이 늦게 열리는 체감 지연 발생.
+- 전문가 분석:
+  - 프론트엔드 성능 관점: `setCurrentTeacher` 내부에서 무거운 작업(`loadAllTeachersScheduleData`, `autoMarkAbsentForPastSchedules`)을 직렬 `await`로 수행해 첫 렌더가 지연됨.
+  - UX 관점: 사용자는 "전체 동기화 완료"보다 "화면 즉시 진입"을 먼저 기대하므로, 초기 가시화와 백그라운드 동기화 분리가 필요.
+  - 운영 관점: 자동결석/전체선생님 집계는 필요 기능이지만 진입의 필수 선행조건은 아님.
+- 조치:
+  - `setCurrentTeacher`를 초기 렌더 우선 구조로 변경(메인 전환/캘린더 1차 렌더 후 로더 제거)
+  - 무거운 후속 작업(`loadAllTeachersScheduleData`, `autoMarkAbsentForPastSchedules`, 타이머/미스캔 초기화)을 백그라운드 실행으로 이관
+  - `setCurrentTeacher`에 성능 로그(`first-render`, `background-complete`)를 추가해 실측 가능하게 보강
+  - `loadAndCleanData`의 학생 매핑을 `Map` 기반으로 보정해 대량 데이터에서 `students.find(...)` 반복 비용을 감소
+- 기대 효과: 선생님 선택 직후 첫 화면 표시 시간이 단축되고, 후속 동기화는 사용 중 백그라운드 완료
+- 남은 확인: 실기기에서 첫 진입 체감(입장 클릭 -> 캘린더 표시), 백그라운드 완료 전후 전체선생님 뷰 정합성 회귀 확인 필요
+
+## 2026-03-08 캘린더 렌더 미세최적화(2차)
+- 재현: 선생님 선택 직후 메인 진입에서 월뷰 셀(최대 42개) 렌더 시 날짜별 요약 계산이 반복되어 CPU 점유가 증가.
+- 분석: 기존 구조는 `createCell`마다 `collectCellScheduleSummary(dateStr)`를 호출해 동일 범위 데이터를 중복 순회함.
+- 조치:
+  - `_renderCalendarImpl`에서 월/주 렌더 날짜 목록을 먼저 구성
+  - `buildCalendarSummaryMap(dateStrList)`를 추가해 화면 범위 요약을 1회 선계산
+  - `createCell`은 선계산 결과를 받아 표시하고, 미제공 시 기존 fallback 계산 유지
+- 기대 효과: 메인 진입 직후 및 월간 캘린더 렌더 시 반복 연산 감소로 체감 응답성 개선
+- 남은 확인: 학생/일정 수가 많은 운영 계정에서 월 전환(이전/다음) 체감 속도 및 배지 인원수/툴팁 정확성 실기기 확인 필요
+
+## 2026-03-08 전체범위 배지 지연집계 + 본인 묶음 인증 재발 보정
+- 재현 1: `3/3`, `3/5` 월간 배지가 초기에 `1명`으로 보였다가 잠시 후 `3명`으로 변경됨.
+- 재현 2: 묶음 일정에서 담당 선생님 본인 클릭인데도 관리자 인증이 재노출됨.
+- 전문가 분석:
+  - 성능/데이터 일관성 관점: `setCurrentTeacher` 최적화 이후 전체범위(`all`) 데이터가 백그라운드로 합쳐지면서, 부분 데이터 집계가 먼저 노출됨.
+  - 권한 관점: owner 정규화(`resolveKnownTeacherId`)가 `owner_user_id` 다중 매칭 환경에서 임의 teacher id로 수렴할 수 있어 본인/타교사 판정이 흔들림.
+- 조치:
+  - 전체범위 데이터 상태 플래그(`allScopeScheduleHydrated/loading`)를 도입
+  - `setCurrentTeacher`에서 전체 일정 로드를 병렬 시작하고, 첫 렌더 전 짧은 준비 시간(220ms)만 대기
+  - 전체범위 집계 미완료 시 월간 배지는 오집계 숫자 대신 `집계중`으로 표시해 잘못된 수치 노출 차단
+  - `resolveKnownTeacherId`에서 `owner_user_id` 다중 매칭 시 단일 teacher로 강제 매핑하지 않도록 보정
+- 기대 효과:
+  - `1명 -> 3명`처럼 잘못된 중간 숫자 노출 감소(집계 완료 후 정확값 반영)
+  - 묶음 일정 본인 클릭 시 owner 오판정 감소로 관리자 인증 오탐 완화
+- 남은 확인:
+  - 실기기에서 `3/3`, `3/5` 월간 배지의 초기 표기가 `집계중 -> 정확명수`로 안정 동작하는지
+  - `육효원/조민준, 23:30~01:10, 담당 전재윤` 본인 클릭 시 인증 미노출 / 타교사 클릭 시 인증 노출 유지 확인
+
+## 2026-03-08 묶음 일정 인증 재발 원인 확정(4차)
+- 재현: 본인 담당 묶음(예: `23:30~01:10`)에서도 관리자 인증이 반복 노출됨.
+- 전문가 분석(권한/프론트 렌더 체인):
+  - 묶음 UI에서 `openAttendanceModal` 호출 시 전달되는 owner 값이 실제 `schedules.teacher_id`가 아니라 그룹화용 키(`groupTeacherKey`) 경로를 타는 케이스가 존재.
+  - 이 값이 권한 판정 분기(`isScheduleOwnedByCurrentTeacher`)에 들어가면 본인 일정도 타교사로 오판정될 수 있음.
+- 조치:
+  - 이벤트 생성 시 멤버에 실제 owner(`ownerTeacherId = teacher_id`)를 별도 보존
+  - 묶음 하위 항목 클릭 시 `openAttendanceModal`에 `ownerTeacherId`를 최우선 전달
+  - 단일 블록 클릭도 멤버 owner 우선 전달로 통일
+- 기대 효과:
+  - 묶음/단일 공통으로 모달 권한 판정 입력값이 실제 owner 기준으로 고정되어 본인 일정 인증 오탐 감소
+- 남은 확인:
+  - `육효원/조민준`, `23:30~01:10`, 담당 `전재윤` 케이스에서 본인 클릭 무인증 PASS 확인
+  - 타교사 동일 슬롯 클릭 시 인증 유지 PASS 확인
+
+## 2026-03-08 묶음 일정 인증 재발 원인 확정(5차)
+- 재현: 4차 보정 후에도 본인 담당 묶음 클릭에서 관리자 인증이 재발.
+- 분석:
+  - 일부 묶음은 owner 식별값이 혼합 키로 전달되어도 라벨(담당명)은 정상 복원됨.
+  - 즉, owner id만으로는 오판정되지만 UI 라벨은 본인임을 이미 알고 있는 케이스가 존재.
+- 추가 조치:
+  - 묶음/단일 블록 클릭에서 `openAttendanceModal`에 owner id와 함께 owner 라벨 힌트(`ownerTeacherNameHint`)를 전달
+  - `openAttendanceModal`에서 기존 owner 판정이 실패했을 때, 라벨 힌트가 현재 로그인 선생님명과 정확히 일치하면 본인 일정으로 최종 보정
+  - 일반값(`선생님/미확인/담당 미확인`) 힌트는 보정 대상에서 제외
+- 기대 효과: owner 키 혼합 데이터셋에서도 "본인 라벨로 보이는 묶음"의 인증 오탐을 추가 감소
+- 남은 확인: 실기기에서 본인/타교사 묶음 클릭 인증 분기 PASS 로그 필요
+
+## 2026-03-08 묶음 일정 인증 재발 원인 확정(6차)
+- 재현: 5차 보정 후에도 본인 담당 묶음 클릭 시 관리자 인증이 재발.
+- 추가 분석:
+  - 라벨 힌트를 `getTeacherNameById(ownerTeacherId)`로 만들면, owner 키 자체가 혼합/모호한 데이터셋에서는 라벨도 일반값 또는 오라벨이 될 수 있음.
+  - 실제 화면 배지에서 이미 복원된 담당명(`resolveTeacherLabelForEvent`)과 모달 힌트가 분리되어 본인 보정 조건이 충족되지 않는 경로가 남아 있었음.
+- 추가 조치:
+  - 묶음/단일 블록 클릭 시 모달 힌트는 `resolveTeacherLabelForEvent` 결과(사용자 화면에 보이는 담당 라벨)로 통일 전달
+  - 관리자 인증 분기 진입 시 디버그 로그를 추가해(`ownerTeacherId`, `ownerTeacherNameHint`, `currentTeacherId/name`) 잔여 케이스를 추적 가능하게 보강
+- 기대 효과: 화면 라벨과 권한 보정 입력이 동일해져 본인 일정 인증 오탐 추가 감소
+
+## 2026-03-08 묶음 일정 인증 재발 원인 확정(7차)
+- 재현: 6차 보정 후에도 본인/타교사 모두 묶음 클릭 시 관리자 인증이 노출되는 케이스 존재.
+- 분석(권한 정책 원칙 재정립):
+  - 라벨 기반 힌트 보정은 데이터 불일치 구간에서 안전하지 않음(보안/정확성 충돌).
+  - 권한 판정은 반드시 "해당 학생/날짜/시작시간 슬롯의 실제 owner 후보"를 정규화한 결과를 단일 소스로 사용해야 함.
+- 조치:
+  - `getScheduleOwnerCandidatesBySlot`에서 raw owner뿐 아니라 정규화 owner(`normalizeTeacherIdForCompare`) 후보를 함께 수집
+  - `openAttendanceModal`에서 owner 확정 순서를 슬롯 후보 우선으로 고정:
+    1) 클릭 시 전달된 owner가 슬롯 후보에 있으면 채택
+    2) 학생 기대 담당(`resolveExpectedOwnerTeacherIdForStudent`)이 슬롯 후보에 있으면 채택
+    3) 슬롯 후보가 1개면 해당 owner로 확정
+  - 라벨 힌트 기반 본인 강제 보정 분기를 제거해 권한 판정을 owner id 기반으로 일원화
+  - 묶음 이벤트 생성 시 `member.ownerTeacherId`를 가능한 canonical teacher id로 저장
+- 기대 효과: "전재윤 owner 일정은 전재윤 무인증, 선생님3은 인증" 정책을 슬롯 owner 기준으로 일관 적용
+
+## 2026-03-08 묶음 일정 인증 재발 원인 확정(8차, 근본모델 보정)
+- 재현: 7차 보정 후에도 본인/타교사 모두 인증이 뜨는 케이스 존재.
+- 근본 원인(전문가 합의):
+  - owner 판정 후보에 뷰어 현재값이 간접 반영되는 경로(라벨 계산/모달 owner fallback)가 남아 있어 동일 슬롯도 사용자별로 owner 해석이 달라질 수 있음.
+  - 라벨과 owner가 분리된 데이터셋에서 클릭 owner가 비어 있으면 슬롯 후보 단일화가 실패해 양측 모두 인증 분기로 떨어질 수 있음.
+- 조치:
+  - `resolveOwnerTeacherIdForModal`에서 `currentTeacherId` fallback 제거(뷰어 의존 차단)
+  - `resolveTeacherNameByModalPolicy` 후보에서 `currentTeacherId` 제거(라벨 편향 차단)
+  - `resolveTeacherIdByExactName` 추가: 화면 라벨 -> canonical teacher id(유일매칭) 해석 함수 도입
+  - 묶음/단일 클릭 owner 전달 강화: `normalizeTeacherIdForCompare(owner)` 우선, 없으면 `resolveTeacherLabelForEvent` 라벨 기반 id(유일매칭) 사용
+  - `openAttendanceModal` owner 확정 시 슬롯 후보와 owner 라벨 id 교차검증 분기 추가
+- 기대 효과: 같은 슬롯을 누가 보더라도 owner 해석이 동일해지고, 권한 판정이 "실제 owner 기준"으로 고정
+
+## 2026-03-08 캘린더 묶음 인원수 지연 반영 보정(4차)
+- 재현: 월간/일자 화면에서 묶음 인원수가 초기 `1명`으로 보였다가 잠시 후 `3명`으로 변경됨.
+- 원인:
+  - 전체 범위(`all`) 일정 로딩이 1회 완료 시점에도 데이터 합성이 완전히 안정화되지 않아, 초기 집계가 부분값으로 노출될 수 있음.
+  - 이후 재로드/백그라운드 반영 후 실제 값으로 교체되며 "1 -> 3" 튐이 발생.
+- 조치:
+  - 전체 범위 로딩 완결성 상태값 `allScopeHydrationPassCount` 도입
+  - `loadAllTeachersScheduleData` 1회 완료만으로는 `allScopeScheduleHydrated=true`로 확정하지 않고, 2회 패스 완료 후 집계 확정
+  - 1차 패스 후 자동 재동기화(짧은 지연 재호출)로 초반 부분 집계 노출을 완화
+  - 선생님 전환/표시범위 전환 시 hydration 상태를 초기화해 이전 세션 상태가 섞이지 않도록 보정
+- 기대 효과: 초기 잘못된 인원수 노출을 줄이고, `집계중 -> 확정값` 전환으로 안정적인 표시 제공
+
+## 2026-03-08 캘린더 묶음 인원수 지연 반영 보정(5차, 정확성 우선 모드)
+- 관측: 전재윤 계정은 묶음 반영이 늦고, 선생님3 계정은 즉시 반영되는 편차 존재.
+- 분석:
+  - 선생님 미배정/매핑 누락이 있는 데이터셋에서 전체범위(all) 일정이 후행 로드되면 계정별로 초기 집계 타이밍 차이가 커질 수 있음.
+  - 이전 `속도 우선`(부분 로드 후 렌더) 정책이 이 편차를 더 크게 보이게 만들 수 있음.
+- 조치:
+  - `setCurrentTeacher`에서 전체범위(`all`)일 때 `loadAllTeachersScheduleData` 완료를 선행 대기하도록 변경(정확성 우선)
+  - 4차에서 넣었던 hydration 2패스/자동 재호출 로직을 제거하고, 단일 확정 로드 완료 시점으로 단순화
+  - `allScopeHydrationPassCount` 제거
+- 기대 효과: 계정별 초기 집계 편차(예: 전재윤만 늦게 1->3 변경)를 줄이고 첫 표시의 일관성 확보
+
+## 2026-03-08 캘린더 묶음 누락/지연 보정(6차, 레거시 teacher_id 재해석)
+- 재현: 전재윤 계정에서 묶음 일정이 지연되거나 끝내 보이지 않는 케이스가 보고됨(선생님3 대비 편차).
+- 전문가 분석(프론트엔드+데이터 무결성):
+  - 일부 일정이 레거시 `teacher_id`(owner 키/미배정 혼합)로 남아 있을 때, `getSchedulesByTeacher(currentTeacherId)` 단일 경로만으로는 현재 교사 일정이 누락될 수 있음.
+  - owner 키가 다교사에 매칭되는 데이터셋에서 이름 해석이 단일 선생님으로 임의 수렴되면 묶음 라벨/owner 판단이 왜곡될 수 있음.
+- 조치:
+  - `resolveTeacherIdFromStudentContext(studentId)` 추가: 학생 `teacher_id` + 로컬 배정 매핑을 통해 canonical teacher id 재해석
+  - `loadTeacherScheduleData` 보강: 기존 `getSchedulesByTeacher` 결과에 더해 owner 전체 조회를 병행하고, 각 row를 학생 컨텍스트 기반으로 현재 teacher에 재매핑해 누락 슬롯을 보강
+  - `loadAllTeachersScheduleData` 보강: 전체 로드 시에도 `teacher_id`를 `resolveKnownTeacherId -> resolveTeacherIdFromStudentContext -> raw` 순서로 정규화해 교사 키 일관성 강화
+  - `getTeacherNameById` 보강: `owner_user_id` 매칭은 단일 매칭일 때만 이름으로 수렴(다중 매칭 임의 수렴 방지)
+- 기대 효과: "늦게 보임"처럼 보였던 일부 케이스를 실제 누락 경로까지 줄이고, 전재윤/선생님3 간 묶음 표시 편차를 축소
