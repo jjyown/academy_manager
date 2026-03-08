@@ -1,6 +1,10 @@
 # 출석관리앱 컨텍스트 노트
 
+<<<<<<< HEAD
 - 문서 기준일: 2026-03-08
+=======
+- 문서 기준일: 2026-03-01
+>>>>>>> 0f2aa15acf96d7baccc306f584159e28fe45959e
 
 ## 제품/운영 컨텍스트
 - 대상 사용자: 교사(관리), 학생(조회)
@@ -394,6 +398,7 @@
 3) PASS/FAIL 및 재현 로그를 `docs/checklist.md` 테스트 기록에 즉시 반영
 4) 판단 근거/리스크를 `docs/context.md`에 갱신
 5) 마감 시 `docs/plan.md` 변경 이력에 작업 1줄 추가
+<<<<<<< HEAD
 
 ## 2026-03-08 환경설정 의사결정
 - 백엔드 실행 준비 시 `grading-server/.env`는 예시값을 그대로 두지 않고, 실제 Supabase 프로젝트 URL/서비스 키를 우선 반영한다.
@@ -616,3 +621,5 @@
   - `loadAllTeachersScheduleData` 보강: 전체 로드 시에도 `teacher_id`를 `resolveKnownTeacherId -> resolveTeacherIdFromStudentContext -> raw` 순서로 정규화해 교사 키 일관성 강화
   - `getTeacherNameById` 보강: `owner_user_id` 매칭은 단일 매칭일 때만 이름으로 수렴(다중 매칭 임의 수렴 방지)
 - 기대 효과: "늦게 보임"처럼 보였던 일부 케이스를 실제 누락 경로까지 줄이고, 전재윤/선생님3 간 묶음 표시 편차를 축소
+=======
+>>>>>>> 0f2aa15acf96d7baccc306f584159e28fe45959e

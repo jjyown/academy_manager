@@ -28,8 +28,11 @@ let selectedScheduleStudents = [];
 let isScheduleSaving = false;
 let selectedPeriodDeleteStudents = [];
 let timetableScope = 'all';
+<<<<<<< HEAD
 let allScopeScheduleHydrated = false;
 let allScopeScheduleLoading = false;
+=======
+>>>>>>> 0f2aa15acf96d7baccc306f584159e28fe45959e
 let historyActionContext = { studentId: '', monthPrefix: '' };
 let testScoreSyncState = { mode: 'unknown', message: '동기화 상태 확인 전' };
 const TEST_SCORE_STORAGE_PREFIX = 'student_test_scores__';
@@ -446,13 +449,21 @@ function getTeacherNameById(teacherId) {
         });
         if (t && t.name) return t.name;
         // 과거/혼합 데이터에서 schedule.teacher_id가 owner_user_id로 저장된 경우 보정
+<<<<<<< HEAD
         const ownerMatchedList = teacherList.filter((item) => {
+=======
+        const ownerMatched = teacherList.find((item) => {
+>>>>>>> 0f2aa15acf96d7baccc306f584159e28fe45959e
             const ownerValue = String(item.owner_user_id || '').trim().toLowerCase();
             if (ownerValue === normalizedRawId) return true;
             const canonicalOwner = toCanonical(item.owner_user_id);
             return !!(canonicalRawId && canonicalOwner && canonicalOwner === canonicalRawId);
         });
+<<<<<<< HEAD
         if (ownerMatchedList.length === 1 && ownerMatchedList[0]?.name) return ownerMatchedList[0].name;
+=======
+        if (ownerMatched && ownerMatched.name) return ownerMatched.name;
+>>>>>>> 0f2aa15acf96d7baccc306f584159e28fe45959e
     }
     // teacherList 동기화 지연/미매칭 시 UUID를 그대로 노출하지 않도록 사용자용 라벨로 폴백
     if (String(getCurrentTeacherId() || '') === rawId) {
@@ -472,6 +483,7 @@ function getTeacherNameById(teacherId) {
     return '선생님';
 }
 
+<<<<<<< HEAD
 function resolveTeacherIdByExactName(teacherName) {
     const target = String(teacherName || '').trim();
     if (!target || ['선생님', '미확인', '담당 미확인'].includes(target)) return '';
@@ -480,6 +492,8 @@ function resolveTeacherIdByExactName(teacherName) {
     return String(matches[0]?.id || '').trim();
 }
 
+=======
+>>>>>>> 0f2aa15acf96d7baccc306f584159e28fe45959e
 // 겹침 목록을 사용자에게 보여주는 메시지 생성
 function formatOverlapMessage(studentName, dateStr, conflicts) {
     let msg = `⚠️ ${studentName} - ${dateStr} 일정 시간 겹침 발견!\n\n`;
@@ -649,6 +663,7 @@ function resolveScheduleOwnerTeacherId(studentId, dateStr, startTime) {
     return String(currentTeacherId || '');
 }
 
+<<<<<<< HEAD
 function getScheduleOwnerCandidatesBySlot(studentId, dateStr, startTime) {
     const sid = String(studentId || '');
     const dateKey = String(dateStr || '');
@@ -684,6 +699,8 @@ function normalizeTeacherIdForCompare(teacherId) {
     return resolved || raw;
 }
 
+=======
+>>>>>>> 0f2aa15acf96d7baccc306f584159e28fe45959e
 async function verifyCurrentTeacherPinForAdmin(message) {
     const role = String(getCurrentTeacherRole() || 'teacher');
     if (role !== 'admin') return false;
@@ -787,7 +804,12 @@ function resolveOwnerTeacherIdForModal(studentId, dateStr, startTime, preferredO
             const st = (students || []).find((item) => String(item.id) === String(studentId));
             return st ? st.teacher_id : '';
         })(),
+<<<<<<< HEAD
         (typeof getAssignedTeacherId === 'function' ? getAssignedTeacherId(studentId) : '')
+=======
+        (typeof getAssignedTeacherId === 'function' ? getAssignedTeacherId(studentId) : ''),
+        currentTeacherId
+>>>>>>> 0f2aa15acf96d7baccc306f584159e28fe45959e
     ].map((v) => String(v || '').trim()).filter(Boolean);
 
     const candidates = [];
@@ -821,6 +843,7 @@ function resolveOwnerTeacherIdForModal(studentId, dateStr, startTime, preferredO
     return String(currentTeacherId || '');
 }
 
+<<<<<<< HEAD
 function isScheduleOwnedByCurrentTeacher(ownerTeacherId) {
     const myId = String(currentTeacherId || '').trim();
     const ownerRaw = String(ownerTeacherId || '').trim();
@@ -859,6 +882,8 @@ function resolveExpectedOwnerTeacherIdForStudent(studentId) {
     return '';
 }
 
+=======
+>>>>>>> 0f2aa15acf96d7baccc306f584159e28fe45959e
 async function verifyScheduleEditPermission(ownerTeacherId) {
     const ownerId = String(ownerTeacherId || '');
     const myId = String(currentTeacherId || '');
@@ -882,8 +907,11 @@ window.setTimetableScope = async function(scope) {
     }
     timetableScope = nextScope;
     localStorage.setItem(getTimetableScopeStorageKey(), timetableScope);
+<<<<<<< HEAD
     allScopeScheduleHydrated = timetableScope !== 'all';
     allScopeScheduleLoading = timetableScope === 'all';
+=======
+>>>>>>> 0f2aa15acf96d7baccc306f584159e28fe45959e
     updateTimetableScopeUi();
     if (timetableScope === 'all' && typeof loadAllTeachersScheduleData === 'function') {
         try {
@@ -1179,6 +1207,7 @@ async function fetchPublicHolidays(year) {
         } catch (e) { /* 캐시 파싱 실패 → 다시 가져옴 */ }
     }
 
+<<<<<<< HEAD
     let apiKey =
         window.DATA_GO_KR_API_KEY ||
         (window.env && window.env.DATA_GO_KR_API_KEY) ||
@@ -1191,6 +1220,9 @@ async function fetchPublicHolidays(year) {
             (window.env && window.env.DATA_GO_KR_API_KEY) ||
             '';
     }
+=======
+    const apiKey = window.DATA_GO_KR_API_KEY;
+>>>>>>> 0f2aa15acf96d7baccc306f584159e28fe45959e
     if (!apiKey || apiKey === 'YOUR_API_KEY_HERE') {
         console.warn('[공휴일] API 키가 설정되지 않았습니다. 하드코딩 데이터를 사용합니다.');
         return null;
@@ -1771,11 +1803,14 @@ async function setCurrentTeacher(teacher) {
         timetableScope = 'all';
         localStorage.setItem(getTimetableScopeStorageKey(), timetableScope);
         updateTimetableScopeUi();
+<<<<<<< HEAD
         allScopeScheduleHydrated = timetableScope !== 'all';
         allScopeScheduleLoading = timetableScope === 'all';
         const allScopeLoadPromise = (timetableScope === 'all' && typeof loadAllTeachersScheduleData === 'function')
             ? loadAllTeachersScheduleData()
             : Promise.resolve();
+=======
+>>>>>>> 0f2aa15acf96d7baccc306f584159e28fe45959e
         
         // 1단계: 관리자별 모든 학생 로드
         console.log('[setCurrentTeacher] 1단계: 학생 데이터 로드 중...');
@@ -1800,6 +1835,7 @@ async function setCurrentTeacher(teacher) {
         currentTeacherStudents = students.filter(s => teacherStudentIds.includes(s.id));
         console.log('[setCurrentTeacher] 3단계: 현재 선생님의 학생 필터링 완료 -', currentTeacherStudents.length + '명');
         
+<<<<<<< HEAD
         const perfStart = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
 
         // 4단계: 현재 선생님의 일정 데이터 로드
@@ -1813,6 +1849,22 @@ async function setCurrentTeacher(teacher) {
             } catch (e) {
                 console.warn('[setCurrentTeacher] 전체 일정 선로딩 실패:', e);
             }
+=======
+        // 4단계: 현재 선생님의 일정 데이터 로드
+        console.log('[setCurrentTeacher] 4단계: 일정 데이터 로드 중...');
+        await loadTeacherScheduleData(teacher.id);
+        // ★ 다른 선생님 일정도 로드 (겹침 확인/알림용)
+        await loadAllTeachersScheduleData();
+        console.log('[setCurrentTeacher] 4단계 완료: 전체 일정 데이터 로드 완료');
+
+        // 일정은 있는데 QR 스캔 결과가 없는 경우 결석 자동 처리 (KST 기준)
+        await autoMarkAbsentForPastSchedules();
+        scheduleKstMidnightAutoAbsent();
+        
+        // ★ 오늘 수업 중 QR 미스캔 학생 자동 알림 타이머 설정
+        if (typeof window.initMissedScanChecks === 'function') {
+            window.initMissedScanChecks();
+>>>>>>> 0f2aa15acf96d7baccc306f584159e28fe45959e
         }
         
         // 5단계: 페이지를 MAIN_APP으로 전환
@@ -1855,6 +1907,7 @@ async function setCurrentTeacher(teacher) {
         updateForceResetMenuVisibility();
         updateUserRoleLabel();
         
+<<<<<<< HEAD
         // 로딩 화면은 초기 렌더 완료 시점에 먼저 제거해 체감 진입 속도를 개선
         const loader = document.getElementById('initial-loader');
         if (loader) loader.style.display = 'none';
@@ -1888,6 +1941,11 @@ async function setCurrentTeacher(teacher) {
                 const perfDone = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
                 console.info(`[setCurrentTeacher][perf] background-complete: ${Math.round(perfDone - perfStart)}ms`);
             });
+=======
+        // 로딩 화면 제거 (최종 안전망)
+        const loader = document.getElementById('initial-loader');
+        if (loader) loader.style.display = 'none';
+>>>>>>> 0f2aa15acf96d7baccc306f584159e28fe45959e
         
         console.log('[setCurrentTeacher] 완료 - 선생님:', teacher.name);
     } catch (err) {
@@ -2985,18 +3043,26 @@ function _renderCalendarImpl() {
     const fragment = document.createDocumentFragment();
     const todayStr = getTodayStr();
 
+<<<<<<< HEAD
     const cellModels = [];
+=======
+>>>>>>> 0f2aa15acf96d7baccc306f584159e28fe45959e
     if (currentView === 'month') {
         display.textContent = `${currentDate.getFullYear()}년 ${currentDate.getMonth() + 1}월`;
         const year = currentDate.getFullYear();
         const month = currentDate.getMonth();
         const lastDay = new Date(year, month + 1, 0).getDate();
         const startDow = new Date(year, month, 1).getDay();
+<<<<<<< HEAD
 
+=======
+        
+>>>>>>> 0f2aa15acf96d7baccc306f584159e28fe45959e
         // 이전 달 채우기
         if (startDow > 0) {
             const prevLastDay = new Date(year, month, 0).getDate();
             for (let i = startDow - 1; i >= 0; i--) {
+<<<<<<< HEAD
                 cellModels.push({
                     date: new Date(year, month - 1, prevLastDay - i),
                     isOtherMonth: true
@@ -3012,14 +3078,33 @@ function _renderCalendarImpl() {
             });
         }
 
+=======
+                const cell = createCell(new Date(year, month - 1, prevLastDay - i), null, todayStr);
+                cell.classList.add('other-month');
+                fragment.appendChild(cell);
+            }
+        }
+        
+        // 이번 달
+        for (let i = 1; i <= lastDay; i++) {
+            fragment.appendChild(createCell(new Date(year, month, i), null, todayStr));
+        }
+        
+>>>>>>> 0f2aa15acf96d7baccc306f584159e28fe45959e
         // 다음 달 채우기 (5~6줄)
         const totalCells = startDow + lastDay;
         const totalRows = totalCells <= 35 ? 35 : 42;
         for (let i = 1; i <= totalRows - totalCells; i++) {
+<<<<<<< HEAD
             cellModels.push({
                 date: new Date(year, month + 1, i),
                 isOtherMonth: true
             });
+=======
+            const cell = createCell(new Date(year, month + 1, i), null, todayStr);
+            cell.classList.add('other-month');
+            fragment.appendChild(cell);
+>>>>>>> 0f2aa15acf96d7baccc306f584159e28fe45959e
         }
     } else {
         const start = new Date(currentDate);
@@ -3028,6 +3113,7 @@ function _renderCalendarImpl() {
         for (let i = 0; i <= 6; i++) {
             const dateObj = new Date(start);
             dateObj.setDate(start.getDate() + i);
+<<<<<<< HEAD
             cellModels.push({
                 date: dateObj,
                 isOtherMonth: false
@@ -3045,6 +3131,12 @@ function _renderCalendarImpl() {
         fragment.appendChild(cell);
     });
 
+=======
+            fragment.appendChild(createCell(dateObj, null, todayStr));
+        }
+    }
+
+>>>>>>> 0f2aa15acf96d7baccc306f584159e28fe45959e
     grid.innerHTML = '';
     grid.appendChild(fragment);
 }
@@ -3085,6 +3177,7 @@ function collectCellScheduleSummary(dateStr) {
     return results;
 }
 
+<<<<<<< HEAD
 function buildCalendarSummaryMap(dateStrList) {
     const targetDates = new Set((dateStrList || []).map((value) => String(value || '')).filter(Boolean));
     const summaryMap = new Map();
@@ -3126,6 +3219,9 @@ function buildCalendarSummaryMap(dateStrList) {
 }
 
 function createCell(date, activeStudents, todayStr, precomputedSummaryRows) {
+=======
+function createCell(date, activeStudents, todayStr) {
+>>>>>>> 0f2aa15acf96d7baccc306f584159e28fe45959e
     const cell = document.createElement('div');
     cell.className = 'grid-cell';
     const dateStr = dateToStr(date);
@@ -3166,16 +3262,22 @@ function createCell(date, activeStudents, todayStr, precomputedSummaryRows) {
     `;
 
     // 일정이 있는 학생 수 빠르게 카운트
+<<<<<<< HEAD
     const summaryRows = Array.isArray(precomputedSummaryRows)
         ? precomputedSummaryRows
         : collectCellScheduleSummary(dateStr);
     const eventCount = summaryRows.length;
     const pendingAllScopeSummary = timetableScope === 'all' && !allScopeScheduleHydrated && allScopeScheduleLoading;
+=======
+    const summaryRows = collectCellScheduleSummary(dateStr);
+    const eventCount = summaryRows.length;
+>>>>>>> 0f2aa15acf96d7baccc306f584159e28fe45959e
     const eventNames = summaryRows.map((row) => {
         const teacherText = timetableScope === 'all' ? ` · ${escapeHtml(row.teacherName)}` : '';
         return `<div>${escapeHtml(row.studentName)} (${escapeHtml(row.grade)})${teacherText}</div>`;
     });
 
+<<<<<<< HEAD
     if (pendingAllScopeSummary) {
         const badgeContainer = document.createElement('div');
         badgeContainer.className = 'summary-badge-container';
@@ -3185,6 +3287,9 @@ function createCell(date, activeStudents, todayStr, precomputedSummaryRows) {
         badgeContainer.appendChild(badge);
         cell.appendChild(badgeContainer);
     } else if (eventCount > 0) {
+=======
+    if (eventCount > 0) {
+>>>>>>> 0f2aa15acf96d7baccc306f584159e28fe45959e
         const badgeContainer = document.createElement('div');
         badgeContainer.className = 'summary-badge-container';
         const badge = document.createElement('div');
@@ -3502,6 +3607,7 @@ window.renderDayEvents = function(dateStr) {
                         startMin: startMin,
                         duration: parseInt(detail.duration, 10) || 60,
                         originalStart: detail.start,
+<<<<<<< HEAD
                         // group key와 실제 owner teacher_id를 분리 보존해야
                         // 모달 진입 시 권한 판정이 흔들리지 않는다.
                         member: {
@@ -3509,6 +3615,9 @@ window.renderDayEvents = function(dateStr) {
                             teacherId: resolveTeacherGroupKey(teacherId, s),
                             ownerTeacherId: String(resolveKnownTeacherId(teacherId) || legacyTeacherResolutionMap.get(String(teacherId)) || teacherId)
                         }
+=======
+                        member: { student: s, teacherId: resolveTeacherGroupKey(teacherId, s) }
+>>>>>>> 0f2aa15acf96d7baccc306f584159e28fe45959e
                     });
                 });
             } else {
@@ -3598,7 +3707,12 @@ window.renderDayEvents = function(dateStr) {
                 String(m?.teacherId || '').trim(),
                 resolveScheduleOwnerTeacherId(sid, dateStr, String(ev?.originalStart || '')),
                 String(student?.teacher_id || '').trim(),
+<<<<<<< HEAD
                 (sid && typeof getAssignedTeacherId === 'function') ? String(getAssignedTeacherId(sid) || '').trim() : ''
+=======
+                (sid && typeof getAssignedTeacherId === 'function') ? String(getAssignedTeacherId(sid) || '').trim() : '',
+                String(currentTeacherId || '').trim()
+>>>>>>> 0f2aa15acf96d7baccc306f584159e28fe45959e
             ].filter(Boolean);
             const uniqueCandidates = [...new Set(candidateIds)];
             for (const candidateId of uniqueCandidates) {
@@ -3726,6 +3840,7 @@ window.renderDayEvents = function(dateStr) {
         const teacherThemeKey = String(ev.teacherId || ev.groupTeacherKey || ev.teacherName || 'unknown');
         const teacherTheme = teacherThemeMap.get(teacherThemeKey) || buildTeacherBadgeThemeFromHue(toStableHash(teacherThemeKey) % 360);
         const resolvedTeacherLabel = resolveTeacherLabelForEvent(ev);
+<<<<<<< HEAD
         const resolvedTeacherLabelOwnerId = resolveTeacherIdByExactName(resolvedTeacherLabel);
         const teacherBadge = isAllScope
             ? `<span class="evt-teacher" style="--evt-teacher-bg:${teacherTheme.bg};--evt-teacher-border:${teacherTheme.border};--evt-teacher-shadow:${teacherTheme.shadow};">${escapeHtml(resolvedTeacherLabel)}</span>`
@@ -3733,6 +3848,11 @@ window.renderDayEvents = function(dateStr) {
         const resolvedTeacherLabelArg = String(resolvedTeacherLabel || '')
             .replace(/\\/g, '\\\\')
             .replace(/'/g, "\\'");
+=======
+        const teacherBadge = isAllScope
+            ? `<span class="evt-teacher" style="--evt-teacher-bg:${teacherTheme.bg};--evt-teacher-border:${teacherTheme.border};--evt-teacher-shadow:${teacherTheme.shadow};">${escapeHtml(resolvedTeacherLabel)}</span>`
+            : '';
+>>>>>>> 0f2aa15acf96d7baccc306f584159e28fe45959e
         if (isMerged) {
             contentDiv.innerHTML = `<div class="merged-header"><span>${teacherBadge}${ev.originalStart}~${endTimeStr}</span><span style="opacity:0.8; font-size:10px;">${ev.members.length}명</span></div><div class="merged-list">${ev.members.map(m => {
                 const student = m.student;
@@ -3751,12 +3871,16 @@ window.renderDayEvents = function(dateStr) {
                 else if (status === 'absent') badge = '<span style="background:#ef4444;color:white;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;">결석</span>';
                 else if (status === 'makeup' || status === 'etc') badge = '<span style="background:#8b5cf6;color:white;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;">보강</span>';
                 else badge = '<span style="background:#d1d5db;color:#374151;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;">미처리</span>';
+<<<<<<< HEAD
                 const ownerTeacherIdForModal = String(
                     normalizeTeacherIdForCompare(m.ownerTeacherId || m.teacherId || ev.teacherId || '') ||
                     resolvedTeacherLabelOwnerId ||
                     ''
                 );
                 return `<div class="sub-event-item ${getSubItemColorClass(student.grade)}" data-student-name="${student.name}" onclick="event.stopPropagation(); openAttendanceModal('${student.id}', '${dateStr}', '${ev.originalStart}', '${ownerTeacherIdForModal}', '${resolvedTeacherLabelArg}')"><div class="sub-info"><span class="sub-name">${student.name} ${badge}</span><span class="sub-grade">${student.grade}</span></div></div>`;
+=======
+                return `<div class="sub-event-item ${getSubItemColorClass(student.grade)}" data-student-name="${student.name}" onclick="event.stopPropagation(); openAttendanceModal('${student.id}', '${dateStr}', '${ev.originalStart}', '${m.teacherId || ev.teacherId || ''}')"><div class="sub-info"><span class="sub-name">${student.name} ${badge}</span><span class="sub-grade">${student.grade}</span></div></div>`;
+>>>>>>> 0f2aa15acf96d7baccc306f584159e28fe45959e
             }).join('')}</div>`;
         } else {
             const s = ev.members[0].student;
@@ -3796,6 +3920,7 @@ window.renderDayEvents = function(dateStr) {
             block.onclick = (e) => { 
                 if(block.getAttribute('data-action-status') === 'moved' || block.getAttribute('data-action-status') === 'resized') { e.stopPropagation(); block.setAttribute('data-action-status', 'none'); return; }
                 if(e.target.classList.contains('resize-handle')) return;
+<<<<<<< HEAD
                 e.stopPropagation();
                 const ownerTeacherId = String(
                     normalizeTeacherIdForCompare(ev.members?.[0]?.ownerTeacherId || ev.teacherId || '') ||
@@ -3803,6 +3928,9 @@ window.renderDayEvents = function(dateStr) {
                     ''
                 );
                 openAttendanceModal(s.id, dateStr, ev.originalStart, ownerTeacherId, resolvedTeacherLabel);
+=======
+                e.stopPropagation(); openAttendanceModal(s.id, dateStr, ev.originalStart, ev.teacherId || '');
+>>>>>>> 0f2aa15acf96d7baccc306f584159e28fe45959e
             };
         }
         block.appendChild(contentDiv);
@@ -3966,7 +4094,11 @@ window.switchMemoTab = function(tab) {
     }
 }
 
+<<<<<<< HEAD
 window.openAttendanceModal = async function(sid, dateStr, startTime, ownerTeacherId, ownerTeacherNameHint) {
+=======
+window.openAttendanceModal = async function(sid, dateStr, startTime, ownerTeacherId) {
+>>>>>>> 0f2aa15acf96d7baccc306f584159e28fe45959e
     const sIdx = students.findIndex(x => String(x.id) === String(sid));
     if (sIdx === -1) return;
     const s = students[sIdx];
@@ -3990,6 +4122,7 @@ window.openAttendanceModal = async function(sid, dateStr, startTime, ownerTeache
             }
         }
     }
+<<<<<<< HEAD
     const expectedOwnerTeacherId = resolveExpectedOwnerTeacherIdForStudent(sid);
     const slotOwnerCandidates = getScheduleOwnerCandidatesBySlot(sid, dateStr, startTime)
         .map((candidate) => normalizeTeacherIdForCompare(candidate))
@@ -4067,6 +4200,11 @@ window.openAttendanceModal = async function(sid, dateStr, startTime, ownerTeache
             currentTeacherId: String(currentTeacherId || ''),
             currentTeacherName: String(getCurrentTeacherName() || '')
         });
+=======
+    const isOwnerSchedule = String(effectiveOwnerTeacherId || '') === String(currentTeacherId || '');
+    let adminOverride = false;
+    if (!isOwnerSchedule) {
+>>>>>>> 0f2aa15acf96d7baccc306f584159e28fe45959e
         const ownerTeacherName = getTeacherNameById(effectiveOwnerTeacherId);
         const verified = await verifyAdminPinForCrossTeacherAccess(ownerTeacherName);
         if (!verified) return;
@@ -6508,7 +6646,10 @@ async function loadAndCleanData() {
     try {
         // 출석 기록: 소유자 기준 전체 레코드를 로드해 학생에 반영 (모든 선생님 공통)
         // ★ 시간별 객체 형태로 저장: student.attendance[date][scheduled_time] = status
+<<<<<<< HEAD
         const studentById = new Map((students || []).map((s) => [String(s.id), s]));
+=======
+>>>>>>> 0f2aa15acf96d7baccc306f584159e28fe45959e
         if (typeof getAttendanceRecordsByOwner === 'function') {
             const records = await getAttendanceRecordsByOwner(null);
             if (records && records.length > 0 && students.length > 0) {
@@ -6548,7 +6689,11 @@ async function loadAndCleanData() {
                 });
 
                 recordMap.forEach(({ record, time }) => {
+<<<<<<< HEAD
                     const student = studentById.get(String(record.student_id));
+=======
+                    const student = students.find(s => String(s.id) === String(record.student_id));
+>>>>>>> 0f2aa15acf96d7baccc306f584159e28fe45959e
                     if (!student) return;
                     if (!student.attendance) student.attendance = {};
                     
@@ -6629,7 +6774,11 @@ async function loadAndCleanData() {
                 if (!sharedErr && sharedData && sharedData.length > 0) {
                     sharedData.forEach(rec => {
                         if (!rec.shared_memo || !rec.shared_memo.trim()) return;
+<<<<<<< HEAD
                         const student = studentById.get(String(rec.student_id));
+=======
+                        const student = students.find(s => String(s.id) === String(rec.student_id));
+>>>>>>> 0f2aa15acf96d7baccc306f584159e28fe45959e
                         if (!student) return;
                         if (!student.shared_records) student.shared_records = {};
                         const dk = rec.attendance_date;
@@ -6778,6 +6927,7 @@ async function ensureAttendanceForDate(dateStr) {
 // 선생님별 일정 데이터 로드
 async function loadTeacherScheduleData(teacherId) {
     try {
+<<<<<<< HEAD
         const normalizedTeacherId = String(resolveKnownTeacherId(teacherId) || teacherId || '').trim();
         const appendScheduleEntry = (ownerTid, schedule) => {
             const sid = String(schedule?.student_id || '').trim();
@@ -6794,6 +6944,8 @@ async function loadTeacherScheduleData(teacherId) {
             const updated = upsertScheduleEntry(entries, entry);
             setScheduleEntries(ownerTid, sid, date, updated.list);
         };
+=======
+>>>>>>> 0f2aa15acf96d7baccc306f584159e28fe45959e
         // 수파베이스에서 먼저 로드
         if (typeof getSchedulesByTeacher === 'function') {
             try {
@@ -6801,6 +6953,7 @@ async function loadTeacherScheduleData(teacherId) {
                 teacherScheduleData[teacherId] = {};
                 
                 dbSchedules.forEach(schedule => {
+<<<<<<< HEAD
                     appendScheduleEntry(teacherId, schedule);
                 });
 
@@ -6827,6 +6980,23 @@ async function loadTeacherScheduleData(teacherId) {
                         });
                     }
                 }
+=======
+                    const studentId = String(schedule.student_id);
+                    const date = schedule.schedule_date;
+                    
+                    if (!teacherScheduleData[teacherId][studentId]) {
+                        teacherScheduleData[teacherId][studentId] = {};
+                    }
+                    
+                    const entry = {
+                        start: schedule.start_time.substring(0, 5),
+                        duration: schedule.duration
+                    };
+                    const entries = getScheduleEntries(teacherId, studentId, date);
+                    const updated = upsertScheduleEntry(entries, entry);
+                    setScheduleEntries(teacherId, studentId, date, updated.list);
+                });
+>>>>>>> 0f2aa15acf96d7baccc306f584159e28fe45959e
                 
                 console.log(`일정 DB 로드 (${teacherId}): ${dbSchedules.length}개`);
                 
@@ -6867,7 +7037,10 @@ async function loadTeacherScheduleData(teacherId) {
 
 // ★ 모든 선생님의 일정 데이터 로드 (겹침 확인/알림 등에 필요)
 async function loadAllTeachersScheduleData() {
+<<<<<<< HEAD
     allScopeScheduleLoading = true;
+=======
+>>>>>>> 0f2aa15acf96d7baccc306f584159e28fe45959e
     try {
         if (typeof supabase === 'undefined') return;
         const ownerId = cachedLsGet('current_owner_id');
@@ -6915,6 +7088,7 @@ async function loadAllTeachersScheduleData() {
         // 현재 선생님의 데이터는 보존하고, 다른 선생님 데이터만 추가/갱신
         const otherTeachers = {};
         (data || []).forEach(schedule => {
+<<<<<<< HEAD
             const tid = String(
                 resolveKnownTeacherId(schedule?.teacher_id)
                 || resolveTeacherIdFromStudentContext(schedule?.student_id)
@@ -6922,6 +7096,9 @@ async function loadAllTeachersScheduleData() {
                 || ''
             ).trim();
             if (!tid) return;
+=======
+            const tid = String(schedule.teacher_id);
+>>>>>>> 0f2aa15acf96d7baccc306f584159e28fe45959e
             const sid = String(schedule.student_id);
             const date = schedule.schedule_date;
             const entry = {
@@ -6953,11 +7130,16 @@ async function loadAllTeachersScheduleData() {
         const otherCount = Object.keys(otherTeachers).filter(t => String(t) !== String(currentTeacherId)).length;
         console.log(`[loadAllTeachersScheduleData] 다른 선생님 ${otherCount}명 일정 로드 완료 (총 ${(data || []).length}건)`);
         normalizeLegacyTeacherScheduleOwnership();
+<<<<<<< HEAD
         allScopeScheduleHydrated = true;
     } catch (e) {
         console.error('[loadAllTeachersScheduleData] 예외:', e);
     } finally {
         allScopeScheduleLoading = false;
+=======
+    } catch (e) {
+        console.error('[loadAllTeachersScheduleData] 예외:', e);
+>>>>>>> 0f2aa15acf96d7baccc306f584159e28fe45959e
     }
 }
 
@@ -7605,12 +7787,17 @@ function resolveKnownTeacherId(rawTeacherId) {
         return !!(canonicalRaw && idCanonical && canonicalRaw === idCanonical);
     });
     if (byId) return String(byId.id || '');
+<<<<<<< HEAD
     const byOwnerMatches = (teacherList || []).filter((t) => {
+=======
+    const byOwner = (teacherList || []).find((t) => {
+>>>>>>> 0f2aa15acf96d7baccc306f584159e28fe45959e
         const ownerRaw = String(t.owner_user_id || '').trim().toLowerCase();
         if (ownerRaw === normalizedRaw) return true;
         const ownerCanonical = ownerRaw.replace(/[^a-z0-9]/g, '');
         return !!(canonicalRaw && ownerCanonical && canonicalRaw === ownerCanonical);
     });
+<<<<<<< HEAD
     if (byOwnerMatches.length === 1) {
         return String(byOwnerMatches[0].id || '');
     }
@@ -7632,6 +7819,9 @@ function resolveTeacherIdFromStudentContext(studentId) {
         if (assigned) return assigned;
     }
     return '';
+=======
+    return byOwner ? String(byOwner.id || '') : '';
+>>>>>>> 0f2aa15acf96d7baccc306f584159e28fe45959e
 }
 
 function normalizeLegacyTeacherScheduleOwnership() {

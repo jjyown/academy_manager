@@ -27,6 +27,7 @@ Before coding, read these files in order:
    - 세 문서의 `문서 기준일`이 동일한지 확인하고, 불일치 시 반드시 수정 후에만 종료한다.
 7. If any checklist item is skipped, explain why.
 
+<<<<<<< HEAD
 ## Date Logging Guard (강화 규칙)
 
 - `문서 기준일`만 맞추는 것으로 끝내지 않는다.
@@ -47,6 +48,8 @@ Before coding, read these files in order:
   - `문서 기준일`이 오늘 날짜가 아님
   - 이번 사이클에 추가한 작업 기록 날짜가 과거 날짜
 
+=======
+>>>>>>> 0f2aa15acf96d7baccc306f584159e28fe45959e
 ## Quality Gate
 
 - Run or describe relevant verification after edits.

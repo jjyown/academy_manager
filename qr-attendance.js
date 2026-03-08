@@ -4157,11 +4157,18 @@ async function getAttendanceRecordByStudentAndDate(studentId, dateStr, teacherId
         if (scheduledTime) {
             query = query.eq('scheduled_time', scheduledTime);
         }
+<<<<<<< HEAD
         let { data, error } = await query.maybeSingle();
         if (error) {
             // maybeSingle은 "복수 또는 0건" 모두 에러로 떨어질 수 있음.
             // 재조회 후 건수에 따라 분기해, 0건은 경고 노이즈를 줄이고
             // 복수건만 경고로 남긴다.
+=======
+        const { data, error } = await query.maybeSingle();
+        if (error) {
+            // maybeSingle 에러 (복수 레코드 등) → 첫 번째 레코드 반환
+            console.warn('[getAttendanceRecordByStudentAndDate] maybeSingle 에러, limit(1) 재시도:', error.message);
+>>>>>>> 0f2aa15acf96d7baccc306f584159e28fe45959e
             let retryQuery = supabase
                 .from('attendance_records')
                 .select('*')
@@ -4170,6 +4177,7 @@ async function getAttendanceRecordByStudentAndDate(studentId, dateStr, teacherId
             if (ownerId) retryQuery = retryQuery.eq('owner_user_id', ownerId);
             if (teacherId) retryQuery = retryQuery.eq('teacher_id', String(teacherId));
             if (scheduledTime) retryQuery = retryQuery.eq('scheduled_time', scheduledTime);
+<<<<<<< HEAD
             const { data: retryData, error: retryError } = await retryQuery.order('created_at', { ascending: false }).limit(50);
             if (retryError) {
                 console.warn('[getAttendanceRecordByStudentAndDate] maybeSingle 재조회 실패:', retryError.message);
@@ -4207,6 +4215,13 @@ async function getAttendanceRecordByStudentAndDate(studentId, dateStr, teacherId
                 // 아래 포맷보정/fallback 분기로 진행한다.
                 data = null;
             }
+=======
+            const { data: retryData } = await retryQuery.order('created_at', { ascending: false }).limit(50);
+            return pickBestRecord(retryData || [], {
+                teacherId: teacherId || '',
+                scheduledVariants: normalizeScheduledVariants(scheduledTime)
+            });
+>>>>>>> 0f2aa15acf96d7baccc306f584159e28fe45959e
         }
         // scheduled_time 포맷 차이(HH:MM vs HH:MM:SS) 보정 재시도
         if (!data && scheduledTime) {
