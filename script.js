@@ -3740,7 +3740,7 @@ window.renderDayEvents = function(dateStr) {
                 let status = '';
                 if (student.attendance && student.attendance[dateStr]) {
                     if (typeof student.attendance[dateStr] === 'object') {
-                        status = student.attendance[dateStr][ev.originalStart] || '';
+                        status = getSlotValueByNormalizedTime(student.attendance[dateStr], ev.originalStart) || '';
                     } else {
                         status = student.attendance[dateStr] || '';
                     }
@@ -3765,7 +3765,7 @@ window.renderDayEvents = function(dateStr) {
             if (s.attendance && s.attendance[dateStr]) {
                 // 여러 일정이 있을 경우, originalStart(수업 시작시간) 기준으로 해당 일정 출결만 표시
                 if (typeof s.attendance[dateStr] === 'object') {
-                    status = s.attendance[dateStr][ev.originalStart] || 'none';
+                    status = getSlotValueByNormalizedTime(s.attendance[dateStr], ev.originalStart) || 'none';
                 } else {
                     status = s.attendance[dateStr];
                 }

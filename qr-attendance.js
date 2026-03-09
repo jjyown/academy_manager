@@ -3273,10 +3273,57 @@ window.loadStudentAttendanceHistory = async function() {
         // 슬롯 키(날짜+시간) 단위로 묶어 동일 날짜 다중 수업(예: 19:00/22:00)이
         // 이력 화면에서 한 건으로 덮어써 보이지 않도록 처리한다.
         const normalizeTimeKey = (raw) => {
+            if (typeof window.normalizeScheduleTimeKey === 'function') {
+                return window.normalizeScheduleTimeKey(raw);
+            }
             if (!raw) return 'default';
             const text = String(raw);
             if (text.length >= 5 && text.indexOf(':') > -1) return text.substring(0, 5);
             return 'default';
+        };
+        const normalizeTeacherKey = (raw) => {
+            const rawText = String(raw || '').trim();
+            if (!rawText) return '';
+            if (typeof window.resolveKnownTeacherId === 'function') {
+                const resolved = String(window.resolveKnownTeacherId(rawText) || '').trim();
+                if (resolved) return resolved;
+            }
+            return rawText;
+        };
+        const statusPriority = {
+            present: 5,
+            late: 4,
+            makeup: 3,
+            etc: 3,
+            absent: 2,
+            none: 1
+        };
+        const getRecordPriority = (row) => statusPriority[String(row?.status || '').toLowerCase()] || 0;
+        const getRecordSortTime = (row) => {
+            const raw = row?.processed_at || row?.auth_time || row?.check_in_time || row?.qr_scan_time || row?.updated_at || row?.created_at || null;
+            const ts = raw ? new Date(raw).getTime() : 0;
+            return Number.isFinite(ts) ? ts : 0;
+        };
+        const pickBetterRecord = (base, candidate) => {
+            if (!base) return candidate;
+            const basePriority = getRecordPriority(base);
+            const candidatePriority = getRecordPriority(candidate);
+            if (candidatePriority > basePriority) return candidate;
+            if (candidatePriority < basePriority) return base;
+            return getRecordSortTime(candidate) >= getRecordSortTime(base) ? candidate : base;
+        };
+        const compactRecordsByTeacher = (rows) => {
+            const byTeacher = new Map();
+            (rows || []).forEach((row) => {
+                const teacherKey = normalizeTeacherKey(row?.teacher_id) || '__unknown__';
+                const previous = byTeacher.get(teacherKey) || null;
+                byTeacher.set(teacherKey, pickBetterRecord(previous, row));
+            });
+            return Array.from(byTeacher.values()).sort((a, b) => {
+                const pDiff = getRecordPriority(b) - getRecordPriority(a);
+                if (pDiff !== 0) return pDiff;
+                return getRecordSortTime(b) - getRecordSortTime(a);
+            });
         };
         const toSlotKey = (dateVal, timeVal) => `${dateVal}__${normalizeTimeKey(timeVal)}`;
         const fromSlotKey = (slotKey) => {
@@ -3288,11 +3335,13 @@ window.loadStudentAttendanceHistory = async function() {
             };
         };
 
+        const normalizedPrimaryTeacherId = normalizeTeacherKey(primaryTeacherId);
         const primaryScheduleBySlot = new Map();
         const otherScheduleBySlot = new Map();
         schedulesInMonth.forEach(s => {
             const key = toSlotKey(s.schedule_date, s.start_time);
-            if (primaryTeacherId && String(s.teacher_id) === primaryTeacherId) {
+            const scheduleTeacherKey = normalizeTeacherKey(s.teacher_id);
+            if (normalizedPrimaryTeacherId && scheduleTeacherKey === normalizedPrimaryTeacherId) {
                 if (!primaryScheduleBySlot.has(key)) primaryScheduleBySlot.set(key, []);
                 primaryScheduleBySlot.get(key).push(s);
             } else {
@@ -3305,13 +3354,20 @@ window.loadStudentAttendanceHistory = async function() {
         const otherRecordBySlot = new Map();
         (records || []).forEach(r => {
             const key = toSlotKey(r.attendance_date, r.scheduled_time);
-            if (primaryTeacherId && String(r.teacher_id) === primaryTeacherId) {
+            const recordTeacherKey = normalizeTeacherKey(r.teacher_id);
+            if (normalizedPrimaryTeacherId && recordTeacherKey === normalizedPrimaryTeacherId) {
                 if (!primaryRecordBySlot.has(key)) primaryRecordBySlot.set(key, []);
                 primaryRecordBySlot.get(key).push(r);
             } else {
                 if (!otherRecordBySlot.has(key)) otherRecordBySlot.set(key, []);
                 otherRecordBySlot.get(key).push(r);
             }
+        });
+        primaryRecordBySlot.forEach((rows, key) => {
+            primaryRecordBySlot.set(key, compactRecordsByTeacher(rows));
+        });
+        otherRecordBySlot.forEach((rows, key) => {
+            otherRecordBySlot.set(key, compactRecordsByTeacher(rows));
         });
 
         // ★ 담당 선생님 슬롯 + 담당 없을 때 다른 선생님 슬롯도 포함
@@ -3596,10 +3652,6 @@ window.loadStudentAttendanceHistory = async function() {
 
 async function updateAttendanceStatusFromHistory(studentId, dateStr, nextStatus, scheduledTime) {
     try {
-        if (!nextStatus) {
-            await loadStudentAttendanceHistory();
-            return;
-        }
         const teacherIds = await getTeacherIdsForStudentDate(studentId, dateStr);
 
         const currentId = currentTeacherId ? String(currentTeacherId) : null;
@@ -3616,6 +3668,21 @@ async function updateAttendanceStatusFromHistory(studentId, dateStr, nextStatus,
             if (scheduleEntry && scheduleEntry.start) {
                 effectiveScheduledTime = scheduleEntry.start;
             }
+        }
+
+        if (!nextStatus) {
+            const recordToDelete = await getAttendanceRecordByStudentAndDate(studentId, dateStr, defaultTeacherId, effectiveScheduledTime);
+            const resolvedTeacherId = String(recordToDelete?.teacher_id || defaultTeacherId || '');
+            const resolvedScheduledTime = recordToDelete?.scheduled_time || effectiveScheduledTime || null;
+            await deleteAttendanceRecordsForHistorySlot(studentId, dateStr, resolvedTeacherId, resolvedScheduledTime);
+            clearAttendanceSlotFromLocalMemory(studentId, dateStr, resolvedScheduledTime || effectiveScheduledTime || null);
+            saveData();
+            if (typeof renderDayEvents === 'function' && typeof currentDetailDate !== 'undefined') {
+                renderDayEvents(dateStr);
+            }
+            renderCalendar();
+            await loadStudentAttendanceHistory();
+            return;
         }
 
         const record = await getAttendanceRecordByStudentAndDate(studentId, dateStr, defaultTeacherId, effectiveScheduledTime);
@@ -3680,6 +3747,72 @@ async function updateAttendanceStatusFromHistory(studentId, dateStr, nextStatus,
         console.error('[updateAttendanceStatusFromHistory] 에러:', error);
         showToast('상태 변경에 실패했습니다. 다시 시도해주세요.', 'error');
         await loadStudentAttendanceHistory();
+    }
+}
+
+function normalizeHistoryTimeKey(raw) {
+    if (typeof window.normalizeScheduleTimeKey === 'function') {
+        return window.normalizeScheduleTimeKey(raw);
+    }
+    const text = String(raw || '').trim();
+    if (!text) return '';
+    if (text.includes(':')) return text.substring(0, 5);
+    return text;
+}
+
+function clearAttendanceSlotFromLocalMemory(studentId, dateStr, scheduledTime) {
+    const targetStudentId = String(studentId || '');
+    if (!targetStudentId || !dateStr) return;
+    const normalizedTarget = normalizeHistoryTimeKey(scheduledTime);
+    const removeFromStudent = (student) => {
+        if (!student || !student.attendance || !student.attendance[dateStr]) return;
+        if (typeof student.attendance[dateStr] !== 'object') {
+            delete student.attendance[dateStr];
+            return;
+        }
+        const dateMap = student.attendance[dateStr];
+        const targetKey = Object.keys(dateMap).find((k) => normalizeHistoryTimeKey(k) === normalizedTarget) || null;
+        if (targetKey) {
+            delete dateMap[targetKey];
+        }
+        if (Object.keys(dateMap).length === 0) {
+            delete student.attendance[dateStr];
+        }
+    };
+    const student = (students || []).find((s) => String(s.id) === targetStudentId);
+    if (student) removeFromStudent(student);
+    const currentStudent = (currentTeacherStudents || []).find((s) => String(s.id) === targetStudentId);
+    if (currentStudent) removeFromStudent(currentStudent);
+}
+
+async function deleteAttendanceRecordsForHistorySlot(studentId, dateStr, teacherId, scheduledTime) {
+    const ownerId = await ensureOwnerId();
+    if (!ownerId || typeof supabase === 'undefined') return;
+    const numericStudentId = parseInt(studentId, 10);
+    if (Number.isNaN(numericStudentId)) return;
+
+    const normalizedTime = normalizeHistoryTimeKey(scheduledTime);
+    if (!normalizedTime) return;
+    const timeVariants = Array.from(new Set([normalizedTime, `${normalizedTime}:00`]));
+    const normalizedTeacherId = String(teacherId || '').trim();
+    if (!normalizedTeacherId) return;
+
+    try {
+        const { error } = await supabase
+            .from('attendance_records')
+            .delete()
+            .eq('owner_user_id', ownerId)
+            .eq('student_id', numericStudentId)
+            .eq('attendance_date', dateStr)
+            .eq('teacher_id', normalizedTeacherId)
+            .in('scheduled_time', timeVariants);
+        if (error) {
+            console.error('[deleteAttendanceRecordsForHistorySlot] 삭제 실패:', error);
+            throw error;
+        }
+    } catch (error) {
+        console.error('[deleteAttendanceRecordsForHistorySlot] 예외:', error);
+        throw error;
     }
 }
 
