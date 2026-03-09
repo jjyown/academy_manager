@@ -79,4 +79,4 @@ Copyright © 2026 jjyown@gmail.com
 
 ---
 
-**웹에서 사용하기**: [Academy Manager 바로가기](https://jjyown.github.io/academy-manager)
+**웹에서 사용하기**: [Academy Manager 바로가기](https://jjyown.github.io/academy_manager)

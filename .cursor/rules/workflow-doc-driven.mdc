@@ -16,6 +16,7 @@ Before coding, read these files in order:
 2. Propose a short implementation plan aligned with `docs/plan.md`.
 3. Implement in small steps and report changed files clearly.
 4. Update document base date first (HARD REQUIREMENT):
+   - 작업 시작 즉시 `python qa-artifacts/sync_doc_dates.py`를 실행해 날짜를 자동 동기화한다.
    - `docs/plan.md`, `docs/context.md`, `docs/checklist.md`의 `문서 기준일`을 **시스템 오늘 날짜**로 먼저 통일한다.
    - 날짜는 고정값이 아니라 매 작업일마다 갱신한다. 예: 오늘 2026-03-06 저장, 다음날 작업 시 2026-03-07로 재저장.
    - 날짜가 하나라도 다르면 구현/응답을 진행하지 않는다.
@@ -27,7 +28,6 @@ Before coding, read these files in order:
    - 세 문서의 `문서 기준일`이 동일한지 확인하고, 불일치 시 반드시 수정 후에만 종료한다.
 7. If any checklist item is skipped, explain why.
 
-<<<<<<< HEAD
 ## Date Logging Guard (강화 규칙)
 
 - `문서 기준일`만 맞추는 것으로 끝내지 않는다.
@@ -48,8 +48,6 @@ Before coding, read these files in order:
   - `문서 기준일`이 오늘 날짜가 아님
   - 이번 사이클에 추가한 작업 기록 날짜가 과거 날짜
 
-=======
->>>>>>> 0f2aa15acf96d7baccc306f584159e28fe45959e
 ## Quality Gate
 
 - Run or describe relevant verification after edits.
