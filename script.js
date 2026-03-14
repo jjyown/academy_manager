@@ -677,6 +677,33 @@ function getScheduleOwnerCandidatesBySlot(studentId, dateStr, startTime) {
     return candidates;
 }
 
+function resolveExactSlotOwnerTeacherId(studentId, dateStr, startTime, preferredOwnerTeacherId = '') {
+    const slotCandidates = getScheduleOwnerCandidatesBySlot(studentId, dateStr, startTime)
+        .map((candidate) => String(candidate || '').trim())
+        .filter(Boolean);
+    if (slotCandidates.length === 0) {
+        const fallback = normalizeTeacherIdForCompare(preferredOwnerTeacherId || resolveScheduleOwnerTeacherId(studentId, dateStr, startTime));
+        return String(fallback || preferredOwnerTeacherId || currentTeacherId || '').trim();
+    }
+    const preferNormalized = normalizeTeacherIdForCompare(preferredOwnerTeacherId);
+    if (preferNormalized) {
+        const matchedPreferred = slotCandidates.find((candidate) => normalizeTeacherIdForCompare(candidate) === preferNormalized);
+        if (matchedPreferred) return String(normalizeTeacherIdForCompare(matchedPreferred) || matchedPreferred).trim();
+    }
+    const resolvedOwner = normalizeTeacherIdForCompare(resolveScheduleOwnerTeacherId(studentId, dateStr, startTime));
+    if (resolvedOwner) {
+        const matchedResolved = slotCandidates.find((candidate) => normalizeTeacherIdForCompare(candidate) === resolvedOwner);
+        if (matchedResolved) return String(normalizeTeacherIdForCompare(matchedResolved) || matchedResolved).trim();
+    }
+    const currentNormalized = normalizeTeacherIdForCompare(currentTeacherId);
+    if (currentNormalized) {
+        const matchedCurrent = slotCandidates.find((candidate) => normalizeTeacherIdForCompare(candidate) === currentNormalized);
+        if (matchedCurrent) return String(normalizeTeacherIdForCompare(matchedCurrent) || matchedCurrent).trim();
+    }
+    const first = slotCandidates[0];
+    return String(normalizeTeacherIdForCompare(first) || first).trim();
+}
+
 function normalizeTeacherIdForCompare(teacherId) {
     const raw = String(teacherId || '').trim();
     if (!raw) return '';
@@ -4014,6 +4041,10 @@ window.openAttendanceModal = async function(sid, dateStr, startTime, ownerTeache
         const normalizedOwnerId = normalizeTeacherIdForCompare(effectiveOwnerTeacherId);
         if (normalizedOwnerId) effectiveOwnerTeacherId = normalizedOwnerId;
     }
+    if (normalizedRequestedStart && normalizedRequestedStart !== 'default') {
+        const exactOwner = resolveExactSlotOwnerTeacherId(sid, dateStr, normalizedRequestedStart, effectiveOwnerTeacherId);
+        if (exactOwner) effectiveOwnerTeacherId = exactOwner;
+    }
 
     let isOwnerSchedule = isScheduleOwnedByCurrentTeacher(effectiveOwnerTeacherId);
     if (!isOwnerSchedule) {
@@ -4078,6 +4109,8 @@ window.openAttendanceModal = async function(sid, dateStr, startTime, ownerTeache
     attendanceModal.dataset.adminOverride = adminOverride ? '1' : '0';
     document.getElementById('att-modal-title').textContent = `${s.name} (${s.grade}) 수업 관리`;
     document.getElementById('att-owner-teacher-id').value = effectiveOwnerTeacherId;
+    const originalOwnerInput = document.getElementById('att-original-owner-teacher-id');
+    if (originalOwnerInput) originalOwnerInput.value = effectiveOwnerTeacherId;
     const ownerTeacherName = getTeacherNameById(effectiveOwnerTeacherId);
     document.getElementById('att-info-text').textContent = `${dateStr}${s.school ? ' · ' + s.school : ''}${ownerTeacherName ? ' · 담당 ' + ownerTeacherName : ''}${adminOverride ? ' · 관리자 편집 모드' : ''}`;
     document.getElementById('att-student-id').value = sid;
@@ -4198,6 +4231,7 @@ window.updateClassTime = async function() {
     const newDur = document.getElementById('att-edit-duration').value;
     const originalStart = document.getElementById('att-original-time').value;
     const ownerTeacherId = document.getElementById('att-owner-teacher-id').value || currentTeacherId;
+    const originalOwnerTeacherId = document.getElementById('att-original-owner-teacher-id')?.value || ownerTeacherId;
     if(!newDur || parseInt(newDur) <= 0) { showToast("올바른 수업 시간을 입력해주세요.", 'warning'); return; }
     const sIdx = students.findIndex(s => String(s.id) === String(sid));
     if(sIdx > -1) {
@@ -4217,6 +4251,19 @@ window.updateClassTime = async function() {
         if(!teacherScheduleData[targetTeacherId]) teacherScheduleData[targetTeacherId] = {};
         if(!teacherScheduleData[targetTeacherId][sid]) teacherScheduleData[targetTeacherId][sid] = {};
         
+        const oldOwnerCandidates = [
+            String(originalOwnerTeacherId || '').trim(),
+            ...getScheduleOwnerCandidatesBySlot(sid, oldDateStr, originalStart),
+            normalizeTeacherIdForCompare(originalOwnerTeacherId)
+        ].filter(Boolean);
+        const uniqueOldOwnerCandidates = [...new Set(oldOwnerCandidates)];
+        const removeOldLocalEntries = (teacherId) => {
+            const entries = getScheduleEntries(teacherId, String(sid), oldDateStr);
+            const next = entries.filter(item => normalizeScheduleTimeKey(item?.start || '') !== normalizeScheduleTimeKey(originalStart || ''));
+            setScheduleEntries(teacherId, String(sid), oldDateStr, next);
+            persistTeacherScheduleLocalFor(teacherId);
+        };
+
         if (oldDateStr !== newDateStr) {
             students[sIdx].events = students[sIdx].events.filter(d => d !== oldDateStr);
             if (!students[sIdx].events.includes(newDateStr)) students[sIdx].events.push(newDateStr);
@@ -4228,13 +4275,12 @@ window.updateClassTime = async function() {
                 if(!students[sIdx].records) students[sIdx].records = {};
                 students[sIdx].records[newDateStr] = students[sIdx].records[oldDateStr]; delete students[sIdx].records[oldDateStr];
             }
-            const oldEntries = getScheduleEntries(targetTeacherId, String(sid), oldDateStr);
-            const nextOldEntries = oldEntries.filter(item => item.start !== originalStart);
-            setScheduleEntries(targetTeacherId, String(sid), oldDateStr, nextOldEntries);
+            uniqueOldOwnerCandidates.forEach(removeOldLocalEntries);
         }
         let newEntries = getScheduleEntries(targetTeacherId, String(sid), newDateStr);
         if (oldDateStr === newDateStr && originalStart && originalStart !== newStart) {
-            newEntries = newEntries.filter(item => item.start !== originalStart);
+            uniqueOldOwnerCandidates.forEach(removeOldLocalEntries);
+            newEntries = getScheduleEntries(targetTeacherId, String(sid), newDateStr);
         }
         const nextEntry = { start: newStart, duration: parseInt(newDur) };
         const updated = upsertScheduleEntry(newEntries, nextEntry);
@@ -4244,7 +4290,9 @@ window.updateClassTime = async function() {
 
         try {
             if (oldDateStr !== newDateStr || (originalStart && originalStart !== newStart)) {
-                await deleteScheduleFromDatabase(sid, oldDateStr, targetTeacherId, originalStart);
+                await Promise.allSettled(
+                    uniqueOldOwnerCandidates.map((teacherId) => deleteScheduleFromDatabase(sid, oldDateStr, teacherId, originalStart))
+                );
             }
             await saveScheduleToDatabase({
                 teacherId: targetTeacherId,
@@ -4258,6 +4306,8 @@ window.updateClassTime = async function() {
         }
 
         document.getElementById('att-original-time').value = newStart;
+        const originalOwnerInput = document.getElementById('att-original-owner-teacher-id');
+        if (originalOwnerInput) originalOwnerInput.value = targetTeacherId;
 
         renderCalendar(); 
         if (document.getElementById('day-detail-modal').style.display === 'flex') { if (currentDetailDate === newDateStr || currentDetailDate === oldDateStr) renderDayEvents(currentDetailDate); }
@@ -7564,31 +7614,97 @@ window.setStudentListTab = function(tab) {
 
 function getAssignedStudentIdsForTeacher(teacherId) {
     if (!teacherId) return [];
-    const key = `teacher_students_mapping__${teacherId}`;
-    try {
-        const saved = localStorage.getItem(key);
-        return saved ? (JSON.parse(saved) || []).map(String) : [];
-    } catch (e) {
-        console.error('[getAssignedStudentIdsForTeacher] 매핑 파싱 실패:', e);
-        return [];
-    }
+    const rawTeacherId = String(teacherId || '').trim();
+    const normalizedTeacherId = normalizeTeacherIdForCompare(rawTeacherId)
+        || resolveKnownTeacherId(rawTeacherId)
+        || rawTeacherId;
+    const assignedSet = new Set();
+
+    // 1) 기준 우선순위: 학생 레코드의 teacher_id (DB 동기화 대상)
+    (students || []).forEach((student) => {
+        const sid = String(student?.id || '').trim();
+        const studentTeacherRaw = String(student?.teacher_id || '').trim();
+        if (!sid || !studentTeacherRaw) return;
+        const studentTeacherNormalized = normalizeTeacherIdForCompare(studentTeacherRaw)
+            || resolveKnownTeacherId(studentTeacherRaw)
+            || studentTeacherRaw;
+        if (studentTeacherNormalized === normalizedTeacherId) {
+            assignedSet.add(sid);
+        }
+    });
+
+    // 2) 하위호환: 로컬 매핑은 teacher_id가 비어있는 학생에 한해 보조 사용
+    const mappingTeacherKeys = new Set([
+        rawTeacherId,
+        normalizedTeacherId,
+        resolveKnownTeacherId(rawTeacherId),
+        resolveKnownTeacherId(normalizedTeacherId)
+    ].map((v) => String(v || '').trim()).filter(Boolean));
+
+    mappingTeacherKeys.forEach((mappingTeacherId) => {
+        const key = `teacher_students_mapping__${mappingTeacherId}`;
+        try {
+            const saved = localStorage.getItem(key);
+            const mappedIds = saved ? (JSON.parse(saved) || []).map(String) : [];
+            mappedIds.forEach((sid) => {
+                const student = (students || []).find((s) => String(s?.id) === String(sid));
+                const studentTeacherRaw = String(student?.teacher_id || '').trim();
+                if (!studentTeacherRaw) {
+                    assignedSet.add(String(sid));
+                    return;
+                }
+                const studentTeacherNormalized = normalizeTeacherIdForCompare(studentTeacherRaw)
+                    || resolveKnownTeacherId(studentTeacherRaw)
+                    || studentTeacherRaw;
+                if (studentTeacherNormalized === normalizedTeacherId) {
+                    assignedSet.add(String(sid));
+                }
+            });
+        } catch (e) {
+            console.error('[getAssignedStudentIdsForTeacher] 매핑 파싱 실패:', e);
+        }
+    });
+
+    return Array.from(assignedSet);
 }
 
 function getAssignedTeacherId(studentId) {
+    const sid = String(studentId || '').trim();
+    if (!sid) return '';
+
+    // 1) 기준 우선순위: 학생 레코드 teacher_id
+    const student = (students || []).find((s) => String(s?.id) === sid);
+    const studentTeacherRaw = String(student?.teacher_id || '').trim();
+    if (studentTeacherRaw) {
+        const knownTeacherId = resolveKnownTeacherId(studentTeacherRaw);
+        if (knownTeacherId) return knownTeacherId;
+        const normalizedTeacherId = normalizeTeacherIdForCompare(studentTeacherRaw);
+        if (normalizedTeacherId) return normalizedTeacherId;
+        return studentTeacherRaw;
+    }
+
+    // 2) 하위호환: 로컬 매핑 검색(복수 후보면 teacherList에 존재하는 키 우선)
     const allKeys = Object.keys(localStorage);
-    const mappingKeys = allKeys.filter(key => key.startsWith('teacher_students_mapping__'));
+    const mappingKeys = allKeys.filter((key) => key.startsWith('teacher_students_mapping__'));
+    const matchedTeacherIds = [];
     for (const key of mappingKeys) {
         try {
             const saved = localStorage.getItem(key);
             const ids = saved ? JSON.parse(saved) || [] : [];
-            if (ids.map(String).includes(String(studentId))) {
-                return key.replace('teacher_students_mapping__', '');
+            if (ids.map(String).includes(sid)) {
+                matchedTeacherIds.push(String(key.replace('teacher_students_mapping__', '') || '').trim());
             }
         } catch (e) {
             console.error('[getAssignedTeacherId] 매핑 파싱 실패:', e);
         }
     }
-    return '';
+
+    if (matchedTeacherIds.length === 0) return '';
+    for (const candidate of matchedTeacherIds) {
+        const knownTeacherId = resolveKnownTeacherId(candidate);
+        if (knownTeacherId) return knownTeacherId;
+    }
+    return matchedTeacherIds[0] || '';
 }
 
 window.getAssignedTeacherId = getAssignedTeacherId;

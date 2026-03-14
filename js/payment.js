@@ -654,7 +654,7 @@ function normalizeChannel(channel) {
     return '기타';
 }
 
-function statusToLabel(status) {
+function paymentStatusToLabel(status) {
     return {
         paid: '완납',
         billed: '청구됨',
@@ -684,7 +684,7 @@ function getMonthLedgerRows(monthKey) {
             school: item.student.school || '',
             monthKey,
             status: item.summary.status,
-            statusLabel: statusToLabel(item.summary.status),
+            statusLabel: paymentStatusToLabel(item.summary.status),
             dueAmount,
             paidGross,
             supplyAmount,
