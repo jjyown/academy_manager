@@ -1,6 +1,6 @@
 # 출석관리앱 컨텍스트 노트
 
-- 문서 기준일: 2026-03-09
+- 문서 기준일: 2026-03-15
 ## 제품/운영 컨텍스트
 - 대상 사용자: 교사(관리), 학생(조회)
 - 핵심 데이터: 학생, 반, 수업, 날짜, 출석상태, 수정자, 수정시각
@@ -14,6 +14,39 @@
 ## 최근 의사결정 로그
 | 날짜 | 결정 | 이유 | 영향 범위 |
 |---|---|---|---|
+| 2026-03-15 | 전문가 합의(프론트엔드/데이터정합성/운영): `attendance_records.id`는 운영 환경에 따라 UUID일 수 있으므로 record_id 처리는 숫자 강제 변환 없이 원본 식별자 문자열을 사용한다 | 실기기 콘솔에서 `invalid input syntax for type uuid: "82"`가 확인되었고, 원인이 UUID id를 `parseInt`로 잘라 `82`로 쿼리한 로직으로 확인되어 id 타입 독립적인 처리로 고정할 필요가 있기 때문 | `qr-attendance.js`(`updateAttendanceStatusFromHistory`, `deleteAttendanceRecordById`), 학생관리 113차 |
+| 2026-03-15 | 전문가 합의(프론트엔드/데이터정합성/운영): 미처리 전환 시 삭제 기준은 `record_id 단건`으로 끝내지 않고 동일 슬롯(`student/date/teacher/time`) 잔존 레코드 정리까지 포함한다 | 실기기에서 `출석/지각/보강/결석 -> 미처리` 후 이전 상태로 되돌아가는 증상은 과거 중복 레코드 잔존 가능성이 높아, 단건 삭제만으로는 UI 선택값/집계가 다시 과거 상태를 참조할 수 있기 때문 | `qr-attendance.js`(`updateAttendanceStatusFromHistory`, `deleteAttendanceRecordsForHistorySlot`), 학생관리 112차 |
+| 2026-03-15 | 전문가 합의(프론트엔드/데이터정합성/운영): 출석이력 `미처리` 전환 삭제는 슬롯 키보다 `record_id` 직접 삭제를 우선하고, owner fallback은 uuid 형태일 때만 허용한다 | 사용자 실기기에서 `출석 -> 미처리` 전환 시 `attendance_records GET 400`이 관측되었고, 원인 후보가 owner 필터 타입 불일치/슬롯 조건 불일치로 수렴되어 삭제 경로를 더 좁고 타입안전하게 고정할 필요가 있기 때문 | `qr-attendance.js`(`ensureOwnerId`, `updateAttendanceStatusFromHistory`, `deleteAttendanceRecordById`), 학생관리 111차 |
+| 2026-03-14 | 전문가 합의(QA/프론트엔드/운영): 수납관리·출석관리·학생관리 E2E는 `자동 러너 + 실기기 운영 시나리오` 2단계로 고정한다 | 현재 자동 러너는 브라우저 런타임/폴링 안정성 검증에 강점이 있지만, 권한/실데이터/교사간 교차 확인은 실기기 시나리오가 필수이므로 단일 방식만으로는 회귀 리스크를 충분히 줄일 수 없기 때문 | `tmp-e2e-runner/polling-e2e-runner.js`, `script.js`, `qr-attendance.js`, `js/payment.js`, 학생관리 110차 |
+| 2026-03-14 | 전문가 합의(프론트엔드/데이터정합성/운영UX): 모달 상단 "담당 선생님" 칩의 기준키는 조회 교사(`currentTeacherId`)가 아니라 학생 배정값(`assignedTeacherId`)을 우선한다 | 같은 학생을 서로 다른 교사가 열 때 상단 담당명이 교사별로 달라지면 운영 기준이 깨지고, 사용자 요구(모달 상단은 현재 배정 담당 실명 표시)와 직접 충돌하기 때문 | `qr-attendance.js`(`loadStudentAttendanceHistory`의 `primaryTeacherId`/`normalizedPrimaryTeacherId` 계산), 학생관리 109차 |
+| 2026-03-14 | 전문가 합의(프론트엔드/운영UX): 월 상단 담당 칩은 복수 담당 달이라도 고정 안내 문구가 아닌 `현재 배정된 담당선생님 실명`을 우선 표시한다 | 사용자는 "담당 선생님" 영역에서 문구가 아니라 실제 담당 이름을 즉시 확인하길 원하므로, 안내 텍스트(`현재 담당선생님`)만 노출하면 정보 목적을 충족하지 못하기 때문 | `qr-attendance.js`(teacherChip 복수 담당 분기), 학생관리 108차 |
+| 2026-03-14 | 전문가 합의(프론트엔드/운영UX): 월 상단 담당 칩에서 복수 담당 케이스는 운영자가 즉시 이해 가능한 고정 문구 `담당 선생님 : 현재 담당선생님`으로 표기한다 | `날짜별 상이` 문구는 정확하지만 현장 사용자가 즉시 해석하기 어렵다는 피드백이 있어, 의미를 유지하면서 더 직관적인 안내 문구로 통일할 필요가 있기 때문 | `qr-attendance.js`(teacherChip 복수 담당 분기), 학생관리 107차 |
+| 2026-03-14 | 전문가 합의(프론트엔드/데이터정합성/운영UX): 출석이력의 "담당 선생님"은 고정 교사키가 아니라 날짜별 실제 일정/기록 분포를 기준으로 동적 판정한다 | 사용자 요구처럼 어제/오늘 담당이 바뀌는 케이스에서 `currentTeacherId` 고정 분류를 사용하면 모든 날짜가 같은 담당으로 고정되어 메인/툴팁이 실제 운영 흐름과 불일치하기 때문 | `qr-attendance.js`(`loadStudentAttendanceHistory`, dayPrimaryTeacherId 계산/메인 슬롯 선택/담당 칩 표시), 학생관리 106차 |
+| 2026-03-13 | 전문가 합의(보안/DB운영): 테이블 점검은 운영 반영 SQL과 분리된 READ ONLY 헬스체크 스크립트로 별도 관리한다 | 운영 환경에서 구조 점검과 변경 SQL이 섞이면 실수 반영 위험이 커지므로, 점검은 항상 비파괴(read only)로 실행해 결과를 먼저 확정해야 하기 때문 | `SUPABASE_TABLE_HEALTH_CHECK.sql` |
+| 2026-03-13 | 전문가 합의(보안/DB운영): `homework_submissions.teacher_id` 타입 보정 기준은 고정값(text)이 아니라 `teachers.id`의 실제 타입으로 동적 정렬한다 | 운영 DB마다 `teachers.id`가 `text` 또는 `uuid`로 다를 수 있어 고정 변환을 적용하면 FK 생성 단계에서 `incompatible types` 오류가 재발하기 때문 | `SUPABASE_CORE_SECURITY_MAINTENANCE.sql`(B-3 타입 정합성 구간) |
+| 2026-03-13 | 전문가 합의(보안/DB운영): `homework_submissions.teacher_id` 타입 보정은 정책 의존성을 먼저 해제한 뒤 수행하고, 보정 후 기본 정책을 즉시 복구한다 | Supabase는 정책이 참조하는 컬럼의 타입 변경을 허용하지 않아(`cannot alter type of a column used in a policy`), 정책 임시해제 없이 실행하면 운영 보정이 중단되기 때문 | `SUPABASE_CORE_SECURITY_MAINTENANCE.sql`(B-3 타입 보정 구간) |
+| 2026-03-13 | 전문가 합의(보안/DB운영): Supabase core SQL 정리 작업은 운영 중단 리스크를 줄이기 위해 `DRY-RUN 기본 + 옵션 반영` 단일 유지보수 스크립트로 표준화한다 | 현재 SQL 파일이 목적별로 분산되어 정책 드리프트/적용 누락 위험이 있어, 점검(A)-반영(B)-재점검(C) 흐름을 한 파일로 고정해야 운영 재현성과 안전성이 높아지기 때문 | `SUPABASE_CORE_SECURITY_MAINTENANCE.sql` |
+| 2026-03-13 | 전문가 합의(프론트엔드/데이터정합성/운영): `내 학생` 목록 기준은 로컬 `teacher_students_mapping`보다 `students.teacher_id`를 우선하고, 매핑은 `teacher_id` 공백 학생에만 보조 사용한다 | 로컬 매핑은 과거 작업/레거시 키로 오염될 수 있어 타교사 학생이 `내 학생`에 섞이는 권한/표시 오류를 유발할 수 있으므로, DB 동기화 대상인 학생 레코드 기준을 1순위로 고정해야 하기 때문 | `script.js`(`getAssignedStudentIdsForTeacher`, `getAssignedTeacherId`), 학생관리 101차 |
+| 2026-03-13 | 전문가 합의(프론트엔드/운영UX): 출석기록 정책을 `메인=담당교사 슬롯`, `툴팁=같은 날짜 타교사 다른 시간 슬롯`으로 명시하고 날짜 단위 집계로 구현한다 | 운영자가 요구한 정보 구조는 "담당 흐름 우선 + 타교사 일정 보조 표시"이며, 같은 슬롯 기준 집계로는 같은 날짜 다른 시간 타교사 수업이 누락되기 때문 | `qr-attendance.js`(`otherSchedulesByDate`, 타교사 툴팁 집계), 학생관리 100차 |
+| 2026-03-13 | 전문가 합의(프론트엔드/UX): 출석이력 툴팁은 "타교사 유효행이 실제로 렌더될 때만" 열리게 한다 | 현재 구조는 후보가 필터링돼 타교사 행이 0건이어도 툴팁이 열릴 수 있어, 운영자가 "왜 툴팁이 나오는지" 판단하기 어렵기 때문 | `qr-attendance.js`(`validOtherTeachers`, `hasOtherTeachers` 조건), 학생관리 99차 |
+| 2026-03-13 | 사용자 실기기 확인 기준으로 학생관리 98차(담당선생님 불일치/일정수정 중복생성)를 PASS 마감한다 | 기능 패치 후 실제 운영 화면에서 두 증상이 모두 해소됨이 확인되어 동일 이슈를 추가 보정 트랙으로 유지할 필요가 줄었기 때문 | `script.js`, `index.html`, `docs/plan.md`, `docs/checklist.md` |
+| 2026-03-13 | Security Advisor `RLS Disabled in Public` 경고는 백업 테이블(`backup_attendance_teacher_fix_20260309`)의 `rls_enabled=true` 확인을 기준으로 마감한다 | SQL 적용 이후 경고가 사라지고 대상 테이블 RLS 활성 상태가 확인되어 보안 리스크가 해소됐기 때문 | Supabase Security Advisor, `SUPABASE_BACKUP_RLS_BATCH_MAINTENANCE.sql`, `docs/*` |
+| 2026-03-13 | 전문가 합의(백엔드/보안): 단건 처리 스크립트와 별도로 `public.backup_*` 전체를 대상으로 DRY-RUN 후 일괄 보정 가능한 배치 스크립트를 운영 표준으로 추가한다 | Security Advisor 경고가 여러 백업 테이블에서 반복될 수 있어, 테이블별 수동 수정은 누락 위험이 크고 재현 가능한 일괄 절차가 필요하기 때문 | `SUPABASE_BACKUP_RLS_BATCH_MAINTENANCE.sql`, Supabase SQL Editor 운영 절차 |
+| 2026-03-13 | 전문가 합의(백엔드/보안): `public.backup_*` 테이블의 RLS 경고는 "불필요 시 삭제, 필요 시 RLS+권한잠금" 2갈래 대응으로 표준화한다 | 백업 테이블은 운영 API 대상이 아니므로 공개 스키마에 남아 있으면 불필요한 노출면을 키운다. 즉시 삭제가 어려운 경우에도 anon/authenticated 접근은 최소화해야 하기 때문 | `SUPABASE_BACKUP_TABLE_RLS_FIX.sql`, Supabase SQL Editor 운영 절차 |
+| 2026-03-13 | 전문가 합의(프론트엔드/데이터정합성/운영UX): 수업관리 모달의 담당선생님은 학생 배정정보가 아니라 "해당 슬롯의 실제 owner teacher"를 최종 기준으로 확정한다 | 배정 teacher와 실제 슬롯 owner가 다른(다교사/레거시) 케이스에서 라벨/권한/저장 대상이 엇갈리면 담당 표기 불일치와 수정 오동작이 동시에 발생하기 때문 | `script.js`(`resolveExactSlotOwnerTeacherId`, `openAttendanceModal`), 학생관리 98차 |
+| 2026-03-13 | 전문가 합의(프론트엔드/데이터정합성): 일정 변경 시 구 슬롯 삭제는 단일 teacher_id가 아니라 "원본 owner + 슬롯 owner 후보군" 기준으로 수행한다 | owner 해석 불일치가 있는 환경에서 구 슬롯 삭제가 실패하면 변경 저장이 신규 insert로 누적되어 "수정 대신 일정 추가" 장애가 재발하기 때문 | `script.js`(`updateClassTime`), `index.html`(원본 owner hidden), 학생관리 98차 |
+| 2026-03-13 | 전문가 합의(프론트엔드/운영UX): 출석이력 타교사 툴팁은 generic 라벨(`선생님/미확인/담당 미확인`)로 해석되는 교사키를 표시 대상에서 제외한다 | 교사 식별이 안 되는 레거시 키를 타교사 `미처리`로 노출하면 실제 타교사 일정 존재 여부를 잘못 해석하게 되어 운영 판단 오류를 유발하기 때문 | `qr-attendance.js`(타교사 툴팁 필터), 학생관리 97차 |
+| 2026-03-13 | 전문가 합의(프론트엔드/데이터정합성): 출석이력 주담당 기준키는 `assignedTeacherId`보다 `currentTeacherId`를 우선하고, 정규화 우선순위를 `current -> assigned -> fallback`으로 고정한다 | 학생-교사 배정 키가 레거시 owner 키로 남아 있는 계정에서 assigned 우선 정책을 쓰면 동일 슬롯이 타교사로 분리되어 툴팁 `미처리` 유령행이 재발할 수 있기 때문 | `qr-attendance.js`(`loadStudentAttendanceHistory` 주담당 분류), 학생관리 96차 |
+| 2026-03-13 | 전문가 합의(프론트엔드/데이터정합성): 출석이력 교사키 정규화는 `resolveKnownTeacherId` 실패 시에도 학생의 주담당 교사 컨텍스트(`primaryTeacher.owner_user_id`)를 이용해 owner/id 동치를 추가 해석한다 | 동일 교사가 DB에 `teacher.id`와 `owner_user_id` 두 형태로 혼재 저장된 경우, 툴팁에서 타교사 `미처리` 유령 행이 생겨 시간표와의 일치 신뢰를 크게 떨어뜨리기 때문 | `qr-attendance.js`(`loadStudentAttendanceHistory` 교사키 정규화/툴팁 집계), 학생관리 95차 |
+| 2026-03-13 | 전문가 합의(프론트엔드/데이터정합성/운영UX): 출석이력 툴팁의 타교사 표시는 "같은 슬롯의 실제 일정(schedules)"이 있을 때만 노출하고, 타교사 잔존 레코드만 있는 경우는 숨긴다 | 운영자가 보는 기준은 시간표 슬롯이며, 일정이 없는 타교사가 툴팁에 노출되면 "시간표-출석 불일치" 오해가 커지기 때문 | `qr-attendance.js`(loadStudentAttendanceHistory 툴팁 조건), 학생관리 94차 |
+| 2026-03-13 | 전문가 합의(프론트엔드/안정성): 출석/수납 상태 라벨 유틸은 전역 함수명 충돌이 없도록 도메인별 접두어(`attendance*`, `payment*`)로 분리한다 | 현재 구조는 전역 스코프 스크립트라 `statusToLabel` 같은 일반 이름이 다른 화면 로직을 덮어써 출석 툴팁에 `청구됨`이 노출되는 오표기 리스크가 재발할 수 있기 때문 | `qr-attendance.js`, `js/payment.js`, 학생관리 93차 |
+| 2026-03-13 | 문서 우선순위를 `86 -> 85 -> 66` 순서로 통일하고 87차는 완료 상태로 정리 | 사용자 요청(다음 체크사항 명확화)에 맞춰 plan/context/checklist의 다음 액션 순서가 서로 다르면 재개 시 혼선이 커지기 때문 | `docs/plan.md`, `docs/context.md`, `docs/checklist.md` |
+| 2026-03-13 | 사용자 실기기 확인 기준으로 학생관리 91/92차를 마감(PASS)하고 다음 우선순위를 86차 정합성 검증으로 유지 | 카드 삭제 정책과 조회 400 재발 방지가 실제 운영 환경에서 정상 동작함이 확인되어, 잔여 리스크는 시간표-이력 표시 정합성(86차) 쪽으로 축소되었기 때문 | `docs/plan.md`, `docs/checklist.md`, 다음 작업 우선순위 |
+| 2026-03-13 | 전문가 합의(프론트엔드/안정성): 출석 조회 함수는 DB 호출 전 `student_id`/`attendance_date` 파라미터 유효성 검사를 강제한다 | 비정상 파라미터(`NaN`, 잘못된 날짜)가 그대로 PostgREST 필터로 전달되면 `attendance_records GET 400`이 반복되어 실제 기능 오류와 구분이 어려워지기 때문 | `qr-attendance.js`(`getAttendanceRecordByStudentAndDate`, `getAttendanceRecordsByDate`, `processAttendanceFromQR` 일정없음 분기) |
+| 2026-03-13 | 전문가 합의(운영/UX): 출석기록 카드에 건별 `X` 삭제를 제공하되, 시간표와 일치하는 기록 삭제는 경고 확인창을 반드시 거치게 한다 | 테스트 잔존 레코드를 빠르게 정리해야 하지만, 실제 시간표 슬롯 기록을 실수로 지우면 운영 혼선이 커서 "즉시삭제(불일치) + 경고삭제(일치)" 이중 안전장치가 필요하기 때문 | `qr-attendance.js`(출석이력 카드 렌더, `deleteAttendanceRecordFromHistory`) |
+| 2026-03-13 | 전문가 합의(프론트엔드/UX): 출석기록 카드의 담당 선생님 배지는 fallback 케이스(타교사 슬롯)만이 아니라 모든 슬롯에 동일 형식으로 노출해야 함 | 사용자는 카드 단위로 "누구 담당인지"를 즉시 확인해야 하며, 기본 담당(`전재윤`)이 숨겨지고 fallback(`선생님3`)만 보이면 일관성이 깨져 운영 혼선을 유발하기 때문 | `qr-attendance.js`(출석이력 카드 렌더), 학생관리 90차 |
+| 2026-03-13 | 전문가 합의(프론트엔드/데이터정합성): `attendance_records.scheduled_time` 필터는 DB `time` 타입과 호환되는 값만 허용하고, 비시간 값은 필터를 생략/`is null` 분기로 처리 | `default` 같은 비시간 문자열이 `eq/in` 필터로 전달되면 PostgREST가 400을 반환해 "상태변경은 됐는데 콘솔 에러가 뜨는" 혼선이 생길 수 있기 때문 | `qr-attendance.js`(`getAttendanceRecordByStudentAndDate`, `deleteAttendanceRecordsForHistorySlot`), 실기기 회귀(3/5) PASS |
+| 2026-03-13 | 전문가 합의(프론트엔드/데이터정합성): 출석이력 `미처리` 변경은 화면에서 선택한 레코드(`record_id`/`teacher_id`)를 우선 기준으로 삭제 대상을 찾고, 시간 미지정 슬롯(`scheduled_time is null`)도 삭제 가능해야 함 | 기존 로직이 기본 교사/시간 폴백에 치우쳐 실제 카드와 다른 레코드를 참조하면 삭제가 누락되어 "미처리로 바꿨는데 그대로 보임" 증상이 재발할 수 있기 때문 | `qr-attendance.js`(`updateAttendanceStatusFromHistory`, `deleteAttendanceRecordsForHistorySlot`, `clearAttendanceSlotFromLocalMemory`), 실기기 회귀 87/88차 |
 | 2026-03-09 | 전문가 합의(운영/데이터정합성): 출석기록의 `미처리`는 상태값 업데이트가 아니라 슬롯 레코드 실삭제로 처리 | 이전 테스트 레코드가 DB에 남아 있으면 시간표와 출석이력이 다른 대표값을 잡아 불일치가 반복되므로, `미처리=삭제` 정책으로 잔존 데이터 경로를 차단해야 하기 때문 | `qr-attendance.js`(updateAttendanceStatusFromHistory), 실기기 회귀 87차 |
 | 2026-03-09 | 전문가 합의(프론트엔드/데이터정합성): 출석이력의 동일 슬롯 중복 레코드는 "첫 건 표시" 대신 상태 우선순위+최신시각으로 대표값을 선택 | 시간표는 우선순위 병합 상태를 쓰는데 이력은 비정렬 첫 건을 쓰면 같은 날짜/슬롯에서도 서로 다른 상태가 노출될 수 있기 때문 | `qr-attendance.js`(loadStudentAttendanceHistory), 실기기 회귀 86차 |
 | 2026-03-09 | 전문가 합의(프론트엔드/데이터정합성): 일정-출석 불일치 이슈는 "시간 키 포맷 혼합 + 교사 id 비교 비정규화"를 우선 보정하고, 렌더 조회키를 정규화 함수로 통일 | QR/번호입력은 정상인데 화면간 표기가 어긋나는 경우는 저장값보다 조회/매칭키 불일치 가능성이 높고, 이 경로를 먼저 닫아야 운영 체감 불일치를 줄일 수 있기 때문 | `script.js`(시간표 상태조회), `qr-attendance.js`(출석이력 교사/시간 슬롯 분류), 실기기 회귀 85차 |
@@ -391,13 +424,12 @@
 - 그림자 결석 정리 대상 확대로 레거시 teacher_id 결석 행은 더 적극적으로 삭제되므로, 감사 목적으로 과거 결석 이력을 teacher_id별로 보존해야 하는 환경은 백업 정책 검토가 필요
 - 일정 삭제 시 출석기록도 같이 삭제되므로, 과거 출석 이력을 보존해야 하는 운영 정책이 있으면 삭제 전 백업(또는 soft-delete 정책) 도입이 필요
 
-## 다음 작업 우선순위 (2026-03-09 기준)
-1) 학생관리 87차 실기기 회귀: 육효원 3/5 재현 케이스에서 `미처리` 선택 시 슬롯 레코드가 실제 삭제되고 시간표/출석기록이 재진입 후에도 일치하는지 확인
-2) 학생관리 86차 실기기 회귀: 3/5 재현 케이스에서 시간표 상태와 출석기록 카드/툴팁 상태가 같은 슬롯 기준으로 일치하는지 확인
-3) 학생관리 85차 실기기 회귀: 시간표 일정 상태와 출석기록 카드 상태/시간이 슬롯 기준으로 일치하는지 확인(다중시간대/레거시 교사키 포함)
-4) 학생관리 66차 실기기 회귀: QR/번호입력/수동/임시/재석확인 경로의 `처리방식/인증시간/자리확인/처리시간` 표시 정합성 확인
-5) 운영 SQL 적용 추적 마감: `ATTENDANCE_RECORD_META_UPDATE.sql`의 백필/인덱스/`NOTIFY pgrst` 실행 로그를 운영 콘솔 기준으로 최종 기록
-6) 학생관리 64차 실기기 회귀: `출석/지각/결석` 처리 후 자동타이머·재진입·새로고침에서 상태 유지 확인
+## 다음 작업 우선순위 (2026-03-13 기준)
+1) 학생관리 86차 실기기 회귀: 3/5 재현 케이스에서 시간표 상태와 출석기록 카드/툴팁 상태가 같은 슬롯 기준으로 일치하는지 확인
+2) 학생관리 85차 실기기 회귀: 시간표 일정 상태와 출석기록 카드 상태/시간이 슬롯 기준으로 일치하는지 확인(다중시간대/레거시 교사키 포함)
+3) 학생관리 66차 실기기 회귀: QR/번호입력/수동/임시/재석확인 경로의 `처리방식/인증시간/자리확인/처리시간` 표시 정합성 확인
+4) 운영 SQL 적용 추적 마감: `ATTENDANCE_RECORD_META_UPDATE.sql`의 백필/인덱스/`NOTIFY pgrst` 실행 로그를 운영 콘솔 기준으로 최종 기록
+5) 학생관리 64차 실기기 회귀: `출석/지각/결석` 처리 후 자동타이머·재진입·새로고침에서 상태 유지 확인
 
 ## 재개 시작 순서(고정)
 1) `git status --short`로 로컬 변경 확인

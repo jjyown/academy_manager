@@ -764,10 +764,16 @@ async function ensureOwnerId() {
         console.error('[ensureOwnerId] 예외:', e);
     }
 
-    // 세션이 없으면 currentTeacherId 사용
+    const isUuidLike = (value) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || '').trim());
+
+    // 세션이 없으면 currentTeacherId를 제한적으로 fallback 사용
+    // (owner_user_id가 uuid 타입인 환경에서 비-uuid teacher key로 400이 나는 것을 방지)
     if (typeof currentTeacherId !== 'undefined' && currentTeacherId) {
-        console.log('[ensureOwnerId] currentTeacherId 사용:', currentTeacherId);
-        return currentTeacherId;
+        if (isUuidLike(currentTeacherId)) {
+            console.log('[ensureOwnerId] currentTeacherId(uuid) 사용:', currentTeacherId);
+            return currentTeacherId;
+        }
+        console.warn('[ensureOwnerId] currentTeacherId가 uuid가 아니어서 owner fallback 생략:', currentTeacherId);
     }
 
     console.warn('[ensureOwnerId] current_owner_id 및 currentTeacherId 없음');
@@ -2005,13 +2011,21 @@ async function processAttendanceFromQR(qrData, authMeta = null) {
             let existingAnyRecord = null;
             const emergencyTeacherId = String(currentTeacherId || '');
             const ownerId = localStorage.getItem('current_owner_id') || null;
+            const numericStudentId = parseInt(studentId, 10);
             try {
                 // 무일정 중복조회는 임시출석 레코드(scheduled_time IS NULL)로 한정
                 // -> 다음날/타수업 일반 출석 레코드가 섞여 already_processed 오탐되는 케이스 차단
+                if (Number.isNaN(numericStudentId) || !isValidDateLiteral(dateStr)) {
+                    console.warn('[processAttendanceFromQR] 일정없음 분기 중복조회 생략(비정상 파라미터):', {
+                        studentId,
+                        dateStr
+                    });
+                    throw new Error('invalid-params');
+                }
                 let emergencyQuery = supabase
                     .from('attendance_records')
                     .select('id, student_id, teacher_id, attendance_date, status, scheduled_time, check_in_time, qr_scanned, qr_scan_time, qr_judgment, memo, shared_memo')
-                    .eq('student_id', parseInt(studentId))
+                    .eq('student_id', numericStudentId)
                     .eq('attendance_date', dateStr)
                     .is('scheduled_time', null)
                     .order('created_at', { ascending: false })
@@ -3252,10 +3266,11 @@ window.loadStudentAttendanceHistory = async function() {
         const endDate = new Date(year, month, 0);
         const endDateStr = formatDateToYYYYMMDD(endDate);
 
-        // ★ 배정된 선생님 기준으로 필터링
+        // ★ 학생의 배정 담당선생님 기준
         const assignedTeacherId = (typeof getAssignedTeacherId === 'function')
             ? String(getAssignedTeacherId(String(currentStudentForAttendance)) || '')
             : '';
+        // 상단 담당칩/보조 fallback은 "조회자"가 아니라 "학생의 현재 배정 담당" 기준으로 고정한다.
         const primaryTeacherId = assignedTeacherId || (currentTeacherId ? String(currentTeacherId) : '');
 
         let schedules = [];
@@ -3281,12 +3296,25 @@ window.loadStudentAttendanceHistory = async function() {
             if (text.length >= 5 && text.indexOf(':') > -1) return text.substring(0, 5);
             return 'default';
         };
+        const canonicalTeacherKey = (value) => String(value || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
         const normalizeTeacherKey = (raw) => {
             const rawText = String(raw || '').trim();
             if (!rawText) return '';
             if (typeof window.resolveKnownTeacherId === 'function') {
                 const resolved = String(window.resolveKnownTeacherId(rawText) || '').trim();
                 if (resolved) return resolved;
+            }
+            const normalizedPrimary = String(primaryTeacherId || '').trim();
+            if (normalizedPrimary && Array.isArray(teacherList)) {
+                const primaryTeacher = teacherList.find((t) => String(t?.id || '').trim() === normalizedPrimary) || null;
+                const primaryOwner = String(primaryTeacher?.owner_user_id || '').trim();
+                if (primaryOwner) {
+                    const rawCanonical = canonicalTeacherKey(rawText);
+                    const ownerCanonical = canonicalTeacherKey(primaryOwner);
+                    if (rawCanonical && ownerCanonical && rawCanonical === ownerCanonical) {
+                        return normalizedPrimary;
+                    }
+                }
             }
             return rawText;
         };
@@ -3335,45 +3363,28 @@ window.loadStudentAttendanceHistory = async function() {
             };
         };
 
-        const normalizedPrimaryTeacherId = normalizeTeacherKey(primaryTeacherId);
-        const primaryScheduleBySlot = new Map();
-        const otherScheduleBySlot = new Map();
-        schedulesInMonth.forEach(s => {
+        const normalizedAssignedTeacherId = normalizeTeacherKey(assignedTeacherId);
+        const normalizedPrimaryTeacherId = normalizedAssignedTeacherId || normalizeTeacherKey(primaryTeacherId);
+
+        // 날짜별 주담당을 동적으로 계산하기 위해 교사 분류를 선고정하지 않고 슬롯 단위로 원본을 유지한다.
+        const scheduleBySlot = new Map();
+        schedulesInMonth.forEach((s) => {
             const key = toSlotKey(s.schedule_date, s.start_time);
-            const scheduleTeacherKey = normalizeTeacherKey(s.teacher_id);
-            if (normalizedPrimaryTeacherId && scheduleTeacherKey === normalizedPrimaryTeacherId) {
-                if (!primaryScheduleBySlot.has(key)) primaryScheduleBySlot.set(key, []);
-                primaryScheduleBySlot.get(key).push(s);
-            } else {
-                if (!otherScheduleBySlot.has(key)) otherScheduleBySlot.set(key, []);
-                otherScheduleBySlot.get(key).push(s);
-            }
+            if (!scheduleBySlot.has(key)) scheduleBySlot.set(key, []);
+            scheduleBySlot.get(key).push(s);
         });
 
-        const primaryRecordBySlot = new Map();
-        const otherRecordBySlot = new Map();
-        (records || []).forEach(r => {
+        const recordBySlot = new Map();
+        (records || []).forEach((r) => {
             const key = toSlotKey(r.attendance_date, r.scheduled_time);
-            const recordTeacherKey = normalizeTeacherKey(r.teacher_id);
-            if (normalizedPrimaryTeacherId && recordTeacherKey === normalizedPrimaryTeacherId) {
-                if (!primaryRecordBySlot.has(key)) primaryRecordBySlot.set(key, []);
-                primaryRecordBySlot.get(key).push(r);
-            } else {
-                if (!otherRecordBySlot.has(key)) otherRecordBySlot.set(key, []);
-                otherRecordBySlot.get(key).push(r);
-            }
+            if (!recordBySlot.has(key)) recordBySlot.set(key, []);
+            recordBySlot.get(key).push(r);
         });
-        primaryRecordBySlot.forEach((rows, key) => {
-            primaryRecordBySlot.set(key, compactRecordsByTeacher(rows));
-        });
-        otherRecordBySlot.forEach((rows, key) => {
-            otherRecordBySlot.set(key, compactRecordsByTeacher(rows));
+        recordBySlot.forEach((rows, key) => {
+            recordBySlot.set(key, compactRecordsByTeacher(rows));
         });
 
-        // ★ 담당 선생님 슬롯 + 담당 없을 때 다른 선생님 슬롯도 포함
-        const primarySlots = new Set([...primaryScheduleBySlot.keys(), ...primaryRecordBySlot.keys()]);
-        const otherSlots = new Set([...otherScheduleBySlot.keys(), ...otherRecordBySlot.keys()]);
-        const allSlots = new Set([...primarySlots, ...otherSlots]);
+        const allSlots = new Set([...scheduleBySlot.keys(), ...recordBySlot.keys()]);
         
         if (allSlots.size === 0) {
             const teacherName = primaryTeacherId ? getTeacherNameById(primaryTeacherId) : '선생님';
@@ -3440,42 +3451,146 @@ window.loadStudentAttendanceHistory = async function() {
             return { sourceLabel, sourceStyle, authTime, processedTime, presenceCheckLabel, presenceCheckStyle };
         };
 
-        const slotList = Array.from(allSlots).sort((a, b) => {
-            const slotA = fromSlotKey(a);
-            const slotB = fromSlotKey(b);
-            if (slotA.date !== slotB.date) return slotA.date < slotB.date ? 1 : -1;
-            return slotA.time < slotB.time ? 1 : -1;
+        const slotsByDate = new Map();
+        Array.from(allSlots).forEach((slotKey) => {
+            const parsed = fromSlotKey(slotKey);
+            const dk = String(parsed.date || '').trim();
+            if (!dk) return;
+            if (!slotsByDate.has(dk)) slotsByDate.set(dk, []);
+            slotsByDate.get(dk).push(slotKey);
         });
-        const totalSlots = slotList.length;
-        
-        let detailsHtml = '';
+        const dateList = Array.from(slotsByDate.keys()).sort((a, b) => (a < b ? 1 : -1));
+        const totalSlots = dateList.length;
 
-        for (const slotKey of slotList) {
-            const parsedSlot = fromSlotKey(slotKey);
-            const dateKey = parsedSlot.date;
-            const slotTimeKey = parsedSlot.time;
+        const getSlotData = (slotKey) => {
+            return {
+                records: recordBySlot.get(slotKey) || [],
+                schedules: scheduleBySlot.get(slotKey) || []
+            };
+        };
+        const isGenericTeacherName = (name) => {
+            const text = String(name || '').trim();
+            return !text || text === '선생님' || text === '미확인' || text === '담당 미확인';
+        };
+
+        let detailsHtml = '';
+        const dayPrimaryTeacherIds = new Set();
+        for (const dateKey of dateList) {
             const date = new Date(dateKey);
             const dateStr = `${date.getMonth() + 1}/${date.getDate()}`;
+            const daySlotKeys = (slotsByDate.get(dateKey) || []).slice().sort((a, b) => {
+                const ta = fromSlotKey(a).time;
+                const tb = fromSlotKey(b).time;
+                if (ta === tb) return 0;
+                if (ta === 'default') return 1;
+                if (tb === 'default') return -1;
+                return ta.localeCompare(tb);
+            });
+            if (daySlotKeys.length === 0) continue;
 
-            // 배정된 선생님의 기록/일정
-            const myRecords = primaryRecordBySlot.get(slotKey) || [];
-            const mySchedules = primaryScheduleBySlot.get(slotKey) || [];
-            const otherRecords = otherRecordBySlot.get(slotKey) || [];
-            const otherSchedules = otherScheduleBySlot.get(slotKey) || [];
-            
-            // 담당 선생님 기록 우선, 없으면 다른 선생님 기록도 표시 (QR 스캔 등으로 다른 teacher_id로 저장된 경우 대응)
-            const effectiveRecord = myRecords[0] || otherRecords[0] || null;
-            const effectiveSchedule = mySchedules[0] || otherSchedules[0] || null;
-            const isFallback = !myRecords.length && !mySchedules.length && (otherRecords.length > 0 || otherSchedules.length > 0);
-            const fallbackTeacherName = isFallback ? getTeacherNameById(String(effectiveRecord?.teacher_id || effectiveSchedule?.teacher_id || '')) : '';
+            // 날짜별 담당교사 산정 정책(전문가 합의):
+            // 1) 해당 날짜 schedule 기준(건수 우선, 동률은 가장 빠른 시간)
+            // 2) schedule이 없으면 record 기준(건수 우선, 동률은 가장 빠른 시간)
+            // 3) 여전히 없으면 기존 주담당 fallback
+            const dayTeacherStats = new Map();
+            const upsertDayTeacherStats = (teacherIdRaw, opts = {}) => {
+                const teacherKey = normalizeTeacherKey(teacherIdRaw);
+                if (!teacherKey) return;
+                if (!dayTeacherStats.has(teacherKey)) {
+                    dayTeacherStats.set(teacherKey, {
+                        teacherId: teacherKey,
+                        scheduleCount: 0,
+                        recordCount: 0,
+                        earliestSchedule: '99:99',
+                        earliestRecord: '99:99'
+                    });
+                }
+                const stat = dayTeacherStats.get(teacherKey);
+                if (opts.isSchedule) {
+                    stat.scheduleCount += 1;
+                    if (opts.timeKey && opts.timeKey !== 'default' && opts.timeKey < stat.earliestSchedule) {
+                        stat.earliestSchedule = opts.timeKey;
+                    }
+                }
+                if (opts.isRecord) {
+                    stat.recordCount += 1;
+                    if (opts.timeKey && opts.timeKey !== 'default' && opts.timeKey < stat.earliestRecord) {
+                        stat.earliestRecord = opts.timeKey;
+                    }
+                }
+            };
+            daySlotKeys.forEach((slotKey) => {
+                const parsed = fromSlotKey(slotKey);
+                const slotData = getSlotData(slotKey);
+                (slotData.schedules || []).forEach((sched) => {
+                    upsertDayTeacherStats(sched?.teacher_id, { isSchedule: true, timeKey: parsed.time });
+                });
+                (slotData.records || []).forEach((row) => {
+                    upsertDayTeacherStats(row?.teacher_id, { isRecord: true, timeKey: parsed.time });
+                });
+            });
+            const rankBySchedule = Array.from(dayTeacherStats.values())
+                .filter((s) => s.scheduleCount > 0)
+                .sort((a, b) => {
+                    if (b.scheduleCount !== a.scheduleCount) return b.scheduleCount - a.scheduleCount;
+                    if (a.earliestSchedule !== b.earliestSchedule) return a.earliestSchedule.localeCompare(b.earliestSchedule);
+                    return String(a.teacherId || '').localeCompare(String(b.teacherId || ''));
+                });
+            const rankByRecord = Array.from(dayTeacherStats.values())
+                .filter((s) => s.recordCount > 0)
+                .sort((a, b) => {
+                    if (b.recordCount !== a.recordCount) return b.recordCount - a.recordCount;
+                    if (a.earliestRecord !== b.earliestRecord) return a.earliestRecord.localeCompare(b.earliestRecord);
+                    return String(a.teacherId || '').localeCompare(String(b.teacherId || ''));
+                });
+            const dayPrimaryTeacherId = (rankBySchedule[0]?.teacherId || rankByRecord[0]?.teacherId || normalizedPrimaryTeacherId || '').trim();
+            if (dayPrimaryTeacherId) dayPrimaryTeacherIds.add(dayPrimaryTeacherId);
 
-            // 통계 집계
+            // 메인 선택 정책:
+            // 1) 날짜별 담당교사(dayPrimaryTeacherId) 일정 중 가장 빠른 시간
+            // 2) 담당교사 기록 중 가장 빠른 시간
+            // 3) 그 외 가장 빠른 시간
+            let mainSlotKey = daySlotKeys.find((k) => {
+                const d = getSlotData(k);
+                return (d.schedules || []).some((s) => normalizeTeacherKey(s?.teacher_id) === dayPrimaryTeacherId);
+            }) || null;
+            if (!mainSlotKey) {
+                mainSlotKey = daySlotKeys.find((k) => {
+                    const d = getSlotData(k);
+                    return (d.records || []).some((r) => normalizeTeacherKey(r?.teacher_id) === dayPrimaryTeacherId);
+                }) || null;
+            }
+            if (!mainSlotKey) mainSlotKey = daySlotKeys[0];
+
+            const parsedMainSlot = fromSlotKey(mainSlotKey);
+            const slotTimeKey = parsedMainSlot.time;
+            const mainData = getSlotData(mainSlotKey);
+            const primaryRecords = (mainData.records || []).filter((r) => normalizeTeacherKey(r?.teacher_id) === dayPrimaryTeacherId);
+            const primarySchedules = (mainData.schedules || []).filter((s) => normalizeTeacherKey(s?.teacher_id) === dayPrimaryTeacherId);
+            const otherRecords = (mainData.records || []).filter((r) => normalizeTeacherKey(r?.teacher_id) !== dayPrimaryTeacherId);
+            const otherSchedules = (mainData.schedules || []).filter((s) => normalizeTeacherKey(s?.teacher_id) !== dayPrimaryTeacherId);
+
+            const effectiveRecord = primaryRecords[0] || otherRecords[0] || null;
+            const effectiveSchedule = primarySchedules[0] || otherSchedules[0] || null;
+            const isFallback = !primaryRecords.length && !primarySchedules.length && (otherRecords.length > 0 || otherSchedules.length > 0);
+            const rowTeacherIdRaw = String(effectiveRecord?.teacher_id || effectiveSchedule?.teacher_id || primaryTeacherId || '').trim();
+            let rowTeacherName = rowTeacherIdRaw ? getTeacherNameById(rowTeacherIdRaw) : '';
+            if (!rowTeacherName && primaryTeacherId) rowTeacherName = getTeacherNameById(primaryTeacherId);
+            const rowTeacherNameLooksInternal = /[0-9a-f]{8}-[0-9a-f-]{27,}/i.test(String(rowTeacherName || ''));
+            if (rowTeacherNameLooksInternal) {
+                rowTeacherName = primaryTeacherId ? getTeacherNameById(primaryTeacherId) : '담당 미확인';
+            }
+            const teacherBadgeText = rowTeacherName ? `담당 ${rowTeacherName}` : '담당 미확인';
+            const teacherBadgeStyle = isFallback
+                ? 'font-size:11px;color:#8b5cf6;background:#ede9fe;padding:2px 7px;border-radius:5px;font-weight:600;'
+                : 'font-size:11px;color:#2563eb;background:#dbeafe;padding:2px 7px;border-radius:5px;font-weight:600;';
+
             const statusValue = effectiveRecord ? effectiveRecord.status : '';
             if (statusValue === 'present') stats.present++;
             else if (statusValue === 'late') stats.late++;
             else if (statusValue === 'absent') stats.absent++;
             else if (statusValue === 'makeup' || statusValue === 'etc') stats.makeup++;
-            const { statusBadge, statusColor, bgColor, borderColor } = getStatusStyle(statusValue);
+            const { statusColor, bgColor, borderColor } = getAttendanceStatusStyle(statusValue);
 
             const fallbackScheduledTime = slotTimeKey !== 'default' ? slotTimeKey : '';
             let timeLabel = fallbackScheduledTime ? formatKoreanTimeLabel(fallbackScheduledTime) : '-';
@@ -3485,45 +3600,44 @@ window.loadStudentAttendanceHistory = async function() {
                 timeLabel = formatKoreanTimeLabel(effectiveSchedule.start_time.substring(0, 5));
             }
 
-            // ★ 해당 날짜의 모든 일정 (담당 + 다른 선생님) → 호버 툴팁
-            const hasPrimaryData = myRecords.length > 0 || mySchedules.length > 0;
-            const hasOtherTeachers = (hasPrimaryData && (otherRecords.length > 0 || otherSchedules.length > 0));
+            const tooltipRows = daySlotKeys
+                .filter((slotKey) => slotKey !== mainSlotKey)
+                .map((slotKey) => {
+                    const parsed = fromSlotKey(slotKey);
+                    const d = getSlotData(slotKey);
+                    const primaryRec = (d.records || []).find((r) => normalizeTeacherKey(r?.teacher_id) === dayPrimaryTeacherId) || null;
+                    const primarySched = (d.schedules || []).find((s) => normalizeTeacherKey(s?.teacher_id) === dayPrimaryTeacherId) || null;
+                    const otherRec = (d.records || []).find((r) => normalizeTeacherKey(r?.teacher_id) !== dayPrimaryTeacherId) || null;
+                    const otherSched = (d.schedules || []).find((s) => normalizeTeacherKey(s?.teacher_id) !== dayPrimaryTeacherId) || null;
+                    const rec = primaryRec || otherRec || null;
+                    const sched = primarySched || otherSched || null;
+                    if (!rec && !sched) return null;
+                    const teacherId = normalizeTeacherKey(rec?.teacher_id || sched?.teacher_id || '');
+                    const isPrimary = !!teacherId && teacherId === dayPrimaryTeacherId;
+                    let teacherName = getTeacherNameById(teacherId || primaryTeacherId || '');
+                    if ((!teacherName || isGenericTeacherName(teacherName)) && isPrimary) {
+                        teacherName = getTeacherNameById(primaryTeacherId || teacherId || '');
+                    }
+                    if (isGenericTeacherName(teacherName)) return null;
+                    const rowTime = parsed.time && parsed.time !== 'default'
+                        ? formatKoreanTimeLabel(parsed.time)
+                        : (sched?.start_time ? formatKoreanTimeLabel(String(sched.start_time).substring(0, 5)) : '-');
+                    const rowStatus = rec ? attendanceStatusToLabel(rec.status) : '미처리';
+                    const rowStyle = getAttendanceStatusStyle(rec?.status || '');
+                    return { teacherName, rowTime, rowStatus, rowStyle };
+                })
+                .filter(Boolean);
 
+            const hasOtherTeachers = tooltipRows.length > 0;
             let tooltipHtml = '';
             if (hasOtherTeachers) {
-                // 담당 선생님 일정 정보
-                const myTeacherName = primaryTeacherId ? getTeacherNameById(primaryTeacherId) : '담당';
-                const primaryRecord = myRecords[0] || null;
-                const primarySchedule = mySchedules[0] || null;
-                const myTime = primarySchedule?.start_time
-                    ? formatKoreanTimeLabel(primarySchedule.start_time.substring(0, 5))
-                    : (primaryRecord?.scheduled_time ? formatKoreanTimeLabel(String(primaryRecord.scheduled_time).substring(0, 5)) : '-');
-                const myStatusLabel = primaryRecord ? statusToLabel(primaryRecord.status) : '미처리';
-                const myStatusStyle = getStatusStyle(primaryRecord?.status || '');
-
-                let tooltipItems = `<div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.1);"><span style="font-weight:700;color:#93c5fd;">${myTeacherName}</span><span style="color:#94a3b8;font-size:12px;">${myTime}</span><span style="background:${myStatusStyle.statusColor};color:white;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;">${myStatusLabel}</span></div>`;
-
-                // 다른 선생님 일정 정보
-                const otherTeacherIds = new Set([
-                    ...otherRecords.map(r => String(r.teacher_id)),
-                    ...otherSchedules.map(s => String(s.teacher_id))
-                ].filter(Boolean));
-
-                otherTeacherIds.forEach(tid => {
-                    const rec = otherRecords.find(r => String(r.teacher_id) === tid) || null;
-                    const sched = otherSchedules.find(s => String(s.teacher_id) === tid) || null;
-                    const tName = getTeacherNameById(tid);
-                    const tStatus = rec ? statusToLabel(rec.status) : '미처리';
-                    const tTime = sched?.start_time
-                        ? formatKoreanTimeLabel(sched.start_time.substring(0, 5))
-                        : (rec?.scheduled_time ? formatKoreanTimeLabel(String(rec.scheduled_time).substring(0, 5)) : '-');
-                    const tStatusStyle = getStatusStyle(rec?.status || '');
-                    tooltipItems += `<div style="display:flex;align-items:center;gap:6px;padding:5px 0;"><span style="font-weight:600;color:#e2e8f0;">${tName}</span><span style="color:#94a3b8;font-size:12px;">${tTime}</span><span style="background:${tStatusStyle.statusColor};color:white;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;">${tStatus}</span></div>`;
+                let tooltipItems = '';
+                tooltipRows.forEach((row) => {
+                    tooltipItems += `<div style="display:flex;align-items:center;gap:6px;padding:5px 0;"><span style="font-weight:600;color:#e2e8f0;">${row.teacherName}</span><span style="color:#94a3b8;font-size:12px;">${row.rowTime}</span><span style="background:${row.rowStyle.statusColor};color:white;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;">${row.rowStatus}</span></div>`;
                 });
-
                 tooltipHtml = `
                     <div class="att-day-tooltip" style="display:none;position:absolute;bottom:calc(100% + 8px);left:16px;background:#1e293b;color:white;padding:12px 14px;border-radius:10px;font-size:13px;min-width:220px;max-width:320px;z-index:9999;box-shadow:0 8px 24px rgba(0,0,0,0.25);line-height:1.5;">
-                        <div style="font-weight:700;margin-bottom:6px;font-size:12px;color:#94a3b8;letter-spacing:0.5px;">${dateStr} ${timeLabel} 슬롯</div>
+                        <div style="font-weight:700;margin-bottom:6px;font-size:12px;color:#94a3b8;letter-spacing:0.5px;">${dateStr} ${timeLabel} 기준</div>
                         ${tooltipItems}
                         <div style="position:absolute;bottom:-6px;left:24px;width:12px;height:12px;background:#1e293b;rotate:45deg;border-radius:2px;"></div>
                     </div>`;
@@ -3535,6 +3649,9 @@ window.loadStudentAttendanceHistory = async function() {
                 ? effectiveRecord.scheduled_time
                 : (effectiveSchedule && effectiveSchedule.start_time ? effectiveSchedule.start_time : fallbackScheduledTime);
             const historyMeta = resolveHistoryMeta(effectiveRecord);
+            const historyTeacherIdVal = escapeHtmlAttr(String(effectiveRecord?.teacher_id || effectiveSchedule?.teacher_id || ''));
+            const historyRecordIdVal = escapeHtmlAttr(String(effectiveRecord?.id || ''));
+            const hasMatchingSchedule = (primarySchedules.length > 0 || otherSchedules.length > 0) ? '1' : '0';
             const classTimeLabel = fallbackScheduledTime ? formatKoreanTimeLabel(fallbackScheduledTime) : '-';
             const processedTimeLabel = historyMeta.processedTime || '-';
             const authTimeLabel = historyMeta.authTime || '-';
@@ -3546,7 +3663,7 @@ window.loadStudentAttendanceHistory = async function() {
                         <div style="flex:1;min-width:0;">
                             <div style="display:flex;align-items:center;gap:6px;font-weight:700;font-size:15px;color:#1e293b;margin-bottom:6px;">
                                 <span>${dateStr} (${getDayOfWeek(date)}) · ${fallbackScheduledTime ? formatKoreanTimeLabel(fallbackScheduledTime) : '-'}</span>
-                                ${isFallback && fallbackTeacherName ? `<span style="font-size:11px;color:#8b5cf6;background:#ede9fe;padding:2px 7px;border-radius:5px;font-weight:600;">${fallbackTeacherName}</span>` : ''}
+                                <span style="${teacherBadgeStyle}">${escapeHtmlAttr(teacherBadgeText)}</span>
                             </div>
                             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
                                 <span style="font-size:13px;color:#64748b;display:flex;align-items:center;gap:4px;">
@@ -3562,16 +3679,23 @@ window.loadStudentAttendanceHistory = async function() {
                                 <span style="font-size:12px;${historyMeta.presenceCheckStyle}padding:3px 8px;border-radius:6px;font-weight:600;">자리확인 ${historyMeta.presenceCheckLabel}</span>
                             </div>
                         </div>
+                        <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+                        ${effectiveRecord ? `<button
+                            type="button"
+                            title="이 출석기록 삭제"
+                            style="width:30px;height:30px;border-radius:8px;border:1px solid #fca5a5;background:#fff1f2;color:#ef4444;font-weight:700;cursor:pointer;line-height:1;"
+                            onclick="event.stopPropagation(); deleteAttendanceRecordFromHistory('${currentStudentForAttendance}', '${dateKey}', '${scheduledTimeVal}', '${historyTeacherIdVal}', '${historyRecordIdVal}', '${hasMatchingSchedule}')">✕</button>` : ''}
                         <select
                             style="background:${statusColor};color:white;padding:8px 12px;border-radius:8px;font-weight:700;font-size:14px;border:none;cursor:pointer;flex-shrink:0;"
                             onclick="event.stopPropagation();"
-                            onchange="updateAttendanceStatusFromHistory('${currentStudentForAttendance}', '${dateKey}', this.value, '${scheduledTimeVal}')">
+                            onchange="updateAttendanceStatusFromHistory('${currentStudentForAttendance}', '${dateKey}', this.value, '${scheduledTimeVal}', '${historyTeacherIdVal}', '${historyRecordIdVal}')">
                             <option value="" ${statusValue ? '' : 'selected'}>미처리</option>
                             <option value="present" ${statusValue === 'present' ? 'selected' : ''}>출석</option>
                             <option value="late" ${statusValue === 'late' ? 'selected' : ''}>지각</option>
                             <option value="absent" ${statusValue === 'absent' ? 'selected' : ''}>결석</option>
                             <option value="makeup" ${(statusValue === 'makeup' || statusValue === 'etc') ? 'selected' : ''}>보강</option>
                         </select>
+                        </div>
                     </div>
                     <div class="att-memo-row" style="margin-top:8px;display:flex;align-items:center;gap:6px;" onclick="event.stopPropagation();">
                         <i class="fas fa-pen-to-square" style="font-size:12px;color:#94a3b8;flex-shrink:0;"></i>
@@ -3587,9 +3711,27 @@ window.loadStudentAttendanceHistory = async function() {
             `;
         }
 
-        // 배정된 선생님 이름 표시
-        const teacherName = primaryTeacherId ? getTeacherNameById(primaryTeacherId) : '';
-        const teacherChip = teacherName ? `<span style="background:#e0e7ff;color:#4f46e5;padding:4px 10px;border-radius:6px;font-size:12px;font-weight:600;">담당 선생님 : ${teacherName}</span>` : '';
+        // 날짜별 담당선생님 표시: 월 내 담당이 여러 명이어도 "현재 배정된 담당선생님" 이름으로 통일 노출
+        let teacherChip = '';
+        if (dayPrimaryTeacherIds.size === 1) {
+            const onlyTeacherId = Array.from(dayPrimaryTeacherIds)[0];
+            const onlyTeacherName = getTeacherNameById(onlyTeacherId || primaryTeacherId || '');
+            if (onlyTeacherName) {
+                teacherChip = `<span style="background:#e0e7ff;color:#4f46e5;padding:4px 10px;border-radius:6px;font-size:12px;font-weight:600;">담당 선생님 : ${onlyTeacherName}</span>`;
+            }
+        } else if (dayPrimaryTeacherIds.size > 1) {
+            const assignedTeacherName = getTeacherNameById(normalizedPrimaryTeacherId || primaryTeacherId || '');
+            if (assignedTeacherName) {
+                teacherChip = `<span style="background:#e0e7ff;color:#4f46e5;padding:4px 10px;border-radius:6px;font-size:12px;font-weight:600;">담당 선생님 : ${assignedTeacherName}</span>`;
+            } else {
+                teacherChip = `<span style="background:#e0e7ff;color:#4f46e5;padding:4px 10px;border-radius:6px;font-size:12px;font-weight:600;">담당 선생님 : 담당 미확인</span>`;
+            }
+        } else {
+            const fallbackTeacherName = normalizedPrimaryTeacherId ? getTeacherNameById(normalizedPrimaryTeacherId) : (primaryTeacherId ? getTeacherNameById(primaryTeacherId) : '');
+            if (fallbackTeacherName) {
+                teacherChip = `<span style="background:#e0e7ff;color:#4f46e5;padding:4px 10px;border-radius:6px;font-size:12px;font-weight:600;">담당 선생님 : ${fallbackTeacherName}</span>`;
+            }
+        }
 
         let html = `
             <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 28px;">
@@ -3650,14 +3792,19 @@ window.loadStudentAttendanceHistory = async function() {
     }
 }
 
-async function updateAttendanceStatusFromHistory(studentId, dateStr, nextStatus, scheduledTime) {
+async function updateAttendanceStatusFromHistory(studentId, dateStr, nextStatus, scheduledTime, teacherIdHint = '', recordIdHint = '') {
     try {
         const teacherIds = await getTeacherIdsForStudentDate(studentId, dateStr);
+        const normalizedTeacherHint = String(teacherIdHint || '').trim();
+        const normalizedRecordHint = String(recordIdHint || '').trim();
+        const hasRecordHint = /^[0-9]+$/.test(normalizedRecordHint) || /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(normalizedRecordHint);
 
         const currentId = currentTeacherId ? String(currentTeacherId) : null;
-        const defaultTeacherId = currentId && teacherIds.has(currentId)
+        const defaultTeacherId = normalizedTeacherHint
+            ? normalizedTeacherHint
+            : (currentId && teacherIds.has(currentId)
             ? currentId
-            : (teacherIds.values().next().value || currentId || '');
+            : (teacherIds.values().next().value || currentId || ''));
 
         // ★ scheduledTime이 비어있으면 스케줄에서 start_time 폴백
         let effectiveScheduledTime = scheduledTime || '';
@@ -3671,11 +3818,42 @@ async function updateAttendanceStatusFromHistory(studentId, dateStr, nextStatus,
         }
 
         if (!nextStatus) {
-            const recordToDelete = await getAttendanceRecordByStudentAndDate(studentId, dateStr, defaultTeacherId, effectiveScheduledTime);
-            const resolvedTeacherId = String(recordToDelete?.teacher_id || defaultTeacherId || '');
+            let recordToDelete = null;
+            if (hasRecordHint) {
+                const ownerId = await ensureOwnerId();
+                let byIdQuery = supabase
+                    .from('attendance_records')
+                    .select('id, teacher_id, scheduled_time')
+                    .eq('id', normalizedRecordHint);
+                if (ownerId) byIdQuery = byIdQuery.eq('owner_user_id', ownerId);
+                const { data: byIdRecord, error: byIdError } = await byIdQuery.maybeSingle();
+                if (byIdError) {
+                    console.warn('[updateAttendanceStatusFromHistory] record_id 조회 실패(슬롯기반 삭제 fallback):', byIdError.message, {
+                        recordId: normalizedRecordHint,
+                        ownerId: ownerId || null
+                    });
+                } else if (byIdRecord) {
+                    recordToDelete = byIdRecord;
+                }
+            }
+            if (!recordToDelete && normalizedTeacherHint) {
+                recordToDelete = await getAttendanceRecordByStudentAndDate(studentId, dateStr, normalizedTeacherHint, effectiveScheduledTime);
+            }
+            if (!recordToDelete) {
+                recordToDelete = await getAttendanceRecordByStudentAndDate(studentId, dateStr, defaultTeacherId, effectiveScheduledTime);
+            }
+            if (!recordToDelete && effectiveScheduledTime) {
+                recordToDelete = await getAttendanceRecordByStudentAndDate(studentId, dateStr, null, effectiveScheduledTime);
+            }
+            const resolvedTeacherId = String(recordToDelete?.teacher_id || defaultTeacherId || normalizedTeacherHint || '').trim();
             const resolvedScheduledTime = recordToDelete?.scheduled_time || effectiveScheduledTime || null;
+            if (recordToDelete?.id) {
+                // 단건 삭제 후에도 과거 중복 레코드가 남아 상태가 되돌아오는 케이스를 방지한다.
+                await deleteAttendanceRecordById(recordToDelete.id);
+            }
+            // 슬롯 기반 정리로 동일 teacher/date/time 잔존 레코드를 함께 제거
             await deleteAttendanceRecordsForHistorySlot(studentId, dateStr, resolvedTeacherId, resolvedScheduledTime);
-            clearAttendanceSlotFromLocalMemory(studentId, dateStr, resolvedScheduledTime || effectiveScheduledTime || null);
+            clearAttendanceSlotFromLocalMemory(studentId, dateStr, resolvedScheduledTime);
             saveData();
             if (typeof renderDayEvents === 'function' && typeof currentDetailDate !== 'undefined') {
                 renderDayEvents(dateStr);
@@ -3750,6 +3928,24 @@ async function updateAttendanceStatusFromHistory(studentId, dateStr, nextStatus,
     }
 }
 
+window.deleteAttendanceRecordFromHistory = async function(studentId, dateStr, scheduledTime, teacherId, recordId, hasMatchingSchedule) {
+    try {
+        const hasSchedule = String(hasMatchingSchedule || '') === '1';
+        if (hasSchedule) {
+            const ok = await showConfirm(
+                '시간표와 일치하는 출석기록입니다.\n삭제하면 시간표 상태와 이력이 달라질 수 있습니다.\n\n정말 삭제하시겠습니까?',
+                { type: 'warning', confirmText: '삭제', cancelText: '취소' }
+            );
+            if (!ok) return;
+        }
+        await updateAttendanceStatusFromHistory(studentId, dateStr, '', scheduledTime, teacherId, recordId);
+        showToast('출석기록을 삭제했습니다.', 'success');
+    } catch (error) {
+        console.error('[deleteAttendanceRecordFromHistory] 에러:', error);
+        showToast('출석기록 삭제에 실패했습니다.', 'error');
+    }
+};
+
 function normalizeHistoryTimeKey(raw) {
     if (typeof window.normalizeScheduleTimeKey === 'function') {
         return window.normalizeScheduleTimeKey(raw);
@@ -3758,6 +3954,25 @@ function normalizeHistoryTimeKey(raw) {
     if (!text) return '';
     if (text.includes(':')) return text.substring(0, 5);
     return text;
+}
+
+function isValidDbTimeLiteral(value) {
+    const text = String(value || '').trim();
+    if (!text) return false;
+    const match = text.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+    if (!match) return false;
+    const hh = Number(match[1]);
+    const mm = Number(match[2]);
+    const ss = match[3] == null ? 0 : Number(match[3]);
+    if (!Number.isInteger(hh) || !Number.isInteger(mm) || !Number.isInteger(ss)) return false;
+    return hh >= 0 && hh <= 23 && mm >= 0 && mm <= 59 && ss >= 0 && ss <= 59;
+}
+
+function isValidDateLiteral(value) {
+    const text = String(value || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return false;
+    const parsed = new Date(`${text}T00:00:00`);
+    return !Number.isNaN(parsed.getTime());
 }
 
 function clearAttendanceSlotFromLocalMemory(studentId, dateStr, scheduledTime) {
@@ -3771,7 +3986,13 @@ function clearAttendanceSlotFromLocalMemory(studentId, dateStr, scheduledTime) {
             return;
         }
         const dateMap = student.attendance[dateStr];
-        const targetKey = Object.keys(dateMap).find((k) => normalizeHistoryTimeKey(k) === normalizedTarget) || null;
+        const targetKey = Object.keys(dateMap).find((k) => {
+            const normalizedKey = normalizeHistoryTimeKey(k);
+            if (!normalizedTarget) {
+                return normalizedKey === 'default' || String(k) === 'default';
+            }
+            return normalizedKey === normalizedTarget;
+        }) || null;
         if (targetKey) {
             delete dateMap[targetKey];
         }
@@ -3787,31 +4008,63 @@ function clearAttendanceSlotFromLocalMemory(studentId, dateStr, scheduledTime) {
 
 async function deleteAttendanceRecordsForHistorySlot(studentId, dateStr, teacherId, scheduledTime) {
     const ownerId = await ensureOwnerId();
-    if (!ownerId || typeof supabase === 'undefined') return;
+    if (typeof supabase === 'undefined') return;
     const numericStudentId = parseInt(studentId, 10);
     if (Number.isNaN(numericStudentId)) return;
+    if (!isValidDateLiteral(dateStr)) return;
 
     const normalizedTime = normalizeHistoryTimeKey(scheduledTime);
-    if (!normalizedTime) return;
-    const timeVariants = Array.from(new Set([normalizedTime, `${normalizedTime}:00`]));
+    const timeVariants = normalizedTime
+        ? Array.from(new Set([normalizedTime, `${normalizedTime}:00`])).filter((v) => isValidDbTimeLiteral(v))
+        : [];
     const normalizedTeacherId = String(teacherId || '').trim();
     if (!normalizedTeacherId) return;
 
     try {
-        const { error } = await supabase
+        let query = supabase
             .from('attendance_records')
             .delete()
-            .eq('owner_user_id', ownerId)
             .eq('student_id', numericStudentId)
             .eq('attendance_date', dateStr)
-            .eq('teacher_id', normalizedTeacherId)
-            .in('scheduled_time', timeVariants);
+            .eq('teacher_id', normalizedTeacherId);
+        if (ownerId) {
+            query = query.eq('owner_user_id', ownerId);
+        }
+        query = timeVariants.length > 0
+            ? query.in('scheduled_time', timeVariants)
+            : query.is('scheduled_time', null);
+        const { error } = await query;
         if (error) {
             console.error('[deleteAttendanceRecordsForHistorySlot] 삭제 실패:', error);
             throw error;
         }
     } catch (error) {
         console.error('[deleteAttendanceRecordsForHistorySlot] 예외:', error);
+        throw error;
+    }
+}
+
+async function deleteAttendanceRecordById(recordId) {
+    const ownerId = await ensureOwnerId();
+    if (typeof supabase === 'undefined') return;
+    const normalizedRecordId = String(recordId || '').trim();
+    const isUuidRecordId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(normalizedRecordId);
+    const isNumericRecordId = /^[0-9]+$/.test(normalizedRecordId);
+    if (!normalizedRecordId || (!isUuidRecordId && !isNumericRecordId)) return;
+
+    try {
+        let query = supabase
+            .from('attendance_records')
+            .delete()
+            .eq('id', normalizedRecordId);
+        if (ownerId) query = query.eq('owner_user_id', ownerId);
+        const { error } = await query;
+        if (error) {
+            console.error('[deleteAttendanceRecordById] 삭제 실패:', error);
+            throw error;
+        }
+    } catch (error) {
+        console.error('[deleteAttendanceRecordById] 예외:', error);
         throw error;
     }
 }
@@ -3918,7 +4171,7 @@ function formatKoreanTimeLabel(timeStr) {
     return base.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
 }
 
-function statusToLabel(status) {
+function attendanceStatusToLabel(status) {
     if (status === 'present') return '출석';
     if (status === 'late') return '지각';
     if (status === 'absent') return '결석';
@@ -3926,7 +4179,7 @@ function statusToLabel(status) {
     return '미처리';
 }
 
-function getStatusStyle(status) {
+function getAttendanceStatusStyle(status) {
     if (status === 'present') {
         return { statusBadge: '출석', statusColor: '#10b981', bgColor: '#f0fdf4', borderColor: '#86efac' };
     }
@@ -4216,6 +4469,14 @@ function syncAttendanceModalStatusIfOpen(studentId, dateStr, status) {
 async function getAttendanceRecordByStudentAndDate(studentId, dateStr, teacherId = null) {
     try {
         const numericId = parseInt(studentId);
+        if (Number.isNaN(numericId)) {
+            console.warn('[getAttendanceRecordByStudentAndDate] studentId 비정상, 조회 생략:', studentId);
+            return null;
+        }
+        if (!isValidDateLiteral(dateStr)) {
+            console.warn('[getAttendanceRecordByStudentAndDate] attendance_date 비정상, 조회 생략:', dateStr);
+            return null;
+        }
         const ownerId = localStorage.getItem('current_owner_id') || null;
         let scheduledTime = null;
         let allowScheduledFallback = true;
@@ -4268,7 +4529,7 @@ async function getAttendanceRecordByStudentAndDate(studentId, dateStr, teacherId
             if (hhmmssMatch) {
                 variants.add(`${String(parseInt(hhmmssMatch[1], 10)).padStart(2, '0')}:${hhmmssMatch[2]}`);
             }
-            return Array.from(variants);
+            return Array.from(variants).filter((v) => isValidDbTimeLiteral(v));
         };
         if (arguments.length > 3) {
             scheduledTime = arguments[3];
@@ -4287,8 +4548,13 @@ async function getAttendanceRecordByStudentAndDate(studentId, dateStr, teacherId
         if (teacherId) {
             query = query.eq('teacher_id', String(teacherId));
         }
-        if (scheduledTime) {
-            query = query.eq('scheduled_time', scheduledTime);
+        const normalizedScheduledVariants = normalizeScheduledVariants(scheduledTime);
+        const primaryScheduledTime = normalizedScheduledVariants[0] || null;
+        if (scheduledTime && !primaryScheduledTime) {
+            console.warn('[getAttendanceRecordByStudentAndDate] 비시간 scheduled_time 필터 생략:', scheduledTime);
+        }
+        if (primaryScheduledTime) {
+            query = query.eq('scheduled_time', primaryScheduledTime);
         }
         let { data, error } = await query.maybeSingle();
         if (error) {
@@ -4302,10 +4568,15 @@ async function getAttendanceRecordByStudentAndDate(studentId, dateStr, teacherId
                 .eq('attendance_date', dateStr);
             if (ownerId) retryQuery = retryQuery.eq('owner_user_id', ownerId);
             if (teacherId) retryQuery = retryQuery.eq('teacher_id', String(teacherId));
-            if (scheduledTime) retryQuery = retryQuery.eq('scheduled_time', scheduledTime);
+            if (primaryScheduledTime) retryQuery = retryQuery.eq('scheduled_time', primaryScheduledTime);
             const { data: retryData, error: retryError } = await retryQuery.order('created_at', { ascending: false }).limit(50);
             if (retryError) {
-                console.warn('[getAttendanceRecordByStudentAndDate] maybeSingle 재조회 실패:', retryError.message);
+                console.warn('[getAttendanceRecordByStudentAndDate] maybeSingle 재조회 실패:', retryError.message, {
+                    studentId: numericId,
+                    attendanceDate: dateStr,
+                    teacherId: teacherId || null,
+                    scheduledTime: primaryScheduledTime || null
+                });
                 return null;
             }
             const rows = Array.isArray(retryData) ? retryData : [];
@@ -4330,7 +4601,7 @@ async function getAttendanceRecordByStudentAndDate(studentId, dateStr, teacherId
                 }
                 return pickBestRecord(rows, {
                     teacherId: teacherId || '',
-                    scheduledVariants: normalizeScheduledVariants(scheduledTime)
+                    scheduledVariants: normalizedScheduledVariants
                 });
             }
             if (rows.length === 1) {
@@ -4342,8 +4613,8 @@ async function getAttendanceRecordByStudentAndDate(studentId, dateStr, teacherId
             }
         }
         // scheduled_time 포맷 차이(HH:MM vs HH:MM:SS) 보정 재시도
-        if (!data && scheduledTime) {
-            const variants = normalizeScheduledVariants(scheduledTime).filter((v) => v !== String(scheduledTime));
+        if (!data && primaryScheduledTime) {
+            const variants = normalizedScheduledVariants.filter((v) => v !== String(primaryScheduledTime));
             for (const variant of variants) {
                 let variantQuery = supabase
                     .from('attendance_records')
@@ -4359,7 +4630,7 @@ async function getAttendanceRecordByStudentAndDate(studentId, dateStr, teacherId
             }
         }
         // scheduledTime 필터로 못 찾으면 필터 없이 재시도
-        if (!data && scheduledTime && allowScheduledFallback) {
+        if (!data && primaryScheduledTime && allowScheduledFallback) {
             let fallbackQuery = supabase
                 .from('attendance_records')
                 .select('*')
@@ -4370,7 +4641,7 @@ async function getAttendanceRecordByStudentAndDate(studentId, dateStr, teacherId
             const { data: fbData } = await fallbackQuery.order('created_at', { ascending: false }).limit(50);
             return pickBestRecord(fbData || [], {
                 teacherId: teacherId || '',
-                scheduledVariants: normalizeScheduledVariants(scheduledTime)
+                scheduledVariants: normalizedScheduledVariants
             });
         }
         return data;
@@ -4383,6 +4654,10 @@ async function getAttendanceRecordByStudentAndDate(studentId, dateStr, teacherId
 async function getAttendanceRecordsByDate(dateStr, options = {}) {
     try {
         const ownerId = localStorage.getItem('current_owner_id');
+        if (!isValidDateLiteral(dateStr)) {
+            console.warn('[getAttendanceRecordsByDate] attendance_date 비정상, 조회 생략:', dateStr);
+            return [];
+        }
         const includeAllTeachers = !!(options && options.includeAllTeachers);
         const explicitTeacherId = options && options.teacherId != null
             ? String(options.teacherId).trim()

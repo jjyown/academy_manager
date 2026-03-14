@@ -1,6 +1,6 @@
 # 출석관리앱 작업 계획서
 
-- 문서 기준일: 2026-03-09
+- 문서 기준일: 2026-03-15
 ## 프로젝트 목표
 - 학생/수업 기준으로 출석 상태를 정확히 기록하고 조회한다.
 - 교사 권한으로만 수정 가능하도록 접근 제어를 적용한다.
@@ -645,6 +645,127 @@
 - [x] 정적 검증: `node --check qr-attendance.js` + `node --check script.js` + `ReadLints` PASS
 - [ ] 실기기 회귀: 육효원 3/5 케이스에서 `미처리` 선택 직후 시간표/출석기록 불일치가 해소되고 재진입 후에도 재발하지 않는지 확인
 
+### 학생관리 88차 구현 반영(출석이력 `미처리` 변경 미반영 핫픽스)
+- [x] 출석이력 상태변경 드롭다운에 `teacher_id`/`record_id` 힌트를 연결해 화면에서 선택한 실제 레코드를 우선 식별하도록 보강
+- [x] `updateAttendanceStatusFromHistory` 삭제 경로를 `record_id -> teacher_id 힌트 -> 기본 교사 -> 슬롯 기반` 순서로 재탐색하도록 보강
+- [x] `scheduled_time`이 없는(무일정/레거시) 레코드도 `is null` 조건으로 삭제되도록 삭제 쿼리 분기 추가
+- [x] 로컬 메모리 정리 로직에서 `default` 슬롯(시간 미지정) 제거를 명시적으로 처리하도록 보강
+- [x] 정적 검증: `node --check qr-attendance.js` + `ReadLints(qr-attendance.js)` PASS
+- [x] 실기기 회귀: 육효원 3/5 케이스에서 `미처리` 변경 직후 카드 상태가 즉시 반영되고, 새로고침/재진입 후에도 재발하지 않는지 확인
+
+### 학생관리 89차 구현 반영(출석 조회 400 방지: 시간 필터 검증)
+- [x] `scheduled_time` 필터 적용 전 시간 리터럴 검증(`HH:MM`/`HH:MM:SS`) 유틸 추가
+- [x] 비시간 값(`default` 등)은 조회 필터에서 제외하고 경고 로그만 남기도록 보강
+- [x] 슬롯 삭제 쿼리에서도 유효 시간값만 `in` 필터로 사용하고, 비시간/미지정은 `scheduled_time is null` 분기로 처리
+- [x] 정적 검증: `node --check qr-attendance.js` + `ReadLints(qr-attendance.js)` PASS
+- [x] 실기기 회귀: 3/5 케이스 재현 시 콘솔 `attendance_records 400`이 재발하지 않는지 확인
+
+### 학생관리 90차 구현 반영(출석기록 카드 담당 선생님 배지 상시 노출)
+- [x] 출석기록 카드 헤더의 담당 선생님 배지를 fallback 케이스 전용에서 전 슬롯 상시 노출로 전환
+- [x] 현재 슬롯의 레코드/일정/담당 교사 정보를 우선순위로 해석해 배지 텍스트(`담당 {선생님명}`)를 안정적으로 계산
+- [x] 내부 식별자(UUID) 문자열이 배지에 노출되는 경우 사용자용 라벨(`담당 미확인` 또는 담당명)로 대체
+- [x] 정적 검증: `node --check qr-attendance.js` + `ReadLints(qr-attendance.js)` PASS
+- [ ] 실기기 회귀: 3/5 케이스에서 `전재윤` 담당 배지가 `선생님3` 배지와 동일한 형태로 노출되는지 확인
+
+### 학생관리 91차 구현 반영(출석기록 카드 X삭제 + 시간표 일치 경고)
+- [x] 출석기록 카드 헤더에 건별 `X` 삭제 버튼 추가(레코드가 있는 카드만 노출)
+- [x] 삭제 동작은 카드 레코드 힌트(`record_id`/`teacher_id`)를 사용해 해당 출석기록만 직접 삭제 경로로 연결
+- [x] 시간표와 불일치(해당 슬롯 schedule 없음) 기록은 즉시 삭제, 시간표 일치 기록은 경고 확인창 후 삭제되도록 분기 추가
+- [x] 삭제 후 시간표/이력 즉시 동기화를 위해 기존 상태변경 삭제 경로(`updateAttendanceStatusFromHistory`)를 공통 재사용
+- [x] 정적 검증: `node --check qr-attendance.js` + `ReadLints(qr-attendance.js)` PASS
+- [x] 실기기 회귀: 불일치 카드 `X` 클릭 시 즉시 삭제되고, 일치 카드 `X` 클릭 시 경고창이 노출되는지 확인
+
+### 학생관리 92차 구현 반영(출석기록 조회 400 재발 방지 가드)
+- [x] `getAttendanceRecordByStudentAndDate` 조회 전에 `studentId`(숫자)/`attendance_date`(YYYY-MM-DD) 유효성 검사 추가
+- [x] 비정상 파라미터는 Supabase 요청을 보내지 않고 경고 로그 후 조회 생략(return null) 처리
+- [x] `processAttendanceFromQR` 일정없음 분기의 임시출석 중복조회에도 동일 파라미터 가드 적용
+- [x] `getAttendanceRecordsByDate`에도 날짜 형식 가드 추가로 잘못된 조회 파라미터 차단
+- [x] 정적 검증: `node --check qr-attendance.js` + `ReadLints(qr-attendance.js)` PASS
+- [x] 실기기 회귀: 출석기록 화면/QR 진입에서 `attendance_records GET 400` 반복이 재발하지 않는지 확인
+
+### 학생관리 93차 구현 반영(출석상태 라벨 충돌 방지: `청구됨` 오표기 수정)
+- [x] 출석기록 전용 상태 헬퍼를 `attendanceStatusToLabel`/`getAttendanceStatusStyle`로 분리해 전역 함수명 충돌 차단
+- [x] 수납 화면 상태 헬퍼를 `paymentStatusToLabel`로 명확히 분리해 출석/수납 라벨의 책임 경계를 고정
+- [x] 정적 검증: `node --check qr-attendance.js` + `node --check js/payment.js` + `ReadLints(qr-attendance.js, js/payment.js)` PASS
+- [ ] 실기기 회귀: 출석기록 툴팁/카드 상태가 `청구됨` 대신 `출석/지각/결석/보강/미처리`로 노출되는지 확인
+
+### 학생관리 94차 구현 반영(출석이력 툴팁 타교사 노출 조건 정합화)
+- [x] 출석이력 툴팁의 타교사 노출 조건을 `otherRecords or otherSchedules`에서 `otherSchedules(실제 슬롯 일정)` 기준으로 축소
+- [x] 슬롯에 일정이 없는 타교사 잔존 레코드는 툴팁에서 제외해 "시간표에는 없는데 툴팁에는 보임" 혼선을 차단
+- [x] 정적 검증: `node --check qr-attendance.js` + `ReadLints(qr-attendance.js)` PASS
+- [ ] 실기기 회귀: 3/5 케이스에서 타교사 슬롯 일정이 없으면 툴팁에 해당 교사가 노출되지 않는지 확인
+
+### 학생관리 95차 구현 반영(타교사 `미처리` 유령 툴팁 보정)
+- [x] 출석이력 교사키 정규화에 `primaryTeacher.owner_user_id -> primaryTeacher.id` 컨텍스트 매핑을 추가해 동일 교사의 이중 키(owner/id) 분리 경로 차단
+- [x] 타교사 툴팁 후보는 `정규화 teacher_id` 기준으로 재집계하고, 실제 스케줄 행이 없는 후보는 렌더에서 제외
+- [x] 정적 검증: `node --check qr-attendance.js` + `ReadLints(qr-attendance.js)` PASS
+- [ ] 실기기 회귀: 3/5 케이스에서 Supabase에 타교사 일정이 없으면 툴팁의 타교사 `미처리` 행이 사라지는지 확인
+
+### 학생관리 96차 구현 반영(주담당 기준키 우선순위 보정)
+- [x] 출석이력의 주담당 기준키를 `assignedTeacherId 우선`에서 `currentTeacherId 우선`으로 변경
+- [x] 주담당 정규화 id를 `current -> assigned -> fallback` 순으로 계산해 교사키 혼합(owner/id) 환경의 오분류 경로 축소
+- [x] 상단 `담당 선생님` 칩도 정규화된 주담당 id를 우선 사용하도록 동기화
+- [x] 정적 검증: `node --check qr-attendance.js` + `ReadLints(qr-attendance.js)` PASS
+- [ ] 실기기 회귀: 3/5 케이스에서 타교사 일정 없음 상태의 툴팁 `미처리` 유령 행 미노출 확인
+
+### 학생관리 97차 구현 반영(툴팁 generic 교사키 필터)
+- [x] 타교사 툴팁 후보에서 `선생님/미확인/담당 미확인` 등 generic 이름으로 해석되는 teacher key를 제외
+- [x] 실제 스케줄이 있어도 교사 식별이 불가한 레거시 키는 툴팁 교차교사 비교에서 제거해 운영 혼선 축소
+- [x] 정적 검증: `node --check qr-attendance.js` + `ReadLints(qr-attendance.js)` PASS
+- [ ] 실기기 회귀: 3/5 케이스에서 generic 타교사(`선생님`) `미처리` 툴팁 행 미노출 확인
+
+### 학생관리 98차 구현 반영(담당선생님 불일치 + 일정수정 중복생성 동시 보정)
+- [x] 수업관리 모달 오픈 시 슬롯 owner를 `resolveExactSlotOwnerTeacherId`로 재확정해 담당 선생님 라벨/권한 기준을 슬롯 실체 기준으로 고정
+- [x] 모달에 `att-original-owner-teacher-id`를 추가해 일정 변경 시 "원본 소유 teacher"를 유지 추적
+- [x] 일정 변경(`updateClassTime`)에서 구 슬롯 삭제 대상을 단일 teacher에서 `원본 owner + 슬롯 owner 후보군`으로 확장해 "삭제 실패 후 신규 추가" 중복생성 경로 차단
+- [x] 정적 검증: `node --check script.js` + `ReadLints(script.js, index.html)` PASS
+- [x] 실기기 회귀: (1) 모달 상단 담당선생님이 슬롯 담당과 일치하는지 (2) 일정 변경 후 기존 일정이 갱신되고 중복 생성되지 않는지 확인
+
+### 학생관리 99차 구현 반영(툴팁 노출 조건 명확화)
+- [x] 타교사 툴팁 유효행(`validOtherTeachers`)을 선계산해 "실제 타교사 행이 1개 이상일 때만" 툴팁이 열리도록 조건 보강
+- [x] 타교사 후보가 전부 필터링되는 케이스(스케줄 없음/generic 라벨)는 `data-has-tooltip` 자체를 비활성화해 단독(주담당만) 툴팁 노출 방지
+- [x] 정적 검증: `node --check qr-attendance.js` + `ReadLints(qr-attendance.js)` PASS
+- [ ] 실기기 회귀: 3/5 케이스에서 타교사 유효행이 없으면 툴팁이 아예 뜨지 않는지 확인
+
+### 학생관리 100차 구현 반영(툴팁 범위 정책: 같은 날짜 타교사 다른 시간 표시)
+- [x] 타교사 툴팁 집계를 슬롯 단위(`otherScheduleBySlot`)에서 날짜 단위(`otherSchedulesByDate`)로 확장
+- [x] 같은 날짜의 타교사 `teacher+time` 조합을 중복 제거 후 표시해 "메인=담당, 툴팁=타교사 다른 시간" 정책 반영
+- [x] 각 타교사 시간행의 상태는 해당 타교사/해당시간 슬롯 레코드로 매칭하고, 없으면 `미처리`로 표시
+- [x] 정적 검증: `node --check qr-attendance.js` + `ReadLints(qr-attendance.js)` PASS
+- [ ] 실기기 회귀: 같은 날짜 다른 시간 타교사 수업이 있으면 툴팁에 해당 시간행이 표시되는지 확인
+
+### 학생관리 101차 구현 반영(내 학생 필터 정합성: 타교사 학생 혼입 차단)
+- [x] 전문가 합의(프론트엔드/데이터정합성/운영): `내 학생` 필터 기준을 로컬 매핑 단독에서 `students.teacher_id` 우선으로 고정
+- [x] `getAssignedStudentIdsForTeacher`를 보강해 학생 `teacher_id`와 현재 교사 키가 일치하는 학생만 기본 포함하고, 로컬 매핑은 `teacher_id`가 비어있는 학생에 한해 보조 사용
+- [x] `getAssignedTeacherId`도 학생 `teacher_id`를 우선 참조하도록 변경해 배정 select의 기준 교사가 stale 매핑 순서에 흔들리지 않게 보강
+- [x] 정적 검증: `node --check script.js` + `ReadLints(script.js)` PASS
+- [ ] 실기기 회귀: `선생님3(담당 0명)` 계정의 `내 학생` 탭이 0명으로 표시되고, `전재윤(담당 6명)` 계정은 기존 인원 유지되는지 확인
+
+### 학생관리 102차 구현 반영(Supabase SQL 정돈: 보안/정합성 통합 점검 스크립트)
+- [x] core SQL 정리용 통합 스크립트 추가(`SUPABASE_CORE_SECURITY_MAINTENANCE.sql`)
+- [x] 점검 구간 추가: RLS 활성 상태, 과허용 owner 정책(`owner_user_id IS NOT NULL`), 공개 정책(`USING true`, `WITH CHECK true`) 탐지
+- [x] 보정 구간 추가(DRY-RUN 기본): owner 정책 강화, 공개 read 제한(옵션), `homework_submissions.teacher_id` 타입 정합성(TEXT) 보정
+- [x] 운영 안전장치: `apply_changes=false` 기본 + 옵션 플래그(`keep_homework_public_flow`)로 기능 회귀 위험 최소화
+- [ ] 운영 실행: Supabase SQL Editor에서 `[A] 점검 -> [B] apply_changes=true 반영 -> [C] 재점검` 순서로 결과 확인
+
+### 학생관리 103차 구현 반영(Supabase SQL 타입보정 실패 재발 방지)
+- [x] 운영 에러(`cannot alter type of a column used in a policy`) 원인 반영: `homework_submissions.teacher_id` 타입 변경 전에 정책 의존성 정리 단계 추가
+- [x] `SUPABASE_CORE_SECURITY_MAINTENANCE.sql` 보강: `homework_submissions` 정책을 임시로 내리고 타입/FK 보정 후 기본 정책(`homework_owner_policy`, `homework_public_insert`, `homework_public_read`)을 조건부 복구
+- [x] 공개 정책 제한 옵션(`restrict_public_read_policies`)과 `keep_homework_public_flow` 조합 시 복구 정책이 충돌하지 않도록 분기 정리
+- [ ] 운영 실행: 동일 스크립트를 `apply_changes=true`로 재실행해 타입 보정 완료 및 정책 복구 결과 확인
+
+### 학생관리 104차 구현 반영(Supabase 타입 정합성 2차: `teachers.id` 기준 자동 정렬)
+- [x] 운영 에러(`foreign key ... incompatible types: text and uuid`) 원인 반영: `homework_submissions.teacher_id`를 고정 `text`가 아닌 `teachers.id` 실제 타입 기준으로 정렬하도록 수정
+- [x] `SUPABASE_CORE_SECURITY_MAINTENANCE.sql` 보강: `teachers.id` 타입 조회 후 `homework_submissions.teacher_id`를 `uuid/text`로 동적 변환
+- [x] UUID 변환 시 비정상 문자열을 `NULL`로 정리한 뒤 캐스팅해 변환 실패를 방지하도록 보강
+- [ ] 운영 실행: `apply_changes=true` 재실행 후 `homework_submissions.teacher_id` 타입이 `teachers.id`와 일치하는지 확인
+
+### 학생관리 105차 구현 반영(Supabase 테이블 헬스체크 스크립트 추가)
+- [x] 핵심 테이블 점검 SQL 추가(`SUPABASE_TABLE_HEALTH_CHECK.sql`)
+- [x] 점검 항목 구성: 테이블 존재/행수, 핵심 컬럼 타입, FK 제약, 고아 데이터, RLS/정책 위험 태그, 인덱스
+- [x] 운영 안전성: READ ONLY 전용으로 구성(데이터 변경 없음)
+- [ ] 운영 실행: Supabase SQL Editor에서 전체 실행 후 결과 캡처 기준으로 PASS/보정 필요 항목 분류
+
 ### 학생관리 우선순위(전체 시스템 보정판)
 1. [x] QR 긴급출석(임시출석) 도입 - 일정 미등록 시에도 출석 흐름 유지
 2. [x] 임시출석 확정 워크플로우 - 확정 대기함/수동 확정/사유 기록
@@ -671,10 +792,10 @@
 - [x] 정적 검증: `rg`로 충돌 마커 미존재 확인 + `node --check script.js` + `node --check qr-attendance.js` 통과
 - [x] 다음 단계: 실기기 회귀 1순위 3건(묶음 본인 인증/메인 진입 성능/초기 배지 집계) 즉시 검증 및 결과 문서 반영
 - [x] 다음 단계: 공휴일 키 경고 재발 여부(강력 새로고침)와 메인 회귀 잔여 2건(백그라운드 동기화/툴팁 정확성) 확인
-- [ ] 다음 단계: 학생관리 66차 실기기 회귀(메타 표시 정합성) 마감
-- [ ] 다음 단계: 학생관리 85차 실기기 회귀(일정-출석 슬롯 정합성) 마감
-- [ ] 다음 단계: 학생관리 86차 실기기 회귀(출석이력 중복 레코드 우선순위 정합성) 마감
-- [ ] 다음 단계: 학생관리 87차 실기기 회귀(미처리=슬롯 레코드 실삭제 정책) 마감
+- [x] 다음 단계: 학생관리 87차 실기기 회귀(미처리=슬롯 레코드 실삭제 정책) 마감
+- [ ] 다음 단계(우선순위 1): 학생관리 86차 실기기 회귀(출석이력 중복 레코드 우선순위 정합성) 마감
+- [ ] 다음 단계(우선순위 2): 학생관리 85차 실기기 회귀(일정-출석 슬롯 정합성) 마감
+- [ ] 다음 단계(우선순위 3): 학생관리 66차 실기기 회귀(메타 표시 정합성) 마감
 
 ## 브랜드 리디자인 스프린트 (하이로드 수학)
 - [x] 브랜드 토큰(네이비/골드, 깔끔한 톤) 정의 및 공통 스타일 반영
@@ -852,6 +973,29 @@
 - [ ] 다음 작업자가 바로 이어서 할 수 있게 문서가 갱신되었다.
 
 ## 변경 이력
+- 2026-03-13 - 학생관리 105차(Supabase 테이블 체크): 운영 DB 구조/정합성/보안 상태를 한 번에 검증할 수 있는 `SUPABASE_TABLE_HEALTH_CHECK.sql`을 추가(READ ONLY)
+- 2026-03-13 - 학생관리 104차(Supabase 타입 정합성 2차): `homework_submissions.teacher_id` 타입 보정을 `teachers.id` 기준 동적 정렬로 변경하고, UUID 캐스팅 전 비정상 값을 NULL로 정리해 FK 타입 불일치 재발을 차단
+- 2026-03-13 - 학생관리 103차(Supabase 타입보정 실패 대응): `homework_submissions.teacher_id` 타입 변경 시 정책 의존성으로 실패하던 경로를 스크립트에 반영해 정책 임시삭제→타입/FK 보정→정책 복구 순서로 자동화
+- 2026-03-13 - 학생관리 102차(Supabase SQL 정돈): core 보안/정합성 점검과 선택 반영을 한 파일에서 수행하는 `SUPABASE_CORE_SECURITY_MAINTENANCE.sql`을 추가(DRY-RUN 기본, owner 정책 강화/공개정책 제한/teacher_id 타입 정합성 옵션 포함)
+- 2026-03-13 - 학생관리 101차(내 학생 필터 정합성): `내 학생` 목록이 stale 로컬 매핑으로 타교사 학생을 섞어 보여주던 경로를 `students.teacher_id` 우선 필터로 전환해 권한/표시 기준을 일치화
+- 2026-03-13 - 학생관리 100차(툴팁 범위 정책 반영): 타교사 툴팁을 같은 슬롯 기준에서 같은 날짜 기준으로 확장해, 담당교사 카드는 메인으로 유지하고 타교사 다른 시간 수업은 툴팁에서 조회되도록 조정
+- 2026-03-13 - 학생관리 99차(툴팁 노출 조건 명확화): 유효 타교사 행이 없을 때는 툴팁 자체를 비활성화해 "왜 툴팁이 뜨는지" 혼선을 제거
+- 2026-03-13 - 학생관리 98차 실기기 회귀 PASS: 사용자 실기기 확인에서 담당선생님 표시 불일치 해소 및 일정 변경 시 중복생성 없이 기존 슬롯 갱신 동작 확인
+- 2026-03-13 - Security Advisor 경고 해소 확인: `public.backup_attendance_teacher_fix_20260309`의 `rls_enabled=true` 반영 및 경고 소거 확인
+- 2026-03-13 - Security Advisor 일괄 대응 스크립트 추가: `public.backup_*` 테이블을 한 번에 점검/보정할 수 있도록 `SUPABASE_BACKUP_RLS_BATCH_MAINTENANCE.sql`(DRY-RUN, 유지+잠금, 삭제 옵션)을 추가
+- 2026-03-13 - Security Advisor 대응 SQL 추가: `public.backup_*` 테이블의 RLS 미활성 경고를 즉시 처리할 수 있도록 삭제/유지(잠금) 선택형 스크립트 `SUPABASE_BACKUP_TABLE_RLS_FIX.sql`을 추가
+- 2026-03-13 - 학생관리 98차(담당불일치/중복생성 동시 보정): 모달 슬롯 owner 확정 로직을 추가하고 일정 변경 시 원본 owner 후보군 삭제를 병행해 "담당 선생님 오표기"와 "수정 대신 신규 추가" 경로를 동시에 차단
+- 2026-03-13 - 학생관리 97차(툴팁 generic 교사키 필터): 타교사 툴팁에서 `선생님/미확인` 계열 generic 라벨은 비교 대상에서 제외해 유령 `미처리` 행 재노출 경로를 추가 차단
+- 2026-03-13 - 학생관리 96차(주담당 기준키 우선순위 보정): 출석이력 주담당 분류 기준을 `currentTeacherId` 우선으로 고정하고 정규화 순서를 보강해 owner/id 혼합 저장 환경에서 타교사 오분류를 축소
+- 2026-03-13 - 학생관리 95차(타교사 미처리 유령 툴팁 보정): owner 기반 레거시 교사키가 담당 교사와 별개 타교사로 분류되던 경로를 컨텍스트 정규화로 통합하고, 스케줄 실체 없는 타교사 툴팁 행을 렌더에서 제외
+- 2026-03-13 - 학생관리 94차(툴팁 타교사 조건 정합화): 출석이력 툴팁의 타교사 노출을 실제 슬롯 일정 기반으로 제한해, 타교사 일정이 없는 슬롯에서 `선생님3`가 보이던 혼선 경로를 차단
+- 2026-03-13 - 학생관리 93차(출석 라벨 충돌 수정): 수납 스크립트의 `청구됨` 라벨 함수와 출석 스크립트 상태 함수명이 전역에서 충돌하던 경로를 분리해 출석 툴팁 오표기를 차단
+- 2026-03-13 - 학생관리 91/92차 실기기 회귀 PASS: 카드 `X` 삭제 즉시/경고 분기 정상 동작 및 `attendance_records GET 400` 재발 없음 확인
+- 2026-03-13 - 학생관리 92차(조회 파라미터 가드): `attendance_records` 조회 전 학생ID/날짜 유효성 검사를 추가해 비정상 파라미터로 인한 GET 400 재발 경로를 차단
+- 2026-03-13 - 학생관리 91차(출석기록 카드 X삭제): 카드별 삭제 버튼을 추가하고, 시간표 불일치 기록은 즉시 삭제·시간표 일치 기록은 경고 확인 후 삭제되도록 분기 적용
+- 2026-03-13 - 학생관리 90차(출석기록 담당 배지 상시 노출): fallback 케이스만 보이던 담당 선생님 배지를 전 슬롯에 표시하도록 보강하고, 내부 식별자(UUID) 노출을 사용자용 라벨로 대체
+- 2026-03-13 - 학생관리 88/89차 실기기 회귀 PASS: 사용자 실기기 확인에서 `미처리` 변경 미반영과 `attendance_records 400` 재발이 해소됨을 확인
+- 2026-03-13 - 출석이력 `미처리` 변경 미반영 핫픽스(88차): 상태변경 시 화면 레코드 힌트(`teacher_id`/`record_id`)를 우선 사용해 삭제 대상을 정밀화하고, `scheduled_time is null` 레코드 삭제/로컬 `default` 슬롯 정리를 함께 보강
 - 2026-03-09 - 66차 실기기 회귀 실행 보조: `docs/checklist.md`에 결과 입력 템플릿(요약 1줄 + 경로별 상세 + 실패 시 필수 기록)을 추가
 - 2026-03-09 - 일정/출석 정합성 보정(85차): 시간표 상태 조회를 슬롯 정규화 기반으로 통일하고, 출석이력의 교사/시간 키 매칭을 정규화해 서로 다른 포맷 키(`HH:MM`/`HH:MM:SS`)로 인한 불일치 경로를 축소
 - 2026-03-09 - 일정/출석 정합성 보정(86차): 출석이력 슬롯의 중복 레코드를 교사별 우선순위(상태+최신시각)로 압축해 시간표와 이력 카드/툴팁 상태 불일치를 완화
@@ -1014,3 +1158,106 @@
 - 2026-03-08 - 공휴일 키 로딩 타이밍 보정: `fetchPublicHolidays`에서 `window.DATA_GO_KR_API_KEY` 외 `window.env`를 재확인하고 짧은 지연 재시도로 `.env.local` 비동기 로더 레이스를 완화
 - 2026-03-08 - 중복 경고 조건 보정: `teacherId=null` 다교사 조회에서 teacher_id가 서로 다른 다건은 경고를 생략하고, 동일 teacher_id 복수건(또는 teacherId 명시 조회)만 중복 경고로 분류
 - 2026-03-08 - Live Server dotfile 우회: `index.html` env 로더를 `.env.local` + `env.local` 순차 로드로 확장하고 `env.local` 파일을 추가해 공휴일 키 미설정 경고 재발을 차단
+- 2026-03-14 - 학생관리 106차 반영: 출석이력의 주담당 판정을 `현재 로그인 교사 고정`에서 `날짜별 실제 수업/기록 분포 기반`으로 전환해, 날짜마다 메인 담당/툴팁 교사가 동적으로 바뀌도록 보정
+- 2026-03-14 - 학생관리 107차 반영: 월 상단 담당 칩의 복수 담당 안내 문구를 `담당 선생님 : 날짜별 상이`에서 `담당 선생님 : 현재 담당선생님`으로 변경
+- 2026-03-14 - 학생관리 108차 반영: 복수 담당 케이스의 담당 칩을 고정 안내 문구가 아니라 `현재 배정된 담당선생님 실명`으로 표시하도록 보정
+- 2026-03-14 - 학생관리 109차 반영: 상단 담당 칩이 조회 교사별로 달라지던 문제를 해결하기 위해 기준키를 `현재 로그인 교사` 우선에서 `학생의 배정 담당교사` 우선으로 고정
+- 2026-03-14 - 학생관리 110차 반영: 통합 E2E 점검을 `자동(Playwright 러너/스크립트 검증)` + `수동(실기기 운영 시나리오)` 2단계로 분리해 진행 기준을 명문화
+- 2026-03-15 - 학생관리 111차 반영: `출석 -> 미처리` 전환 시 간헐적으로 발생하던 `attendance_records GET 400`을 삭제 경로/owner fallback 보정으로 재발 방지
+- 2026-03-15 - 학생관리 112차 반영: `출석/지각/보강/결석 -> 미처리`가 이전 상태로 롤백되던 문제를 중복 레코드 슬롯 정리 로직으로 보정
+- 2026-03-15 - 학생관리 113차 반영: UUID 기반 `attendance_records.id`를 숫자로 파싱해 발생하던 `invalid input syntax for type uuid` 오류를 record_id 타입 호환 로직으로 보정
+
+## 학생관리 106차 - 날짜별 담당선생님 동적 판정 보정
+- 상태: [x] 완료
+- 구현 파일: `qr-attendance.js`
+- 구현 요약:
+  - `loadStudentAttendanceHistory`의 슬롯 분류 기준을 고정 주담당(`currentTeacherId`)에서 전체 슬롯 기반으로 변경
+  - 날짜 단위로 교사별 schedule/record 건수와 최조 시간 우선순위를 계산해 `dayPrimaryTeacherId`를 동적 결정
+  - 메인 카드는 날짜별 담당교사 슬롯 우선(일정 -> 기록 -> 기타), 같은 날짜의 나머지 슬롯은 툴팁으로 유지
+  - 월 상단 담당 칩은 단일 교사면 이름 표시, 복수 교사면 안내 문구(`현재 담당선생님`)로 표시
+- 검증:
+  - `node --check qr-attendance.js` PASS
+- 다음 단계:
+  - 실기기 회귀(학생관리 86차): 동일 학생의 날짜별 담당교사 변경 케이스에서 메인/툴팁 교사가 기대대로 역전되는지 확인
+
+## 학생관리 107차 - 담당 칩 문구 변경
+- 상태: [x] 완료
+- 구현 파일: `qr-attendance.js`
+- 구현 요약:
+  - 복수 담당 케이스의 안내 텍스트를 `담당 선생님 : 현재 담당선생님`으로 교체
+- 검증:
+  - `node --check qr-attendance.js` PASS
+- 다음 단계:
+  - 실기기 회귀(학생관리 86차) 계속: 날짜별 메인/툴팁 교사 역전 + 상단 칩 문구 노출 확인
+
+## 학생관리 108차 - 담당 칩 실명 노출 보정
+- 상태: [x] 완료
+- 구현 파일: `qr-attendance.js`
+- 구현 요약:
+  - 복수 담당 분기에서 고정 문구를 제거하고 `normalizedPrimaryTeacherId -> primaryTeacherId` 순서로 현재 배정 담당교사 이름을 조회해 `담당 선생님 : {이름}` 형식으로 표시
+  - 담당교사 이름 해석이 실패한 경우 `담당 선생님 : 담당 미확인`으로 안전 fallback
+- 검증:
+  - `node --check qr-attendance.js` PASS
+- 다음 단계:
+  - 실기기 회귀(학생관리 86차): 복수 담당 달에서도 상단 담당 칩이 고정 문구가 아닌 실명으로 노출되는지 확인
+
+## 학생관리 109차 - 담당 칩 기준키 정합성 보정
+- 상태: [x] 완료
+- 구현 파일: `qr-attendance.js`
+- 구현 요약:
+  - `primaryTeacherId` 우선순위를 `currentTeacherId -> assignedTeacherId`에서 `assignedTeacherId -> currentTeacherId`로 변경
+  - `normalizedPrimaryTeacherId` 계산에서 `normalizedCurrentTeacherId` 우선 경로를 제거해, 조회 교사가 달라도 동일 학생의 담당 칩이 동일하게 노출되도록 고정
+- 검증:
+  - `node --check qr-attendance.js` PASS
+- 다음 단계:
+  - 실기기 회귀(학생관리 86차): 서로 다른 교사 계정에서 같은 학생 모달을 열어도 상단 담당 칩이 동일한 이름으로 유지되는지 확인
+
+## 학생관리 110차 - 수납/출석/학생 통합 E2E 점검 정리
+- 상태: [x] 완료
+- 실행 범위:
+  - 자동 검증: `tmp-e2e-runner` Playwright 러너(`npm run test:e2e`) 실행
+  - 코드 안정성: `node --check script.js`, `node --check qr-attendance.js`, `node --check js/payment.js`
+  - 정적 진단: `ReadLints(script.js, qr-attendance.js, js/payment.js)`
+- 결과:
+  - Playwright 러너 PASS(폴링/재채점 시나리오 10개 체크 통과)
+  - 핵심 도메인 스크립트 문법/린트 PASS
+- 다음 단계:
+  - 실데이터/권한이 필요한 운영 E2E(수납 저장-집계 반영, 출석 상태전환-툴팁, 학생 배정 변경)를 사용자 실기기로 확인
+
+## 학생관리 111차 - 출석 미처리 전환 400 방지
+- 상태: [x] 완료
+- 구현 파일: `qr-attendance.js`
+- 구현 요약:
+  - `ensureOwnerId`에서 `currentTeacherId` fallback을 uuid 형태일 때만 허용해 `owner_user_id` 타입 불일치 400 경로를 차단
+  - `updateAttendanceStatusFromHistory`의 `record_id` 경로를 보강해, 레코드를 찾은 경우 슬롯 조건 삭제 대신 `id` 직접 삭제를 우선 적용
+  - `record_id` 조회 실패 시 경고 로그를 남기고 기존 슬롯 기반 삭제로 안전 fallback
+- 검증:
+  - `node --check qr-attendance.js` PASS
+  - `ReadLints(qr-attendance.js)` PASS
+- 다음 단계:
+  - 실기기에서 `출석 -> 미처리` 전환 3회 반복 시 콘솔 `attendance_records ... 400` 재발 여부 확인
+
+## 학생관리 112차 - 미처리 롤백(이전 상태 복귀) 보정
+- 상태: [x] 완료
+- 구현 파일: `qr-attendance.js`
+- 구현 요약:
+  - `updateAttendanceStatusFromHistory`의 미처리 분기에서 `record_id` 단건 삭제 후 동일 슬롯(`student/date/teacher/time`) 잔존 레코드 정리를 추가
+  - `deleteAttendanceRecordsForHistorySlot`에서 `owner_user_id` 필터를 선택 적용(있으면 사용)으로 변경해 owner 복구 지연 시 삭제 스킵을 완화
+  - 슬롯 삭제 함수에 `attendance_date` 유효성 가드를 추가해 비정상 날짜 필터 요청을 사전 차단
+- 검증:
+  - `node --check qr-attendance.js` PASS
+  - `ReadLints(qr-attendance.js)` PASS
+- 다음 단계:
+  - 실기기에서 `출석/지각/보강/결석 -> 미처리` 반복 전환 시 값이 다시 이전 상태로 되돌아가지 않는지 확인
+
+## 학생관리 113차 - record_id UUID 파싱 오류 보정
+- 상태: [x] 완료
+- 구현 파일: `qr-attendance.js`
+- 구현 요약:
+  - `updateAttendanceStatusFromHistory`에서 `recordIdHint`를 `parseInt`로 강제 변환하던 로직을 제거하고, 숫자/UUID 모두 허용하는 문자열 검증으로 교체
+  - `deleteAttendanceRecordById`에서 UUID를 숫자로 잘라쓰던 변환(`parseInt`)을 제거하고 원본 id 문자열로 삭제하도록 변경
+- 검증:
+  - `node --check qr-attendance.js` PASS
+  - `ReadLints(qr-attendance.js)` PASS
+- 다음 단계:
+  - 실기기에서 `출석/지각/보강/결석 -> 미처리` 전환 시 콘솔의 `invalid input syntax for type uuid` 재발 여부 확인
