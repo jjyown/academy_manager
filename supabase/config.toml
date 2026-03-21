@@ -1,3 +1,8 @@
+# PIN 검증은 함수 내부에서 service role로 처리. 게이트웨이 JWT 검증이 켜져 있으면
+# 세션 만료/비정상 시 401만 보이고 본문이 비는 경우가 많아 클라이언트 혼선을 줄이기 위해 false.
+[functions.verify-teacher-pin]
+verify_jwt = false
+
 [functions.upload-homework]
 verify_jwt = false
 

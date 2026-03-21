@@ -16,6 +16,13 @@ const corsHeaders = {
 const DRIVE_ROOT_FOLDER = "과제 관리";
 const DRIVE_SUBMIT_FOLDER = "제출 과제";
 
+function extractBearerToken(req: Request): string | null {
+  const authHeader = req.headers.get("Authorization") || req.headers.get("authorization");
+  if (!authHeader) return null;
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  return match ? match[1] : null;
+}
+
 async function getAccessToken(refreshToken: string): Promise<string> {
   const response = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
@@ -218,15 +225,15 @@ serve(async (req: Request) => {
     const teacherId = formData.get("teacher_id") as string | null;
     const studentId = formData.get("student_id") as string | null;
     const studentName = formData.get("student_name") as string | null;
-    const ownerUserId = formData.get("owner_user_id") as string | null;
+    const ownerUserId = formData.get("owner_user_id") as string | null; // legacy input (검증용)
     const submissionDate = formData.get("submission_date") as string | null;
     const answerKeyId = formData.get("answer_key_id") as string | null;
 
-    if (!file || !teacherId || !studentId || !studentName || !ownerUserId || !submissionDate) {
+    if (!file || !teacherId || !studentId || !studentName || !submissionDate) {
       return new Response(
         JSON.stringify({
           error: "필수 항목이 누락되었습니다.",
-          required: "file, teacher_id, student_id, student_name, owner_user_id, submission_date",
+          required: "file, teacher_id, student_id, student_name, submission_date",
         }),
         {
           status: 400,
@@ -236,6 +243,114 @@ serve(async (req: Request) => {
     }
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+    const bearer = extractBearerToken(req);
+    if (!bearer) {
+      return new Response(
+        JSON.stringify({ error: "Unauthorized: missing bearer token" }),
+        {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser(bearer);
+
+    if (authError || !user) {
+      return new Response(
+        JSON.stringify({ error: "Unauthorized: invalid token" }),
+        {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    const parsedStudentId = Number.parseInt(String(studentId), 10);
+    if (!Number.isFinite(parsedStudentId) || parsedStudentId <= 0) {
+      return new Response(
+        JSON.stringify({ error: "Invalid student_id" }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    const { data: teacherRow, error: teacherError } = await supabase
+      .from("teachers")
+      .select("id, owner_user_id")
+      .eq("id", teacherId)
+      .single();
+
+    if (teacherError || !teacherRow) {
+      return new Response(
+        JSON.stringify({ error: "Teacher not found" }),
+        {
+          status: 404,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    if (String(teacherRow.owner_user_id || "") !== String(user.id)) {
+      return new Response(
+        JSON.stringify({ error: "Forbidden: teacher ownership mismatch" }),
+        {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    if (ownerUserId && String(ownerUserId) !== String(teacherRow.owner_user_id)) {
+      return new Response(
+        JSON.stringify({ error: "Forbidden: owner_user_id mismatch" }),
+        {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    const { data: studentRow, error: studentError } = await supabase
+      .from("students")
+      .select("id, owner_user_id, name, status")
+      .eq("id", parsedStudentId)
+      .single();
+
+    if (studentError || !studentRow) {
+      return new Response(
+        JSON.stringify({ error: "Student not found" }),
+        {
+          status: 404,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    if (String(studentRow.owner_user_id || "") !== String(teacherRow.owner_user_id || "")) {
+      return new Response(
+        JSON.stringify({ error: "Forbidden: student ownership mismatch" }),
+        {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    if (String(studentRow.status || "") !== "active") {
+      return new Response(
+        JSON.stringify({ error: "Student is not active" }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
 
     // ─── 1) 중앙 관리 드라이브(is_central_admin=true) 토큰 조회 ───
     const { data: centralAdmin, error: centralError } = await supabase
@@ -290,9 +405,9 @@ serve(async (req: Request) => {
     const { error: insertError } = await supabase
       .from("homework_submissions")
       .insert({
-        owner_user_id: ownerUserId,
+        owner_user_id: teacherRow.owner_user_id,
         teacher_id: teacherId,
-        student_id: parseInt(studentId),
+        student_id: parsedStudentId,
         submission_date: submissionDate,
         file_name: fileName,
         // 기존 호환: drive_file_id/url은 중앙 드라이브 기준
@@ -339,13 +454,7 @@ serve(async (req: Request) => {
 
         const submissionId = submissionRow?.id;
 
-        const { data: teacherRow } = await supabase
-          .from("teachers")
-          .select("owner_user_id")
-          .eq("id", teacherId)
-          .single();
-
-        const teacherUid = teacherRow?.owner_user_id || ownerUserId;
+        const teacherUid = String(teacherRow.owner_user_id || user.id);
 
         const gradeForm = new FormData();
         gradeForm.append("student_id", studentId);

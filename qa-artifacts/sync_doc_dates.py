@@ -11,6 +11,7 @@ DOCS = [
     ROOT / "docs" / "plan.md",
     ROOT / "docs" / "context.md",
     ROOT / "docs" / "checklist.md",
+    ROOT / "docs" / "enterprise_workflow.md",
 ]
 PATTERN = re.compile(r"^(- 문서 기준일:\s*)(\d{4}-\d{2}-\d{2})\s*$", re.MULTILINE)
 

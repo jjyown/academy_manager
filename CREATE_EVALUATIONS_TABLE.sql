@@ -24,13 +24,22 @@ ALTER TABLE student_evaluations ENABLE ROW LEVEL SECURITY;
 -- 소유자 정책 (로그인한 사용자가 자신의 데이터 CRUD)
 DROP POLICY IF EXISTS "evaluations_owner_policy" ON student_evaluations;
 CREATE POLICY "evaluations_owner_policy" ON student_evaluations
-    FOR ALL USING (owner_user_id = auth.uid() OR owner_user_id IS NOT NULL)
+    FOR ALL USING (owner_user_id = auth.uid())
     WITH CHECK (owner_user_id = auth.uid());
 
 -- 학부모 포털용 읽기 전용 (공개 SELECT)
 DROP POLICY IF EXISTS "evaluations_public_read" ON student_evaluations;
 CREATE POLICY "evaluations_public_read" ON student_evaluations
-    FOR SELECT USING (true);
+    FOR SELECT USING (
+        EXISTS (
+            SELECT 1
+            FROM students s
+            WHERE s.id = student_evaluations.student_id
+              AND s.status = 'active'
+              AND s.parent_code IS NOT NULL
+              AND btrim(s.parent_code) <> ''
+        )
+    );
 
 -- ============================================================
 -- 완료! student_evaluations 테이블이 생성되었습니다.

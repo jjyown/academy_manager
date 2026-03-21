@@ -59,6 +59,10 @@ DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='teachers' AND column_name='google_drive_connected') THEN
         ALTER TABLE teachers ADD COLUMN google_drive_connected BOOLEAN DEFAULT FALSE;
     END IF;
+    -- students.student_code (숙제 제출 포털 인증코드)
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='students' AND column_name='student_code') THEN
+        ALTER TABLE students ADD COLUMN student_code TEXT;
+    END IF;
 END $$;
 
 -- ============================================================
@@ -91,25 +95,56 @@ ALTER TABLE homework_submissions ENABLE ROW LEVEL SECURITY;
 -- 인증된 사용자가 자신의 데이터만 관리
 DROP POLICY IF EXISTS "homework_owner_policy" ON homework_submissions;
 CREATE POLICY "homework_owner_policy" ON homework_submissions
-    FOR ALL USING (owner_user_id = auth.uid() OR owner_user_id IS NOT NULL)
+    FOR ALL USING (owner_user_id = auth.uid())
     WITH CHECK (owner_user_id = auth.uid());
 
 -- 숙제 제출 페이지에서 INSERT 허용 (anon 사용자도 제출 가능)
 DROP POLICY IF EXISTS "homework_public_insert" ON homework_submissions;
 CREATE POLICY "homework_public_insert" ON homework_submissions
-    FOR INSERT WITH CHECK (true);
+    FOR INSERT WITH CHECK (
+        EXISTS (
+            SELECT 1
+            FROM students s
+            WHERE s.id = homework_submissions.student_id
+              AND s.status = 'active'
+              AND s.student_code IS NOT NULL
+              AND btrim(s.student_code) <> ''
+        )
+    );
 
 -- 숙제 제출 페이지에서 읽기 허용 (제출 확인용)
 DROP POLICY IF EXISTS "homework_public_read" ON homework_submissions;
 CREATE POLICY "homework_public_read" ON homework_submissions
-    FOR SELECT USING (true);
+    FOR SELECT USING (
+        EXISTS (
+            SELECT 1
+            FROM students s
+            WHERE s.id = homework_submissions.student_id
+              AND s.status = 'active'
+              AND (
+                (s.student_code IS NOT NULL AND btrim(s.student_code) <> '')
+                OR (s.parent_code IS NOT NULL AND btrim(s.parent_code) <> '')
+              )
+        )
+    );
 
 -- ============================================================
 -- 4. schedules 테이블 - 숙제 페이지에서 읽기 허용
 -- ============================================================
 DROP POLICY IF EXISTS "homework_schedules_read" ON schedules;
 CREATE POLICY "homework_schedules_read" ON schedules
-    FOR SELECT USING (true);
+    FOR SELECT USING (
+        EXISTS (
+            SELECT 1
+            FROM students s
+            WHERE s.id = schedules.student_id
+              AND s.status = 'active'
+              AND (
+                (s.student_code IS NOT NULL AND btrim(s.student_code) <> '')
+                OR (s.parent_code IS NOT NULL AND btrim(s.parent_code) <> '')
+              )
+        )
+    );
 
 -- ============================================================
 -- 5. homework_submissions status 컬럼 - 'manual' 값 허용
@@ -126,7 +161,7 @@ END $$;
 -- homework_submissions 삭제 정책 (관리자 수동 확인 취소용)
 DROP POLICY IF EXISTS "homework_public_delete" ON homework_submissions;
 CREATE POLICY "homework_public_delete" ON homework_submissions
-    FOR DELETE USING (true);
+    FOR DELETE USING (owner_user_id = auth.uid());
 
 -- ============================================================
 -- 완료! 숙제 관리 테이블이 설정되었습니다.

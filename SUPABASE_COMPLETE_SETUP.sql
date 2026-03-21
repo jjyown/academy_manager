@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS students (
     guardian_name TEXT,
     enrollment_start_date DATE,
     enrollment_end_date DATE,
+    student_code TEXT,               -- 숙제 제출 포털 인증코드
     parent_code TEXT,                -- 학부모 포털 인증코드 (6자리)
     qr_code_data TEXT,               -- QR 토큰 데이터
     default_fee NUMERIC DEFAULT 0,
@@ -222,6 +223,10 @@ CREATE INDEX IF NOT EXISTS idx_homework_date ON homework_submissions(submission_
 
 DO $$ BEGIN
     -- students.parent_code
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='students' AND column_name='student_code') THEN
+        ALTER TABLE students ADD COLUMN student_code TEXT;
+    END IF;
+    -- students.parent_code
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='students' AND column_name='parent_code') THEN
         ALTER TABLE students ADD COLUMN parent_code TEXT;
     END IF;
@@ -327,23 +332,41 @@ ALTER TABLE homework_submissions ENABLE ROW LEVEL SECURITY;
 -- students 정책
 DROP POLICY IF EXISTS "students_owner_policy" ON students;
 CREATE POLICY "students_owner_policy" ON students
-    FOR ALL USING (owner_user_id = auth.uid() OR owner_user_id IS NOT NULL)
+    FOR ALL USING (owner_user_id = auth.uid())
     WITH CHECK (owner_user_id = auth.uid());
 
 -- 학부모 포털용 읽기 전용 정책 (parent_code 기반 조회 허용)
 DROP POLICY IF EXISTS "students_public_read" ON students;
 CREATE POLICY "students_public_read" ON students
-    FOR SELECT USING (true);
+    FOR SELECT USING (
+        status = 'active'
+        AND (
+            (parent_code IS NOT NULL AND btrim(parent_code) <> '')
+            OR (student_code IS NOT NULL AND btrim(student_code) <> '')
+        )
+    );
 
 -- teachers 정책
 DROP POLICY IF EXISTS "teachers_owner_policy" ON teachers;
 CREATE POLICY "teachers_owner_policy" ON teachers
-    FOR ALL USING (owner_user_id = auth.uid() OR owner_user_id IS NOT NULL)
+    FOR ALL USING (owner_user_id = auth.uid())
     WITH CHECK (owner_user_id = auth.uid());
 
 DROP POLICY IF EXISTS "teachers_public_read" ON teachers;
 CREATE POLICY "teachers_public_read" ON teachers
-    FOR SELECT USING (true);
+    FOR SELECT USING (
+        teacher_role = 'admin'
+        OR EXISTS (
+            SELECT 1
+            FROM students s
+            WHERE s.teacher_id = teachers.id
+              AND s.status = 'active'
+              AND (
+                (s.student_code IS NOT NULL AND btrim(s.student_code) <> '')
+                OR (s.parent_code IS NOT NULL AND btrim(s.parent_code) <> '')
+              )
+        )
+    );
 
 -- schedules 정책
 DROP POLICY IF EXISTS "schedules_owner_policy" ON schedules;
@@ -354,12 +377,21 @@ CREATE POLICY "schedules_owner_policy" ON schedules
 -- attendance_records 정책
 DROP POLICY IF EXISTS "attendance_owner_policy" ON attendance_records;
 CREATE POLICY "attendance_owner_policy" ON attendance_records
-    FOR ALL USING (owner_user_id = auth.uid() OR owner_user_id IS NOT NULL)
+    FOR ALL USING (owner_user_id = auth.uid())
     WITH CHECK (owner_user_id = auth.uid());
 
 DROP POLICY IF EXISTS "attendance_public_read" ON attendance_records;
 CREATE POLICY "attendance_public_read" ON attendance_records
-    FOR SELECT USING (true);
+    FOR SELECT USING (
+        EXISTS (
+            SELECT 1
+            FROM students s
+            WHERE s.id = attendance_records.student_id
+              AND s.status = 'active'
+              AND s.parent_code IS NOT NULL
+              AND btrim(s.parent_code) <> ''
+        )
+    );
 
 -- holidays 정책
 DROP POLICY IF EXISTS "holidays_owner_policy" ON holidays;
@@ -376,12 +408,21 @@ CREATE POLICY "payments_owner_policy" ON payments
 -- student_evaluations 정책
 DROP POLICY IF EXISTS "evaluations_owner_policy" ON student_evaluations;
 CREATE POLICY "evaluations_owner_policy" ON student_evaluations
-    FOR ALL USING (owner_user_id = auth.uid() OR owner_user_id IS NOT NULL)
+    FOR ALL USING (owner_user_id = auth.uid())
     WITH CHECK (owner_user_id = auth.uid());
 
 DROP POLICY IF EXISTS "evaluations_public_read" ON student_evaluations;
 CREATE POLICY "evaluations_public_read" ON student_evaluations
-    FOR SELECT USING (true);
+    FOR SELECT USING (
+        EXISTS (
+            SELECT 1
+            FROM students s
+            WHERE s.id = student_evaluations.student_id
+              AND s.status = 'active'
+              AND s.parent_code IS NOT NULL
+              AND btrim(s.parent_code) <> ''
+        )
+    );
 
 -- teacher_reset_codes 정책
 DROP POLICY IF EXISTS "reset_codes_owner_policy" ON teacher_reset_codes;
@@ -392,16 +433,36 @@ CREATE POLICY "reset_codes_owner_policy" ON teacher_reset_codes
 -- homework_submissions 정책
 DROP POLICY IF EXISTS "homework_owner_policy" ON homework_submissions;
 CREATE POLICY "homework_owner_policy" ON homework_submissions
-    FOR ALL USING (owner_user_id = auth.uid() OR owner_user_id IS NOT NULL)
+    FOR ALL USING (owner_user_id = auth.uid())
     WITH CHECK (owner_user_id = auth.uid());
 
 DROP POLICY IF EXISTS "homework_public_insert" ON homework_submissions;
 CREATE POLICY "homework_public_insert" ON homework_submissions
-    FOR INSERT WITH CHECK (true);
+    FOR INSERT WITH CHECK (
+        EXISTS (
+            SELECT 1
+            FROM students s
+            WHERE s.id = homework_submissions.student_id
+              AND s.status = 'active'
+              AND s.student_code IS NOT NULL
+              AND btrim(s.student_code) <> ''
+        )
+    );
 
 DROP POLICY IF EXISTS "homework_public_read" ON homework_submissions;
 CREATE POLICY "homework_public_read" ON homework_submissions
-    FOR SELECT USING (true);
+    FOR SELECT USING (
+        EXISTS (
+            SELECT 1
+            FROM students s
+            WHERE s.id = homework_submissions.student_id
+              AND s.status = 'active'
+              AND (
+                (s.student_code IS NOT NULL AND btrim(s.student_code) <> '')
+                OR (s.parent_code IS NOT NULL AND btrim(s.parent_code) <> '')
+              )
+        )
+    );
 
 
 -- ============================================================

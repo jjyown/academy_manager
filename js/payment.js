@@ -1813,7 +1813,8 @@ window.savePaymentLedger = function() {
         return;
     }
 
-    saveData();
+    // 수납 원장 수정은 새로고침 직후 유실되지 않도록 즉시 저장
+    saveData(true);
     closeModal('payment-ledger-modal');
     renderPaymentList();
     showToast('수납 원장 항목이 저장되었습니다.', 'success');
@@ -2289,8 +2290,8 @@ window.openGradingPage = function() {
 window.openParentPortal = function() {
     const storedUrl = (window.PARENT_PORTAL_URL || localStorage.getItem('parent_portal_url') || '').trim();
     const hasOrigin = window.location.origin && window.location.origin !== 'null';
-    const defaultUrl = hasOrigin ? `${window.location.origin}/parent-portal` : './parent-portal/';
-    const targetUrl = storedUrl || defaultUrl;
+    const defaultUrl = hasOrigin ? `${window.location.origin}/parent-portal/` : './parent-portal/';
+    const targetUrl = (storedUrl || defaultUrl).replace(/\/parent-portal$/, '/parent-portal/');
     window.open(targetUrl, '_blank');
 }
 

@@ -8,6 +8,36 @@
 	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 	<link rel="stylesheet" href="../css/sub-shared.css">
 	<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+	<script>
+		// 로컬/정적 배포 공통 환경변수 로더
+		(async () => {
+			if (window.location.protocol === 'file:') {
+				window.env = {};
+				return;
+			}
+			const parseEnvText = (text) => {
+				const env = {};
+				String(text || '').split('\n').forEach((line) => {
+					if (!line || line.startsWith('#')) return;
+					const [key, ...valueParts] = line.split('=');
+					const value = valueParts.join('=').trim();
+					if (key && key.trim()) env[key.trim()] = value;
+				});
+				return env;
+			};
+			const candidates = ['../.env.local', '../env.local', '.env.local', 'env.local'];
+			window.env = window.env || {};
+			for (const fileName of candidates) {
+				try {
+					const response = await fetch(fileName, { cache: 'no-store' });
+					if (!response.ok) continue;
+					const text = await response.text();
+					window.env = parseEnvText(text);
+					return;
+				} catch (_) {}
+			}
+		})();
+	</script>
 	<style>
 		#page-dashboard { display: none; min-height: 100vh; min-height: 100dvh; }
 
@@ -966,6 +996,7 @@ window.showToast = window.ppShowToast;
 @keyframes toastSlide { from{opacity:0;transform:translateY(-20px)} to{opacity:1;transform:translateY(0)} }
 </style>
 
+<script src="../js/invoke-verify-teacher-pin.js"></script>
 <script src="report.js"></script>
 </body>
 </html>

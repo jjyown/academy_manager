@@ -33,6 +33,8 @@ let allScopeScheduleLoading = false;
 let historyActionContext = { studentId: '', monthPrefix: '' };
 let testScoreSyncState = { mode: 'unknown', message: '동기화 상태 확인 전' };
 const TEST_SCORE_STORAGE_PREFIX = 'student_test_scores__';
+const ADMIN_CROSS_TEACHER_EDIT_TTL_MS = 30 * 60 * 1000; // 30분
+let adminCrossTeacherEditUntil = 0;
 
 // ============================================
 // 글로벌 UI: 토스트 알림 + 확인 다이얼로그
@@ -711,12 +713,22 @@ function normalizeTeacherIdForCompare(teacherId) {
     return resolved || raw;
 }
 
+function hasAdminCrossTeacherEditSession() {
+    const role = String(getCurrentTeacherRole() || 'teacher');
+    return role === 'admin' && Date.now() < adminCrossTeacherEditUntil;
+}
+window.hasAdminCrossTeacherEditSession = hasAdminCrossTeacherEditSession;
+
+function grantAdminCrossTeacherEditSession() {
+    adminCrossTeacherEditUntil = Date.now() + ADMIN_CROSS_TEACHER_EDIT_TTL_MS;
+}
+
 async function verifyCurrentTeacherPinForAdmin(message) {
     const role = String(getCurrentTeacherRole() || 'teacher');
     if (role !== 'admin') return false;
     const current = teacherList.find((t) => String(t.id) === String(currentTeacherId));
-    if (!current || !current.pin_hash) {
-        showToast('관리자 PIN 정보가 없습니다.', 'error');
+    if (!current) {
+        showToast('관리자 정보를 찾을 수 없습니다.', 'error');
         return false;
     }
     const input = await showPrompt(message || '관리자 비밀번호를 입력하세요.', {
@@ -731,18 +743,22 @@ async function verifyCurrentTeacherPinForAdmin(message) {
         showToast('비밀번호를 입력해주세요.', 'warning');
         return false;
     }
-    const inputHash = await hashPin(String(input));
-    if (inputHash !== current.pin_hash) {
-        showToast('관리자 비밀번호가 올바르지 않습니다.', 'error');
+    const verifyResult = await verifyTeacherPinWithServer(current.id, String(input), {
+        ownerUserId: cachedLsGet('current_owner_id'),
+        requireAdmin: true
+    });
+    if (!verifyResult.ok) {
+        const msg = mapVerifyTeacherPinFailureToMessage(verifyResult);
+        showToast(msg || '관리자 비밀번호가 올바르지 않습니다.', 'error');
         return false;
     }
     return true;
 }
 
 async function verifyAdminPinForCrossTeacherAccess(ownerTeacherName) {
-    const admins = (teacherList || []).filter((t) => String(t.teacher_role || 'teacher') === 'admin' && t.pin_hash);
-    if (!admins.length) {
-        showToast('관리자 비밀번호 정보가 없어 타 선생님 일정을 열 수 없습니다.', 'error');
+    const current = teacherList.find((t) => String(t.id) === String(currentTeacherId));
+    if (!current || String(current.teacher_role || 'teacher') !== 'admin') {
+        showToast('관리자 정보가 없어 타 선생님 일정을 열 수 없습니다.', 'error');
         return false;
     }
     const ownerLabel = ownerTeacherName && ownerTeacherName !== '선생님'
@@ -763,12 +779,16 @@ async function verifyAdminPinForCrossTeacherAccess(ownerTeacherName) {
         showToast('비밀번호를 입력해주세요.', 'warning');
         return false;
     }
-    const inputHash = await hashPin(String(input));
-    const matched = admins.some((admin) => String(admin.pin_hash || '') === String(inputHash));
-    if (!matched) {
-        showToast('관리자 비밀번호가 올바르지 않습니다.', 'error');
+    const verifyResult = await verifyTeacherPinWithServer(current.id, String(input), {
+        ownerUserId: cachedLsGet('current_owner_id'),
+        requireAdmin: true
+    });
+    if (!verifyResult.ok) {
+        const msg = mapVerifyTeacherPinFailureToMessage(verifyResult);
+        showToast(msg || '관리자 비밀번호가 올바르지 않습니다.', 'error');
         return false;
     }
+    grantAdminCrossTeacherEditSession();
     return true;
 }
 
@@ -894,7 +914,7 @@ async function verifyScheduleEditPermission(ownerTeacherId) {
     if (!ownerId || ownerId === myId) {
         return { allowed: true, effectiveTeacherId: ownerId || myId, adminOverride: false };
     }
-    if (modalAdminOverride) {
+    if (modalAdminOverride || hasAdminCrossTeacherEditSession()) {
         return { allowed: true, effectiveTeacherId: ownerId, adminOverride: true };
     }
     showToast('타 선생님 일정은 보기 전용입니다. 수정/삭제할 수 없습니다.', 'warning');
@@ -1633,6 +1653,61 @@ async function hashPin(pin) {
     return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
+/** verify-teacher-pin 실패 시 사용자 안내 문구 (Edge Function·네트워크 오류 포함) */
+function mapVerifyTeacherPinFailureToMessage(verifyResult) {
+    if (!verifyResult || verifyResult.ok) return '';
+    const code = String(verifyResult.error || '').trim();
+    const lower = code.toLowerCase();
+    if (lower.includes('non-2xx') || lower.includes('failed to send') || lower.includes('fetch')) {
+        return '서버 연결에 실패했습니다. 네트워크와 Edge Function(verify-teacher-pin) 배포를 확인해주세요.';
+    }
+    const map = {
+        invalid_pin: '비밀번호가 일치하지 않습니다.',
+        ownership_mismatch: '이 학원에 등록된 선생님이 아닙니다.',
+        teacher_not_found: '선생님 정보를 찾을 수 없습니다.',
+        admin_required: '관리자(원장) 권한이 필요합니다.',
+        missing_fields: '입력 정보가 부족합니다.',
+        missing_supabase_config: 'Supabase 설정을 불러오지 못했습니다. 페이지를 새로고침 해주세요.',
+        session_expired_relogin: '로그인이 만료되었습니다. 상단에서 관리자 로그인으로 돌아가 다시 로그인해주세요.',
+        http_401:
+            '서버에서 요청을 거부했습니다(401). Supabase 대시보드 → Edge Functions → verify-teacher-pin → JWT 검증 끄기. 자세히: docs/SUPABASE_VERIFY_TEACHER_PIN_DASHBOARD.md',
+        'Missing teacherId or pin': '입력 정보가 부족합니다.'
+    };
+    if (map[code]) return map[code];
+    if (/missing.*teacherid|pin/i.test(code)) return '입력 정보가 부족합니다.';
+    return '비밀번호 확인에 실패했습니다.';
+}
+
+async function verifyTeacherPinWithServer(teacherId, pin, options = {}) {
+    const normalizedTeacherId = String(teacherId || '').trim();
+    const normalizedPin = String(pin || '').trim();
+    if (!normalizedTeacherId || !normalizedPin) {
+        return { ok: false, error: 'Missing teacherId or pin' };
+    }
+    const body = {
+        teacherId: normalizedTeacherId,
+        pin: normalizedPin,
+        ownerUserId: options.ownerUserId || undefined,
+        requireAdmin: !!options.requireAdmin
+    };
+    try {
+        if (typeof window.invokeVerifyTeacherPin === 'function') {
+            return await window.invokeVerifyTeacherPin(supabase, body, undefined);
+        }
+        const { data, error } = await supabase.functions.invoke('verify-teacher-pin', { body });
+        if (error) {
+            return { ok: false, error: error.message || 'verify-teacher-pin failed' };
+        }
+        return {
+            ok: !!(data && data.ok),
+            teacher: data?.teacher || null,
+            error: data?.error || null
+        };
+    } catch (err) {
+        return { ok: false, error: err?.message || String(err) };
+    }
+}
+
 function generateTempPassword(length = 6) {
     const chars = '0123456789';
     const arr = new Uint8Array(length);
@@ -1657,7 +1732,7 @@ async function loadTeachers() {
         console.log('[loadTeachers] Supabase에서 선생님 조회 중...');
         const { data, error } = await supabase
             .from('teachers')
-            .select('*')
+            .select('id, owner_user_id, name, phone, email, google_email, google_sub, teacher_role, address, address_detail, created_at')
             .eq('owner_user_id', ownerId)
             .order('created_at', { ascending: true });
         
@@ -1969,13 +2044,11 @@ window.confirmTeacher = async function() {
         return;
     }
     
-    // Supabase에서 해시를 가져와 비교
-    const passwordHash = await hashPin(password);
-    console.log('[confirmTeacher] 입력된 비밀번호 해시:', passwordHash);
-    console.log('[confirmTeacher] 저장된 해시:', teacher.pin_hash);
-    
-    if (passwordHash !== teacher.pin_hash) {
-        showToast('비밀번호가 일치하지 않습니다.', 'warning');
+    const verifyResult = await verifyTeacherPinWithServer(teacher.id, password, {
+        ownerUserId: cachedLsGet('current_owner_id')
+    });
+    if (!verifyResult.ok) {
+        showToast(mapVerifyTeacherPinFailureToMessage(verifyResult), 'warning');
         return;
     }
     
@@ -2076,8 +2149,10 @@ window.confirmTeacherPasswordReset = async function() {
         const teacher = teacherList.find(t => String(t.id) === String(teacherId));
         if (!teacher) { showToast('선생님 정보를 찾을 수 없습니다.', 'error'); return; }
         
-        const currentHash = await hashPin(currentPassword);
-        if (currentHash !== teacher.pin_hash) {
+        const verifyResult = await verifyTeacherPinWithServer(teacher.id, currentPassword, {
+            ownerUserId: ownerId
+        });
+        if (!verifyResult.ok) {
             showToast('기존 비밀번호가 올바르지 않습니다.', 'error');
             return;
         }
@@ -2095,8 +2170,6 @@ window.confirmTeacherPasswordReset = async function() {
             showToast('비밀번호 변경 실패: ' + error.message, 'error');
             return;
         }
-
-        teacher.pin_hash = passwordHash;
 
         document.getElementById('reset-teacher-current-password').value = '';
         document.getElementById('reset-teacher-password').value = '';
@@ -2255,8 +2328,6 @@ window.verifyAndResetTeacherPassword = async function() {
             return;
         }
 
-        if (teacher) teacher.pin_hash = tempHash;
-
         // 4. 폼 초기화 및 모달 닫기
         document.getElementById('reset-teacher-current-password').value = '';
         document.getElementById('reset-teacher-password').value = '';
@@ -2367,8 +2438,6 @@ window.forceResetTeacherPassword = async function() {
             showToast('비밀번호 초기화 실패: ' + updateError.message, 'error');
             return;
         }
-
-        if (teacher) teacher.pin_hash = tempHash;
 
         // UI 초기화 및 모달 닫기
         window.closeForceResetModal();
@@ -4099,7 +4168,9 @@ window.openAttendanceModal = async function(sid, dateStr, startTime, ownerTeache
             currentTeacherName: String(getCurrentTeacherName() || '')
         });
         const ownerTeacherName = getTeacherNameById(effectiveOwnerTeacherId);
-        const verified = await verifyAdminPinForCrossTeacherAccess(ownerTeacherName);
+        const verified = hasAdminCrossTeacherEditSession()
+            ? true
+            : await verifyAdminPinForCrossTeacherAccess(ownerTeacherName);
         if (!verified) return;
         adminOverride = true;
     }
@@ -4803,9 +4874,10 @@ async function _generateScheduleCore(excludeHolidays) {
     if (activeBtn) { activeBtn.disabled = true; activeBtn.dataset.originalHtml = activeBtn.innerHTML; activeBtn.textContent = '생성 중...'; }
     if (otherBtn) otherBtn.disabled = true;
 
+    let totalCount = 0;
+    let cancelledByUser = false; // 사용자가 겹침 취소로 중단했는지 추적
+    let dbSyncFailed = false;
     try {
-        let totalCount = 0;
-        let cancelledByUser = false; // 사용자가 겹침 취소로 중단했는지 추적
         const scheduleBatch = [];
         for (const sid of targetStudentIds) {
             const student = students.find(s => String(s.id) === String(sid));
@@ -4864,10 +4936,18 @@ async function _generateScheduleCore(excludeHolidays) {
         saveData();
         persistTeacherScheduleLocal();
         if (scheduleBatch.length) {
-            if (typeof saveSchedulesToDatabaseBatch === 'function') {
-                await saveSchedulesToDatabaseBatch(scheduleBatch);
-            } else if (typeof saveScheduleToDatabase === 'function') {
-                await Promise.allSettled(scheduleBatch.map(item => saveScheduleToDatabase(item)));
+            try {
+                if (typeof saveSchedulesToDatabaseBatch === 'function') {
+                    await saveSchedulesToDatabaseBatch(scheduleBatch);
+                } else if (typeof saveScheduleToDatabase === 'function') {
+                    const syncResults = await Promise.allSettled(scheduleBatch.map(item => saveScheduleToDatabase(item)));
+                    if (syncResults.some(r => r.status === 'rejected')) {
+                        dbSyncFailed = true;
+                    }
+                }
+            } catch (dbError) {
+                dbSyncFailed = true;
+                console.error('[generateSchedule] DB 동기화 실패(로컬 반영은 완료):', dbError);
             }
         }
         saveLayouts();
@@ -4885,8 +4965,22 @@ async function _generateScheduleCore(excludeHolidays) {
         if (typeof window.initMissedScanChecks === 'function') window.initMissedScanChecks();
         if (typeof scheduleKstMidnightAutoAbsent === 'function') scheduleKstMidnightAutoAbsent();
         const suffix = excludeHolidays && totalCount === 0 ? ' (공휴일이 제외되었을 수 있습니다)' : '';
-        if (totalCount > 0) showToast(`${totalCount}개의 일정이 생성되었습니다.`, 'success');
+        if (totalCount > 0) {
+            showToast(`${totalCount}개의 일정이 생성되었습니다.`, 'success');
+            if (dbSyncFailed) {
+                showToast('일정은 추가되었지만 서버 동기화에 실패했습니다. 새로고침 후 다시 확인해주세요.', 'warning');
+            }
+        }
         else if (!cancelledByUser) showToast(`새로 등록된 일정이 없습니다.${suffix}`, 'info');
+    } catch (e) {
+        console.error('[generateSchedule] 일정 생성 처리 예외:', e);
+        // 로컬 반영은 이미 된 경우가 있으므로 캘린더를 다시 렌더링해 사용자 혼란을 줄인다.
+        renderCalendar();
+        if (totalCount > 0) {
+            showToast(`${totalCount}개의 일정이 추가되었습니다. 다만 후처리 중 오류가 발생했습니다.`, 'warning');
+        } else {
+            showToast('일정 생성 중 오류가 발생했습니다. 다시 시도해주세요.', 'error');
+        }
     } finally {
         isScheduleSaving = false;
         if (activeBtn) { activeBtn.disabled = false; if (activeBtn.dataset.originalHtml) { activeBtn.innerHTML = activeBtn.dataset.originalHtml; delete activeBtn.dataset.originalHtml; } }
@@ -5234,28 +5328,52 @@ window.deleteSingleSchedule = async function() {
     if(!(await showConfirm("이 날짜의 일정을 삭제하시겠습니까?", { type: 'danger', title: '삭제 확인', okText: '삭제' }))) return;
     const sIdx = students.findIndex(s => String(s.id) === String(sid));
     if(sIdx > -1) {
+        const originalOwnerTeacherId = String(document.getElementById('att-original-owner-teacher-id')?.value || ownerTeacherId || '').trim();
+        const scheduleOwnerCandidates = getScheduleOwnerCandidatesBySlot(String(sid), dateStr, originalStart || '');
+        const ownerCandidateSet = new Set();
+        [
+            targetTeacherId,
+            ownerTeacherId,
+            originalOwnerTeacherId,
+            ...scheduleOwnerCandidates
+        ].forEach((candidate) => {
+            const raw = String(candidate || '').trim();
+            if (!raw) return;
+            ownerCandidateSet.add(raw);
+            const normalized = String(resolveKnownTeacherId(raw) || '').trim();
+            if (normalized) ownerCandidateSet.add(normalized);
+        });
+        const ownerCandidates = Array.from(ownerCandidateSet);
+        const normalizedOriginalStart = normalizeScheduleTimeKey(originalStart || '');
+
         // 1. 로컬 메모리에서 먼저 삭제
         removeTimeScopedValue(students[sIdx].attendance, dateStr, originalStart || '');
         removeTimeScopedValue(students[sIdx].records, dateStr, originalStart || '');
         removeTimeScopedValue(students[sIdx].shared_records, dateStr, originalStart || '');
-        // 현재 선생님의 일정 데이터 삭제
-        const entries = getScheduleEntries(targetTeacherId, String(sid), dateStr);
-        const nextEntries = originalStart ? entries.filter(item => item.start !== originalStart) : [];
-        setScheduleEntries(targetTeacherId, String(sid), dateStr, nextEntries);
+        // owner 후보군 기준으로 일정 데이터 삭제 (관리자 교차 편집/레거시 키 혼재 대응)
+        ownerCandidates.forEach((teacherIdCandidate) => {
+            const entries = getScheduleEntries(teacherIdCandidate, String(sid), dateStr);
+            if (!entries.length) return;
+            const nextEntries = originalStart
+                ? entries.filter((item) => normalizeScheduleTimeKey(item?.start || '') !== normalizedOriginalStart)
+                : [];
+            setScheduleEntries(teacherIdCandidate, String(sid), dateStr, nextEntries);
+        });
         
         // 2. 데이터 저장 및 화면 업데이트
         saveData();
-        persistTeacherScheduleLocalFor(targetTeacherId);
+        ownerCandidates.forEach((teacherIdCandidate) => persistTeacherScheduleLocalFor(teacherIdCandidate));
         renderCalendar();
         if (document.getElementById('day-detail-modal').style.display === 'flex') renderDayEvents(dateStr);
         
         showToast(permission.adminOverride ? '일정이 삭제되었습니다. (관리자 권한)' : '일정이 삭제되었습니다.', 'success');
 
         // 3. 데이터베이스 삭제는 백그라운드 처리 (일정 + 동일 슬롯 출석기록)
-        Promise.allSettled([
-            deleteScheduleFromDatabase(sid, dateStr, targetTeacherId, originalStart || null),
-            deleteAttendanceRecordBySlotFromDb(sid, dateStr, targetTeacherId, originalStart || null)
-        ])
+        const dbDeleteTasks = ownerCandidates.flatMap((teacherIdCandidate) => ([
+            deleteScheduleFromDatabase(sid, dateStr, teacherIdCandidate, originalStart || null),
+            deleteAttendanceRecordBySlotFromDb(sid, dateStr, teacherIdCandidate, originalStart || null)
+        ]));
+        Promise.allSettled(dbDeleteTasks)
             .then((results) => {
                 const failed = results.filter((r) => r.status === 'rejected');
                 if (failed.length > 0) {
@@ -6504,6 +6622,22 @@ window.deleteScheduleFromModal = async function() {
 async function loadAndCleanData() {
     try {
         console.log('[loadAndCleanData] Supabase에서 학생 데이터 로드 중...');
+        const ownerIdForCache = cachedLsGet('current_owner_id') || 'no-owner';
+        const ownerKey = `academy_students__${ownerIdForCache}`;
+        let localPaymentsByStudentId = new Map();
+        try {
+            const localRaw = localStorage.getItem(ownerKey);
+            const localStudents = JSON.parse(localRaw || '[]');
+            if (Array.isArray(localStudents)) {
+                localPaymentsByStudentId = new Map(
+                    localStudents
+                        .map((s) => [String(s?.id || ''), s?.payments && typeof s.payments === 'object' ? s.payments : {}])
+                        .filter(([id]) => !!id)
+                );
+            }
+        } catch (e) {
+            console.warn('[loadAndCleanData] 로컬 payments 캐시 로드 실패:', e);
+        }
         
         // Supabase에서 모든 학생 조회
         const supabaseStudents = await getAllStudents();
@@ -6536,17 +6670,16 @@ async function loadAndCleanData() {
                 attendance: {},
                 records: {},
                 shared_records: {},
-                payments: {}
+                // 수납 원장은 현재 로컬 원장(source of operation)을 유지해야 새로고침 시 수정분이 유실되지 않는다.
+                payments: localPaymentsByStudentId.get(String(s.id)) || {}
             });
             });
             // 로컬 스토리지에도 백업 저장
-            const ownerKey = `academy_students__${cachedLsGet('current_owner_id') || 'no-owner'}`;
             localStorage.setItem(ownerKey, JSON.stringify(students));
             console.log(`[loadAndCleanData] Supabase에서 학생 데이터 로드 완료: ${students.length}명`);
         } else {
             // Supabase에 학생이 없으면 students를 빈 배열로 강제 (로컬 fallback 금지)
             students = [];
-            const ownerKey = `academy_students__${cachedLsGet('current_owner_id') || 'no-owner'}`;
             localStorage.setItem(ownerKey, JSON.stringify([]));
             console.log(`[loadAndCleanData] Supabase에 학생 없음. students를 빈 배열로 초기화.`);
         }
@@ -8227,7 +8360,7 @@ window.openModal = function(id) {
 
         // 수업시간/시작시간 기본값 복원
         document.getElementById('sch-time').value = '16:00';
-        document.getElementById('sch-duration-min').value = '90';
+        document.getElementById('sch-duration-min').value = '100';
 
         // 요일 선택에 따라 반복 주 필드 표시/숨김
         const weeksField = document.getElementById('sch-weeks').closest('.sch-field');
@@ -8307,43 +8440,13 @@ window.removeScheduleStudent = function(id) {
     updateDurationByGrade();
 }
 
-// 학년별 수업 시간 자동 설정
+// 일정 등록 기본 수업시간은 학년과 무관하게 100분으로 통일
 function updateDurationByGrade() {
     const durationInput = document.getElementById('sch-duration-min');
     const hintEl = document.getElementById('sch-duration-hint');
     if (!durationInput || !hintEl) return;
-
-    if (selectedScheduleStudents.length === 0) {
-        hintEl.style.display = 'none';
-        return;
-    }
-
-    let hasMiddle = false, hasHigh = false, hasOther = false;
-    for (const sid of selectedScheduleStudents) {
-        const student = students.find(s => String(s.id) === String(sid));
-        if (!student) continue;
-        const g = student.grade || '';
-        if (g.startsWith('중')) hasMiddle = true;
-        else if (g.startsWith('고')) hasHigh = true;
-        else hasOther = true;
-    }
-
-    if (hasMiddle && hasHigh) {
-        // 혼합: 큰 값(100분) + 안내 배너
-        durationInput.value = 100;
-        hintEl.innerHTML = '<i class="fas fa-info-circle"></i> 중학생(90분)과 고등학생(100분)이 섞여 있습니다. 필요시 수동 조정하세요.';
-        hintEl.style.display = 'flex';
-    } else if (hasHigh && !hasMiddle) {
-        durationInput.value = 100;
-        hintEl.style.display = 'none';
-    } else if (hasMiddle && !hasHigh) {
-        durationInput.value = 90;
-        hintEl.style.display = 'none';
-    } else {
-        // 초등 또는 기타 - 90분 설정
-        durationInput.value = 90;
-        hintEl.style.display = 'none';
-    }
+    durationInput.value = 100;
+    hintEl.style.display = 'none';
 }
 
 function renderPeriodDeleteStudentDropdown(studentList) {

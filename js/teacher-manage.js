@@ -154,8 +154,36 @@ window.confirmAdminVerifyAndChangeRole = async function() {
     if (!password) { showToast('관리자 비밀번호를 입력해주세요.', 'warning'); return; }
     if (!teacherId || !newRole) { showToast('선생님 정보가 없습니다.', 'warning'); return; }
     try {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        const { data: priorSessionWrap } = await supabase.auth.getSession();
+        const priorEmail = (priorSessionWrap?.session?.user?.email || '').trim().toLowerCase();
+        if (!priorEmail) {
+            showToast('세션 정보를 확인할 수 없습니다. 다시 로그인해주세요.', 'warning');
+            return;
+        }
+        if (email.trim().toLowerCase() !== priorEmail) {
+            showToast('현재 로그인한 관리자 이메일과 일치해야 합니다.', 'warning');
+            return;
+        }
+        const { data: signInData, error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) { showToast('관리자 인증 실패: 이메일 또는 비밀번호가 올바르지 않습니다.', 'error'); return; }
+        const ownerId = cachedLsGet('current_owner_id');
+        if (ownerId && signInData?.user?.id && String(signInData.user.id) !== String(ownerId)) {
+            await supabase.auth.signOut();
+            showToast('인증한 계정이 현재 원장 계정과 일치하지 않습니다. 다시 로그인해주세요.', 'error');
+            if (typeof navigateToPage === 'function') navigateToPage('AUTH');
+            return;
+        }
+        const { data: userRow, error: roleErr } = await supabase
+            .from('users')
+            .select('role')
+            .eq('id', signInData.user.id)
+            .single();
+        if (roleErr || userRow?.role !== 'admin') {
+            await supabase.auth.signOut();
+            showToast('관리자 권한이 없습니다.', 'warning');
+            if (typeof navigateToPage === 'function') navigateToPage('AUTH');
+            return;
+        }
         const modal = document.getElementById('admin-verify-modal');
         if (modal) modal.style.display = 'none';
         await updateTeacherRole(teacherId, newRole);

@@ -18,6 +18,13 @@ interface ExchangeTokenRequest {
   redirectUri: string;
 }
 
+function extractBearerToken(req: Request): string | null {
+  const authHeader = req.headers.get("Authorization") || req.headers.get("authorization");
+  if (!authHeader) return null;
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  return match ? match[1] : null;
+}
+
 serve(async (req: Request) => {
   // CORS preflight
   if (req.method === "OPTIONS") {
@@ -43,6 +50,59 @@ serve(async (req: Request) => {
         JSON.stringify({ error: "Missing required fields: code, teacherId" }),
         {
           status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    const accessToken = extractBearerToken(req);
+    if (!accessToken) {
+      return new Response(
+        JSON.stringify({ error: "Unauthorized: missing bearer token" }),
+        {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser(accessToken);
+
+    if (userError || !user) {
+      return new Response(
+        JSON.stringify({ error: "Unauthorized: invalid token" }),
+        {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    const { data: teacherRow, error: teacherError } = await supabase
+      .from("teachers")
+      .select("id, owner_user_id")
+      .eq("id", teacherId)
+      .single();
+
+    if (teacherError || !teacherRow) {
+      return new Response(
+        JSON.stringify({ error: "Teacher not found" }),
+        {
+          status: 404,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    if (String(teacherRow.owner_user_id || "") !== String(user.id)) {
+      return new Response(
+        JSON.stringify({ error: "Forbidden: teacher ownership mismatch" }),
+        {
+          status: 403,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         }
       );
@@ -110,8 +170,8 @@ serve(async (req: Request) => {
 
     const driveInfo = await driveTestResponse.json();
 
-    // Save refresh token to teachers table using service role (bypasses RLS)
-    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+    // Save refresh token to teachers table using service role (bypasses RLS).
+    // Access is still constrained by the ownership check above.
 
     const updateData: Record<string, unknown> = {
       google_drive_connected: true,

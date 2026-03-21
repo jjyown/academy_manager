@@ -1,17 +1,46 @@
 # 출석관리앱 체크리스트
 
-- 문서 기준일: 2026-03-15
+- 문서 기준일: 2026-03-22
 ## 공통 품질 체크
+- [x] `verify-teacher-pin` **144~148차**(응답 정책·배포·JWT 설정·`invokeVerifyTeacherPin`): 코드·배포·대시보드 설정·**메인 진입 사용자 확인** (2026-03-22)
+- [x] `verify-teacher-pin` CORS: `npx supabase@latest functions deploy verify-teacher-pin` 후 로컬에서 preflight(OPTIONS **200** + CORS 헤더) 확인, `SUPABASE_URL` ref 오타 점검 (2026-03-22) — **배포 완료 확인(프로젝트 jzcrpdeomjmytfekcgqu)**
 - [x] 요구사항 재확인 후 구현 시작
 - [x] `python qa-artifacts/sync_doc_dates.py` 실행 후 작업 시작
 - [x] 문서 기준일을 작업 당일로 갱신
 - [x] 다음날 작업 시 `문서 기준일`을 다음 날짜로 재갱신(고정 날짜 사용 금지)
 - [x] 문서 3종(`plan/context/checklist`)의 `문서 기준일` 완전 일치 확인
 - [x] 변경 파일/영향 범위 확인
+- [x] 연속 작업 진행현황(시작/중간/완료) 사용자 공유 + docs 동기화 반영
+- [x] 페이지 전환 링크 회귀 점검(메인 ↔ 숙제 제출 ↔ 채점 ↔ 학부모 포털) — **사용자 실기기 스모크 PASS** (2026-03-22)
+- [x] 인증코드 조회 회귀 점검(숙제 제출 `student_code` ↔ 학부모 포털 `parent_code`) — 상기 동선 포함 **사용자 스모크 PASS** (2026-03-22, 심층 엣지는 필요 시 추가)
 - [ ] 에러 처리(실패 응답/예외) 포함
+- [ ] 장애 원인분류 3단계 기록 완료(코드/데이터·정책/외부플랫폼)
+- [ ] 원인분류 근거 스냅샷 기록(콘솔/네트워크 + SQL 결과)
+- [ ] 최종 조치가 원인분류와 1:1로 일치하는지 확인(코드문제면 코드, 정책문제면 SQL 우선)
 - [x] 회귀 가능 구간 점검
 - [x] 문서(`plan/context/checklist`) 업데이트
 - [x] 작업 1건 완료 시 문서 3종 즉시 동기화
+- [x] 엔터프라이즈 플레이북(`docs/enterprise_workflow.md`) 기준으로 작업 게이트 적용 여부 확인
+- [x] 엔터프라이즈 자동로그 스크립트(`qa-artifacts/append_enterprise_log.py`) 실행 확인
+- [ ] 중요 작업 전문가 토론 기록 확인(보안/백엔드/프론트/운영QA)
+
+## 엔터프라이즈 Gate 체크(필수)
+- [ ] Gate A(설계/영향분석): 목표/범위/리스크/완료기준 명시
+- [ ] Gate B(구현): 작은 단위 수정 + 단위 검증
+- [x] Gate C(통합회귀): 페이지 연결/인증코드/권한/데이터 정합성 확인 — **사용자 스모크 PASS**(메인 일정·출석 저장·4화면 연결) (2026-03-22)
+- [ ] Gate D(운영준비): 원인분류 확정 + SQL/배포 순서 고정
+- [ ] Gate E(사후기록): plan/context/checklist 동시 갱신
+
+## 장애 원인분류 체크리스트 (오진 방지)
+- [ ] 증상과 재현절차를 1줄로 고정 기록
+- [ ] 클라이언트 증거 확보(콘솔 에러 1개 + Network 요청 1개)
+- [ ] Supabase 증거 확보(해당 테이블 조회 결과 + 관련 정책 조회 결과)
+- [ ] 외부플랫폼 증거 확보(배포 URL/환경변수/경로/캐시 상태)
+- [ ] 최종 원인분류 확정(`코드`/`Supabase`/`외부플랫폼`/`복합`)
+- [ ] 조치 후 동일 재현절차로 재검증(PASS/FAIL)
+
+## 장애 기록 템플릿 (복붙용)
+`장애ID: | 증상: | 재현절차: | 클라이언트증거: | Supabase증거: | 외부플랫폼증거: | 최종원인분류: 코드/Supabase/외부플랫폼/복합 | 조치범위: 코드/SQL/배포설정/운영가이드 | 결과: PASS/FAIL`
 
 ## 기능 체크 (출석 도메인)
 - [ ] 학생 등록/수정/삭제 시 출석 연관 데이터 영향 확인
@@ -35,6 +64,40 @@
 ## 테스트/검증 결과 기록
 | 날짜 | 작업 | 검증 방법 | 결과 | 비고 |
 |---|---|---|---|---|
+| 2026-03-22 | AUTO-20260322(staged 69개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
+| 2026-03-22 | 통합 스모크(입장 후 운영 동선) | 사용자 실기기: 오늘 일정 표시·학생 출석 1건 저장·메인↔숙제↔채점↔학부모 포털 진입 | PASS | 로그인/입장 트랙 후속 회귀, Gate C 근거 |
+| 2026-03-22 | 학생관리 148차(401·Bearer·대시보드 문서) | `invoke-verify-teacher-pin.js` Bearer 정책 + `SUPABASE_VERIFY_TEACHER_PIN_DASHBOARD.md` | PASS(코드) | **Supabase 대시보드**에서 verify-teacher-pin JWT 검증 OFF 후 입장 재시도 |
+| 2026-03-22 | 학생관리 147차(`invokeVerifyTeacherPin` fetch 폴백) | `js/invoke-verify-teacher-pin.js` + 페이지 스크립트 로드 + `node --check` | PASS(코드) | 브라우저에서 선생님 입장·채점/포털 PIN 경로 재검증 |
+| 2026-03-22 | 학생관리 146차(`verify-teacher-pin` verify_jwt) | `supabase/config.toml`에 `verify_jwt = false` 추가 + 문서 동기화 | PASS(코드) | **배포 완료 확인:** 사용자 터미널 `npx supabase@latest functions deploy verify-teacher-pin` → `jzcrpdeomjmytfekcgqu` 성공(Docker 미실행 경고는 원격 배포에 보통 무관) → 브라우저에서 선생님 입장 재검증 |
+| 2026-03-22 | 학생관리 145차(관리자 로그인·권한 검증) | `node --check`(auth/script/teacher-manage/parent-portal) + 정적 검토 | PASS(코드) | 운영에서 `users.role`·RLS 정책으로 본인 행 조회 가능해야 함; 포털 관리자 로그인·권한 변경 모달 재검증 권장 |
+| 2026-03-22 | 학생관리 144차(`verify-teacher-pin` HTTP 200 정책) | `index.ts` 정적 검토 + `python qa-artifacts/sync_doc_dates.py`로 문서 기준일 일치 | PASS(코드) | **운영 반영**은 `npx supabase@latest functions deploy verify-teacher-pin` 재배포 후 브라우저에서 선생님 입장·PIN 불일치 시 콘솔 401 혼선 감소 확인 |
+| 2026-03-22 | 학생관리 143차(`verify-teacher-pin` 운영 배포) | 사용자 터미널에서 `npx supabase@latest functions deploy verify-teacher-pin` 성공 스크린샷(프로젝트 `jzcrpdeomjmytfekcgqu`) | PASS | Docker 미실행 경고는 원격 배포에 보통 무관, 브라우저에서 선생님 입장 재검증 권장 |
+| 2026-03-22 | 학생관리 143차(`verify-teacher-pin` 배포/CORS) | Edge Function OPTIONS CORS 헤더 보강 + 정적 검토, `npx supabase@latest functions deploy` 안내 반영 | PASS | 사용자 PC에서 실제 배포 후 `npx supabase@latest functions list`로 확인, `SUPABASE_URL` ref 오타 점검 |
+| 2026-03-21 | 학생관리 141차 운영적용(재강화 3단계 실행 + 스모크) | 사용자 SQL 실행 결과(RLS enabled 확인) + 사용자 스모크 결과 `pass` 확인 | PASS | `students`, `schedules` 재강화 적용 후 운영 정상 확인 |
+| 2026-03-21 | 학생관리 142차(PIN 서버검증 전환) | `pin_hash` 패턴 재검색 + `node --check`(script/qr-attendance/parent-portal) + `ReadLints` + Edge Function 추가 정적점검 | PASS | 클라이언트 `pin_hash` 직접 조회/비교 경로 제거, `verify-teacher-pin` 배포 필요 |
+| 2026-03-21 | 학생관리 141차(안전 재강화 3단계 SQL 세트) | students/schedules 공개 읽기 2개 정책의 적용 SQL/롤백 SQL 분리 작성 + 정책/rls 검증 쿼리 포함 + 문서 동기화 확인 | PASS | 운영 적용 전 사전 준비 완료(실행은 사용자 SQL Editor에서 진행) |
+| 2026-03-21 | 학생관리 140차(안전 재강화 2단계 SQL 세트) | attendance 앱 owner read/write 4개 정책의 적용 SQL/롤백 SQL 분리 작성 + 정책/rls 검증 쿼리 포함 + 문서 동기화 확인 | PASS | 운영 적용 전 사전 준비 완료(실행은 사용자 SQL Editor에서 진행) |
+| 2026-03-21 | 학생관리 139차(안전 재강화 1단계 SQL 세트) | 적용 SQL/롤백 SQL 분리 작성 + 정책/rls 검증 쿼리 포함 + 문서 동기화 확인 | PASS | 재강화 적용 전 사전 준비 완료(실행은 운영 확인 후) |
+| 2026-03-21 | 학생관리 138차(긴급복구 후 스모크 3종 확인) | 사용자 실기기 확인(일정 추가/출석 변경/미처리 전환) | PASS | 기준선 정상 복구 확인, 다음 단계는 재강화 작업으로 전환 |
+| 2026-03-21 | 학생관리 137차(attendance_records RLS 42501 긴급복구) | 콘솔 에러(`new row violates row-level security policy`) 기준 원인 확정 + attendance 앱 read/write 정책 핫픽스 SQL 작성 + 검증 쿼리 포함 확인 | PASS | Supabase SQL 실행 후 출석 저장/자동결석 에러 재발 여부 확인 필요 |
+| 2026-03-20 | 학생관리 136차(DB 401 요청 선차단) | `database.js` 일정 저장 경로 세션 사전검증 추가 + ReadLints 확인 | PASS | 세션 만료 시 DB 요청 전에 차단해 연속 401/후속 예외 전파 완화 |
+| 2026-03-20 | 학생관리 135차(일정 추가 알림 누락/중복 오해 방지) | 콘솔 에러 라인(`script.js:4907`, `database.js:387`) 기준 경로 분석 + 일정생성 예외/토스트 분기 패치 + ReadLints 확인 | PASS | DB 동기화 실패 시에도 생성 성공 안내와 경고 안내를 분리해 재시도 오해 방지 |
+| 2026-03-20 | 학생관리 134차(메인 일정 미노출 긴급복구) | 정책 충돌 경로 분석(`teachers_public_read`) + 핫픽스 SQL 작성 + 검증 쿼리 포함 여부 확인 | PASS | Supabase SQL 실행 후 메인 일정 재표시 확인 필요 |
+| 2026-03-20 | 학생관리 133차(Supabase 실행용 정책/검증 SQL 추가 + 연속 진행현황 공유 규칙 반영) | SQL 파일 정적 점검 + 문서 규칙 반영 확인 + 기준일 일치 확인 | PASS | 다음 단계 Supabase SQL 실행/검증 준비 완료 |
+| 2026-03-20 | 학생관리 132차(잔여 중요 보안 보강(teachers 정책 축소+PIN 해시 로그 제거)) | 정적 diff 점검 + ReadLints + 과허용/해시로그 패턴 재검색 | PASS | 중요작업 연속 보강 |
+| 2026-03-20 | 학생관리 131차(Critical 보안 우선 패치(RLS 안전화+Edge Function 인증검증)) | 수정 파일 정적 점검 + ReadLints + 과허용 패턴(owner_user_id IS NOT NULL/USING(true)/WITH CHECK(true)) 재검색 | PASS | Critical 2건 선조치 완료 |
+| 2026-03-20 | 학생관리 130차(보안 내용.zip(26장) 기준 재점검) | ZIP 26장 내용 확인 + 코드/RLS 패턴 재스캔 + 고위험 항목 분류 | PASS | 수정 우선순위(Critical 2건, High 2건) 도출 |
+| 2026-03-20 | 학생관리 129차(중요작업 전문가 토론 선행 규칙 고정) | 문서 규칙 반영 + 4문서 연동 기록 확인 | PASS | 중요작업 토론 상시 적용 |
+| 2026-03-20 | 학생관리 128차(완전 자동(커밋 시) 문서 연동 훅 적용) | pre-commit 훅 파일/자동 스크립트 경로 확인 + append_linked_docs_log 실행 결과 확인 | PASS | 완전 자동 모드 활성화 |
+| 2026-03-20 | 학생관리 127차(docs 4종 연동 자동기록 기능 추가) | append_linked_docs_log 실행 + 4문서 기준일/기록 삽입 확인 | PASS | 연동 자동화 1회 실행 검증 |
+| 2026-03-20 | 학생관리 126차(엔터프라이즈 문서 자동화: 날짜+로그 자동화) | `py qa-artifacts/sync_doc_dates.py` 실행(4문서 동기화) + `py qa-artifacts/append_enterprise_log.py ...` 실행(자동 로그 추가) + 로그 섹션 단일화 확인 | PASS | `enterprise_workflow.md`도 날짜 자동동기화 대상에 포함, 작업 로그 자동 append 기능 도입 및 중복 섹션 이슈 보정 |
+| 2026-03-20 | 학생관리 125차(엔터프라이즈 작업방식 도입) | `docs/enterprise_workflow.md` 신규 작성 + `docs/plan.md`, `docs/context.md`, `docs/checklist.md` 상호 연결 반영 + 문서 기준일 정합성 확인 | PASS | Gate A~E, PRD-lite, Risk-based 테스트, 장애 트리아지, KPI를 이 앱 기본 절차로 고정 |
+| 2026-03-20 | 오진 방지 문서 규칙 추가(코드/Supabase/외부플랫폼 원인분류) | `docs/plan.md`, `docs/context.md`, `docs/checklist.md` 동시 반영 + 상호 정합성 점검 | PASS | 장애 발생 시 원인분류 확정 전 수정범위 고정 금지, 증거 기반 기록 템플릿/체크리스트를 표준화 |
+| 2026-03-18 | 일정관리 118차(중/고 일정 등록 기본시간 100분 통일) | `node --check script.js` + `ReadLints(script.js, index.html)` + 등록시간 로직 점검(`sch-duration-min`, `updateDurationByGrade`) | PASS | 학년별(중 90/고 100) 자동 분기를 제거하고 100분 고정으로 통일해 운영 정책과 UI 기본값을 일치시킴 |
+| 2026-03-15 | 수납관리 117차(`원장 입력` 버튼 hover 전 텍스트 가독성 보정) | `ReadLints(style.css)` + 스타일 경로 점검(`.pay-ledger-btn` 기본 텍스트 색상) | PASS | hover 전 희미하게 보이던 `원장 입력` 버튼 텍스트를 고정 대비 색으로 조정해 즉시 식별 가능하도록 개선 |
+| 2026-03-15 | 수납관리 116차(일/월마감 요약 카드 텍스트 가독성 보정) | `ReadLints(style.css)` + 스타일 경로 점검(`.pay-close-label`, `.pay-close-card strong`) | PASS | 다크 테마에서 희게 보이던 요약 카드 텍스트를 대비 중심 색상으로 고정해 `오늘 수납액/오늘 수납건수/월 미수금/미확인입금` 가독성 개선 |
+| 2026-03-15 | 수납관리 115차(학생카드 상세 우측 텍스트 대비/가독성 보정) | `ReadLints(style.css)` + 스타일 경로 점검(`.pay-ledger-row span/strong` 색상) | PASS | 다크 테마에서 과도하게 희게 보이던 우측 값 텍스트를 배경 대비 중심 색상으로 고정해 결제경로/결제수단/수납일 등 상세값 가독성 개선 |
+| 2026-03-15 | 수납관리 114차(수납 원장 수정값 새로고침 유실 보정) | `node --check script.js` + `node --check js/payment.js` + `ReadLints(script.js, js/payment.js)` + 저장 경로 점검(`saveData(true)`, `payments` 병합) | PASS | 수납 수정 직후 즉시 저장을 강제하고, 학생 재로드 시 `payments`를 로컬 캐시에서 병합해 새로고침 유실 경로를 차단 |
 | 2026-03-15 | 학생관리 113차(record_id UUID 파싱 오류로 인한 미처리 전환 실패 보정) | `node --check qr-attendance.js` + `ReadLints(qr-attendance.js)` + id 처리 경로 점검(`parseInt` 제거, UUID/숫자 문자열 허용) | PASS | UUID id를 숫자로 잘라 쿼리하던 경로를 제거해 `invalid input syntax for type uuid` 재발 조건을 차단 |
 | 2026-03-15 | 학생관리 112차(출석상태->미처리 전환 시 이전 상태 롤백 방지) | `node --check qr-attendance.js` + `ReadLints(qr-attendance.js)` + 미처리 분기 삭제 경로 점검(단건 삭제 + 슬롯 잔존 정리) | PASS | `record_id` 삭제만으로 남을 수 있는 중복 슬롯 레코드를 추가 정리해, 상태 선택 후 다시 과거 상태로 복귀하는 경로를 차단 |
 | 2026-03-15 | 학생관리 111차(출석->미처리 전환 시 `attendance_records` 400 방지) | `node --check qr-attendance.js` + `ReadLints(qr-attendance.js)` + 삭제 경로 코드 점검(`record_id` 우선 삭제, owner fallback uuid 제한) | PASS | `record_id` 존재 시 직접 삭제로 분기해 슬롯 조건 오차를 줄였고, `ensureOwnerId`의 비-uuid fallback을 차단해 owner 필터 타입 불일치 400 재발 경로를 축소 |
@@ -455,3 +518,58 @@
 - [x] 실기기 회귀: 월간 뱃지 인원수/툴팁(학생명·교사명) 표시 정확성 유지 확인
 - [x] 실기기 회귀: `3/3`, `3/5`에서 초기 배지가 오집계(1명) 없이 `집계중 -> 정확명수`로 전환되는지 확인
 - [x] 실기기 회귀: `육효원/조민준`, `23:30~01:10`, 담당 `전재윤` 본인 클릭 시 관리자 인증 미노출 확인
+
+## 2026-03-20 관리자 인증 교차 편집 전면 허용 보강
+- [x] 관리자 인증 성공 시 교차 편집 세션 TTL(30분) 유지 로직 추가
+- [x] 권한 검증(`verifyScheduleEditPermission`)에 관리자 세션 허용 분기 통합
+- [x] 모달 진입 시 관리자 세션 유효하면 비밀번호 재입력 없이 교차 편집 모드 진입
+- [x] 단일 일정 삭제(`deleteSingleSchedule`)를 owner 후보군 기반 로컬/DB 삭제로 확장
+- [x] 출석이력 상태 변경 로컬 반영 조건에 관리자 세션/모달 관리자 모드 허용
+- [x] 정적 검증: `node --check script.js`, `node --check qr-attendance.js` PASS
+- [x] 정적 검증: `ReadLints(script.js, qr-attendance.js)` PASS
+- [ ] 실기기 검증: 관리자 인증 후 타 교사 슬롯 `출석 변경/시간 변경/일정 삭제` 3개 경로 연속 동작 확인
+
+## 2026-03-20 라이브서버 학부모 포털 진입 보정
+- [x] `openParentPortal` 기본 경로를 `.../parent-portal/`(trailing slash 포함)로 수정
+- [x] 저장된 커스텀 URL이 `.../parent-portal`이면 열기 시점에 `.../parent-portal/`로 정규화
+- [x] 정적 검증: `node --check js/payment.js` PASS
+- [x] 정적 검증: `ReadLints(js/payment.js)` PASS
+- [ ] 실기기 검증: 메뉴 `학부모 포털` 클릭 시 새 탭 URL이 `.../parent-portal/`로 열리고 랜딩 화면 진입 성공
+
+## 2026-03-20 페이지 연결 상시 점검 규칙 반영
+- [x] 문서 운영원칙에 페이지 전환 회귀 점검(메인/숙제/채점/학부모) 항목 추가
+- [x] 의사결정 로그에 페이지 연결 점검을 기본 게이트로 고정
+- [ ] 패치 완료마다 4개 페이지 전환 링크 수동 점검 기록 남기기
+
+## 2026-03-20 학부모 인증코드 유효성 판정 보강
+- [x] 인증코드 정규화 유틸 추가(공백/하이픈/대소문자/전각 문자 보정)
+- [x] 포털 랜딩 조회를 정규화 기반 다단계 조회 + 최종 정규화 일치 검증으로 보강
+- [x] 평가 탭 학부모 인증 비교도 정규화 기준으로 통일
+- [x] 다건 매칭 이상 상황에서 재발급 안내 에러를 명시 노출
+- [x] 정적 검증: `node --check parent-portal/report.js` PASS
+- [x] 정적 검증: `ReadLints(parent-portal/report.js)` PASS
+- [ ] 실기기 검증: `정상/공백/하이픈/소문자·전각` 입력 케이스별 포털 진입 결과 확인
+
+## 2026-03-20 학생관리 122차 인증코드 동시 실패 대응
+- [x] 원인분리 점검: Railway와 인증코드 조회 경로 분리 확인(조회 직접 경로는 Supabase `students`)
+- [x] 숙제 제출 검색 로직을 정규화 기반 다단계 조회로 보강(`homework/index.html`)
+- [x] 운영 복구 SQL 추가: `SUPABASE_AUTH_CODE_PUBLIC_ACCESS_RESTORE.sql`
+- [x] 정적 검증: `ReadLints(homework/index.html)` PASS
+- [ ] 운영 실행: Supabase SQL Editor에서 `SUPABASE_AUTH_CODE_PUBLIC_ACCESS_RESTORE.sql` 실행
+- [ ] 실기기 검증: 숙제 제출/학부모 포털에서 동일 코드 정책(`정상/공백/하이픈/소문자·전각`)으로 조회 성공 확인
+
+## 2026-03-20 학생관리 123차 포털 연결 경로 통일 + 진단 보강
+- [x] `parent-portal` env 로더 추가(`../.env.local`, `../env.local`, `.env.local`, `env.local`)
+- [x] `homework` env 로더 추가(`../.env.local`, `../env.local`, `.env.local`, `env.local`)
+- [x] 두 포털 Supabase 초기화를 `window.env + localStorage` 기반 런타임 설정 우선으로 보강
+- [x] 인증코드 미매칭 시 public 조회 프로브 기반 진단 메시지(오입력 vs 조회차단 가능성) 분리
+- [x] 정적 검증: `ReadLints(homework/index.html, parent-portal/index.html, parent-portal/report.js)` PASS
+- [ ] 운영 실행: `SUPABASE_AUTH_CODE_PUBLIC_ACCESS_RESTORE.sql` 적용 후 포털 2종 재검증
+- [ ] 실기기 검증: `숙제 제출(student_code)`/`학부모 포털(parent_code)` 동시 성공 확인
+
+## 2026-03-20 학생관리 124차 학부모 포털 출결 미노출(Supabase 정책) 대응
+- [x] 원인 분리 확인: `students` 조회 성공 상태에서 `attendance_records` anon 조회가 빈 결과(`[]`)로 확인됨
+- [x] 정책 복구 SQL 추가: `SUPABASE_PARENT_PORTAL_ATTENDANCE_READ_RESTORE.sql`
+- [x] 복구 SQL에 전/후 점검 쿼리 + 정책 재적용(`students_public_read`, `attendance_public_read`) 포함
+- [ ] 운영 실행: Supabase SQL Editor에서 `SUPABASE_PARENT_PORTAL_ATTENDANCE_READ_RESTORE.sql` 실행
+- [ ] 실기기 검증: 학부모 포털 `출결` 탭 달력/일자 상세가 실제 기록 기준으로 노출되는지 확인

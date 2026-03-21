@@ -1056,6 +1056,7 @@
 	</div>
 </div>
 
+<script src="../js/invoke-verify-teacher-pin.js"></script>
 <script>
 // ============================================================
 // 설정
@@ -1104,10 +1105,46 @@ let currentImageIdx = 0;    // 현재 표시 중인 이미지 인덱스
 // ============================================================
 // 인증 (선생님 선택 + 비밀번호)
 // ============================================================
-async function hashPin(pin) {
-	const enc = new TextEncoder().encode(pin);
-	const hash = await crypto.subtle.digest('SHA-256', enc);
-	return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+function mapVerifyTeacherPinFailureToMessage(verifyResult) {
+	if (!verifyResult || verifyResult.ok) return '';
+	const code = String(verifyResult.error || '').trim();
+	const lower = code.toLowerCase();
+	if (lower.includes('non-2xx') || lower.includes('failed to send') || lower.includes('fetch')) {
+		return '서버 연결에 실패했습니다. 네트워크와 Edge Function(verify-teacher-pin) 배포를 확인해주세요.';
+	}
+	const map = {
+		invalid_pin: '비밀번호가 일치하지 않습니다.',
+		ownership_mismatch: '이 학원에 등록된 선생님이 아닙니다.',
+		teacher_not_found: '선생님 정보를 찾을 수 없습니다.',
+		admin_required: '관리자(원장) 권한이 필요합니다.',
+		missing_fields: '입력 정보가 부족합니다.',
+		'Missing teacherId or pin': '입력 정보가 부족합니다.'
+	};
+	if (map[code]) return map[code];
+	if (/missing.*teacherid|pin/i.test(code)) return '입력 정보가 부족합니다.';
+	return '비밀번호 확인에 실패했습니다.';
+}
+
+async function verifyTeacherPinWithServer(teacherId, pin, options = {}) {
+	const normalizedTeacherId = String(teacherId || '').trim();
+	const normalizedPin = String(pin || '').trim();
+	if (!normalizedTeacherId || !normalizedPin) return { ok: false };
+	const body = {
+		teacherId: normalizedTeacherId,
+		pin: normalizedPin,
+		ownerUserId: options.ownerUserId || undefined,
+		requireAdmin: !!options.requireAdmin
+	};
+	try {
+		if (typeof window.invokeVerifyTeacherPin === 'function') {
+			return await window.invokeVerifyTeacherPin(db, body, { url: SUPABASE_URL, anonKey: SUPABASE_ANON_KEY });
+		}
+		const { data, error } = await db.functions.invoke('verify-teacher-pin', { body });
+		if (error) return { ok: false, error: error.message || 'verify-teacher-pin failed' };
+		return { ok: !!(data && data.ok), teacher: data?.teacher || null, error: data?.error || null };
+	} catch (e) {
+		return { ok: false, error: e?.message || String(e) };
+	}
 }
 
 async function loadTeacherList() {
@@ -1139,7 +1176,10 @@ async function loadTeacherList() {
 
 	const supabasePromise = (async () => {
 		try {
-			const { data, error } = await db.from('teachers').select('*').order('created_at');
+			const { data, error } = await db
+				.from('teachers')
+				.select('id, name, phone, owner_user_id, teacher_role, created_at')
+				.order('created_at');
 			if (!error && data && data.length > 0) {
 				return { source: 'supabase-client', data };
 			}
@@ -1147,7 +1187,7 @@ async function loadTeacherList() {
 			console.warn('[채점관리] Supabase 클라이언트 실패:', e.message);
 		}
 		try {
-			const res = await fetch(`${SUPABASE_URL}/rest/v1/teachers?select=*&order=created_at.asc`, {
+			const res = await fetch(`${SUPABASE_URL}/rest/v1/teachers?select=id,name,phone,owner_user_id,teacher_role,created_at&order=created_at.asc`, {
 				headers: { 'apikey': SUPABASE_ANON_KEY, 'Content-Type': 'application/json' }
 			});
 			if (res.ok) {
@@ -1211,10 +1251,12 @@ async function handleLogin() {
 	const password = document.getElementById('login-password').value.trim();
 	if (!password) { showToast('비밀번호를 입력해주세요', 'error'); return; }
 
-	const inputHash = await hashPin(password);
-	if (inputHash !== teacher.pin_hash) {
+	const verifyResult = await verifyTeacherPinWithServer(teacher.id, password, {
+		ownerUserId: teacher.owner_user_id || undefined
+	});
+	if (!verifyResult.ok) {
 		const errEl = document.getElementById('login-error');
-		errEl.textContent = '비밀번호가 일치하지 않습니다.';
+		errEl.textContent = mapVerifyTeacherPinFailureToMessage(verifyResult) || '비밀번호가 일치하지 않습니다.';
 		errEl.style.display = 'block';
 		return;
 	}

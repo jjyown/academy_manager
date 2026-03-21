@@ -37,6 +37,10 @@ const supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 // 전역으로 사용할 수 있게 export
 window.supabase = supabaseClient;
 
+// Edge Function 직접 fetch 보조용 (`js/invoke-verify-teacher-pin.js`에서 사용)
+window.__ACADEMY_SUPABASE_URL__ = SUPABASE_URL;
+window.__ACADEMY_SUPABASE_ANON_KEY__ = SUPABASE_ANON_KEY;
+
 // ========== Google OAuth 설정 ==========
 // Google Cloud Console에서 생성한 OAuth 2.0 클라이언트 ID
 // 설정 방법: https://console.cloud.google.com/ → APIs & Services → Credentials

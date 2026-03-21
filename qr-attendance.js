@@ -28,11 +28,11 @@ function getCurrentTeacherForQrPinGuard() {
 
 async function verifyTeacherPinForAction(options = {}) {
     const teacher = getCurrentTeacherForQrPinGuard();
-    if (!teacher || !teacher.pin_hash) {
+    if (!teacher) {
         showToast('선생님 인증 정보를 찾을 수 없습니다. 다시 로그인 후 시도해주세요.', 'warning');
         return false;
     }
-    if (typeof hashPin !== 'function') {
+    if (typeof verifyTeacherPinWithServer !== 'function') {
         showToast('비밀번호 검증 기능을 불러오지 못했습니다.', 'error');
         return false;
     }
@@ -52,8 +52,10 @@ async function verifyTeacherPinForAction(options = {}) {
         return false;
     }
 
-    const passwordHash = await hashPin(password);
-    if (passwordHash !== teacher.pin_hash) {
+    const verifyResult = await verifyTeacherPinWithServer(teacher.id, password, {
+        ownerUserId: cachedLsGet('current_owner_id')
+    });
+    if (!verifyResult.ok) {
         showToast('비밀번호가 일치하지 않습니다.', 'warning');
         return false;
     }
@@ -1372,9 +1374,11 @@ window.confirmQRPassword = async function() {
         return;
     }
 
-    // 비밀번호 검증
-    const passwordHash = await hashPin(password);
-    if (passwordHash !== teacher.pin_hash) {
+    // 비밀번호 검증(서버 검증)
+    const verifyResult = await verifyTeacherPinWithServer(teacher.id, password, {
+        ownerUserId: cachedLsGet('current_owner_id')
+    });
+    if (!verifyResult.ok) {
         showToast('비밀번호가 일치하지 않습니다.', 'warning');
         if (pwInput) { pwInput.value = ''; pwInput.focus(); }
         return;
@@ -3886,7 +3890,12 @@ async function updateAttendanceStatusFromHistory(studentId, dateStr, nextStatus,
         // ★ 로컬 메모리 업데이트 - scheduledTime이 없어도 반드시 갱신
         const memoryKey = effectiveScheduledTime || 'default';
         
-        if (teacherIds.has(String(currentTeacherId || ''))) {
+        const attendanceModal = document.getElementById('attendance-modal');
+        const adminOverrideActive = !!(attendanceModal && attendanceModal.dataset && attendanceModal.dataset.adminOverride === '1');
+        const adminSessionActive = typeof window.hasAdminCrossTeacherEditSession === 'function'
+            ? !!window.hasAdminCrossTeacherEditSession()
+            : false;
+        if (teacherIds.has(String(currentTeacherId || '')) || adminOverrideActive || adminSessionActive) {
             const student = students.find(s => String(s.id) === String(studentId));
             if (student) {
                 if (!student.attendance) student.attendance = {};

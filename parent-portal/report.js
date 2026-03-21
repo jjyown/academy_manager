@@ -2,8 +2,28 @@
 // ============================================================
 
 // ========== Supabase 초기화 ==========
-const SUPABASE_URL = 'https://jzcrpdeomjmytfekcgqu.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_6X3mtsIpdMkLWgo9aUbZTg_ihtAA3cu';
+function resolveRuntimeSupabaseConfig() {
+	const env = (typeof window !== 'undefined' && window.env) ? window.env : {};
+	const ls = (typeof window !== 'undefined' && window.localStorage) ? window.localStorage : null;
+	const fromStorageUrl = ls ? (ls.getItem('academy_supabase_url') || ls.getItem('REACT_APP_SUPABASE_URL')) : '';
+	const fromStorageKey = ls ? (ls.getItem('academy_supabase_anon_key') || ls.getItem('REACT_APP_SUPABASE_ANON_KEY')) : '';
+	return {
+		url: String(
+			env.REACT_APP_SUPABASE_URL ||
+			fromStorageUrl ||
+			'https://jzcrpdeomjmytfekcgqu.supabase.co'
+		).trim(),
+		key: String(
+			env.REACT_APP_SUPABASE_ANON_KEY ||
+			fromStorageKey ||
+			'sb_publishable_6X3mtsIpdMkLWgo9aUbZTg_ihtAA3cu'
+		).trim()
+	};
+}
+
+const runtimeSupabase = resolveRuntimeSupabaseConfig();
+const SUPABASE_URL = runtimeSupabase.url;
+const SUPABASE_ANON_KEY = runtimeSupabase.key;
 const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 	auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
 });
@@ -46,6 +66,99 @@ function showAlert(msg, type) {
 	el.innerHTML = `<i class="fas fa-${type === 'error' ? 'exclamation-circle' : type === 'success' ? 'check-circle' : 'info-circle'}"></i>${escapeHtml(msg)}`;
 	clearTimeout(el._timer);
 	el._timer = setTimeout(() => { el.classList.remove('show'); }, 4000);
+}
+
+function normalizeParentPortalCode(value) {
+	const src = String(value || '').trim();
+	if (!src) return '';
+	let out = '';
+	for (const ch of src) {
+		const code = ch.charCodeAt(0);
+		// Full-width digits/letters -> ASCII
+		if (code >= 0xFF10 && code <= 0xFF19) {
+			out += String.fromCharCode(code - 0xFF10 + 0x30);
+			continue;
+		}
+		if (code >= 0xFF21 && code <= 0xFF3A) {
+			out += String.fromCharCode(code - 0xFF21 + 0x41);
+			continue;
+		}
+		if (code >= 0xFF41 && code <= 0xFF5A) {
+			out += String.fromCharCode(code - 0xFF41 + 0x61);
+			continue;
+		}
+		out += ch;
+	}
+	return out
+		.toUpperCase()
+		.replace(/[\s\-_]/g, '')
+		.replace(/[^A-Z0-9]/g, '');
+}
+
+function getStudentSelectColumns() {
+	return 'id, name, school, grade, phone, parent_phone, parent_code, owner_user_id, teacher_id';
+}
+
+async function findStudentByParentCode(inputCode) {
+	const rawCode = String(inputCode || '').trim();
+	const normalizedCode = normalizeParentPortalCode(rawCode);
+	if (!normalizedCode) return null;
+
+	const candidateById = new Map();
+	const addCandidate = (row) => {
+		if (!row || typeof row !== 'object') return;
+		const key = String(row.id || '');
+		if (!key) return;
+		if (!candidateById.has(key)) candidateById.set(key, row);
+	};
+
+	const exactCandidates = [];
+	if (rawCode) exactCandidates.push(rawCode);
+	if (normalizedCode && normalizedCode !== rawCode) exactCandidates.push(normalizedCode);
+
+	for (const code of exactCandidates) {
+		const { data, error } = await supabaseClient
+			.from('students')
+			.select(getStudentSelectColumns())
+			.eq('parent_code', code)
+			.maybeSingle();
+		if (error) throw error;
+		if (data) addCandidate(data);
+	}
+
+	// Fallback: 포맷 차이(대소문자/구분자 등) 흡수를 위해 부분조회 후 정규화 정확일치 필터
+	if (candidateById.size === 0) {
+		const { data: fuzzyRows, error: fuzzyError } = await supabaseClient
+			.from('students')
+			.select(getStudentSelectColumns())
+			.ilike('parent_code', `%${normalizedCode}%`)
+			.limit(30);
+		if (fuzzyError) throw fuzzyError;
+		(fuzzyRows || []).forEach(addCandidate);
+	}
+
+	const matches = Array.from(candidateById.values()).filter((row) => {
+		return normalizeParentPortalCode(row.parent_code) === normalizedCode;
+	});
+
+	if (matches.length === 1) return matches[0];
+	if (matches.length > 1) {
+		throw new Error('동일 인증코드로 조회되는 학생이 여러 명입니다. 선생님에게 인증코드 재발급을 요청해주세요.');
+	}
+	return null;
+}
+
+async function probePublicStudentsAccess() {
+	try {
+		const { count, error } = await supabaseClient
+			.from('students')
+			.select('id', { count: 'exact', head: true })
+			.limit(1);
+		if (error) return { ok: false, error };
+		return { ok: true, count: Number(count || 0) };
+	} catch (error) {
+		return { ok: false, error };
+	}
 }
 
 function getCurrentMonthStr() {
@@ -191,6 +304,16 @@ async function handleAdminLogin() {
 
 		adminUser = authData.user;
 
+		const { data: roleRow, error: roleErr } = await supabaseClient
+			.from('users')
+			.select('role')
+			.eq('id', adminUser.id)
+			.single();
+		if (roleErr || roleRow?.role !== 'admin') {
+			await supabaseClient.auth.signOut();
+			throw new Error('관리자 권한이 없습니다. 원장(관리자) 계정으로 로그인해주세요.');
+		}
+
 		// 선생님 정보 조회 (owner_user_id = auth user id)
 		const { data: teachers, error: tErr } = await supabaseClient
 			.from('teachers')
@@ -309,16 +432,16 @@ async function handleSearch() {
 	if (btn) { btn.disabled = true; btn.innerHTML = '<div class="pp-spinner" style="width:20px;height:20px;border-width:2px;"></div>'; }
 
 	try {
-		const { data, error } = await supabaseClient
-			.from('students')
-			.select('id, name, school, grade, phone, parent_phone, parent_code, owner_user_id, teacher_id')
-			.eq('parent_code', code)
-			.maybeSingle();
-
-		if (error) throw error;
-
+		const data = await findStudentByParentCode(code);
 		if (!data) {
-			showAlert('유효하지 않은 인증코드입니다. 코드를 다시 확인해주세요.', 'error');
+			const probe = await probePublicStudentsAccess();
+			if (!probe.ok) {
+				showAlert('인증코드 조회 권한을 확인해주세요. 현재 포털에서 학생 조회가 차단되어 있을 수 있습니다.', 'error');
+			} else if ((probe.count || 0) === 0) {
+				showAlert('조회 가능한 학생 데이터가 없습니다. 코드 재발급 또는 DB/RLS 설정을 확인해주세요.', 'error');
+			} else {
+				showAlert('유효하지 않은 인증코드입니다. 공백/하이픈 없이 다시 입력해보세요.', 'error');
+			}
 			return;
 		}
 
@@ -937,7 +1060,7 @@ async function handleParentAuth() {
 		return;
 	}
 
-	if (code !== expected) {
+	if (normalizeParentPortalCode(code) !== normalizeParentPortalCode(expected)) {
 		const newFail = failCount + 1;
 		sessionStorage.setItem(failKey, String(newFail));
 		const remaining = 5 - newFail;
@@ -967,17 +1090,53 @@ async function handleParentAuth() {
 window.handleParentAuth = handleParentAuth;
 
 // ========== Teacher Auth ==========
-async function hashPin(pin) {
-	const enc = new TextEncoder().encode(pin);
-	const hash = await crypto.subtle.digest('SHA-256', enc);
-	return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2,'0')).join('');
+function mapVerifyTeacherPinFailureToMessage(verifyResult) {
+	if (!verifyResult || verifyResult.ok) return '';
+	const code = String(verifyResult.error || '').trim();
+	const lower = code.toLowerCase();
+	if (lower.includes('non-2xx') || lower.includes('failed to send') || lower.includes('fetch')) {
+		return '서버 연결에 실패했습니다. 네트워크와 Edge Function(verify-teacher-pin) 배포를 확인해주세요.';
+	}
+	const map = {
+		invalid_pin: '비밀번호가 일치하지 않습니다.',
+		ownership_mismatch: '이 학원에 등록된 선생님이 아닙니다.',
+		teacher_not_found: '선생님 정보를 찾을 수 없습니다.',
+		admin_required: '관리자(원장) 권한이 필요합니다.',
+		missing_fields: '입력 정보가 부족합니다.',
+		'Missing teacherId or pin': '입력 정보가 부족합니다.'
+	};
+	if (map[code]) return map[code];
+	if (/missing.*teacherid|pin/i.test(code)) return '입력 정보가 부족합니다.';
+	return '비밀번호 확인에 실패했습니다.';
+}
+
+async function verifyTeacherPinWithServer(teacherId, pin, options = {}) {
+	const normalizedTeacherId = String(teacherId || '').trim();
+	const normalizedPin = String(pin || '').trim();
+	if (!normalizedTeacherId || !normalizedPin) return { ok: false };
+	const body = {
+		teacherId: normalizedTeacherId,
+		pin: normalizedPin,
+		ownerUserId: options.ownerUserId || undefined,
+		requireAdmin: !!options.requireAdmin
+	};
+	try {
+		if (typeof window.invokeVerifyTeacherPin === 'function') {
+			return await window.invokeVerifyTeacherPin(supabaseClient, body, { url: SUPABASE_URL, anonKey: SUPABASE_ANON_KEY });
+		}
+		const { data, error } = await supabaseClient.functions.invoke('verify-teacher-pin', { body });
+		if (error) return { ok: false, error: error.message || 'verify-teacher-pin failed' };
+		return { ok: !!(data && data.ok), teacher: data?.teacher || null, error: data?.error || null };
+	} catch (e) {
+		return { ok: false, error: e?.message || String(e) };
+	}
 }
 
 async function loadTeacherAuthList() {
 	try {
 		const { data, error } = await supabaseClient
 			.from('teachers')
-			.select('id, name, pin_hash, owner_user_id')
+			.select('id, name, owner_user_id')
 			.order('created_at', { ascending: true });
 		if (error) throw error;
 		teacherAuthList = data || [];
@@ -1025,9 +1184,11 @@ async function handleTeacherAuth() {
 	if (!teacher) { ppShowToast('선생님을 찾을 수 없습니다', 'error'); return; }
 
 	try {
-		const inputHash = await hashPin(password);
-		if (inputHash !== teacher.pin_hash) {
-			ppShowToast('비밀번호가 일치하지 않습니다', 'error');
+		const verifyResult = await verifyTeacherPinWithServer(teacher.id, password, {
+			ownerUserId: teacher.owner_user_id || undefined
+		});
+		if (!verifyResult.ok) {
+			ppShowToast(mapVerifyTeacherPinFailureToMessage(verifyResult) || '비밀번호가 일치하지 않습니다', 'error');
 			return;
 		}
 		authorizedTeacher = teacher;

@@ -300,6 +300,11 @@ window.saveScheduleToDatabase = async function(scheduleData) {
             console.warn('[saveScheduleToDatabase] current_owner_id 없음 - 저장 중단');
             throw new Error('로그인이 필요합니다');
         }
+        const session = await _getSession();
+        if (!session) {
+            console.warn('[saveScheduleToDatabase] auth session 없음 - DB 동기화 건너뜀');
+            throw new Error('세션 만료로 DB 동기화를 건너뜁니다');
+        }
 
         const { data, error } = await supabase
             .from('schedules')
@@ -331,6 +336,11 @@ window.saveSchedulesToDatabaseBatch = async function(scheduleList) {
         if (!ownerId) {
             console.warn('[saveSchedulesToDatabaseBatch] current_owner_id 없음 - 저장 중단');
             throw new Error('로그인이 필요합니다');
+        }
+        const session = await _getSession();
+        if (!session) {
+            console.warn('[saveSchedulesToDatabaseBatch] auth session 없음 - DB 동기화 건너뜀');
+            throw new Error('세션 만료로 DB 동기화를 건너뜁니다');
         }
 
         if (!Array.isArray(scheduleList) || scheduleList.length === 0) return [];

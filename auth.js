@@ -85,7 +85,7 @@ window.signUp = async function() {
 }
 
 window.signIn = async function() {
-    const email = document.getElementById('login-email').value;
+    const email = (document.getElementById('login-email')?.value || '').trim();
     const password = document.getElementById('login-password').value;
     const rememberMe = document.getElementById('remember-me').checked;
 
@@ -105,7 +105,7 @@ window.signIn = async function() {
             return;
         }
 
-        // 사용자의 role 확인
+        // 원장(관리자) 앱: users.role 이 admin 인지 반드시 확인 (조회 실패 시에도 진행 금지)
         console.log('[signIn] 사용자 role 확인 중...');
         const { data: userData, error: userError } = await supabase
             .from('users')
@@ -113,16 +113,18 @@ window.signIn = async function() {
             .eq('id', data.user.id)
             .single();
 
-        if (userError) {
-            console.warn('[signIn] users 테이블 조회 실패:', userError);
-            console.warn('[signIn] 계속 진행합니다');
-        } else if (userData?.role === 'admin') {
-            console.log('[signIn] admin 권한 확인됨');
-        } else if (userData?.role !== 'admin') {
+        if (userError || !userData || userData.role !== 'admin') {
             await supabase.auth.signOut();
-            showToast('관리자 권한이 없습니다', 'warning');
+            showToast(
+                userError
+                    ? '계정 정보를 확인할 수 없습니다. 네트워크·RLS를 확인하거나 관리자 계정인지 확인하세요.'
+                    : '관리자 권한이 없습니다. 원장(관리자) 계정으로 로그인해주세요.',
+                'warning'
+            );
+            if (userError) console.warn('[signIn] users 테이블 조회 실패:', userError);
             return;
         }
+        console.log('[signIn] admin 권한 확인됨');
 
         // 로그인 성공 - 현재 사용자(관리자) ID 저장
         console.log('[signIn] 로그인 성공, current_owner_id 저장');
@@ -196,10 +198,11 @@ window.signOut = async function() {
 
 // 선생님 선택 화면에서 관리자 로그인 화면으로 돌아가기
 window.backToAdminLogin = async function() {
-    // 세션 정리 및 로그아웃
+    // signOut과 동일하게 로컬 상태·로그인 유지 플래그 정리 (다른 원장 계정 혼선 방지)
     localStorage.removeItem('current_owner_id');
     localStorage.removeItem('current_user_role');
     localStorage.removeItem('current_user_name');
+    localStorage.removeItem('remember_login');
     removeTabValue('current_teacher_id');
     removeTabValue('current_teacher_name');
     removeTabValue('current_teacher_role');
@@ -213,6 +216,48 @@ window.backToAdminLogin = async function() {
 
     navigateToPage('AUTH');
 }
+
+/**
+ * 관리자 인증 모달(`admin-teacher-login-modal`) — 세션 재확인·역할 검증 후 닫기
+ */
+window.confirmAdminTeacherLogin = async function() {
+    const email = (document.getElementById('admin-login-email')?.value || '').trim();
+    const password = (document.getElementById('admin-login-password')?.value || '').trim();
+    if (!email || !password) {
+        showToast('이메일과 비밀번호를 입력해주세요.', 'warning');
+        return;
+    }
+    try {
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) {
+            showToast('인증 실패: ' + error.message, 'error');
+            return;
+        }
+        const { data: userData, error: userError } = await supabase
+            .from('users')
+            .select('role')
+            .eq('id', data.user.id)
+            .single();
+        if (userError || !userData || userData.role !== 'admin') {
+            await supabase.auth.signOut();
+            showToast('관리자 권한이 없습니다.', 'warning');
+            return;
+        }
+        localStorage.setItem('current_owner_id', data.user.id);
+        localStorage.setItem('current_user_role', 'admin');
+        const pw = document.getElementById('admin-login-password');
+        if (pw) pw.value = '';
+        if (typeof closeModal === 'function') {
+            closeModal('admin-teacher-login-modal');
+        } else {
+            const m = document.getElementById('admin-teacher-login-modal');
+            if (m) m.style.display = 'none';
+        }
+        showToast('관리자 인증이 완료되었습니다.', 'success');
+    } catch (e) {
+        showToast('오류: ' + (e.message || e), 'error');
+    }
+};
 
 window.toggleAuthForm = function() {
     const loginForm = document.getElementById('login-form');
@@ -501,6 +546,26 @@ window.showMainApp = async function(forceTeacherSelect = false) {
             return;
         }
 
+        if (String(session.user.id) !== String(ownerId)) {
+            console.warn('[showMainApp] 세션 사용자와 current_owner_id 불일치');
+            showToast('세션 정보가 일치하지 않습니다. 다시 로그인해주세요.', 'warning');
+            await cleanupAndRedirectToAuth();
+            return;
+        }
+
+        const { data: ownerRoleRow, error: ownerRoleErr } = await supabase
+            .from('users')
+            .select('role')
+            .eq('id', session.user.id)
+            .single();
+        if (ownerRoleErr || !ownerRoleRow || ownerRoleRow.role !== 'admin') {
+            await supabase.auth.signOut();
+            showToast('관리자 권한이 없습니다. 다시 로그인해주세요.', 'warning');
+            await cleanupAndRedirectToAuth();
+            return;
+        }
+        localStorage.setItem('current_user_role', 'admin');
+
         const authPage = document.getElementById('auth-page');
         const teacherPage = document.getElementById('teacher-select-page');
 
@@ -659,31 +724,43 @@ window.initializeAuth = async function(isRefresh = false) {
                 }
             }
             
-            // ✅ 3단계: 세션이 있으면 users 테이블에서 실제로 사용자가 존재하는지 확인
-            // (새로고침 시에는 스킵 - 이미 로그인된 사용자로 간주)
-            if (!isRefresh && !isRecoveryUrl) {
-                console.log('[initializeAuth] 세션 있음, users 테이블 검증 중...');
+            // ✅ 3단계: 실제 Supabase 세션 + users.role=admin 검증 (새로고침 포함, 비밀번호 복구 URL 제외)
+            if (!isRecoveryUrl) {
+                console.log('[initializeAuth] 실제 세션 + 관리자(role) 검증 중...');
                 try {
+                    const { data: { session: realSession }, error: sessErr } = await supabase.auth.getSession();
+                    if (sessErr || !realSession?.user) {
+                        console.error('[initializeAuth] 실제 세션 없음:', sessErr);
+                        await cleanupAndRedirectToAuth();
+                        return;
+                    }
                     const { data: userData, error: userError } = await supabase
                         .from('users')
                         .select('id, email, role')
-                        .eq('id', session.user.id)
+                        .eq('id', realSession.user.id)
                         .single();
-                    
+
                     if (userError || !userData) {
                         console.error('[initializeAuth] users 테이블에 사용자 없음 - 세션 무효:', userError);
                         await supabase.auth.signOut();
                         throw new Error('사용자 계정이 존재하지 않습니다');
                     }
-                    
-                    console.log('[initializeAuth] 사용자 검증 완료:', userData.email);
+                    if (userData.role !== 'admin') {
+                        console.warn('[initializeAuth] 비관리자 역할 - 앱 접근 거부');
+                        await supabase.auth.signOut();
+                        showToast('관리자 권한이 없습니다', 'warning');
+                        await cleanupAndRedirectToAuth();
+                        return;
+                    }
+                    session = realSession;
+                    console.log('[initializeAuth] 관리자 검증 완료:', userData.email);
                 } catch (validationError) {
                     console.error('[initializeAuth] 사용자 검증 실패:', validationError);
                     await cleanupAndRedirectToAuth();
                     return;
                 }
             } else {
-                console.log('[initializeAuth] users 테이블 검증 스킵 (새로고침/복구 URL)');
+                console.log('[initializeAuth] 비밀번호 복구 URL — 역할 검증 스킵');
             }
             
             // ✅ 4단계: 세션이 유효하면 사용자 ID 저장
