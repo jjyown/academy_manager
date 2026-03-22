@@ -911,7 +911,10 @@
 
     /* --- QR Scan Page (모바일 세로 스크롤·주소창 접기 보조) --- */
     #qr-scan-page.qr-scan-page-wrap {
-        padding: 10px 10px 12px !important;
+        padding-top: max(14px, calc(env(safe-area-inset-top, 0px) + 10px)) !important;
+        padding-left: 10px !important;
+        padding-right: 10px !important;
+        padding-bottom: 12px !important;
     }
     #qr-scan-page > div,
     .qr-scan-layout {

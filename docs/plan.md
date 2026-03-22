@@ -78,7 +78,7 @@
 
 ## 현재 스프린트 목표
 ### QR 스캔 종료 PIN·반응형 2열 — 2026-03-22
-- **상태**: 코드 반영 완료. `resolveQrPinVerificationTarget()`로 관리자 PIN 경로(`requireAdmin` + `teacher_role=admin` 행) 정합, `shouldUseDualPanelMode`·`applyQRScanResponsiveLayout`·`style.css`로 PC·태블릿에서 카메라 좌·전화 패드 우 유지. PIN 실패 시 `mapVerifyTeacherPinFailureToMessage`로 안내 통일.
+- **상태**: 코드 반영 완료. `resolveQrPinVerificationTarget()`로 관리자 PIN 경로(`requireAdmin` + `teacher_role=admin` 행) 정합, `shouldUseDualPanelMode`·`applyQRScanResponsiveLayout`·`style.css`로 PC·태블릿에서 카메라 좌·전화 패드 우 유지. PIN 실패 시 `mapVerifyTeacherPinFailureToMessage`로 안내 통일. **헤더 UX(2026-03-22)**: 제목·닫기 상단 붙음 완화(`#qr-scan-page.auth-page`·`mobile.css` 패딩), 제스처 안내 문구(「상단 제목을…」) 제거(`index.html`). **전체화면 시 닫기 숨김**: `fullscreenchange`·`openQRScanPage`에서 `#qr-scan-close-wrap` 토글(`qr-attendance.js`, `style.css`).
 - **검증**: `node --check qr-attendance.js` PASS. **실기기**: 원장 로그인 → 일반 교사 프로필로 QR → 종료 시 관리자 PIN, 가로·세로 태블릿에서 2열 배치 확인 권장.
 - **다음 단계**: 운영 스모크 후 이슈 있으면 `docs/context.md` 기록.
 
@@ -1048,6 +1048,7 @@
 - [ ] 다음 작업자가 바로 이어서 할 수 있게 문서가 갱신되었다.
 
 ## 변경 이력
+- 2026-03-22 - AUTO-20260322(staged 7개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-22 - AUTO-20260322(staged 5개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-22 - AUTO-20260322(staged 5개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-22 - AUTO-20260322(staged 5개 파일 기준 문서 연동 자동기록): 연동 자동 기록

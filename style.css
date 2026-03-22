@@ -165,6 +165,15 @@ textarea:focus:not(:focus-visible) {
     display: flex;
     gap: 10px;
 }
+.qr-scan-close-wrap {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    flex-shrink: 0;
+}
+.qr-scan-close-wrap.qr-scan-close-hidden {
+    display: none !important;
+}
 .qr-scan-header {
     display: flex;
     justify-content: space-between;
@@ -186,10 +195,6 @@ textarea:focus:not(:focus-visible) {
     user-select: none;
     -webkit-user-select: none;
     touch-action: manipulation;
-}
-.qr-header-gesture-hint {
-    font-size: 11px;
-    color: #94a3b8;
 }
 .qr-camera-actions-hidden {
     display: none !important;
@@ -428,10 +433,11 @@ textarea:focus:not(:focus-visible) {
     -webkit-overflow-scrolling: touch;
     overscroll-behavior-y: auto;
     touch-action: pan-y pinch-zoom;
-    padding-top: env(safe-area-inset-top, 0px);
-    padding-bottom: env(safe-area-inset-bottom, 0px);
-    padding-left: env(safe-area-inset-left, 0px);
-    padding-right: env(safe-area-inset-right, 0px);
+    /* safe-area만 쓰면 데스크톱에서 상단이 0에 붙음 → 최소 여백 추가 */
+    padding-top: calc(env(safe-area-inset-top, 0px) + clamp(12px, 3vw, 24px));
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
+    padding-left: calc(env(safe-area-inset-left, 0px) + clamp(8px, 2vw, 16px));
+    padding-right: calc(env(safe-area-inset-right, 0px) + clamp(8px, 2vw, 16px));
     box-sizing: border-box !important;
 }
 #qr-scan-page.auth-page .qr-scan-layout {

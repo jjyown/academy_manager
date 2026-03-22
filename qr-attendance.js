@@ -1516,6 +1516,7 @@ window.openQRScanPage = async function() {
         
         // 10인치 태블릿 기준 반응형: 가로는 좌우, 세로는 상하
         applyQRScanResponsiveLayout();
+        updateQrScanCloseButtonForFullscreen();
         bindQRViewportGuard();
         updateQRKeyboardViewportState();
         setQRCameraActionsVisible(false);
@@ -1768,16 +1769,31 @@ window.toggleQRFullscreen = function() {
     }
 };
 
-// 풀스크린 상태 변경 시 버튼 텍스트 업데이트
+// 풀스크린 상태 변경 시 버튼 텍스트·닫기 표시 동기화
 document.addEventListener('fullscreenchange', updateFullscreenBtn);
 document.addEventListener('webkitfullscreenchange', updateFullscreenBtn);
 function updateFullscreenBtn() {
     const btn = document.getElementById('qr-fullscreen-btn');
-    if (!btn) return;
+    if (btn) {
+        const isFS = !!(document.fullscreenElement || document.webkitFullscreenElement);
+        btn.innerHTML = isFS
+            ? '<i class="fas fa-compress"></i> 전체화면 해제'
+            : '<i class="fas fa-expand"></i> 전체화면';
+    }
+    updateQrScanCloseButtonForFullscreen();
+}
+
+/** 브라우저 전체화면 중에는 닫기 버튼 숨김(해제 후에만 노출) */
+function updateQrScanCloseButtonForFullscreen() {
+    const wrap = document.getElementById('qr-scan-close-wrap');
+    if (!wrap) return;
+    const page = document.getElementById('qr-scan-page');
+    if (!page || page.style.display === 'none') {
+        wrap.classList.remove('qr-scan-close-hidden');
+        return;
+    }
     const isFS = !!(document.fullscreenElement || document.webkitFullscreenElement);
-    btn.innerHTML = isFS
-        ? '<i class="fas fa-compress"></i> 전체화면 해제'
-        : '<i class="fas fa-expand"></i> 전체화면';
+    wrap.classList.toggle('qr-scan-close-hidden', isFS);
 }
 
 window.closeQRScanPage = async function() {
