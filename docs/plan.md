@@ -1044,8 +1044,10 @@
 
 ## 변경 이력
 - 2026-03-22 - AUTO-20260322(staged 5개 파일 기준 문서 연동 자동기록): 연동 자동 기록
+- 2026-03-22 - AUTO-20260322(staged 5개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-22 - AUTO-20260322(staged 7개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-22 - AUTO-20260322(staged 12개 파일 기준 문서 연동 자동기록): 연동 자동 기록
+- 2026-03-22 - **QR 스캔 태블릿(11인치) 가로·중앙 정렬**: `#qr-scan-page`에 `≥769px`에서 `align-items:center`, `.qr-scan-layout`에 `margin:auto`·좌우 `clamp` 패딩, dual-mode `gap`·그리드 비율 조정, `.qr-scan-header` 클래스화(`style.css`·`index.html`).
 - 2026-03-22 - **QR 스캔 카메라 영역 붕괴 수정(3차)**: 레이아웃 `min-height` 과다가 모바일 WebKit에서 카메라 컨테이너 높이 0에 가깝게 깨지는 사례 대응 — `.qr-reader-host`에 **`min-height`·배경** 확보, 모바일은 **스크롤 여유를 `padding-bottom`+스페이서**로만 부여(`style.css`·`mobile.css`).
 - 2026-03-22 - **QR 스캔 모바일 스크롤·전체화면 보조(2차)**: `min-height: calc(100dvh+…)`·하단 `.qr-scan-scroll-spacer`·카메라 `max-height`·`touch-action` 보정·`MutationObserver`로 video/canvas 터치 패치(`style.css`·`mobile.css`·`index.html`·`qr-attendance.js`). 스와이프 반경·주소창 접기 체감 개선.
 - 2026-03-22 - **QR 스캔 페이지 모바일 세로 스크롤**: `#qr-scan-page`에 `overflow-y: auto`·`-webkit-overflow-scrolling: touch`·`100dvh`·`align-items: stretch` 등 적용. 기존 `.auth-page`의 고정 뷰포트+overflow 없음 때문에 카메라+전화 인증 영역이 길 때 스크롤·주소창 접기 동작이 막히던 문제 완화(`style.css`).
