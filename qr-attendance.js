@@ -15,8 +15,16 @@ function shouldUseDualPanelMode() {
     return w >= 560;
 }
 
+/** 선생님 선택(입장 전)에서 QR만 연 경우 드롭다운 기준 교사 — PIN·출석 처리에 사용 */
+let qrAttendanceTeacherIdOverride = null;
+
+function clearQrAttendanceTeacherIdOverride() {
+    qrAttendanceTeacherIdOverride = null;
+}
+
 function getCurrentTeacherForQrPinGuard() {
     const teacherId = String(
+        qrAttendanceTeacherIdOverride ||
         currentTeacherId ||
         (typeof getCurrentTeacherId === 'function' ? getCurrentTeacherId() : '') ||
         sessionStorage.getItem('current_teacher_id') ||
@@ -94,10 +102,21 @@ async function verifyTeacherPinForAction(options = {}) {
         return false;
     }
 
-    const verifyResult = await verifyTeacherPinWithServer(target.teacherId, password, {
-        ownerUserId: cachedLsGet('current_owner_id'),
+    const ownerUserId = cachedLsGet('current_owner_id');
+    let verifyResult = await verifyTeacherPinWithServer(target.teacherId, password, {
+        ownerUserId,
         requireAdmin
     });
+    // 관리자 PIN이 틀렸을 때 현재 선택 교사의 선생님 입장 PIN으로도 허용(운영에서 혼동 완화)
+    if (!verifyResult.ok && requireAdmin) {
+        const guard = getCurrentTeacherForQrPinGuard();
+        if (guard) {
+            verifyResult = await verifyTeacherPinWithServer(guard.id, password, {
+                ownerUserId,
+                requireAdmin: false
+            });
+        }
+    }
     if (!verifyResult.ok) {
         const msg =
             typeof mapVerifyTeacherPinFailureToMessage === 'function'
@@ -395,7 +414,8 @@ function showAttendanceCheckNotification(timeKey, phase) {
     
     // ★ QR 스캔 페이지가 열려있으면 대기열에 보관 (스캔 종료 후 일괄 표시)
     const scanPage = document.getElementById('qr-scan-page');
-    if (scanPage && scanPage.style.display && scanPage.style.display !== 'none') {
+    const qrDisp = scanPage && (scanPage.style.getPropertyValue('display') || (typeof getComputedStyle === 'function' ? getComputedStyle(scanPage).display : ''));
+    if (scanPage && qrDisp && qrDisp !== 'none') {
         if (!window._qrDeferredNotifications) window._qrDeferredNotifications = [];
         if (!window._qrDeferredNotifications.includes(timeKey)) {
             window._qrDeferredNotifications.push(timeKey);
@@ -1314,7 +1334,35 @@ window.handlePhoneAuthKeypadAction = async function(action) {
     }
 };
 
+/** html5-qrcode stop 실패·모바일 잔류 시에도 MediaStream 트랙을 끊는 보조 정리 */
+function stopDetachedVideoTracksInQrReader() {
+    const reader = document.getElementById('qr-reader');
+    if (!reader) return;
+    reader.querySelectorAll('video').forEach((v) => {
+        try {
+            const s = v.srcObject;
+            if (s && typeof s.getTracks === 'function') {
+                s.getTracks().forEach((t) => {
+                    try {
+                        t.stop();
+                    } catch (_) {
+                        /* noop */
+                    }
+                });
+            }
+        } catch (_) {
+            /* noop */
+        }
+        try {
+            v.srcObject = null;
+        } catch (_) {
+            /* noop */
+        }
+    });
+}
+
 async function stopQRScannerForModeChange() {
+    stopDetachedVideoTracksInQrReader();
     if (!html5QrcodeScanner) return;
     try {
         await html5QrcodeScanner.stop();
@@ -1325,8 +1373,98 @@ async function stopQRScannerForModeChange() {
         console.error('[stopQRScannerForModeChange] 스캐너 중지 실패:', error);
     } finally {
         html5QrcodeScanner = null;
+        stopDetachedVideoTracksInQrReader();
     }
 }
+
+/**
+ * 메인/선생님 선택 등으로 전환 시: `#qr-scan-page`는 `pageStates`에 없어 `navigateToPage`만으로는 숨겨지지 않음.
+ * 카메라·전체화면이 메인 위에 남는 현상 방지 (PIN 없이 강제 정리).
+ */
+/** QR 토스트(.qr-scan-toast)보다 낮고, 선생님 선택·모달(≤10050)보다 위 — 겹침 시 카메라 레이어가 가려지는 현상 방지 */
+const QR_SCAN_PAGE_Z_INDEX = '90000';
+
+function setQrScanPageDisplayVisible(visible) {
+    const scanPageEl = document.getElementById('qr-scan-page');
+    if (!scanPageEl) return;
+    if (visible) {
+        scanPageEl.style.setProperty('display', 'flex', 'important');
+        scanPageEl.style.setProperty('z-index', QR_SCAN_PAGE_Z_INDEX, 'important');
+        scanPageEl.style.setProperty('visibility', 'visible', 'important');
+        scanPageEl.style.setProperty('pointer-events', 'auto', 'important');
+    } else {
+        scanPageEl.style.setProperty('display', 'none', 'important');
+        scanPageEl.style.removeProperty('z-index');
+        scanPageEl.style.removeProperty('visibility');
+        scanPageEl.style.removeProperty('pointer-events');
+    }
+}
+
+let teacherSelectZLoweredForQr = false;
+
+function pushTeacherSelectBehindQrOverlay() {
+    const tsp = document.getElementById('teacher-select-page');
+    if (!tsp || teacherSelectZLoweredForQr) return;
+    teacherSelectZLoweredForQr = true;
+    tsp.style.setProperty('z-index', '8000', 'important');
+}
+
+function popTeacherSelectBehindQrOverlay() {
+    const tsp = document.getElementById('teacher-select-page');
+    if (!tsp || !teacherSelectZLoweredForQr) return;
+    teacherSelectZLoweredForQr = false;
+    tsp.style.removeProperty('z-index');
+}
+
+window.ensureQrScanFullyClosed = async function ensureQrScanFullyClosed() {
+    const scanPageEl = document.getElementById('qr-scan-page');
+    if (scanPageEl) {
+        setQrScanPageDisplayVisible(false);
+    }
+    const wrap = document.getElementById('qr-scan-close-wrap');
+    if (wrap) wrap.classList.remove('qr-scan-close-hidden');
+    if (document.fullscreenElement || document.webkitFullscreenElement) {
+        try {
+            const exitFS = document.exitFullscreen || document.webkitExitFullscreen;
+            if (exitFS) await exitFS.call(document);
+        } catch (_) {
+            /* noop */
+        }
+    }
+    await stopQRScannerForModeChange();
+    currentFacingMode = 'environment';
+    if (window._qrReaderTouchObserver) {
+        try {
+            window._qrReaderTouchObserver.disconnect();
+        } catch (_) {
+            /* noop */
+        }
+        window._qrReaderTouchObserver = null;
+    }
+    try {
+        unbindQRViewportGuard();
+    } catch (_) {
+        /* noop */
+    }
+    try {
+        setQRCameraActionsVisible(false);
+    } catch (_) {
+        /* noop */
+    }
+    try {
+        clearQRCameraActionsAutoHideTimer();
+    } catch (_) {
+        /* noop */
+    }
+    try {
+        clearQRCornerPressTimer();
+    } catch (_) {
+        /* noop */
+    }
+    clearQrAttendanceTeacherIdOverride();
+    popTeacherSelectBehindQrOverlay();
+    restoreTeacherSelectPageIfHiddenForQr();
+};
 
 function applyQRScanResponsiveLayout() {
     const scanMain = document.querySelector('.qr-scan-main');
@@ -1406,7 +1544,9 @@ function unbindQRViewportGuard() {
 
 function onQRScanPageViewportChange() {
     const page = document.getElementById('qr-scan-page');
-    if (!page || page.style.display !== 'flex') return;
+    if (!page) return;
+    const disp = page.style.getPropertyValue('display') || (typeof getComputedStyle === 'function' ? getComputedStyle(page).display : '');
+    if (!disp || disp === 'none') return;
     applyQRScanResponsiveLayout();
 }
 window.addEventListener('resize', onQRScanPageViewportChange);
@@ -1417,7 +1557,16 @@ window.addEventListener('orientationchange', () => {
 // ========== QR 스캔 페이지 ==========
 
 // QR 스캔 페이지 열기
-window.openQRScanPage = async function() {
+// options.fromTeacherSelect: 선생님 선택 화면에서 열 때 — 드롭다운에만 선택된 경우 currentTeacherId 없이도 일정 스냅샷 가능, 미선택 시 일정 없음 확인창 생략
+window.openQRScanPage = async function(options) {
+    const opts = options && typeof options === 'object' ? options : {};
+    const fromTeacherSelect = !!opts.fromTeacherSelect;
+    if (fromTeacherSelect) {
+        const sel = document.getElementById('teacher-dropdown');
+        qrAttendanceTeacherIdOverride = sel && sel.value ? String(sel.value) : null;
+    } else {
+        clearQrAttendanceTeacherIdOverride();
+    }
     console.log('[openQRScanPage] QR 스캔 페이지 열기');
     console.log('[openQRScanPage] students 수:', students ? students.length : 0);
     console.log('[openQRScanPage] teacherScheduleData 키:', Object.keys(teacherScheduleData));
@@ -1452,11 +1601,25 @@ window.openQRScanPage = async function() {
                     console.log('[openQRScanPage] Supabase에서 학생 데이터 재로드 완료:', students.length, '명');
                 } else {
                     showToast('등록된 학생이 없습니다.\n먼저 학생을 등록해주세요.', 'warning');
+                    clearQrAttendanceTeacherIdOverride();
                     return;
                 }
             } else {
                 showToast('등록된 학생이 없습니다.\n먼저 학생을 등록해주세요.', 'warning');
+                clearQrAttendanceTeacherIdOverride();
                 return;
+            }
+        }
+
+        // 먼저 QR 오버레이를 띄워 #qr-reader 가 뷰포트 폭으로 레이아웃되게 함(비동기 일정 로드만으로는 clientWidth=0 이 남을 수 있음)
+        const scanPageEarly = document.getElementById('qr-scan-page');
+        if (scanPageEarly) {
+            setQrScanPageDisplayVisible(true);
+            applyQRScanResponsiveLayout();
+            try {
+                void scanPageEarly.offsetWidth;
+            } catch (_) {
+                /* noop */
             }
         }
         
@@ -1473,25 +1636,36 @@ window.openQRScanPage = async function() {
             console.error('[openQRScanPage] 일정 재로드 중 에러:', reloadError);
         }
 
-        // 일정 누락 사전 예방: 스캔 진입 전 당일 일정 체크
-        const todaySnapshot = getTodayScheduleSnapshotForTeacher(currentTeacherId);
+        // 일정 누락 사전 예방: 스캔 진입 전 당일 일정 체크 (선생님 선택 화면에서는 드롭다운 값으로 보조)
+        let teacherForSnapshot = currentTeacherId;
+        if (!teacherForSnapshot) {
+            const sel = document.getElementById('teacher-dropdown');
+            if (sel && sel.value) teacherForSnapshot = sel.value;
+        }
+        const todaySnapshot = getTodayScheduleSnapshotForTeacher(teacherForSnapshot);
         if (todaySnapshot.scheduledEntryCount === 0) {
-            const confirmed = await window.showConfirm(
-                `오늘(${todaySnapshot.dateStr}) 등록된 수업 일정이 없습니다.\n` +
-                `지금 스캔하면 미처리 출석으로 저장되고 일정이 자동 생성됩니다.\n\n` +
-                `먼저 오늘 일정을 등록하시겠어요?`,
-                {
-                    title: '일정 누락 경고',
-                    type: 'warn',
-                    okText: '오늘 일정 등록',
-                    cancelText: '그대로 스캔'
+            if (fromTeacherSelect && !teacherForSnapshot) {
+                // 아직 담당 선생님을 고르지 않은 상태 — 확인창 없이 스캔 허용(메인에서 입장 후 일정 연동)
+            } else {
+                const confirmed = await window.showConfirm(
+                    `오늘(${todaySnapshot.dateStr}) 등록된 수업 일정이 없습니다.\n` +
+                    `지금 스캔하면 미처리 출석으로 저장되고 일정이 자동 생성됩니다.\n\n` +
+                    `먼저 오늘 일정을 등록하시겠어요?`,
+                    {
+                        title: '일정 누락 경고',
+                        type: 'warn',
+                        okText: '오늘 일정 등록',
+                        cancelText: '그대로 스캔'
+                    }
+                );
+                if (confirmed) {
+                    window.openTodayScheduleSuggestion();
+                    setQrScanPageDisplayVisible(false);
+                    clearQrAttendanceTeacherIdOverride();
+                    return;
                 }
-            );
-            if (confirmed) {
-                window.openTodayScheduleSuggestion();
-                return;
+                showToast('일정 없이 스캔을 진행합니다. 미처리 출석 저장 + 자동 일정 생성을 진행합니다.', 'warning');
             }
-            showToast('일정 없이 스캔을 진행합니다. 미처리 출석 저장 + 자동 일정 생성을 진행합니다.', 'warning');
         }
         
         // 모달 닫기 (존재하는 경우)
@@ -1499,10 +1673,10 @@ window.openQRScanPage = async function() {
             closeModal('qr-attendance-modal');
         }
         
-        // QR 스캔 페이지 표시
+        // QR 스캔 페이지 표시(이미 위에서 표시했을 수 있음 — 재적용으로 동기화)
         const scanPage = document.getElementById('qr-scan-page');
         if (scanPage) {
-            scanPage.style.display = 'flex';
+            setQrScanPageDisplayVisible(true);
         } else {
             console.error('[openQRScanPage] qr-scan-page 요소를 찾을 수 없습니다');
             showToast('QR 스캔 페이지를 찾을 수 없습니다.', 'error');
@@ -1522,23 +1696,50 @@ window.openQRScanPage = async function() {
         setQRCameraActionsVisible(false);
         clearQRCameraActionsAutoHideTimer();
         clearQRCornerPressTimer();
-        setTimeout(() => {
-            if (!html5QrcodeScanner) startQRScanner();
-        }, 80);
+        scheduleStartQRScanner(fromTeacherSelect);
     } catch (error) {
         console.error('[openQRScanPage] 오류:', error);
         showToast('QR 스캔 페이지를 열 수 없습니다.', 'error');
+        setQrScanPageDisplayVisible(false);
+        clearQrAttendanceTeacherIdOverride();
     }
 }
 
-// ★ 선생님 선택 화면에서 QR 스캔 (비밀번호 인증 방식)
+// 선생님 선택에서 QR 스캔을 연 경우 닫기 시 `navigateToPage('TEACHER_SELECT')`로 복귀
 let openedFromTeacherSelect = false;
+/** 선생님 선택을 잠시 숨긴 뒤 QR을 연 경우 — `ensureQrScanFullyClosed` 등에서 복구 */
+let teacherSelectHiddenForQrScan = false;
 
-// QR 비밀번호 모달 열기 (세션 인증 기억 기능 포함)
+function hideTeacherSelectPageForQrOverlay() {
+    const tsp = document.getElementById('teacher-select-page');
+    if (!tsp) return;
+    teacherSelectHiddenForQrScan = true;
+    tsp.style.display = 'none';
+    tsp.style.visibility = 'hidden';
+}
+
+function restoreTeacherSelectPageIfHiddenForQr() {
+    if (!teacherSelectHiddenForQrScan) return;
+    teacherSelectHiddenForQrScan = false;
+    const tsp = document.getElementById('teacher-select-page');
+    if (!tsp) return;
+    let ap = null;
+    try {
+        ap = sessionStorage.getItem('active_page') || localStorage.getItem('active_page');
+    } catch (_) {
+        ap = null;
+    }
+    if (ap === 'TEACHER_SELECT') {
+        tsp.style.display = 'flex';
+        tsp.style.visibility = 'visible';
+    }
+}
+
+// QR 비밀번호 모달 (선생님 선택 화면 상단 QR 버튼 → `showQRPasswordModal` → `confirmQRPassword` → `openQRScanPage`)
 window.showQRPasswordModal = async function() {
     console.log('[showQRPasswordModal] QR 비밀번호 모달 열기');
 
-    // ★ 세션에 이전 인증 정보가 있으면 비밀번호 없이 바로 진입
+    // 세션에 이전 인증 정보가 있으면 비밀번호 없이 바로 QR 스캔까지 진입 (배포본과 동일)
     const savedTeacherId = sessionStorage.getItem('qr_scan_teacher_id');
     if (savedTeacherId && typeof teacherList !== 'undefined' && teacherList.length > 0) {
         const savedTeacher = teacherList.find(t => String(t.id) === String(savedTeacherId));
@@ -1596,7 +1797,7 @@ window.closeQRPasswordModal = function() {
     if (modal) modal.style.display = 'none';
 }
 
-// QR 비밀번호 확인 → 선생님 입장 후 QR 스캔 자동 열기
+// QR 비밀번호 확인 → 선생님 입장 후 QR 스캔 자동 열기 (다운로드 ZIP / Vercel 배포본과 동일)
 window.confirmQRPassword = async function() {
     const qrDropdown = document.getElementById('qr-teacher-dropdown');
     const pwInput = document.getElementById('qr-scan-password');
@@ -1618,32 +1819,30 @@ window.confirmQRPassword = async function() {
         return;
     }
 
-    // 비밀번호 검증(서버 검증)
     const verifyResult = await verifyTeacherPinWithServer(teacher.id, password, {
         ownerUserId: cachedLsGet('current_owner_id')
     });
     if (!verifyResult.ok) {
-        showToast('비밀번호가 일치하지 않습니다.', 'warning');
+        const msg =
+            typeof mapVerifyTeacherPinFailureToMessage === 'function'
+                ? mapVerifyTeacherPinFailureToMessage(verifyResult)
+                : '비밀번호가 일치하지 않습니다.';
+        showToast(msg, 'warning');
         if (pwInput) { pwInput.value = ''; pwInput.focus(); }
         return;
     }
 
     console.log('[confirmQRPassword] 비밀번호 인증 성공:', teacher.name);
 
-    // ★ 세션에 인증 정보 저장 (같은 탭에서 재인증 불필요)
     sessionStorage.setItem('qr_scan_teacher_id', teacher.id);
 
-    // 모달 닫기
     closeQRPasswordModal();
 
-    // ★ 플래그 설정: setCurrentTeacher 완료 후 QR 스캔 자동 오픈
     openedFromTeacherSelect = true;
     window._pendingQRScanOpen = true;
 
-    // 기존 선생님 입장 로직 그대로 사용
     await setCurrentTeacher(teacher);
 
-    // setCurrentTeacher 완료 후 QR 스캔 페이지 열기
     if (window._pendingQRScanOpen) {
         window._pendingQRScanOpen = false;
         console.log('[confirmQRPassword] QR 스캔 페이지 자동 열기');
@@ -1788,7 +1987,8 @@ function updateQrScanCloseButtonForFullscreen() {
     const wrap = document.getElementById('qr-scan-close-wrap');
     if (!wrap) return;
     const page = document.getElementById('qr-scan-page');
-    if (!page || page.style.display === 'none') {
+    const disp = page && (page.style.getPropertyValue('display') || (typeof getComputedStyle === 'function' ? getComputedStyle(page).display : ''));
+    if (!page || !disp || disp === 'none') {
         wrap.classList.remove('qr-scan-close-hidden');
         return;
     }
@@ -1803,7 +2003,15 @@ window.closeQRScanPage = async function() {
 
     try {
         const authenticated = await verifyTeacherPinForQrClose();
-        if (!authenticated) return;
+        if (!authenticated) {
+            if (openedFromTeacherSelect) {
+                openedFromTeacherSelect = false;
+                restoreTeacherSelectPageIfHiddenForQr();
+            }
+            clearQrAttendanceTeacherIdOverride();
+            popTeacherSelectBehindQrOverlay();
+            return;
+        }
 
         // 풀스크린 상태면 해제
         if (document.fullscreenElement || document.webkitFullscreenElement) {
@@ -1811,15 +2019,14 @@ window.closeQRScanPage = async function() {
             if (exitFS) exitFS.call(document);
         }
         
-        // 스캐너 중지
-        stopQRScannerForModeChange();
+        // 스캐너 중지(비동기 완료까지 대기 — 모바일에서 트랙 해제 누락 완화)
+        await stopQRScannerForModeChange();
         
         // 카메라 모드 초기화 (다음에 열 때 후방 카메라로)
         currentFacingMode = "environment";
         
-        // 페이지 숨기기
-        const scanPageEl = document.getElementById('qr-scan-page');
-        if (scanPageEl) scanPageEl.style.display = 'none';
+        // 페이지 숨기기 (인라인 important로 이전 규칙·풀스크린 잔류와 무관하게 숨김)
+        setQrScanPageDisplayVisible(false);
         if (window._qrReaderTouchObserver) {
             try { window._qrReaderTouchObserver.disconnect(); } catch (_) {}
             window._qrReaderTouchObserver = null;
@@ -1839,9 +2046,13 @@ window.closeQRScanPage = async function() {
             });
         }
 
-        // 선생님 선택 화면에서 열었으면 선생님 선택 화면으로 복귀
+        clearQrAttendanceTeacherIdOverride();
+        popTeacherSelectBehindQrOverlay();
+
+        // 선생님 선택 화면에서 열었으면 선생님 선택 화면으로 복귀 (메인에서 연 경우는 navigate 생략 — 아래 메인이 그대로 유지됨)
         if (openedFromTeacherSelect) {
             openedFromTeacherSelect = false;
+            teacherSelectHiddenForQrScan = false;
             console.log('[closeQRScanPage] 선생님 선택 화면으로 복귀');
             if (typeof navigateToPage === 'function') {
                 navigateToPage('TEACHER_SELECT');
@@ -1871,6 +2082,47 @@ function patchQRScanTouchScrollAssist() {
     window._qrReaderTouchObserver.observe(reader, { childList: true, subtree: true });
 }
 
+/** DOM에 보이기 전까지 clientWidth=0일 수 있어 rAF로 재시도 후 스캔 시작 */
+function scheduleStartQRScanner(fromTeacherSelect) {
+    const scanDelayMs = fromTeacherSelect ? 280 : 90;
+    const maxAttempts = 56;
+    const tick = (attempt) => {
+        const readerEl = document.getElementById('qr-reader');
+        const scanPage = document.getElementById('qr-scan-page');
+        let disp = '';
+        if (scanPage) {
+            disp = scanPage.style.getPropertyValue('display');
+            if (!disp && typeof getComputedStyle !== 'undefined') {
+                disp = getComputedStyle(scanPage).display;
+            }
+        }
+        if (!scanPage || disp === 'none') {
+            if (attempt < maxAttempts) requestAnimationFrame(() => tick(attempt + 1));
+            else if (!html5QrcodeScanner) startQRScanner();
+            return;
+        }
+        applyQRScanResponsiveLayout();
+        let w = readerEl ? readerEl.clientWidth : 0;
+        if (w <= 0 && readerEl) {
+            try {
+                w = Math.round(readerEl.getBoundingClientRect().width);
+            } catch (_) {
+                w = 0;
+            }
+        }
+        if (w <= 0 && attempt < maxAttempts) {
+            requestAnimationFrame(() => tick(attempt + 1));
+            return;
+        }
+        if (!html5QrcodeScanner) startQRScanner();
+    };
+    setTimeout(() => {
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => tick(0));
+        });
+    }, scanDelayMs);
+}
+
 // QR 스캐너 시작
 function startQRScanner() {
     if (html5QrcodeScanner) {
@@ -1881,12 +2133,33 @@ function startQRScanner() {
     try {
         // ★ QR 스캔 속도 최적화 설정
         const readerEl = document.getElementById('qr-reader');
-        const readerWidth = readerEl ? readerEl.clientWidth : 300;
+        let rawW = readerEl ? readerEl.clientWidth : 0;
+        if (rawW <= 0 && readerEl) {
+            try {
+                rawW = Math.round(readerEl.getBoundingClientRect().width);
+            } catch (_) {
+                rawW = 0;
+            }
+        }
+        if (rawW <= 0) {
+            rawW = Math.max(280, Math.min(Math.floor(((typeof window !== 'undefined' ? window.innerWidth : 400) || 400) * 0.42), 560));
+        }
+        const readerWidth = rawW;
         const narrowMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
         const qrboxCap = narrowMobile ? Math.min(260, Math.floor(readerWidth * 0.72)) : 300;
         const qrboxSize = Math.max(Math.min(Math.floor(readerWidth * 0.75), qrboxCap), 150);
         
-        console.log('[startQRScanner] readerWidth:', readerWidth, 'qrboxSize:', qrboxSize, 'narrowMobile:', narrowMobile);
+        const rawClient = readerEl ? readerEl.clientWidth : 0;
+        console.log(
+            '[startQRScanner] readerClientWidth:',
+            rawClient,
+            'readerWidth(used):',
+            readerWidth,
+            'qrboxSize:',
+            qrboxSize,
+            'narrowMobile:',
+            narrowMobile
+        );
         
         const config = {
             fps: 20,  // ★ 10 → 20fps (스캔 빈도 2배 증가)
@@ -1969,6 +2242,11 @@ function onQRScanFailure(error) {
 
 // QR 코드로부터 출석 처리
 async function processAttendanceFromQR(qrData, authMeta = null) {
+    const savedTeacherId = typeof currentTeacherId !== 'undefined' ? currentTeacherId : undefined;
+    const useTeacherOverride = !!qrAttendanceTeacherIdOverride;
+    if (useTeacherOverride) {
+        currentTeacherId = qrAttendanceTeacherIdOverride;
+    }
     try {
         console.log('[processAttendanceFromQR] === 출석 처리 시작 ===');
         console.log('[processAttendanceFromQR] 스캔된 QR 데이터:', qrData);
@@ -2771,6 +3049,10 @@ async function processAttendanceFromQR(qrData, authMeta = null) {
                 html5QrcodeScanner.resume();
             }
         }, 2000);
+    } finally {
+        if (useTeacherOverride) {
+            currentTeacherId = savedTeacherId;
+        }
     }
 }
 

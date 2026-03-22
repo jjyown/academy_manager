@@ -110,10 +110,16 @@ window.showToast = function(message, type = 'info', duration = 3500) {
  * @param {object} options - { title, type: 'warn'|'danger'|'info'|'question', okText, cancelText }
  * @returns {Promise<boolean>}
  */
-// QR 스캔 페이지가 열려있는지 확인
+// QR 스캔 페이지가 열려있는지 확인 (GitHub origin/main과 동일 원칙: 인라인 display만 신뢰)
+// — 인라인이 비어 있으면 CSS(#qr-scan-page)만으로는 '열림'으로 보지 않음. 그렇지 않으면 getComputedStyle이 flex여도
+//   showToast/showConfirm 가드가 전부 막히는 현상이 재발할 수 있음.
 function isQRScanPageOpen() {
     const scanPage = document.getElementById('qr-scan-page');
-    return scanPage && scanPage.style.display && scanPage.style.display !== 'none';
+    if (!scanPage) return false;
+    const inline = (scanPage.style && (scanPage.style.getPropertyValue('display') || scanPage.style.display)) || '';
+    if (inline === 'none') return false;
+    if (inline && inline !== 'none') return true;
+    return false;
 }
 
 // confirm-dialog를 auth-page 위에 표시하기 위한 헬퍼
@@ -562,6 +568,11 @@ function getActivePage() {
 // 특정 페이지로 이동 (상태 저장 + 표시)
 function navigateToPage(pageKey) {
     console.log('[navigateToPage] 페이지 이동:', pageKey);
+
+    // QR 스캔 페이지는 pageStates 밖에 있어 여기서만 숨기면 카메라·오버레이가 메인에 남을 수 있음
+    if (typeof window.ensureQrScanFullyClosed === 'function') {
+        void window.ensureQrScanFullyClosed();
+    }
     
     // 로딩 화면 제거
     const loader = document.getElementById('initial-loader');
@@ -963,13 +974,87 @@ function formatDateToYYYYMMDD(date) {
     return `${year}-${month}-${day}`;
 }
 
+/**
+ * 자동 결석 보정용: 슬롯당 `getAttendanceRecordByStudentAndDate` 2회 호출 대신 1회 조회 후 동일 병합.
+ * (선생님 전체 일정 × 과거 슬롯에서 Network 폭주·메인 스레드 부담 완화)
+ */
+async function getMergedAttendanceRecordForAutoAbsentSlot(studentId, dateStr, teacherId, normalizedStartTime) {
+    if (typeof supabase === 'undefined') return null;
+    const ownerId = cachedLsGet('current_owner_id');
+    const numericId = parseInt(studentId, 10);
+    if (Number.isNaN(numericId)) return null;
+    if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(String(dateStr))) return null;
+
+    const raw = String(normalizedStartTime || '').trim();
+    const variants = new Set();
+    if (raw) {
+        variants.add(raw);
+        const hhmmMatch = raw.match(/^(\d{1,2}):(\d{2})$/);
+        const hhmmssMatch = raw.match(/^(\d{1,2}):(\d{2}):(\d{2})$/);
+        if (hhmmMatch) {
+            variants.add(`${String(parseInt(hhmmMatch[1], 10)).padStart(2, '0')}:${hhmmMatch[2]}:00`);
+        }
+        if (hhmmssMatch) {
+            variants.add(`${String(parseInt(hhmmssMatch[1], 10)).padStart(2, '0')}:${hhmmssMatch[2]}`);
+        }
+    }
+    const timeVariants = Array.from(variants).filter(Boolean);
+    if (timeVariants.length === 0) return null;
+
+    try {
+        let query = supabase
+            .from('attendance_records')
+            .select('*')
+            .eq('student_id', numericId)
+            .eq('attendance_date', dateStr)
+            .in('scheduled_time', timeVariants);
+        if (ownerId) query = query.eq('owner_user_id', ownerId);
+        const { data: rows, error } = await query.limit(80);
+        if (error || !rows || rows.length === 0) return null;
+
+        const statusPriority = { present: 5, late: 4, makeup: 3, etc: 3, absent: 2, none: 1 };
+        const pickPriority = (value) => statusPriority[String(value || '').toLowerCase()] || 0;
+        const pickBestAmong = (candidates) => {
+            if (!candidates.length) return null;
+            return [...candidates].sort((a, b) => {
+                const pa = pickPriority(a?.status);
+                const pb = pickPriority(b?.status);
+                if (pb !== pa) return pb - pa;
+                const ta = new Date(a?.processed_at || a?.check_in_time || a?.updated_at || a?.created_at || 0).getTime();
+                const tb = new Date(b?.processed_at || b?.check_in_time || b?.updated_at || b?.created_at || 0).getTime();
+                return tb - ta;
+            })[0];
+        };
+
+        const tid = String(teacherId || '').trim();
+        const scoped = tid ? rows.filter((r) => String(r?.teacher_id || '').trim() === tid) : [];
+        const ownerScopedRecord = scoped.length ? pickBestAmong(scoped) : null;
+        const ownerAllRecord = pickBestAmong(rows);
+
+        let dbRecord = ownerScopedRecord || ownerAllRecord || null;
+        if (ownerScopedRecord && ownerAllRecord) {
+            const ownerPriority = pickPriority(ownerScopedRecord?.status);
+            const allPriority = pickPriority(ownerAllRecord?.status);
+            if (allPriority > ownerPriority) {
+                dbRecord = ownerAllRecord;
+            } else if (allPriority === ownerPriority) {
+                const ownerTs = new Date(ownerScopedRecord?.processed_at || ownerScopedRecord?.check_in_time || ownerScopedRecord?.updated_at || ownerScopedRecord?.created_at || 0).getTime();
+                const allTs = new Date(ownerAllRecord?.processed_at || ownerAllRecord?.check_in_time || ownerAllRecord?.updated_at || ownerAllRecord?.created_at || 0).getTime();
+                if (allTs >= ownerTs) dbRecord = ownerAllRecord;
+            }
+        }
+        return dbRecord;
+    } catch (e) {
+        console.warn('[getMergedAttendanceRecordForAutoAbsentSlot] 조회 실패:', e);
+        return null;
+    }
+}
+
 async function autoMarkAbsentForPastSchedules() {
     if (!teacherScheduleData || Object.keys(teacherScheduleData).length === 0) return;
 
     const nowKst = getKstNow();
     const todayKst = formatDateToYYYYMMDD(nowKst);
-    const statusPriority = { present: 5, late: 4, makeup: 3, etc: 3, absent: 2, none: 1 };
-    const pickPriority = (value) => statusPriority[String(value || '').toLowerCase()] || 0;
     let updated = false;
 
     // ★ 모든 선생님의 일정을 순회 (현재 선생님뿐 아니라 전체)
@@ -1011,36 +1096,14 @@ async function autoMarkAbsentForPastSchedules() {
 
                     // DB 기준으로 이미 처리된 상태가 있으면 자동 결석 덮어쓰기를 금지
                     // (로컬 캐시 누락/지연으로 인한 present -> absent 역전 방지)
-                    if (typeof window.getAttendanceRecordByStudentAndDate === 'function') {
+                    if (typeof getMergedAttendanceRecordForAutoAbsentSlot === 'function') {
                         try {
-                            // 1) 일정 소유 teacher_id 기준 조회
-                            const ownerScopedRecord = await window.getAttendanceRecordByStudentAndDate(
+                            const dbRecord = await getMergedAttendanceRecordForAutoAbsentSlot(
                                 studentId,
                                 dateStr,
                                 String(teacherId),
-                                normalizedStartTime,
-                                false
+                                normalizedStartTime
                             );
-                            // 2) 과거 잘못 저장된 teacher_id/legacy key를 흡수하기 위한 owner 기준 조회
-                            const ownerAllRecord = await window.getAttendanceRecordByStudentAndDate(
-                                studentId,
-                                dateStr,
-                                null,
-                                normalizedStartTime,
-                                false
-                            );
-                            let dbRecord = ownerScopedRecord || ownerAllRecord || null;
-                            if (ownerScopedRecord && ownerAllRecord) {
-                                const ownerPriority = pickPriority(ownerScopedRecord?.status);
-                                const allPriority = pickPriority(ownerAllRecord?.status);
-                                if (allPriority > ownerPriority) {
-                                    dbRecord = ownerAllRecord;
-                                } else if (allPriority === ownerPriority) {
-                                    const ownerTs = new Date(ownerScopedRecord?.processed_at || ownerScopedRecord?.check_in_time || ownerScopedRecord?.updated_at || ownerScopedRecord?.created_at || 0).getTime();
-                                    const allTs = new Date(ownerAllRecord?.processed_at || ownerAllRecord?.check_in_time || ownerAllRecord?.updated_at || ownerAllRecord?.created_at || 0).getTime();
-                                    if (allTs >= ownerTs) dbRecord = ownerAllRecord;
-                                }
-                            }
                             const dbStatus = String(dbRecord?.status || '').toLowerCase();
                             if (dbStatus === 'present' || dbStatus === 'late' || dbStatus === 'makeup' || dbStatus === 'etc') {
                                 if (!student.attendance) student.attendance = {};
@@ -1538,7 +1601,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     updateStudentMenuVisibility();
     updateForceResetMenuVisibility();
     updateUserRoleLabel();
-    
+
     console.log('[DOMContentLoaded] 페이지 로드 완료');
 });
 
@@ -1820,6 +1883,10 @@ window.toggleTeacherForm = function() {
 async function setCurrentTeacher(teacher) {
     try {
         console.log('[setCurrentTeacher] 시작, 선택된 선생님:', teacher);
+
+        if (typeof window.ensureQrScanFullyClosed === 'function') {
+            await window.ensureQrScanFullyClosed();
+        }
         
         if (!teacher || !teacher.id) {
             console.error('[setCurrentTeacher] 유효하지 않은 선생님 정보');

@@ -78,8 +78,12 @@
 
 ## 현재 스프린트 목표
 ### QR 스캔 종료 PIN·반응형 2열 — 2026-03-22
-- **상태**: 코드 반영 완료. `resolveQrPinVerificationTarget()`로 관리자 PIN 경로(`requireAdmin` + `teacher_role=admin` 행) 정합, `shouldUseDualPanelMode`·`applyQRScanResponsiveLayout`·`style.css`로 PC·태블릿에서 카메라 좌·전화 패드 우 유지. PIN 실패 시 `mapVerifyTeacherPinFailureToMessage`로 안내 통일. **헤더 UX(2026-03-22)**: 제목·닫기 상단 붙음 완화(`#qr-scan-page.auth-page`·`mobile.css` 패딩), 제스처 안내 문구(「상단 제목을…」) 제거(`index.html`). **전체화면 시 닫기 숨김**: `fullscreenchange`·`openQRScanPage`에서 `#qr-scan-close-wrap` 토글(`qr-attendance.js`, `style.css`).
-- **검증**: `node --check qr-attendance.js` PASS. **실기기**: 원장 로그인 → 일반 교사 프로필로 QR → 종료 시 관리자 PIN, 가로·세로 태블릿에서 2열 배치 확인 권장.
+- **상태**: 코드 반영 완료. `resolveQrPinVerificationTarget()`로 관리자 PIN 경로(`requireAdmin` + `teacher_role=admin` 행) 정합, `shouldUseDualPanelMode`·`applyQRScanResponsiveLayout`·`style.css`로 PC·태블릿에서 카메라 좌·전화 패드 우 유지. PIN 실패 시 `mapVerifyTeacherPinFailureToMessage`로 안내 통일. **헤더 UX(2026-03-22)**: 제목·닫기 상단 붙음 완화(`#qr-scan-page.auth-page`·`mobile.css` 패딩), 제스처 안내 문구(「상단 제목을…」) 제거(`index.html`). **전체화면 시 닫기 숨김**: `fullscreenchange`·`openQRScanPage`에서 `#qr-scan-close-wrap` 토글(`qr-attendance.js`, `style.css`). **선생님 선택·QR 모달(2026-03-22)**: `confirmQRPassword` / 세션 기억 `showQRPasswordModal`에서 PIN 검증 후 **`openQRScanPage()`** 호출 — 사용자 ZIP·배포본과 동일. **닫기 시 `await stopQRScannerForModeChange`** 로 카메라 해제 대기. **QR 오버레이 누적(2026-03-22)**: `#qr-scan-page`가 `navigateToPage`의 `pageStates`에 없어 메인 전환 시에도 남을 수 있음 → `ensureQrScanFullyClosed`(숨김·전체화면 해제·`stop`·video 트랙 보조 정지)를 `navigateToPage`/`setCurrentTeacher` 선행. **닫기 PIN**: 관리자 경로 실패 시 **현재 교사 선생님 PIN** 재시도.
+- **QR 닫기 후에도 화면 잔류(2026-03-22, 근본 수정)**: `style.css`의 `#qr-scan-page.auth-page`에 `display: flex !important`가 있으면 JS `style.display='none'`이 **무력화**될 수 있음 → **`display`의 `!important` 제거** + 열기/닫기/강제정리는 **`setProperty('display', …, 'important')`로 통일**. `isQRScanPageOpen`·재석확인·뷰포트 가드는 **computed/display** 기준 판별 보강.
+- **자동결석 보정 Network(2026-03-22)**: `autoMarkAbsentForPastSchedules` 슬롯당 이중 `getAttendanceRecordByStudentAndDate` → `getMergedAttendanceRecordForAutoAbsentSlot` **1회 조회** 병합으로 `attendance_records` 반복 요청 완화.
+- **선생님 선택 화면 QR(2026-03-22, 사용자 ZIP·Vercel 정합)**: 상단 QR → **`showQRPasswordModal()`** → `#qr-password-modal`에서 선생님·PIN → **`confirmQRPassword`** → **`setCurrentTeacher`** → **`openQRScanPage()`** 자동 오픈. 닫기 시 `openedFromTeacherSelect`로 **`TEACHER_SELECT` 복귀**. (로컬 실험 경로 `openQRScanPageFromTeacherSelect`+`#teacher-select-qr-btn` 제거 — 스크린샷 모달이 안 뜨던 원인)
+- **선생님 선택 QR·토스트 가드(2026-03-22)**: `isQRScanPageOpen()`은 인라인 `display`만 판별(`script.js`).
+- **검증**: `node --check qr-attendance.js` · `node --check script.js` PASS. **실기기**: QR 닫기·새로고침 후 오버레이 미잔류, Network 스팸 완화 확인 권장.
 - **다음 단계**: 운영 스모크 후 이슈 있으면 `docs/context.md` 기록.
 
 ### 선생님 입장 PIN 검증(`verify-teacher-pin`) — 2026-03-22
@@ -91,6 +95,12 @@
 - **상태**: 코드 반영 완료(`qr-attendance.js`). 일정당 **수업 시작 5분 전**과 **정각**에 각각 재석 확인 알림(`early`/`start`). 선생님이 **지각** 처리 후 학생이 수업 중 QR 인증하면 메모에 **수업 시작 대비 지연(분)** 반영. **지각만 있고 수업 종료까지 QR 없음** → 종료 후 **결석** 확정. 당일 **마지막 수업 종료 이후** 스캔 시 앞 일정은 **결석**·**수업종료 후 임시** 출석 레코드 추가.
 - **검증**: `node --check qr-attendance.js` PASS. **실기기**에서 이중 알림·지각→QR·지각→무인증·종료 후 스캔 시나리오 권장.
 - **다음 단계**: 운영에서 위 시나리오 스모크 후 이슈 있으면 `docs/context.md`에 기록.
+
+### 출석 `attendance_records` 조회 패턴 개선 — 인지·후속(2026-03-22)
+- **상태**: **문서·인지 항목**(학생·일정 증가 대비). Network에 `attendance_records?student_id=eq…`가 **다발**로 보이는 것은, 슬롯·학생마다 `getAttendanceRecordByStudentAndDate` 단건 조회가 이어질 수 있는 **N+1형 패턴**이기 때문이다. **버그라기보다 확장 시 부담·개선 여지**로 본다.
+- **권장 방향**: DB는 **날짜(또는 owner) 범위 묶음 조회 소수 회** + 클라이언트는 **메모리 Map**(`studentId|날짜|정규화시간`)으로 판별. 우선순위 예시: **미스캔 `checkMissedScan`**(오늘 `getAttendanceRecordsByDate` 등 1회 후 조회) → 자동결석·기타 핫 패스 → 모달 등 저빈도. DB는 `owner_user_id`·`attendance_date` 등 조건에 맞는 **인덱스** 운영 점검 병행.
+- **이미 반영(부분)**: `autoMarkAbsentForPastSchedules`는 슬롯당 이중 단건 조회를 `getMergedAttendanceRecordForAutoAbsentSlot`로 **1회 병합**해 완화함(`script.js`).
+- **다음 단계**: 체감·Network 부담에 따라 범위를 정한 뒤 Gate A(범위·완료기준) → 소규모 구현·회귀.
 
 - [ ] 출석 입력/조회 기본 흐름 안정화
 - [ ] 결과 화면(`grading/index.html`) 동작 및 UX 점검
@@ -1048,6 +1058,7 @@
 - [ ] 다음 작업자가 바로 이어서 할 수 있게 문서가 갱신되었다.
 
 ## 변경 이력
+- 2026-03-22 - AUTO-20260322(staged 172개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-22 - AUTO-20260322(staged 7개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-22 - AUTO-20260322(staged 5개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-22 - AUTO-20260322(staged 5개 파일 기준 문서 연동 자동기록): 연동 자동 기록

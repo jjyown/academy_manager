@@ -1,0 +1,994 @@
+{
+  "pages": {
+    "main": {
+      "route": "/",
+      "modes": {
+        "desktop": {
+          "url": "http://127.0.0.1:8000/",
+          "screenshot": "c:\\Users\\전재윤\\Desktop\\출석관리 앱\\qa-artifacts\\main-desktop.png",
+          "title": "하이로드 수학 출석관리",
+          "body_text_length": 70,
+          "has_horizontal_overflow": false,
+          "overflowing_elements": [],
+          "low_contrast_samples": [
+            {
+              "tag": "button",
+              "cls": "auth-btn",
+              "ratio": 1,
+              "fg": "#ffffff",
+              "bg": "#ffffff",
+              "text": "로그인"
+            },
+            {
+              "tag": "span",
+              "cls": "verified-badge",
+              "ratio": 2.28,
+              "fg": "#ffffff",
+              "bg": "#22c55e",
+              "text": "인증됨"
+            },
+            {
+              "tag": "button",
+              "cls": "auth-btn",
+              "ratio": 1,
+              "fg": "#ffffff",
+              "bg": "#ffffff",
+              "text": "회원가입"
+            },
+            {
+              "tag": "button",
+              "cls": "",
+              "ratio": 1.07,
+              "fg": "#ffffff",
+              "bg": "#f5f7fb",
+              "text": "관리자 로그인으로 돌아가기"
+            },
+            {
+              "tag": "button",
+              "cls": "",
+              "ratio": 1,
+              "fg": "#ffffff",
+              "bg": "#ffffff",
+              "text": ""
+            },
+            {
+              "tag": "button",
+              "cls": "auth-btn",
+              "ratio": 1,
+              "fg": "#ffffff",
+              "bg": "#ffffff",
+              "text": "입장"
+            },
+            {
+              "tag": "span",
+              "cls": "verified-badge",
+              "ratio": 2.28,
+              "fg": "#ffffff",
+              "bg": "#22c55e",
+              "text": "인증됨"
+            },
+            {
+              "tag": "button",
+              "cls": "auth-btn",
+              "ratio": 1,
+              "fg": "#ffffff",
+              "bg": "#ffffff",
+              "text": "등록하기"
+            },
+            {
+              "tag": "button",
+              "cls": "",
+              "ratio": 1,
+              "fg": "#ffffff",
+              "bg": "#ffffff",
+              "text": "확인"
+            },
+            {
+              "tag": "button",
+              "cls": "btn-close-x",
+              "ratio": 2.45,
+              "fg": "#94a3b8",
+              "bg": "#f8fafc",
+              "text": ""
+            },
+            {
+              "tag": "button",
+              "cls": "auth-btn",
+              "ratio": 1,
+              "fg": "#ffffff",
+              "bg": "#ffffff",
+              "text": "비밀번호 변경"
+            },
+            {
+              "tag": "button",
+              "cls": "auth-btn",
+              "ratio": 3.76,
+              "fg": "#ffffff",
+              "bg": "#ef4444",
+              "text": "비밀번호 초기화 (이메일 발송)"
+            },
+            {
+              "tag": "button",
+              "cls": "btn-close-x",
+              "ratio": 2.45,
+              "fg": "#94a3b8",
+              "bg": "#f8fafc",
+              "text": ""
+            },
+            {
+              "tag": "button",
+              "cls": "auth-btn",
+              "ratio": 1,
+              "fg": "#ffffff",
+              "bg": "#ffffff",
+              "text": "비밀번호 변경"
+            },
+            {
+              "tag": "button",
+              "cls": "btn-close-x",
+              "ratio": 2.45,
+              "fg": "#94a3b8",
+              "bg": "#f8fafc",
+              "text": ""
+            },
+            {
+              "tag": "button",
+              "cls": "auth-btn",
+              "ratio": 1,
+              "fg": "#ffffff",
+              "bg": "#ffffff",
+              "text": "비밀번호 변경"
+            },
+            {
+              "tag": "button",
+              "cls": "auth-btn",
+              "ratio": 3.76,
+              "fg": "#ffffff",
+              "bg": "#ef4444",
+              "text": "인증번호 발송"
+            },
+            {
+              "tag": "button",
+              "cls": "auth-btn",
+              "ratio": 3.76,
+              "fg": "#ffffff",
+              "bg": "#ef4444",
+              "text": "확인 및 비밀번호 초기화"
+            },
+            {
+              "tag": "button",
+              "cls": "auth-btn",
+              "ratio": 2.56,
+              "fg": "#ffffff",
+              "bg": "#94a3b8",
+              "text": "인증번호 재발송"
+            },
+            {
+              "tag": "button",
+              "cls": "teacher-switch-btn",
+              "ratio": 3.74,
+              "fg": "#ffffff",
+              "bg": "#0d9488",
+              "text": "변경"
+            }
+          ],
+          "top_colors": [
+            {
+              "color": "#ffffff",
+              "count": 93
+            },
+            {
+              "color": "#f8fafc",
+              "count": 28
+            },
+            {
+              "color": "#94a3b8",
+              "count": 25
+            },
+            {
+              "color": "#0f172a",
+              "count": 23
+            },
+            {
+              "color": "#64748b",
+              "count": 20
+            },
+            {
+              "color": "#000000",
+              "count": 17
+            },
+            {
+              "color": "#113777",
+              "count": 16
+            },
+            {
+              "color": "#ef4444",
+              "count": 14
+            },
+            {
+              "color": "#10213f",
+              "count": 8
+            },
+            {
+              "color": "#f5f7fb",
+              "count": 4
+            },
+            {
+              "color": "#10b981",
+              "count": 4
+            },
+            {
+              "color": "#c9a74a",
+              "count": 3
+            }
+          ],
+          "console_errors": [],
+          "console_warnings": [
+            {
+              "type": "warning",
+              "text": "[공휴일] API 키가 설정되지 않았습니다. 하드코딩 데이터를 사용합니다."
+            },
+            {
+              "type": "warning",
+              "text": "[공휴일] API 키가 설정되지 않았습니다. 하드코딩 데이터를 사용합니다."
+            },
+            {
+              "type": "warning",
+              "text": "[공휴일] API 키가 설정되지 않았습니다. 하드코딩 데이터를 사용합니다."
+            }
+          ],
+          "page_errors": [],
+          "request_failures": [],
+          "old_brand_hits": []
+        },
+        "mobile": {
+          "url": "http://127.0.0.1:8000/",
+          "screenshot": "c:\\Users\\전재윤\\Desktop\\출석관리 앱\\qa-artifacts\\main-mobile.png",
+          "title": "하이로드 수학 출석관리",
+          "body_text_length": 70,
+          "has_horizontal_overflow": false,
+          "overflowing_elements": [],
+          "low_contrast_samples": [
+            {
+              "tag": "button",
+              "cls": "auth-btn",
+              "ratio": 1,
+              "fg": "#ffffff",
+              "bg": "#ffffff",
+              "text": "로그인"
+            },
+            {
+              "tag": "span",
+              "cls": "verified-badge",
+              "ratio": 2.28,
+              "fg": "#ffffff",
+              "bg": "#22c55e",
+              "text": "인증됨"
+            },
+            {
+              "tag": "button",
+              "cls": "auth-btn",
+              "ratio": 1,
+              "fg": "#ffffff",
+              "bg": "#ffffff",
+              "text": "회원가입"
+            },
+            {
+              "tag": "button",
+              "cls": "",
+              "ratio": 1.07,
+              "fg": "#ffffff",
+              "bg": "#f5f7fb",
+              "text": "관리자 로그인으로 돌아가기"
+            },
+            {
+              "tag": "button",
+              "cls": "",
+              "ratio": 1,
+              "fg": "#ffffff",
+              "bg": "#ffffff",
+              "text": ""
+            },
+            {
+              "tag": "button",
+              "cls": "auth-btn",
+              "ratio": 1,
+              "fg": "#ffffff",
+              "bg": "#ffffff",
+              "text": "입장"
+            },
+            {
+              "tag": "span",
+              "cls": "verified-badge",
+              "ratio": 2.28,
+              "fg": "#ffffff",
+              "bg": "#22c55e",
+              "text": "인증됨"
+            },
+            {
+              "tag": "button",
+              "cls": "auth-btn",
+              "ratio": 1,
+              "fg": "#ffffff",
+              "bg": "#ffffff",
+              "text": "등록하기"
+            },
+            {
+              "tag": "button",
+              "cls": "",
+              "ratio": 1,
+              "fg": "#ffffff",
+              "bg": "#ffffff",
+              "text": "확인"
+            },
+            {
+              "tag": "button",
+              "cls": "btn-close-x",
+              "ratio": 2.45,
+              "fg": "#94a3b8",
+              "bg": "#f8fafc",
+              "text": ""
+            },
+            {
+              "tag": "button",
+              "cls": "auth-btn",
+              "ratio": 1,
+              "fg": "#ffffff",
+              "bg": "#ffffff",
+              "text": "비밀번호 변경"
+            },
+            {
+              "tag": "button",
+              "cls": "auth-btn",
+              "ratio": 3.76,
+              "fg": "#ffffff",
+              "bg": "#ef4444",
+              "text": "비밀번호 초기화 (이메일 발송)"
+            },
+            {
+              "tag": "button",
+              "cls": "btn-close-x",
+              "ratio": 2.45,
+              "fg": "#94a3b8",
+              "bg": "#f8fafc",
+              "text": ""
+            },
+            {
+              "tag": "button",
+              "cls": "auth-btn",
+              "ratio": 1,
+              "fg": "#ffffff",
+              "bg": "#ffffff",
+              "text": "비밀번호 변경"
+            },
+            {
+              "tag": "button",
+              "cls": "btn-close-x",
+              "ratio": 2.45,
+              "fg": "#94a3b8",
+              "bg": "#f8fafc",
+              "text": ""
+            },
+            {
+              "tag": "button",
+              "cls": "auth-btn",
+              "ratio": 1,
+              "fg": "#ffffff",
+              "bg": "#ffffff",
+              "text": "비밀번호 변경"
+            },
+            {
+              "tag": "button",
+              "cls": "auth-btn",
+              "ratio": 3.76,
+              "fg": "#ffffff",
+              "bg": "#ef4444",
+              "text": "인증번호 발송"
+            },
+            {
+              "tag": "button",
+              "cls": "auth-btn",
+              "ratio": 3.76,
+              "fg": "#ffffff",
+              "bg": "#ef4444",
+              "text": "확인 및 비밀번호 초기화"
+            },
+            {
+              "tag": "button",
+              "cls": "auth-btn",
+              "ratio": 2.56,
+              "fg": "#ffffff",
+              "bg": "#94a3b8",
+              "text": "인증번호 재발송"
+            },
+            {
+              "tag": "button",
+              "cls": "teacher-switch-btn",
+              "ratio": 3.74,
+              "fg": "#ffffff",
+              "bg": "#0d9488",
+              "text": "변경"
+            }
+          ],
+          "top_colors": [
+            {
+              "color": "#ffffff",
+              "count": 93
+            },
+            {
+              "color": "#f8fafc",
+              "count": 28
+            },
+            {
+              "color": "#94a3b8",
+              "count": 25
+            },
+            {
+              "color": "#0f172a",
+              "count": 23
+            },
+            {
+              "color": "#64748b",
+              "count": 20
+            },
+            {
+              "color": "#000000",
+              "count": 17
+            },
+            {
+              "color": "#113777",
+              "count": 16
+            },
+            {
+              "color": "#ef4444",
+              "count": 14
+            },
+            {
+              "color": "#10213f",
+              "count": 8
+            },
+            {
+              "color": "#f5f7fb",
+              "count": 4
+            },
+            {
+              "color": "#10b981",
+              "count": 4
+            },
+            {
+              "color": "#c9a74a",
+              "count": 3
+            }
+          ],
+          "console_errors": [],
+          "console_warnings": [
+            {
+              "type": "warning",
+              "text": "[공휴일] API 키가 설정되지 않았습니다. 하드코딩 데이터를 사용합니다."
+            },
+            {
+              "type": "warning",
+              "text": "[공휴일] API 키가 설정되지 않았습니다. 하드코딩 데이터를 사용합니다."
+            },
+            {
+              "type": "warning",
+              "text": "[공휴일] API 키가 설정되지 않았습니다. 하드코딩 데이터를 사용합니다."
+            }
+          ],
+          "page_errors": [],
+          "request_failures": [],
+          "old_brand_hits": []
+        }
+      }
+    },
+    "grading": {
+      "route": "/grading/",
+      "modes": {
+        "desktop": {
+          "url": "http://127.0.0.1:8000/grading/",
+          "screenshot": "c:\\Users\\전재윤\\Desktop\\출석관리 앱\\qa-artifacts\\grading-desktop.png",
+          "title": "하이로드 수학 | 채점 관리",
+          "body_text_length": 86,
+          "has_horizontal_overflow": false,
+          "overflowing_elements": [],
+          "low_contrast_samples": [
+            {
+              "tag": "button",
+              "cls": "btn btn-primary",
+              "ratio": 2.31,
+              "fg": "#ffffff",
+              "bg": "#c9a74a",
+              "text": "입장"
+            },
+            {
+              "tag": "button",
+              "cls": "tab-btn active",
+              "ratio": 2.31,
+              "fg": "#ffffff",
+              "bg": "#c9a74a",
+              "text": "📅 달력"
+            },
+            {
+              "tag": "button",
+              "cls": "btn btn-primary btn-sm",
+              "ratio": 2.31,
+              "fg": "#ffffff",
+              "bg": "#c9a74a",
+              "text": "교재 등록"
+            },
+            {
+              "tag": "button",
+              "cls": "btn btn-sm btn-primary",
+              "ratio": 2.31,
+              "fg": "#ffffff",
+              "bg": "#c9a74a",
+              "text": "✅ 확정"
+            },
+            {
+              "tag": "button",
+              "cls": "btn btn-sm btn-primary",
+              "ratio": 2.31,
+              "fg": "#ffffff",
+              "bg": "#c9a74a",
+              "text": "저장"
+            },
+            {
+              "tag": "button",
+              "cls": "btn btn-primary btn-sm",
+              "ratio": 2.31,
+              "fg": "#ffffff",
+              "bg": "#c9a74a",
+              "text": "확인"
+            },
+            {
+              "tag": "button",
+              "cls": "btn btn-primary",
+              "ratio": 2.31,
+              "fg": "#ffffff",
+              "bg": "#c9a74a",
+              "text": "저장"
+            },
+            {
+              "tag": "button",
+              "cls": "btn btn-primary",
+              "ratio": 2.31,
+              "fg": "#ffffff",
+              "bg": "#c9a74a",
+              "text": "배정"
+            },
+            {
+              "tag": "button",
+              "cls": "btn btn-sm",
+              "ratio": 2.31,
+              "fg": "#ffffff",
+              "bg": "#c9a74a",
+              "text": "프린트 과제"
+            },
+            {
+              "tag": "button",
+              "cls": "btn btn-primary",
+              "ratio": 2.31,
+              "fg": "#ffffff",
+              "bg": "#c9a74a",
+              "text": "등록 및 정답 추출"
+            }
+          ],
+          "top_colors": [
+            {
+              "color": "#aeb9cd",
+              "count": 47
+            },
+            {
+              "color": "#1b3057",
+              "count": 19
+            },
+            {
+              "color": "#f8f9fb",
+              "count": 18
+            },
+            {
+              "color": "#c9a74a",
+              "count": 12
+            },
+            {
+              "color": "#09142f",
+              "count": 10
+            },
+            {
+              "color": "#ffffff",
+              "count": 10
+            },
+            {
+              "color": "#10213f",
+              "count": 7
+            },
+            {
+              "color": "#22c55e",
+              "count": 1
+            }
+          ],
+          "console_errors": [
+            {
+              "type": "error",
+              "text": "Access to fetch at 'https://academymanager-production.up.railway.app/api/teachers' from origin 'http://127.0.0.1:8000' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource."
+            },
+            {
+              "type": "error",
+              "text": "Failed to load resource: net::ERR_FAILED"
+            }
+          ],
+          "console_warnings": [
+            {
+              "type": "warning",
+              "text": "[채점관리] 채점 서버 연결 실패: Failed to fetch"
+            }
+          ],
+          "page_errors": [],
+          "request_failures": [
+            {
+              "url": "https://unpkg.com/mathlive@0.108.3/mathlive.min.js",
+              "method": "HEAD",
+              "failure": {
+                "errorText": "net::ERR_ABORTED"
+              }
+            },
+            {
+              "url": "https://academymanager-production.up.railway.app/api/teachers",
+              "method": "GET",
+              "failure": {
+                "errorText": "net::ERR_FAILED"
+              }
+            }
+          ],
+          "old_brand_hits": []
+        },
+        "mobile": {
+          "url": "http://127.0.0.1:8000/grading/",
+          "screenshot": "c:\\Users\\전재윤\\Desktop\\출석관리 앱\\qa-artifacts\\grading-mobile.png",
+          "title": "하이로드 수학 | 채점 관리",
+          "body_text_length": 86,
+          "has_horizontal_overflow": false,
+          "overflowing_elements": [],
+          "low_contrast_samples": [
+            {
+              "tag": "button",
+              "cls": "btn btn-primary",
+              "ratio": 2.31,
+              "fg": "#ffffff",
+              "bg": "#c9a74a",
+              "text": "입장"
+            },
+            {
+              "tag": "button",
+              "cls": "tab-btn active",
+              "ratio": 2.31,
+              "fg": "#ffffff",
+              "bg": "#c9a74a",
+              "text": "📅 달력"
+            },
+            {
+              "tag": "button",
+              "cls": "btn btn-primary btn-sm",
+              "ratio": 2.31,
+              "fg": "#ffffff",
+              "bg": "#c9a74a",
+              "text": "교재 등록"
+            },
+            {
+              "tag": "button",
+              "cls": "btn btn-sm btn-primary",
+              "ratio": 2.31,
+              "fg": "#ffffff",
+              "bg": "#c9a74a",
+              "text": "✅ 확정"
+            },
+            {
+              "tag": "button",
+              "cls": "btn btn-sm btn-primary",
+              "ratio": 2.31,
+              "fg": "#ffffff",
+              "bg": "#c9a74a",
+              "text": "저장"
+            },
+            {
+              "tag": "button",
+              "cls": "btn btn-primary btn-sm",
+              "ratio": 2.31,
+              "fg": "#ffffff",
+              "bg": "#c9a74a",
+              "text": "확인"
+            },
+            {
+              "tag": "button",
+              "cls": "btn btn-primary",
+              "ratio": 2.31,
+              "fg": "#ffffff",
+              "bg": "#c9a74a",
+              "text": "저장"
+            },
+            {
+              "tag": "button",
+              "cls": "btn btn-primary",
+              "ratio": 2.31,
+              "fg": "#ffffff",
+              "bg": "#c9a74a",
+              "text": "배정"
+            },
+            {
+              "tag": "button",
+              "cls": "btn btn-sm",
+              "ratio": 2.31,
+              "fg": "#ffffff",
+              "bg": "#c9a74a",
+              "text": "프린트 과제"
+            },
+            {
+              "tag": "button",
+              "cls": "btn btn-primary",
+              "ratio": 2.31,
+              "fg": "#ffffff",
+              "bg": "#c9a74a",
+              "text": "등록 및 정답 추출"
+            }
+          ],
+          "top_colors": [
+            {
+              "color": "#aeb9cd",
+              "count": 47
+            },
+            {
+              "color": "#1b3057",
+              "count": 19
+            },
+            {
+              "color": "#f8f9fb",
+              "count": 18
+            },
+            {
+              "color": "#c9a74a",
+              "count": 12
+            },
+            {
+              "color": "#09142f",
+              "count": 10
+            },
+            {
+              "color": "#ffffff",
+              "count": 10
+            },
+            {
+              "color": "#10213f",
+              "count": 7
+            },
+            {
+              "color": "#22c55e",
+              "count": 1
+            }
+          ],
+          "console_errors": [
+            {
+              "type": "error",
+              "text": "Access to fetch at 'https://academymanager-production.up.railway.app/api/teachers' from origin 'http://127.0.0.1:8000' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource."
+            },
+            {
+              "type": "error",
+              "text": "Failed to load resource: net::ERR_FAILED"
+            }
+          ],
+          "console_warnings": [
+            {
+              "type": "warning",
+              "text": "[채점관리] 채점 서버 연결 실패: Failed to fetch"
+            }
+          ],
+          "page_errors": [],
+          "request_failures": [
+            {
+              "url": "https://unpkg.com/mathlive@0.108.3/mathlive.min.js",
+              "method": "HEAD",
+              "failure": {
+                "errorText": "net::ERR_ABORTED"
+              }
+            },
+            {
+              "url": "https://academymanager-production.up.railway.app/api/teachers",
+              "method": "GET",
+              "failure": {
+                "errorText": "net::ERR_FAILED"
+              }
+            }
+          ],
+          "old_brand_hits": []
+        }
+      }
+    },
+    "parent_portal": {
+      "route": "/parent-portal/",
+      "modes": {
+        "desktop": {
+          "url": "http://127.0.0.1:8000/parent-portal/",
+          "screenshot": "c:\\Users\\전재윤\\Desktop\\출석관리 앱\\qa-artifacts\\parent_portal-desktop.png",
+          "title": "하이로드 수학 | 학부모 포털",
+          "body_text_length": 119,
+          "has_horizontal_overflow": false,
+          "overflowing_elements": [],
+          "low_contrast_samples": [],
+          "top_colors": [
+            {
+              "color": "#b7c2d8",
+              "count": 12
+            },
+            {
+              "color": "#ffffff",
+              "count": 8
+            },
+            {
+              "color": "#e8edf8",
+              "count": 5
+            },
+            {
+              "color": "#8393b0",
+              "count": 3
+            },
+            {
+              "color": "#09142f",
+              "count": 1
+            },
+            {
+              "color": "#c9a74a",
+              "count": 1
+            }
+          ],
+          "console_errors": [],
+          "console_warnings": [],
+          "page_errors": [],
+          "request_failures": [],
+          "old_brand_hits": []
+        },
+        "mobile": {
+          "url": "http://127.0.0.1:8000/parent-portal/",
+          "screenshot": "c:\\Users\\전재윤\\Desktop\\출석관리 앱\\qa-artifacts\\parent_portal-mobile.png",
+          "title": "하이로드 수학 | 학부모 포털",
+          "body_text_length": 119,
+          "has_horizontal_overflow": false,
+          "overflowing_elements": [],
+          "low_contrast_samples": [],
+          "top_colors": [
+            {
+              "color": "#b7c2d8",
+              "count": 12
+            },
+            {
+              "color": "#ffffff",
+              "count": 8
+            },
+            {
+              "color": "#e8edf8",
+              "count": 5
+            },
+            {
+              "color": "#8393b0",
+              "count": 3
+            },
+            {
+              "color": "#09142f",
+              "count": 1
+            },
+            {
+              "color": "#c9a74a",
+              "count": 1
+            }
+          ],
+          "console_errors": [],
+          "console_warnings": [],
+          "page_errors": [],
+          "request_failures": [],
+          "old_brand_hits": []
+        }
+      }
+    },
+    "homework": {
+      "route": "/homework/",
+      "modes": {
+        "desktop": {
+          "url": "http://127.0.0.1:8000/homework/",
+          "screenshot": "c:\\Users\\전재윤\\Desktop\\출석관리 앱\\qa-artifacts\\homework-desktop.png",
+          "title": "하이로드 수학 | 숙제 제출",
+          "body_text_length": 117,
+          "has_horizontal_overflow": false,
+          "overflowing_elements": [],
+          "low_contrast_samples": [
+            {
+              "tag": "button",
+              "cls": "",
+              "ratio": 2.31,
+              "fg": "#ffffff",
+              "bg": "#c9a74a",
+              "text": "처음으로 돌아가기"
+            }
+          ],
+          "top_colors": [
+            {
+              "color": "#ffffff",
+              "count": 10
+            },
+            {
+              "color": "#e8edf8",
+              "count": 6
+            },
+            {
+              "color": "#b7c2d8",
+              "count": 6
+            },
+            {
+              "color": "#8393b0",
+              "count": 3
+            },
+            {
+              "color": "#09142f",
+              "count": 1
+            },
+            {
+              "color": "#c9a74a",
+              "count": 1
+            }
+          ],
+          "console_errors": [],
+          "console_warnings": [],
+          "page_errors": [],
+          "request_failures": [],
+          "old_brand_hits": []
+        },
+        "mobile": {
+          "url": "http://127.0.0.1:8000/homework/",
+          "screenshot": "c:\\Users\\전재윤\\Desktop\\출석관리 앱\\qa-artifacts\\homework-mobile.png",
+          "title": "하이로드 수학 | 숙제 제출",
+          "body_text_length": 117,
+          "has_horizontal_overflow": false,
+          "overflowing_elements": [],
+          "low_contrast_samples": [
+            {
+              "tag": "button",
+              "cls": "",
+              "ratio": 2.31,
+              "fg": "#ffffff",
+              "bg": "#c9a74a",
+              "text": "처음으로 돌아가기"
+            }
+          ],
+          "top_colors": [
+            {
+              "color": "#ffffff",
+              "count": 10
+            },
+            {
+              "color": "#e8edf8",
+              "count": 6
+            },
+            {
+              "color": "#b7c2d8",
+              "count": 6
+            },
+            {
+              "color": "#8393b0",
+              "count": 3
+            },
+            {
+              "color": "#09142f",
+              "count": 1
+            },
+            {
+              "color": "#c9a74a",
+              "count": 1
+            }
+          ],
+          "console_errors": [],
+          "console_warnings": [],
+          "page_errors": [],
+          "request_failures": [],
+          "old_brand_hits": []
+        }
+      }
+    }
+  }
+}

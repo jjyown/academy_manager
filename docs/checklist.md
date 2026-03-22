@@ -2,6 +2,15 @@
 
 - 문서 기준일: 2026-03-22
 ## 공통 품질 체크
+- [x] 선생님 선택 화면 QR → 스캔 → 닫기 → 선생님 선택 복귀(2026-03-22): 상단 QR → **`showQRPasswordModal`** → 모달에서 PIN → **`confirmQRPassword`** → `setCurrentTeacher` → **`openQRScanPage()`**(배포본/ZIP 동일)·`openedFromTeacherSelect`·닫기 시 `TEACHER_SELECT` — `node --check qr-attendance.js` PASS · 실기기 확인 권장
+- [x] `isQRScanPageOpen` 오판으로 토스트·확인창 전부 차단(2026-03-22): **인라인 `display`만** 판별(GitHub `origin/main`과 동일 원칙, `getComputedStyle` 단독은 CSS flex 오판 가능)·미선택 시 `showConfirm`+드롭다운 포커스 — `node --check script.js` + `qr-attendance.js` PASS · 미선택/미입력 시 안내 노출 실기기 확인 권장
+- [x] 선생님 선택 QR 버튼(2026-03-22): **`onclick="showQRPasswordModal()"`** + `.qr-teacher-select-top-btn`·`z-index:100`(ZIP·Vercel과 동일) — 별도 `teacher-select-qr-btn` / `bindTeacherSelectQrButton` 없음
+- [x] 선생님 선택 QR 가시성·readerWidth(2026-03-22): 일정 로드 전 **QR 페이지 선표시**·`scheduleStartQRScanner`·폭 폴백·`qrAttendanceTeacherIdOverride`·`ensureQrScanFullyClosed`/닫기 복구 — `node --check qr-attendance.js` PASS · 실기기 선생님 선택→QR·메인→QR·닫기 동선 확인 권장
+- [x] QR 오버레이·카메라 메인 잔류 방지(2026-03-22): `ensureQrScanFullyClosed` + `navigateToPage`/`setCurrentTeacher` + video 트랙 보조 정지 + 닫기 PIN 폴백 — `node --check` PASS · 실기기 입장·닫기 재확인 권장
+- [x] QR 닫기 CSS 충돌 해결(2026-03-22): `#qr-scan-page.auth-page` `display:flex !important` 제거 + `setQrScanPageDisplayVisible`/`setProperty` · `isQRScanPageOpen`·재석확인 computed 보강 — `node --check script.js` + `node --check qr-attendance.js` PASS · 실기기 닫기·새로고침 확인 권장
+- [x] 자동결석 보정 출석 조회 병합(2026-03-22): `getMergedAttendanceRecordForAutoAbsentSlot`로 슬롯당 1회 조회 — `node --check script.js` PASS · Network 스팸 완화 실기기 확인 권장
+- [x] 출석 `attendance_records` **N+1·묶음 조회 개선** — **문서 인지**(2026-03-22): `docs/plan.md`·`docs/context.md`에 확장 대비 권장 방향·후속 기록. **구현은 후속**(미스캔·핫 패스 우선 등). 체감 시 Gate A~B로 범위 확정
+- [x] 선생님 선택 비밀번호 후 자동 QR·카메라 방지(2026-03-22): `qr-attendance.js` — `confirmQRPassword`/세션 경로에서 `openQRScanPage` 제거, `closeQRScanPage`에서 `await stopQRScannerForModeChange`; 실기기 입장→메인만·QR 버튼으로 카메라 확인 권장
 - [x] QR 스캔 전체화면 시 닫기 숨김(2026-03-22): `qr-attendance.js`·`style.css`·`index.html` — `fullscreenchange`·페이지 오픈 동기화; 실기기 전체화면 전환 후 닫기 노출 확인 권장
 - [x] QR 스캔 헤더 여백·안내 문구 제거(2026-03-22): `index.html`·`style.css`·`mobile.css` — 제목·닫기 상단 패딩, 「상단 제목을…」힌트 삭제; 실기기 여백 확인 권장
 - [x] QR 스캔 종료·카메라 전환 PIN + 2열 레이아웃(2026-03-22): `qr-attendance.js`(`resolveQrPinVerificationTarget`, `requireAdmin`, 원장+일반교사 프로필)·`style.css`(560px+ dual-mode, 키보드 1열은 599px 이하만) — `node --check qr-attendance.js` PASS · 실기기 관리자 PIN·태블릿 좌우 배치 확인 권장
@@ -72,6 +81,7 @@
 ## 테스트/검증 결과 기록
 | 날짜 | 작업 | 검증 방법 | 결과 | 비고 |
 |---|---|---|---|---|
+| 2026-03-22 | AUTO-20260322(staged 172개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-03-22 | AUTO-20260322(staged 7개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-03-22 | AUTO-20260322(staged 5개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-03-22 | QR 스캔 관리자 PIN·2열 레이아웃 | `node --check qr-attendance.js` + `mapVerifyTeacherPinFailureToMessage` 연동 | PASS(코드) | 실기기: 원장+일반교사 프로필·태블릿 좌우 배치 확인 권장 |

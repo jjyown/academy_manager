@@ -416,7 +416,10 @@ textarea:focus:not(:focus-visible) {
 /* QR 스캔 전체화면: 콘텐츠(카메라+전화 인증)가 뷰포트보다 길 때 세로 스크롤 허용
    (모바일 주소창 접기·하단 키패드까지 스와이프 접근, .auth-page 기본은 overflow 없음) */
 #qr-scan-page.auth-page {
-    display: flex !important;
+    /* 선생님 선택·일반 모달(≤10050) 위, 토스트(.qr-scan-toast 100000) 아래 — JS에서도 동일 계층 setProperty */
+    z-index: 90000 !important;
+    /* display는 !important 금지: JS에서 닫기 시 style.display='none'이 반드시 적용되어야 함(이전: !important로 닫기 무효) */
+    display: flex;
     flex-direction: column !important;
     /* 기본: 좁은 화면은 전폭(stretch). 태블릿+는 아래 미디어쿼리에서 가운데 정렬 */
     align-items: stretch !important;
@@ -470,6 +473,37 @@ textarea:focus:not(:focus-visible) {
     padding: 40px 36px;
     box-shadow: var(--shadow-xl);
     width: 100%;
+}
+
+/* 선생님 선택 카드: DOM 마지막에 두어 위에 그려지게 + 큰 z-index로 다른 레이어 차단 */
+#teacher-select-page .auth-box {
+    overflow: visible;
+    isolation: isolate;
+}
+#teacher-select-page .auth-box .qr-teacher-select-top-btn {
+    position: absolute;
+    top: 18px;
+    right: 18px;
+    z-index: 100 !important;
+    width: 42px;
+    height: 42px;
+    padding: 0;
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 17px;
+    color: #fff;
+    pointer-events: auto;
+    background: linear-gradient(135deg, var(--primary), var(--primary-end));
+    box-shadow: 0 4px 12px rgba(17, 55, 119, 0.35);
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+#teacher-select-page .auth-box .qr-teacher-select-top-btn:hover {
+    transform: scale(1.08);
+    box-shadow: 0 6px 18px rgba(17, 55, 119, 0.45);
 }
 
 .auth-logo {
@@ -5528,6 +5562,17 @@ textarea:focus:not(:focus-visible) {
     z-index: 999999 !important;
     padding: 20px;
     animation: confirmFadeIn 0.2s ease;
+}
+
+/* 숨김일 때는 반드시 클릭 통과(잔류·투명 상태에서 하위 버튼이 막히는 현상 방지) */
+#confirm-dialog[style*='display: none'],
+#confirm-dialog[style*='display:none'] {
+    pointer-events: none !important;
+}
+
+#initial-loader[style*='display: none'],
+#initial-loader[style*='display:none'] {
+    pointer-events: none !important;
 }
 
 .confirm-card {
