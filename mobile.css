@@ -909,10 +909,35 @@
         font-size: 15px;
     }
 
-    /* --- QR Scan Page --- */
+    /* --- QR Scan Page (모바일 세로 스크롤·주소창 접기 보조) --- */
+    #qr-scan-page.qr-scan-page-wrap {
+        padding: 10px 10px 12px !important;
+    }
     #qr-scan-page > div,
     .qr-scan-layout {
-        padding: 12px !important;
+        padding: 8px 4px 12px !important;
+        /* 스크롤 가능한 총 높이를 뷰포트보다 크게: 스와이프 반경·하단 패널 접근 */
+        min-height: calc(100dvh + min(45vh, 320px));
+        box-sizing: border-box;
+    }
+    .qr-scan-scroll-spacer {
+        display: block;
+        width: 100%;
+        min-height: clamp(100px, 28vh, 260px);
+        flex-shrink: 0;
+    }
+    #qr-scan-page .qr-reader-host {
+        max-height: min(52vh, 420px);
+        margin-left: auto;
+        margin-right: auto;
+    }
+    /* html5-qrcode가 캔버스/비디오에 touch 차단 시 부모 스크롤이 막힘 → 세로 팬 허용 */
+    #qr-scan-page #qr-reader video,
+    #qr-scan-page #qr-reader canvas {
+        touch-action: pan-y pinch-zoom !important;
+    }
+    #qr-scan-page .qr-scan-header {
+        margin-bottom: 12px !important;
     }
 
     #qr-scan-page h2 {

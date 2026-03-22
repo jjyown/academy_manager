@@ -14,6 +14,8 @@
 ## 최근 의사결정 로그
 | 날짜 | 결정 | 이유 | 영향 범위 |
 |---|---|---|---|
+| 2026-03-22 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/checklist.md, docs/context.md, docs/plan.md, index.html, mobile.css 외 2개 |
+| 2026-03-22 | 전문가 합의(UIUX/프론트): QR 모바일에서 **스크롤 반경이 작고** 카메라 위 스와이프가 안 먹는 현상은 콘텐츠 높이 여유 부족 + html5-qrcode **video/canvas touch 차단**이 흔한 원인 → **min-height·하단 스페이서·카메라 max-height**로 스와이프 거리를 늘리고 **MutationObserver로 touch-action 보정** | 사용자 보고(위아래 스크롤 반경 부족·전체화면/주소창 접기 어려움) | `style.css`, `mobile.css`, `index.html`, `qr-attendance.js` |
 | 2026-03-22 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | SUPABASE_COMPLETE_SETUP.sql, SUPABASE_HOLIDAYS_MULTI_FONT_20260322.sql, auth.js, database.js, docs/checklist.md 외 7개 |
 | 2026-03-22 | 전문가 합의(UIUX/프론트): QR 스캔 `#qr-scan-page`는 로그인용 `.auth-page`와 동일 클래스를 쓰며 **고정 전체화면+overflow 미설정**이면 모바일에서 세로 스크롤이 생기지 않아 하단 전화 인증·키패드·브라우저 UI 접근이 어렵다 → **QR 전용으로 `overflow-y: auto`·터치 모멘텀·`100dvh`** 로 스크롤 컨테이너를 명시한다 | 사용자 보고(모바일에서 스크롤 불가·전체화면 제스처 불가) | `style.css` `#qr-scan-page.auth-page` |
 | 2026-03-22 | 재석 확인은 **5분 전·정각** 이중 알림으로 운영 누락을 줄이고, 선생님 **지각** 판정 후에는 **수업 중 학생 QR**로 실제 도착 시각을 반영한다. **지각 후 QR 미인증**은 수업 종료 시점에 **결석**으로 확정한다. **당일 마지막 수업 종료 이후** 도착한 스캔은 앞선 정규 일정을 **결석** 처리하고 **수업종료 후 임시** 출석을 추가해 사후 정리가 가능하게 한다 | 사용자 요청(알림 시점·지각-인증 차이 표시·지연 도착 처리·무응답 지각의 결석 확정) | `qr-attendance.js` |

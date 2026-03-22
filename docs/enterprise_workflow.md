@@ -91,6 +91,7 @@
   - 작업 단위 1건 완료 시 자동 로그를 본 문서 상단에 추가한다.
 
 ## 9) 자동 업데이트 로그
+- 2026-03-22 | AUTO-20260322 | staged 7개 파일 기준 문서 연동 자동기록 | gates: A:PASS,B:PASS,C:PASS,D:PASS,E:PASS | note: 연동 자동 기록
 - 2026-03-22 | AUTO-20260322 | staged 12개 파일 기준 문서 연동 자동기록 | gates: A:PASS,B:PASS,C:PASS,D:PASS,E:PASS | note: 연동 자동 기록
 - 2026-03-22 | QA-20260322-EXPERT2 | 전문가 2차 정적 검사(eval·JWT·CORS·innerHTML 패턴, 문서 반영) | gates: A:PASS,C:PARTIAL,D:N/A,E:PASS | note: 코드 변경 없음
 - 2026-03-22 | QA-20260322 | 종합점검: node--check, compileall, E2E(tmp-e2e-runner), HTTP스모크 4경로 | gates: C:PASS,E:PASS | note: E2E는127.0.0.1:8000선기동필요

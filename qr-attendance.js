@@ -1746,6 +1746,10 @@ window.closeQRScanPage = async function() {
         // 페이지 숨기기
         const scanPageEl = document.getElementById('qr-scan-page');
         if (scanPageEl) scanPageEl.style.display = 'none';
+        if (window._qrReaderTouchObserver) {
+            try { window._qrReaderTouchObserver.disconnect(); } catch (_) {}
+            window._qrReaderTouchObserver = null;
+        }
         unbindQRViewportGuard();
         setQRCameraActionsVisible(false);
         clearQRCameraActionsAutoHideTimer();
@@ -1775,6 +1779,24 @@ window.closeQRScanPage = async function() {
     }
 }
 
+/** html5-qrcode가 video/canvas에 touch-action:none을 쓰면 모바일에서 부모 세로 스크롤이 막힘 → 보정 + DOM 변화 감시 */
+function patchQRScanTouchScrollAssist() {
+    const reader = document.getElementById('qr-reader');
+    if (!reader) return;
+    const apply = () => {
+        reader.querySelectorAll('video, canvas').forEach((el) => {
+            el.style.setProperty('touch-action', 'pan-y pinch-zoom', 'important');
+        });
+    };
+    apply();
+    if (window._qrReaderTouchObserver) {
+        try { window._qrReaderTouchObserver.disconnect(); } catch (_) {}
+        window._qrReaderTouchObserver = null;
+    }
+    window._qrReaderTouchObserver = new MutationObserver(apply);
+    window._qrReaderTouchObserver.observe(reader, { childList: true, subtree: true });
+}
+
 // QR 스캐너 시작
 function startQRScanner() {
     if (html5QrcodeScanner) {
@@ -1786,9 +1808,11 @@ function startQRScanner() {
         // ★ QR 스캔 속도 최적화 설정
         const readerEl = document.getElementById('qr-reader');
         const readerWidth = readerEl ? readerEl.clientWidth : 300;
-        const qrboxSize = Math.max(Math.min(Math.floor(readerWidth * 0.75), 300), 150);
+        const narrowMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
+        const qrboxCap = narrowMobile ? Math.min(260, Math.floor(readerWidth * 0.72)) : 300;
+        const qrboxSize = Math.max(Math.min(Math.floor(readerWidth * 0.75), qrboxCap), 150);
         
-        console.log('[startQRScanner] readerWidth:', readerWidth, 'qrboxSize:', qrboxSize);
+        console.log('[startQRScanner] readerWidth:', readerWidth, 'qrboxSize:', qrboxSize, 'narrowMobile:', narrowMobile);
         
         const config = {
             fps: 20,  // ★ 10 → 20fps (스캔 빈도 2배 증가)
@@ -1807,7 +1831,15 @@ function startQRScanner() {
             config,
             onQRScanSuccess,
             onQRScanFailure
-        ).catch(err => {
+        ).then(() => {
+            requestAnimationFrame(() => {
+                patchQRScanTouchScrollAssist();
+                const page = document.getElementById('qr-scan-page');
+                if (page) {
+                    page.scrollTop = 0;
+                }
+            });
+        }).catch(err => {
             console.error('[startQRScanner] 카메라 시작 실패:', err);
             showCameraFallbackUI();
         });

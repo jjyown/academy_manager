@@ -120,6 +120,18 @@ textarea:focus:not(:focus-visible) {
 .qr-toast-time { font-size: 12px; color: var(--gray); }
 
 .qr-scan-page-wrap { padding: 20px; }
+/* QR 리더: 모바일에서 max-height는 mobile.css에서 제한 */
+.qr-reader-host {
+    width: 100%;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+    position: relative;
+    touch-action: pan-y pinch-zoom;
+}
+.qr-scan-scroll-spacer {
+    display: none;
+}
 .qr-scan-layout {
     width: 100%;
     max-width: 960px;
@@ -365,15 +377,28 @@ textarea:focus:not(:focus-visible) {
     flex-direction: column !important;
     align-items: stretch !important;
     justify-content: flex-start !important;
+    /* 뷰포트 단위 혼용: iOS/Safari 주소창 표시·숨김에 따른 높이 변동 대응 */
     height: 100vh !important;
     height: 100dvh !important;
+    min-height: 100vh !important;
+    min-height: 100dvh !important;
     max-height: 100dvh !important;
-    overflow-y: auto !important;
+    max-height: 100vh !important;
+    overflow-y: scroll !important;
     overflow-x: hidden !important;
     -webkit-overflow-scrolling: touch;
-    overscroll-behavior-y: contain;
+    overscroll-behavior-y: auto;
+    touch-action: pan-y pinch-zoom;
+    padding-top: env(safe-area-inset-top, 0px);
     padding-bottom: env(safe-area-inset-bottom, 0px);
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
     box-sizing: border-box !important;
+}
+#qr-scan-page.auth-page .qr-scan-layout {
+    flex: 0 0 auto;
+    width: 100%;
+    min-height: min-content;
 }
 
 .auth-container {

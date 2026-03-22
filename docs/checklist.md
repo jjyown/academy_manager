@@ -2,7 +2,7 @@
 
 - 문서 기준일: 2026-03-22
 ## 공통 품질 체크
-- [x] QR 스캔 페이지 모바일 세로 스크롤(2026-03-22): `style.css` `#qr-scan-page.auth-page` — 스크롤·`100dvh`·safe-area; 실기기에서 카메라 아래 전화 인증까지 스와이프·주소창 접기 확인 권장
+- [x] QR 스캔 페이지 모바일 세로 스크롤(2026-03-22): `style.css`/`mobile.css`/`qr-attendance.js`/`index.html` — 스크롤 여유·스페이서·카메라 높이·video touch 보정; 실기기 스와이프·주소창 접기 확인 권장
 - [x] 재석 확인 이중(5분 전+정각)·지각 후 QR/무인증 결석·수업종료 후 임시(2026-03-22): `qr-attendance.js` — `node --check qr-attendance.js` PASS · **실기기 시나리오**(이중 알림·지각→QR 메모·지각→종료 결석·종료 후 스캔)는 운영에서 확인 권장
 - [x] 출석 이력 처리방식·임시 체크 UX(2026-03-22): 4종 라벨·자리확인 배지 제거·원장만 처리/인증시간 편집·임시 체크 빨간 테두리·문구 통일 — `node --check script.js` + `node --check qr-attendance.js` PASS
 - [x] `verify-teacher-pin` **144~148차**(응답 정책·배포·JWT 설정·`invokeVerifyTeacherPin`): 코드·배포·대시보드 설정·**메인 진입 사용자 확인** (2026-03-22)
@@ -67,6 +67,7 @@
 ## 테스트/검증 결과 기록
 | 날짜 | 작업 | 검증 방법 | 결과 | 비고 |
 |---|---|---|---|---|
+| 2026-03-22 | AUTO-20260322(staged 7개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-03-22 | AUTO-20260322(staged 12개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-03-22 | 재석 확인 이중·지각/QR·종료 후 임시 | `node --check qr-attendance.js` + 코드 경로 점검(`pendingTimersDetail`, `scheduleLateFinalizeAbsentIfNoScan`, `saveEmergencyAttendanceAfterAllClassesEnded`) | PASS(코드) | 실기기: 5분 전/정각 알림·지각 후 스캔 메모·무스캔 결석·마지막 종료 후 스캔 권장 |
 | 2026-03-22 | 날짜 일정 다중+글자크기 | `node --check script.js database.js` + SQL 마이그레이션 파일 정적 검토 | PASS(코드) | **운영**: `SUPABASE_HOLIDAYS_MULTI_FONT_20260322.sql` 실행 후 다중 저장·`font_size` 조회 확인 |

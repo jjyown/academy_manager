@@ -1848,7 +1848,7 @@
                 <div class="qr-scan-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                     <div class="qr-header-title-wrap">
                         <h2 id="qr-fullscreen-gesture-zone" class="qr-header-title-gesture" ondblclick="toggleQRFullscreen()" ontouchend="handleQRFullscreenGestureTouch(event)" style="color: white; margin: 0;">QR 코드 스캔</h2>
-                        <div class="qr-header-gesture-hint">상단 제목을 빠르게 2번 터치하면 전체화면 전환</div>
+                        <div class="qr-header-gesture-hint">상단 제목을 빠르게 2번 터치하면 전체화면 전환 · 화면을 위·아래로 스와이프하면 주소창이 접히거나 아래 입력란이 보이기 쉽습니다</div>
                     </div>
                     <div id="qr-camera-actions" class="qr-camera-actions-panel qr-camera-actions-hidden" aria-hidden="true">
                         <button onclick="switchCamera()" id="qr-switch-camera-btn" class="qr-top-btn qr-top-btn-info">
@@ -1867,7 +1867,7 @@
                      aria-hidden="true"></div>
 
                 <div id="qr-scan-mode-qr" class="qr-scan-mode-panel active">
-                    <div id="qr-reader" style="width: 100%; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.3);"></div>
+                    <div id="qr-reader" class="qr-reader-host"></div>
                     <!-- 하단 결과 패널 제거: 상단 토스트만 사용 -->
                 </div>
 
@@ -1896,6 +1896,8 @@
                     </div>
                 </div>
             </div>
+            <!-- 모바일: 세로 스크롤 여유(주소창 접기·하단 UI) — 콘텐츠보다 길게 잡아 스와이프 반경 확대 -->
+            <div class="qr-scan-scroll-spacer" aria-hidden="true"></div>
         </div>
     </div>
 

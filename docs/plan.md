@@ -1043,7 +1043,9 @@
 - [ ] 다음 작업자가 바로 이어서 할 수 있게 문서가 갱신되었다.
 
 ## 변경 이력
+- 2026-03-22 - AUTO-20260322(staged 7개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-22 - AUTO-20260322(staged 12개 파일 기준 문서 연동 자동기록): 연동 자동 기록
+- 2026-03-22 - **QR 스캔 모바일 스크롤·전체화면 보조(2차)**: `min-height: calc(100dvh+…)`·하단 `.qr-scan-scroll-spacer`·카메라 `max-height`·`touch-action` 보정·`MutationObserver`로 video/canvas 터치 패치(`style.css`·`mobile.css`·`index.html`·`qr-attendance.js`). 스와이프 반경·주소창 접기 체감 개선.
 - 2026-03-22 - **QR 스캔 페이지 모바일 세로 스크롤**: `#qr-scan-page`에 `overflow-y: auto`·`-webkit-overflow-scrolling: touch`·`100dvh`·`align-items: stretch` 등 적용. 기존 `.auth-page`의 고정 뷰포트+overflow 없음 때문에 카메라+전화 인증 영역이 길 때 스크롤·주소창 접기 동작이 막히던 문제 완화(`style.css`).
 - 2026-03-22 - **재석 확인 이중 알림·지각 후 QR·수업종료 후 임시**: 일정마다 시작 **5분 전**+**정각** 재석 확인(`showAttendanceCheckNotification` phase). 지각 저장 시 수업 종료까지 `qr_scanned` 없으면 **결석** 확정 타이머. 지각+미스캔 상태에서 학생 QR 시 시작 시각 대비 **지연 분** 메모·상태 갱신. 마지막 수업 종료 후 스캔 시 앞 슬롯 **결석**+`[수업종료후임시]` 출석. (`qr-attendance.js`)
 - 2026-03-22 - **출석 이력·임시 체크 UX**: 처리방식 표기를 QR·번호입력·선생님 체크(재석/자리확인 시 `선생님 체크 · 자리확인`)·임시 체크로 통일하고 별도 자리확인 배지 제거. 원장 로그인(`current_user_role=admin`)일 때만 월 출석 이력에서 처리시간·인증시간 `datetime-local` 수정 및 DB 반영(`saveAttendanceHistoryTimeField`). 임시 체크는 이력 카드·시간표 상단 배너·임시 체크 확정 대기 행에 빨간 테두리로 표시(`style.css`). QR 운영 대시보드/토스트/문구를 "임시 체크"로 통일(`script.js`, `qr-attendance.js`).
