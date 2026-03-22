@@ -568,12 +568,21 @@ window.showMainApp = async function(forceTeacherSelect = false) {
 
         const authPage = document.getElementById('auth-page');
         const teacherPage = document.getElementById('teacher-select-page');
+        const initialLoader = document.getElementById('initial-loader');
+        const showTransitionLoader = () => {
+            if (initialLoader) initialLoader.style.display = 'flex';
+        };
+        const hideTransitionLoader = () => {
+            if (initialLoader) initialLoader.style.display = 'none';
+        };
 
         // 로그인 페이지는 먼저 숨김
         if (authPage) {
             authPage.style.display = 'none';
             authPage.style.visibility = 'hidden';
         }
+        // 선생님 목록·메인 진입 동안 전체 로딩 오버레이(체감 대기 완화)
+        showTransitionLoader();
 
         // 선생님 목록 로드 (재시도 포함)
         let list = [];
@@ -619,10 +628,13 @@ window.showMainApp = async function(forceTeacherSelect = false) {
                 registerForm.style.display = 'none';
             }
         }
+        hideTransitionLoader();
         navigateToPage('TEACHER_SELECT');
     } catch (error) {
         console.error('[showMainApp] 에러:', error);
         console.error('[showMainApp] 에러 스택:', error.stack);
+        const initialLoader = document.getElementById('initial-loader');
+        if (initialLoader) initialLoader.style.display = 'none';
         showToast('메인 앱 전환 중 에러\n\n에러: ' + (error.message || error), 'error');
     }
 };

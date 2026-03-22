@@ -528,36 +528,86 @@ window.deleteSchedulesByTeacherRange = async function(startDate, endDate, teache
 
 // ========== 커스텀 휴일(Holidays) 관련 함수 ==========
 
+/** @deprecated 다중 일정은 insertHolidayToDatabase 사용 */
 window.saveHolidayToDatabase = async function(holidayData) {
+    return window.insertHolidayToDatabase(holidayData);
+};
+
+window.insertHolidayToDatabase = async function(holidayData) {
     try {
         const ownerId = _getOwnerId();
         if (!ownerId) {
-            console.warn('[saveHolidayToDatabase] current_owner_id 없음 - 저장 중단');
+            console.warn('[insertHolidayToDatabase] current_owner_id 없음 - 저장 중단');
             throw new Error('로그인이 필요합니다');
         }
 
+        const fontSize = Number(holidayData.fontSize);
+        const row = {
+            owner_user_id: ownerId,
+            teacher_id: holidayData.teacherId,
+            holiday_date: holidayData.date,
+            holiday_name: holidayData.name,
+            color: holidayData.color || '#ef4444',
+            font_size: Number.isFinite(fontSize) ? Math.min(32, Math.max(8, Math.round(fontSize))) : 13
+        };
+
         const { data, error } = await supabase
             .from('holidays')
-            .upsert({
-                owner_user_id: ownerId,
-                teacher_id: holidayData.teacherId,
-                holiday_date: holidayData.date,
-                holiday_name: holidayData.name,
-                color: holidayData.color || '#ef4444'
-            }, {
-                onConflict: 'owner_user_id,teacher_id,holiday_date',
-                ignoreDuplicates: false
-            })
+            .insert(row)
             .select()
             .single();
 
         if (error) throw error;
         return data;
     } catch (error) {
-        console.error('[saveHolidayToDatabase] 에러:', error);
+        console.error('[insertHolidayToDatabase] 에러:', error);
         throw error;
     }
-}
+};
+
+window.updateHolidayInDatabase = async function(holidayId, patch) {
+    try {
+        const ownerId = _getOwnerId();
+        if (!ownerId) {
+            throw new Error('로그인이 필요합니다');
+        }
+        const fs = patch.fontSize != null ? Number(patch.fontSize) : null;
+        const updateRow = {
+            holiday_name: patch.name,
+            color: patch.color || '#ef4444',
+            ...(Number.isFinite(fs) ? { font_size: Math.min(32, Math.max(8, Math.round(fs))) } : {})
+        };
+        const { data, error } = await supabase
+            .from('holidays')
+            .update(updateRow)
+            .eq('id', holidayId)
+            .eq('owner_user_id', ownerId)
+            .select()
+            .single();
+        if (error) throw error;
+        return data;
+    } catch (error) {
+        console.error('[updateHolidayInDatabase] 에러:', error);
+        throw error;
+    }
+};
+
+window.deleteHolidayFromDatabaseById = async function(holidayId) {
+    try {
+        const ownerId = _getOwnerId();
+        if (!ownerId) throw new Error('로그인이 필요합니다');
+        const { error } = await supabase
+            .from('holidays')
+            .delete()
+            .eq('id', holidayId)
+            .eq('owner_user_id', ownerId);
+        if (error) throw error;
+        return true;
+    } catch (error) {
+        console.error('[deleteHolidayFromDatabaseById] 에러:', error);
+        throw error;
+    }
+};
 
 window.getHolidaysByTeacher = async function(teacherId) {
     try {
@@ -566,10 +616,11 @@ window.getHolidaysByTeacher = async function(teacherId) {
         // 개인 스케줄 + 학원 전체 일정(teacher_id='academy') 모두 조회
         const { data, error } = await supabase
             .from('holidays')
-            .select('id, holiday_date, holiday_name, color, teacher_id')
+            .select('id, holiday_date, holiday_name, color, teacher_id, font_size')
             .eq('owner_user_id', ownerId)
             .in('teacher_id', [teacherId, 'academy'])
-            .order('holiday_date', { ascending: true });
+            .order('holiday_date', { ascending: true })
+            .order('id', { ascending: true });
 
         if (error) throw error;
         return (data || []).map(h => ({
@@ -582,6 +633,7 @@ window.getHolidaysByTeacher = async function(teacherId) {
     }
 }
 
+/** 해당 날짜·teacher 스코프의 사용자 등록 일정 전부 삭제 */
 window.deleteHolidayFromDatabase = async function(teacherId, date) {
     try {
         const ownerId = _getOwnerId();

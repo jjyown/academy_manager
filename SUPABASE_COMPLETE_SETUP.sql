@@ -130,12 +130,13 @@ CREATE TABLE IF NOT EXISTS holidays (
     holiday_date DATE NOT NULL,
     holiday_name TEXT NOT NULL,
     color TEXT DEFAULT '#ef4444',
-    created_at TIMESTAMPTZ DEFAULT now(),
-    UNIQUE(owner_user_id, teacher_id, holiday_date)
+    font_size INTEGER NOT NULL DEFAULT 13,
+    created_at TIMESTAMPTZ DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS idx_holidays_owner ON holidays(owner_user_id);
 CREATE INDEX IF NOT EXISTS idx_holidays_date ON holidays(holiday_date);
+CREATE INDEX IF NOT EXISTS idx_holidays_owner_teacher_date ON holidays(owner_user_id, teacher_id, holiday_date);
 
 -- ============================================================
 -- 7. payments 테이블

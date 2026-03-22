@@ -82,6 +82,11 @@
 - **다음 단계(권장)**: ~~짧은 스모크·페이지 연결~~ → **사용자 확인 PASS**(2026-03-22): 메인 오늘 일정·출석 저장·숙제/채점/학부모 포털 동선. 이후는 운영 중 이슈 발생 시 점검 또는 학생관리·수납 트랙(`docs/plan.md` 인계 요약) 우선순위에 따름.
 - **참고**: `SUPABASE_URL` 프로젝트 ref는 `jzcrpdeomjmytfekcgqu`와 **정확히 일치**해야 함.
 
+### 재석 확인·QR 지각/결석 확장 — 2026-03-22
+- **상태**: 코드 반영 완료(`qr-attendance.js`). 일정당 **수업 시작 5분 전**과 **정각**에 각각 재석 확인 알림(`early`/`start`). 선생님이 **지각** 처리 후 학생이 수업 중 QR 인증하면 메모에 **수업 시작 대비 지연(분)** 반영. **지각만 있고 수업 종료까지 QR 없음** → 종료 후 **결석** 확정. 당일 **마지막 수업 종료 이후** 스캔 시 앞 일정은 **결석**·**수업종료 후 임시** 출석 레코드 추가.
+- **검증**: `node --check qr-attendance.js` PASS. **실기기**에서 이중 알림·지각→QR·지각→무인증·종료 후 스캔 시나리오 권장.
+- **다음 단계**: 운영에서 위 시나리오 스모크 후 이슈 있으면 `docs/context.md`에 기록.
+
 - [ ] 출석 입력/조회 기본 흐름 안정화
 - [ ] 결과 화면(`grading/index.html`) 동작 및 UX 점검
 - [x] 결과 API(`grading-server/routers/results.py`) 검증 강화
@@ -1038,6 +1043,15 @@
 - [ ] 다음 작업자가 바로 이어서 할 수 있게 문서가 갱신되었다.
 
 ## 변경 이력
+- 2026-03-22 - AUTO-20260322(staged 12개 파일 기준 문서 연동 자동기록): 연동 자동 기록
+- 2026-03-22 - **QR 스캔 페이지 모바일 세로 스크롤**: `#qr-scan-page`에 `overflow-y: auto`·`-webkit-overflow-scrolling: touch`·`100dvh`·`align-items: stretch` 등 적용. 기존 `.auth-page`의 고정 뷰포트+overflow 없음 때문에 카메라+전화 인증 영역이 길 때 스크롤·주소창 접기 동작이 막히던 문제 완화(`style.css`).
+- 2026-03-22 - **재석 확인 이중 알림·지각 후 QR·수업종료 후 임시**: 일정마다 시작 **5분 전**+**정각** 재석 확인(`showAttendanceCheckNotification` phase). 지각 저장 시 수업 종료까지 `qr_scanned` 없으면 **결석** 확정 타이머. 지각+미스캔 상태에서 학생 QR 시 시작 시각 대비 **지연 분** 메모·상태 갱신. 마지막 수업 종료 후 스캔 시 앞 슬롯 **결석**+`[수업종료후임시]` 출석. (`qr-attendance.js`)
+- 2026-03-22 - **출석 이력·임시 체크 UX**: 처리방식 표기를 QR·번호입력·선생님 체크(재석/자리확인 시 `선생님 체크 · 자리확인`)·임시 체크로 통일하고 별도 자리확인 배지 제거. 원장 로그인(`current_user_role=admin`)일 때만 월 출석 이력에서 처리시간·인증시간 `datetime-local` 수정 및 DB 반영(`saveAttendanceHistoryTimeField`). 임시 체크는 이력 카드·시간표 상단 배너·임시 체크 확정 대기 행에 빨간 테두리로 표시(`style.css`). QR 운영 대시보드/토스트/문구를 "임시 체크"로 통일(`script.js`, `qr-attendance.js`).
+- 2026-03-22 - **다크 테마: 「새 일정 추가」 가독성**: `var(--primary)`(남색) 대신 밝은 링크색 + `night`/`charcoal` 전용 보정(`style.css` `.dset-btn-add-new`).
+- 2026-03-22 - **날짜 일정(휴일/스케줄) 다중 등록 + 글자 크기**: `holidays` 날짜당 UNIQUE 제거·`font_size` 컬럼 추가 SQL(`SUPABASE_HOLIDAYS_MULTI_FONT_20260322.sql`), `insertHolidayToDatabase`/`updateHolidayInDatabase`/`deleteHolidayFromDatabaseById`, 캘린더 셀에 여러 줄·가변 `font-size`, 날짜 설정 모달에 목록·편집·슬라이더(`index.html`/`script.js`/`database.js`/`style.css`).
+- 2026-03-22 - **관리자 로그인→메인 진입 체감 속도**: `loadAndCleanData`에서 학생·출석 `Promise.all` 병렬화, `setCurrentTeacher`에서 목록에 `teacher_role`이 있으면 DB 재조회 생략, `MAIN_APP` 전환 후 `setTimeout(100)` → `requestAnimationFrame`, `showMainApp`에서 선생님 목록/자동선택 구간에 `initial-loader` 표시 후 선생님 선택 화면에서 해제(`auth.js`+`script.js`).
+- 2026-03-22 - **전문가 관점 2차 정적 검사**: `eval`/`new Function` 미검출, `grading-server/auth.py`에서 `SUPABASE_JWT_SECRET` 미설정 시 `/api/*` JWT 검증이 사실상 통과할 수 있음(운영은 시크릿·CORS_ORIGINS 필수). `innerHTML` 사용이 광범위해 DB·사용자 문자열 보간 경로는 **XSS 이스케이프** 별도 점검 권장. **한계**: 전 라인 수동 리뷰·운영 RLS 실검증·재실행 E2E는 본 항목에 미포함(이전 종합 점검 기록 참고).
+- 2026-03-22 - **종합 점검(에이전트)**: `python qa-artifacts/sync_doc_dates.py` 실행, `node --check`(script/qr-attendance/js/payment/parent-portal/report), `python -m compileall grading-server`, 머지 충돌 마커 `rg` 미검출, 로컬 `python -m http.server 8000` 기준 `tmp-e2e-runner` Playwright(`npm run test:e2e`) **PASS**, 스모크 HTTP 200(`/`, `/grading/`, `/homework/`, `/parent-portal/`). **한계**: 전 파일 라인별 리뷰·운영 Supabase 실쿼리·실계정 브라우저 E2E는 이번 자동 범위에 미포함.
 - 2026-03-22 - AUTO-20260322(staged 69개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-22 - **통합 스모크 PASS(사용자)**: 메인 오늘 일정·학생 출석 저장·메인↔숙제 제출↔채점↔학부모 포털 동선 — `docs/checklist.md`·Gate C 반영
 - 2026-03-22 - 학생관리 148차(401·Bearer·대시보드): `invoke-verify-teacher-pin.js`에서 Bearer에 **publishable anon 키 사용 제거**(JWT가 아니면 게이트웨이 401). **세션 access_token만** Bearer로 사용, `docs/SUPABASE_VERIFY_TEACHER_PIN_DASHBOARD.md`에 Supabase **JWT 검증 끄기** 절차 추가

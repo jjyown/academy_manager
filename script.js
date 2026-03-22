@@ -1839,19 +1839,23 @@ async function setCurrentTeacher(teacher) {
             return;
         }
         
-        // Supabase에서 최신 teacher_role 정보 조회
-        console.log('[setCurrentTeacher] Supabase에서 최신 teacher_role 정보 조회 중...');
-        const { data: latestTeacher, error } = await supabase
-            .from('teachers')
-            .select('teacher_role')
-            .eq('id', teacher.id)
-            .single();
-        
-        if (error) {
-            console.error('[setCurrentTeacher] teacher_role 조회 실패:', error);
-        } else if (latestTeacher) {
-            teacher.teacher_role = latestTeacher.teacher_role || 'teacher';
-            console.log('[setCurrentTeacher] 최신 teacher_role 반영:', teacher.teacher_role);
+        // loadTeachers() 목록에 teacher_role이 이미 있으면 DB 재조회 생략(로그인 직후 진입 체감 속도)
+        if (teacher.teacher_role == null || teacher.teacher_role === '') {
+            console.log('[setCurrentTeacher] Supabase에서 최신 teacher_role 정보 조회 중...');
+            const { data: latestTeacher, error } = await supabase
+                .from('teachers')
+                .select('teacher_role')
+                .eq('id', teacher.id)
+                .single();
+
+            if (error) {
+                console.error('[setCurrentTeacher] teacher_role 조회 실패:', error);
+            } else if (latestTeacher) {
+                teacher.teacher_role = latestTeacher.teacher_role || 'teacher';
+                console.log('[setCurrentTeacher] 최신 teacher_role 반영:', teacher.teacher_role);
+            }
+        } else {
+            console.log('[setCurrentTeacher] teacher_role 목록값 사용:', teacher.teacher_role);
         }
         
         // 기본값 설정 (teacher_role이 없으면 'teacher')
@@ -1921,8 +1925,7 @@ async function setCurrentTeacher(teacher) {
         console.log('[setCurrentTeacher] 5단계: 페이지 전환 중...');
         navigateToPage('MAIN_APP');  // ✅ active_page를 'MAIN_APP'으로 저장
         
-        // DOM이 렌더링될 때까지 약간의 지연
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise((resolve) => requestAnimationFrame(() => resolve()));
         
         // 6단계: UI 업데이트 (레이블)
         console.log('[setCurrentTeacher] 6단계: UI 업데이트 중...');
@@ -3001,33 +3004,74 @@ window.startGoogleAuthForMyInfo = function() {
 }
 
 const defaultColor = '#ef4444';
+const DEFAULT_SCHEDULE_FONT_SIZE = 13;
+
+function normalizeHolidayEntryOne(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const name = String(raw.name || '').trim();
+    if (!name) return null;
+    const fontSize = Number(raw.fontSize != null ? raw.fontSize : raw.font_size);
+    return {
+        id: raw.id != null && raw.id !== '' ? Number(raw.id) : null,
+        name,
+        color: raw.color || defaultColor,
+        scheduleType: raw.scheduleType === 'personal' ? 'personal' : 'academy',
+        fontSize: Number.isFinite(fontSize) ? Math.min(32, Math.max(8, Math.round(fontSize))) : DEFAULT_SCHEDULE_FONT_SIZE
+    };
+}
+
+function normalizeHolidayDayToArray(raw) {
+    if (raw == null) return [];
+    if (typeof raw === 'string') {
+        const n = raw.trim();
+        return n ? [{ id: null, name: n, color: defaultColor, scheduleType: 'academy', fontSize: DEFAULT_SCHEDULE_FONT_SIZE }] : [];
+    }
+    if (Array.isArray(raw)) {
+        return raw.map(normalizeHolidayEntryOne).filter(Boolean);
+    }
+    const one = normalizeHolidayEntryOne(raw);
+    return one ? [one] : [];
+}
+
+/** 사용자 등록 일정만 (공공 API/양력 폴백 제외) */
+function getCustomHolidayEntriesOnly(dateStr) {
+    if (!customHolidays || !Object.prototype.hasOwnProperty.call(customHolidays, dateStr)) return [];
+    return normalizeHolidayDayToArray(customHolidays[dateStr]);
+}
+
+function mergePublicHolidayEntries(dateStr) {
+    const [year] = dateStr.split('-');
+    if (apiHolidayCache[year] && apiHolidayCache[year][dateStr]) {
+        return [{ name: apiHolidayCache[year][dateStr], color: defaultColor, scheduleType: 'public', fontSize: DEFAULT_SCHEDULE_FONT_SIZE, id: null }];
+    }
+    const mmdd = dateStr.substring(5);
+    const solarHolidays = { '01-01': '신정', '03-01': '삼일절', '05-05': '어린이날', '06-06': '현충일', '08-15': '광복절', '10-03': '개천절', '10-09': '한글날', '12-25': '성탄절' };
+    if (solarHolidays[mmdd]) {
+        return [{ name: solarHolidays[mmdd], color: defaultColor, scheduleType: 'public', fontSize: DEFAULT_SCHEDULE_FONT_SIZE, id: null }];
+    }
+    if (LUNAR_HOLIDAYS_DB[year] && LUNAR_HOLIDAYS_DB[year][mmdd]) {
+        return [{ name: LUNAR_HOLIDAYS_DB[year][mmdd], color: defaultColor, scheduleType: 'public', fontSize: DEFAULT_SCHEDULE_FONT_SIZE, id: null }];
+    }
+    return [];
+}
+
+/** 캘린더 셀 표시용: 사용자 일정 우선, 없으면 공휴일 */
+function getHolidayCellEntries(dateStr) {
+    const custom = getCustomHolidayEntriesOnly(dateStr);
+    if (custom.length) return custom;
+    return mergePublicHolidayEntries(dateStr);
+}
 
 function getHolidayInfo(dateStr) {
-    // 1순위: 직접 등록한 커스텀 스케줄/공휴일
-    if (customHolidays.hasOwnProperty(dateStr)) {
-        const raw = customHolidays[dateStr];
-        if (typeof raw === 'string') return { name: raw, color: defaultColor };
-        return { name: raw.name || '', color: raw.color || defaultColor };
-    }
-    
-    const [year] = dateStr.split('-');
-    
-    // 2순위: 공공데이터 API 캐시 (실시간 공휴일 — 대체공휴일, 임시공휴일 포함)
-    if (apiHolidayCache[year] && apiHolidayCache[year][dateStr]) {
-        return { name: apiHolidayCache[year][dateStr], color: defaultColor };
-    }
-    
-    // 3순위: 하드코딩 양력 공휴일 (API 키 없을 때 폴백)
-    const mmdd = dateStr.substring(5); // "MM-DD"
-    const solarHolidays = { "01-01": "신정", "03-01": "삼일절", "05-05": "어린이날", "06-06": "현충일", "08-15": "광복절", "10-03": "개천절", "10-09": "한글날", "12-25": "성탄절" };
-    if (solarHolidays[mmdd]) return { name: solarHolidays[mmdd], color: defaultColor };
-    
-    // 4순위: 하드코딩 음력 공휴일 폴백
-    if (LUNAR_HOLIDAYS_DB[year] && LUNAR_HOLIDAYS_DB[year][mmdd]) {
-        return { name: LUNAR_HOLIDAYS_DB[year][mmdd], color: defaultColor };
-    }
-    
-    return null;
+    const entries = getHolidayCellEntries(dateStr);
+    if (!entries.length) return null;
+    return {
+        name: entries.map((e) => e.name).join(' · '),
+        color: entries[0].color,
+        scheduleType: entries[0].scheduleType,
+        fontSize: entries[0].fontSize,
+        entries
+    };
 }
 
 function saveLayouts() { 
@@ -3243,22 +3287,30 @@ function createCell(date, activeStudents, todayStr, precomputedSummaryRows) {
     cell.addEventListener('drop', handleDrop);
 
     const day = date.getDay();
-    const holidayInfo = getHolidayInfo(dateStr);
-    const holidayName = holidayInfo ? holidayInfo.name : '';
+    const holidayEntries = getHolidayCellEntries(dateStr);
+    const customHolidayEntries = getCustomHolidayEntriesOnly(dateStr);
     let dayClass = '';
-    if (day === 0 || holidayInfo) dayClass = 'is-holiday';
+    if (day === 0 || holidayEntries.length) dayClass = 'is-holiday';
     else if (day === 6) dayClass = 'sat';
 
     if (dateStr === (todayStr || getTodayStr())) dayClass += ' is-today';
 
-    if (holidayInfo) {
+    if (customHolidayEntries.length) {
         cell.classList.add('custom-holiday');
-        cell.style.setProperty('--holiday-color', holidayInfo.color || 'var(--red)');
+        cell.style.setProperty('--holiday-color', customHolidayEntries[0].color || 'var(--red)');
     }
+
+    const holidayStackHtml = holidayEntries.length
+        ? `<div class="holiday-names-stack">${holidayEntries.map((e) => {
+            const fs = e.fontSize || DEFAULT_SCHEDULE_FONT_SIZE;
+            const col = e.color || defaultColor;
+            return `<span class="holiday-name" style="color:${col};font-size:${fs}px">${escapeHtml(e.name)}</span>`;
+        }).join('')}</div>`
+        : '';
 
     cell.innerHTML = `
         <span class="date-num ${dayClass}">${date.getDate()}</span>
-        ${holidayName ? `<span class="holiday-name">${holidayName}</span>` : ''}
+        ${holidayStackHtml}
     `;
 
     // 일정이 있는 학생 수 빠르게 카운트
@@ -3986,7 +4038,7 @@ window.renderDayEvents = function(dateStr) {
         grid.appendChild(block);
     });
 
-    // 일정이 없는 임시출석도 시간표 화면에서 보이도록 상단 배너 노출
+    // 일정이 없는 임시 체크도 시간표 화면에서 보이도록 상단 배너 노출
     if (temporaryAttendanceStudents.length > 0) {
         const uniqueStudents = [];
         const seenIds = new Set();
@@ -4006,14 +4058,11 @@ window.renderDayEvents = function(dateStr) {
         tempBanner.style.minHeight = '36px';
         tempBanner.style.padding = '8px 10px';
         tempBanner.style.borderRadius = '10px';
-        tempBanner.style.background = 'rgba(16, 185, 129, 0.14)';
-        tempBanner.style.border = '1px solid rgba(16, 185, 129, 0.35)';
-        tempBanner.style.color = '#065f46';
         tempBanner.style.fontSize = '12px';
         tempBanner.style.fontWeight = '700';
         tempBanner.style.zIndex = '4';
         tempBanner.style.pointerEvents = 'none';
-        tempBanner.textContent = `임시출석 ${uniqueStudents.length}건 · ` +
+        tempBanner.textContent = `임시 체크 ${uniqueStudents.length}건 · ` +
             uniqueStudents.map((s) => `${s.name}(${s.grade || '-'})`).join(', ');
         grid.appendChild(tempBanner);
     }
@@ -4587,7 +4636,7 @@ window.updateAttendanceSourceDisplay = function(recordLike) {
 
     if (sourceType === 'emergency') {
         sourceEl.classList.add('source-unknown');
-        sourceEl.textContent = '출석 방식: 임시출석';
+        sourceEl.textContent = '출석 방식: 임시 체크';
         return;
     }
 
@@ -6463,163 +6512,244 @@ window.saveEvalFromHistory = async function() {
     }
 }
 
-window.openDaySettings = function(dateStr) {
+window.onScheduleFontSizeInput = function (val) {
+    const el = document.getElementById('schedule-font-size-val');
+    if (el) el.textContent = `${val}px`;
+};
+
+window.resetScheduleEntryForm = function () {
+    const editId = document.getElementById('schedule-edit-id');
+    if (editId) editId.value = '';
+    const nameEl = document.getElementById('schedule-name');
+    if (nameEl) nameEl.value = '';
+    const typeEl = document.getElementById('schedule-type');
+    if (typeEl) typeEl.value = 'academy';
+    const rangeEl = document.getElementById('schedule-font-size');
+    if (rangeEl) rangeEl.value = String(DEFAULT_SCHEDULE_FONT_SIZE);
+    onScheduleFontSizeInput(String(DEFAULT_SCHEDULE_FONT_SIZE));
+    setHolidayColor('#ef4444');
+    const anchor = document.getElementById('setting-date-str')?.value;
+    if (anchor) {
+        const s = document.getElementById('schedule-start-date');
+        const e = document.getElementById('schedule-end-date');
+        if (s) s.value = anchor;
+        if (e) e.value = anchor;
+    }
+};
+
+function renderScheduleExistingListForModal(dateStr) {
+    const container = document.getElementById('schedule-existing-list');
+    if (!container) return;
+    const entries = getCustomHolidayEntriesOnly(dateStr);
+    if (!entries.length) {
+        container.innerHTML = '<div class="schedule-list-empty">등록된 일정이 없습니다. 아래에서 추가하세요.</div>';
+        return;
+    }
+    container.innerHTML = entries.map((e, idx) => {
+        const typeLabel = e.scheduleType === 'academy' ? '학원' : '개인';
+        return `<div class="schedule-list-item">
+      <span class="sched-dot" style="background:${e.color}"></span>
+      <div class="sched-list-main">
+        <span class="sched-name">${escapeHtml(e.name)}</span>
+        <span class="sched-meta">${typeLabel} · ${e.fontSize || DEFAULT_SCHEDULE_FONT_SIZE}px</span>
+      </div>
+      <div class="sched-list-actions">
+        <button type="button" class="sched-mini-btn" onclick="editScheduleEntryInModal(${idx})">편집</button>
+        <button type="button" class="sched-mini-btn danger" onclick="deleteScheduleEntryInModal(${idx})">삭제</button>
+      </div>
+    </div>`;
+    }).join('');
+}
+
+window.editScheduleEntryInModal = function (idx) {
+    const dateStr = document.getElementById('setting-date-str')?.value;
+    if (!dateStr) return;
+    const entries = getCustomHolidayEntriesOnly(dateStr);
+    const e = entries[Number(idx)];
+    if (!e) return;
+    const editId = document.getElementById('schedule-edit-id');
+    if (editId) editId.value = e.id != null ? String(e.id) : '';
+    document.getElementById('schedule-name').value = e.name;
+    document.getElementById('schedule-type').value = e.scheduleType || 'academy';
+    setHolidayColor(e.color || '#ef4444');
+    const r = document.getElementById('schedule-font-size');
+    const fs = e.fontSize || DEFAULT_SCHEDULE_FONT_SIZE;
+    if (r) r.value = String(fs);
+    onScheduleFontSizeInput(String(fs));
+    document.getElementById('schedule-start-date').value = dateStr;
+    document.getElementById('schedule-end-date').value = dateStr;
+};
+
+window.deleteScheduleEntryInModal = async function (idx) {
+    const dateStr = document.getElementById('setting-date-str')?.value;
+    if (!dateStr) return;
+    const entries = getCustomHolidayEntriesOnly(dateStr).slice();
+    const e = entries[Number(idx)];
+    if (!e) return;
+    if (!(await showConfirm(`"${e.name}" 일정을 삭제할까요?`, { type: 'danger', title: '삭제 확인', okText: '삭제' }))) return;
+    if (e.id != null && typeof deleteHolidayFromDatabaseById === 'function') {
+        try {
+            await deleteHolidayFromDatabaseById(e.id);
+        } catch (err) {
+            console.error('스케줄 DB 삭제 실패:', err);
+            showToast('DB 삭제에 실패했습니다. 네트워크·권한을 확인하세요.', 'error');
+            return;
+        }
+    }
+    entries.splice(Number(idx), 1);
+    if (entries.length) customHolidays[dateStr] = entries;
+    else delete customHolidays[dateStr];
+    const holKey = `academy_holidays__${currentTeacherId || 'no-teacher'}`;
+    localStorage.setItem(holKey, JSON.stringify(customHolidays));
+    renderScheduleExistingListForModal(dateStr);
+    const deleteBtn = document.getElementById('schedule-delete-btn');
+    if (deleteBtn) deleteBtn.style.display = getCustomHolidayEntriesOnly(dateStr).length ? 'inline-flex' : 'none';
+    renderCalendar();
+    showToast('일정이 삭제되었습니다.', 'success');
+};
+
+window.openDaySettings = function (dateStr) {
     document.getElementById('day-settings-modal').style.display = 'flex';
     document.getElementById('day-settings-title').textContent = `${dateStr} 설정`;
     document.getElementById('setting-date-str').value = dateStr;
-    const info = getHolidayInfo(dateStr);
 
-    // 삭제 버튼 표시/숨김
+    resetScheduleEntryForm();
+    renderScheduleExistingListForModal(dateStr);
+
     const deleteBtn = document.getElementById('schedule-delete-btn');
-    
-    if (info) {
-        document.getElementById('schedule-name').value = info.name || '';
-        document.getElementById('schedule-type').value = info.scheduleType || 'academy';
-        if (deleteBtn) deleteBtn.style.display = 'inline-flex';
-    } else {
-        document.getElementById('schedule-name').value = '';
-        document.getElementById('schedule-type').value = 'academy';
-        if (deleteBtn) deleteBtn.style.display = 'none';
-    }
+    const customList = getCustomHolidayEntriesOnly(dateStr);
+    if (deleteBtn) deleteBtn.style.display = customList.length ? 'inline-flex' : 'none';
 
-    // 기간 설정 기본값
     document.getElementById('schedule-start-date').value = dateStr;
     document.getElementById('schedule-end-date').value = dateStr;
 
-    // hidden 호환 필드 동기화
-    document.getElementById('is-red-day').value = info ? 'true' : '';
-    document.getElementById('day-name').value = (info && info.name) || '';
-    
-    setHolidayColor((info && info.color) || '#ef4444');
-    
-    // 모달이 열릴 때마다 색상 칩 이벤트 다시 설정
+    document.getElementById('is-red-day').value = customList.length ? 'true' : '';
+    document.getElementById('day-name').value = '';
+
     setTimeout(() => setupHolidayColorChips(), 0);
-}
-window.saveDaySettings = async function() {
-    const dateStr = document.getElementById('setting-date-str').value;
+};
+
+window.saveDaySettings = async function () {
+    const anchorDate = document.getElementById('setting-date-str').value;
     const scheduleName = (document.getElementById('schedule-name')?.value || '').trim();
-    const isSchedule = !!scheduleName;
     const color = document.getElementById('holiday-color') ? document.getElementById('holiday-color').value : '#ef4444';
+    const scheduleType = document.getElementById('schedule-type')?.value || 'academy';
+    const startDate = document.getElementById('schedule-start-date')?.value || anchorDate;
+    const endDate = document.getElementById('schedule-end-date')?.value || anchorDate;
+    const editIdRaw = (document.getElementById('schedule-edit-id')?.value || '').trim();
+    const editId = editIdRaw ? Number(editIdRaw) : null;
+    const fontSizeRaw = Number(document.getElementById('schedule-font-size')?.value);
+    const fontSize = Number.isFinite(fontSizeRaw) ? Math.min(32, Math.max(8, Math.round(fontSizeRaw))) : DEFAULT_SCHEDULE_FONT_SIZE;
 
-    if (isSchedule) {
-        const name = scheduleName;
-        const scheduleType = document.getElementById('schedule-type')?.value || 'academy';
-        const startDate = document.getElementById('schedule-start-date')?.value || dateStr;
-        const endDate = document.getElementById('schedule-end-date')?.value || dateStr;
-
-        if (!name) { showToast("스케줄 이름을 입력해주세요.", 'warning'); return; }
-        if (startDate > endDate) { showToast("종료일이 시작일보다 빠릅니다.", 'warning'); return; }
-
-        // 학원 전체 일정 vs 개인 스케줄 확인
-        const typeLabel = scheduleType === 'academy' ? '학원 전체 일정' : '개인 스케줄';
-        if (!(await showConfirm(`"${name}"을(를) ${typeLabel}로 등록합니다.\n\n기간: ${startDate} ~ ${endDate}\n\n계속하시겠습니까?`, { type: 'question' }))) return;
-
-        // 기간 내 모든 날짜에 등록
-        const start = new Date(startDate);
-        const end = new Date(endDate);
-        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-            const ds = d.toISOString().split('T')[0];
-            customHolidays[ds] = { name, color, scheduleType };
-
-            // 수파베이스에도 저장
-            if (typeof saveHolidayToDatabase === 'function') {
-                try {
-                    await saveHolidayToDatabase({
-                        teacherId: scheduleType === 'academy' ? 'academy' : currentTeacherId,
-                        date: ds,
-                        name: name,
-                        color: color
-                    });
-                } catch (dbError) {
-                    console.error('스케줄 DB 저장 실패:', ds, dbError);
-                }
-            }
-        }
-        console.log(`스케줄 등록 완료: ${name} (${startDate} ~ ${endDate}, ${typeLabel})`);
-    } else {
-        // 스케줄 해제 (현재 날짜만)
-        const existingSchedule = customHolidays[dateStr];
-        const deleteTeacherId = (existingSchedule && existingSchedule.scheduleType === 'academy') ? 'academy' : (currentTeacherId || 'no-teacher');
-        delete customHolidays[dateStr];
-        
-        // 수파베이스에서도 삭제
-        if (typeof deleteHolidayFromDatabase === 'function') {
-            try {
-                await deleteHolidayFromDatabase(deleteTeacherId, dateStr);
-                console.log(`스케줄 DB 삭제: ${dateStr} (teacher_id: ${deleteTeacherId})`);
-            } catch (dbError) {
-                console.error('스케줄 DB 삭제 실패:', dbError);
-            }
-        }
+    if (!scheduleName) {
+        showToast('스케줄 이름을 입력하거나, 목록에서 삭제하세요.', 'warning');
+        return;
+    }
+    if (startDate > endDate) {
+        showToast('종료일이 시작일보다 빠릅니다.', 'warning');
+        return;
     }
 
-    // 로컬 저장 (선생님별)
+    const typeLabel = scheduleType === 'academy' ? '학원 전체 일정' : '개인 스케줄';
+    const teacherIdForRow = scheduleType === 'academy' ? 'academy' : currentTeacherId;
+
+    if (editId && Number.isFinite(editId)) {
+        if (!(await showConfirm(`"${scheduleName}" 일정을 수정합니다.\n\n날짜: ${anchorDate}\n\n계속할까요?`, { type: 'question' }))) return;
+        const arr = getCustomHolidayEntriesOnly(anchorDate).slice();
+        const ix = arr.findIndex((x) => x.id != null && String(x.id) === String(editId));
+        if (ix >= 0) {
+            arr[ix] = { ...arr[ix], name: scheduleName, color, scheduleType, fontSize };
+            customHolidays[anchorDate] = arr;
+        }
+        if (typeof updateHolidayInDatabase === 'function') {
+            try {
+                await updateHolidayInDatabase(editId, { name: scheduleName, color, fontSize });
+            } catch (dbError) {
+                console.error('스케줄 DB 수정 실패:', dbError);
+                showToast('DB 수정 실패: 마이그레이션(Supabase SQL) 적용 여부를 확인하세요.', 'error');
+                return;
+            }
+        }
+    } else {
+        if (!(await showConfirm(`"${scheduleName}"을(를) ${typeLabel}로 추가합니다.\n\n기간: ${startDate} ~ ${endDate}\n(각 날짜에 기존 일정에 이어서 추가됩니다)\n\n계속할까요?`, { type: 'question' }))) return;
+
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        const inserts = [];
+
+        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+            const ds = d.toISOString().split('T')[0];
+            const prev = getCustomHolidayEntriesOnly(ds).slice();
+            const newEntry = { id: null, name: scheduleName, color, scheduleType, fontSize };
+            if (typeof insertHolidayToDatabase === 'function') {
+                try {
+                    const row = await insertHolidayToDatabase({
+                        teacherId: teacherIdForRow,
+                        date: ds,
+                        name: scheduleName,
+                        color,
+                        fontSize
+                    });
+                    if (row && row.id != null) newEntry.id = Number(row.id);
+                } catch (dbError) {
+                    console.error('스케줄 DB 저장 실패:', ds, dbError);
+                    showToast(`DB 저장 실패 (${ds}). holidays 테이블 마이그레이션을 확인하세요.`, 'error');
+                    return;
+                }
+            }
+            prev.push(newEntry);
+            customHolidays[ds] = prev;
+            inserts.push(ds);
+        }
+        console.log(`스케줄 추가 완료: ${scheduleName} (${inserts.length}일)`);
+    }
+
     const holKey = `academy_holidays__${currentTeacherId || 'no-teacher'}`;
     localStorage.setItem(holKey, JSON.stringify(customHolidays));
-    console.log(`스케줄 로컬 저장 (${currentTeacherId}): ${dateStr}`);
-    closeModal('day-settings-modal'); renderCalendar();
-}
+    resetScheduleEntryForm();
+    renderScheduleExistingListForModal(anchorDate);
+    const deleteBtn = document.getElementById('schedule-delete-btn');
+    if (deleteBtn) deleteBtn.style.display = getCustomHolidayEntriesOnly(anchorDate).length ? 'inline-flex' : 'none';
+    closeModal('day-settings-modal');
+    renderCalendar();
+    showToast('저장되었습니다.', 'success');
+};
 
-// 스케줄 삭제 (모달에서 삭제 버튼 클릭 시)
-window.deleteScheduleFromModal = async function() {
+/** 이 날짜의 사용자 등록 일정을 모두 삭제 (DB 행 전부) */
+window.deleteScheduleFromModal = async function () {
     const dateStr = document.getElementById('setting-date-str').value;
     if (!dateStr) return;
 
-    const info = customHolidays[dateStr];
-    if (!info) {
+    const entries = getCustomHolidayEntriesOnly(dateStr);
+    if (!entries.length) {
         showToast('삭제할 스케줄이 없습니다.', 'info');
         closeModal('day-settings-modal');
         return;
     }
 
-    const scheduleName = info.name || '스케줄';
-    const typeLabel = info.scheduleType === 'academy' ? '학원 전체 일정' : '개인 스케줄';
+    if (!(await showConfirm(`${dateStr}에 등록된 사용자 일정 ${entries.length}건을 모두 삭제할까요?`, { type: 'danger', okText: '삭제' }))) return;
 
-    // 같은 이름의 스케줄이 여러 날짜에 걸쳐 있는지 확인
-    const sameName = Object.keys(customHolidays).filter(d => 
-        customHolidays[d].name === info.name && customHolidays[d].scheduleType === info.scheduleType
-    );
-
-    let deleteAll = false;
-    if (sameName.length > 1) {
-        const choice = await showConfirm(
-            `"${scheduleName}" (${typeLabel})\n\n` +
-            `이 스케줄은 ${sameName.length}일에 걸쳐 등록되어 있습니다.\n\n` +
-            `[확인] = 전체 기간 삭제 (${sameName.length}일)\n` +
-            `[취소] = 이 날짜만 삭제 (${dateStr})`,
-            { type: 'danger', title: '삭제 확인', okText: '삭제' }
-        );
-        deleteAll = choice;
-    } else {
-        if (!(await showConfirm(`"${scheduleName}" (${typeLabel})을 삭제하시겠습니까?`, { type: 'danger', title: '삭제 확인', okText: '삭제' }))) return;
-    }
-
-    const datesToDelete = deleteAll ? sameName : [dateStr];
-    const deleteTeacherId = info.scheduleType === 'academy' ? 'academy' : (currentTeacherId || 'no-teacher');
-
-    for (const ds of datesToDelete) {
-        delete customHolidays[ds];
-
-        if (typeof deleteHolidayFromDatabase === 'function') {
+    for (const e of entries) {
+        if (e.id != null && typeof deleteHolidayFromDatabaseById === 'function') {
             try {
-                await deleteHolidayFromDatabase(deleteTeacherId, ds);
+                await deleteHolidayFromDatabaseById(e.id);
             } catch (dbError) {
-                console.error('스케줄 DB 삭제 실패:', ds, dbError);
+                console.error('스케줄 DB 삭제 실패:', dbError);
             }
         }
     }
+    delete customHolidays[dateStr];
 
-    // 로컬 저장
     const holKey = `academy_holidays__${currentTeacherId || 'no-teacher'}`;
     localStorage.setItem(holKey, JSON.stringify(customHolidays));
 
-    console.log(`스케줄 삭제 완료: ${scheduleName} (${datesToDelete.length}일)`);
     closeModal('day-settings-modal');
     renderCalendar();
-    showToast(`"${scheduleName}" 스케줄이 삭제되었습니다. (${datesToDelete.length}일)`, 'success');
-}
+    showToast('일정이 삭제되었습니다.', 'success');
+};
 
 async function loadAndCleanData() {
+    let records = [];
     try {
         console.log('[loadAndCleanData] Supabase에서 학생 데이터 로드 중...');
         const ownerIdForCache = cachedLsGet('current_owner_id') || 'no-owner';
@@ -6639,8 +6769,15 @@ async function loadAndCleanData() {
             console.warn('[loadAndCleanData] 로컬 payments 캐시 로드 실패:', e);
         }
         
-        // Supabase에서 모든 학생 조회
-        const supabaseStudents = await getAllStudents();
+        // 학생 목록과 owner 전체 출석 기록을 동시에 조회(순차 대비 왕복 1회 절약)
+        const attendancePromise = typeof getAttendanceRecordsByOwner === 'function'
+            ? getAttendanceRecordsByOwner(null)
+            : Promise.resolve([]);
+        const [supabaseStudents, recordsFetched] = await Promise.all([
+            getAllStudents(),
+            attendancePromise
+        ]);
+        records = recordsFetched || [];
         console.log('[loadAndCleanData] Supabase 학생 수:', supabaseStudents.length);
         
         if (supabaseStudents && supabaseStudents.length > 0) {
@@ -6692,9 +6829,7 @@ async function loadAndCleanData() {
         // 출석 기록: 소유자 기준 전체 레코드를 로드해 학생에 반영 (모든 선생님 공통)
         // ★ 시간별 객체 형태로 저장: student.attendance[date][scheduled_time] = status
         const studentById = new Map((students || []).map((s) => [String(s.id), s]));
-        if (typeof getAttendanceRecordsByOwner === 'function') {
-            const records = await getAttendanceRecordsByOwner(null);
-            if (records && records.length > 0 && students.length > 0) {
+        if (records && records.length > 0 && students.length > 0) {
                 // scheduled_time까지 포함한 키로 중복 제거
                 const recordMap = new Map();
                 const statusPriority = {
@@ -6796,7 +6931,6 @@ async function loadAndCleanData() {
                 });
 
                 console.log(`[loadAndCleanData] 출석 기록 동기화 완료: ${recordMap.size}건`);
-            }
         }
 
         // ★ 공유 메모 별도 조회: teacher_id 무관하게 모든 공유 메모를 가져와서 students에 반영
@@ -6841,14 +6975,19 @@ async function loadAndCleanData() {
             try {
                 const dbHolidays = await getHolidaysByTeacher(currentTeacherId || 'no-teacher');
                 customHolidays = {};
-                dbHolidays.forEach(h => {
-                    customHolidays[h.holiday_date] = {
+                dbHolidays.forEach((h) => {
+                    const ds = h.holiday_date;
+                    if (!customHolidays[ds]) customHolidays[ds] = [];
+                    const fs = h.font_size != null ? Number(h.font_size) : DEFAULT_SCHEDULE_FONT_SIZE;
+                    customHolidays[ds].push({
+                        id: h.id != null ? Number(h.id) : null,
                         name: h.holiday_name,
                         color: h.color || '#ef4444',
-                        scheduleType: h.scheduleType || 'personal'
-                    };
+                        scheduleType: h.scheduleType || (h.teacher_id === 'academy' ? 'academy' : 'personal'),
+                        fontSize: Number.isFinite(fs) ? Math.min(32, Math.max(8, Math.round(fs))) : DEFAULT_SCHEDULE_FONT_SIZE
+                    });
                 });
-                console.log(`스케줄 DB 로드 (${currentTeacherId}): ${dbHolidays.length}개 (학원전체 + 개인)`);
+                console.log(`스케줄 DB 로드 (${currentTeacherId}): ${dbHolidays.length}행 (학원전체 + 개인, 날짜당 복수 가능)`);
                 
                 // 로컬에도 백업
                 const holKey = `academy_holidays__${currentTeacherId || 'no-teacher'}`;
@@ -8263,7 +8402,7 @@ async function renderQRTodaySummary() {
                     <div class="qr-ops-value ${missingCount > 0 ? 'warn' : ''}">${missingCount}명</div>
                 </div>
                 <div class="qr-ops-card">
-                    <div class="qr-ops-label">임시출석 미확정</div>
+                    <div class="qr-ops-label">임시 체크 미확정</div>
                     <div class="qr-ops-value ${Number(emergencyPendingCount || 0) > 0 ? 'warn' : ''}">${emergencyPendingCount === null ? '-' : `${emergencyPendingCount}건`}</div>
                 </div>
                 <div class="qr-ops-card">
@@ -8274,7 +8413,7 @@ async function renderQRTodaySummary() {
             <div class="qr-ops-actions">
                 <button type="button" class="qr-ops-btn" onclick="openQRScanPage()"><i class="fas fa-camera"></i> 바로 스캔</button>
                 <button type="button" class="qr-ops-btn alt" onclick="openTodayScheduleSuggestion()"><i class="fas fa-calendar-plus"></i> 누락 일정 등록</button>
-                <button type="button" class="qr-ops-btn alt" onclick="openEmergencyQueueAction()"><i class="fas fa-hourglass-half"></i> 임시확정 보기</button>
+                <button type="button" class="qr-ops-btn alt" onclick="openEmergencyQueueAction()"><i class="fas fa-hourglass-half"></i> 임시 체크 확정</button>
             </div>
         </div>
     `;
@@ -8285,7 +8424,7 @@ async function renderQRTodaySummary() {
             ${dashboardHtml}
             <div class="qr-schedule-missing-alert">
                 <div class="qr-schedule-missing-title"><i class="fas fa-triangle-exclamation"></i> 오늘 등록된 수업이 없습니다</div>
-                <div class="qr-schedule-missing-desc">QR 스캔 시 임시출석이 누적될 수 있어, 먼저 오늘 일정을 등록하는 것을 권장합니다.</div>
+                <div class="qr-schedule-missing-desc">QR 스캔 시 임시 체크 기록이 누적될 수 있어, 먼저 오늘 일정을 등록하는 것을 권장합니다.</div>
                 ${hasAction ? '<button type="button" class="qr-schedule-missing-btn" onclick="openTodayScheduleSuggestion()"><i class="fas fa-calendar-plus"></i> 오늘 일정 빠른 등록</button>' : ''}
             </div>
         `;

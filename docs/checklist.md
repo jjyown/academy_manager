@@ -2,6 +2,9 @@
 
 - 문서 기준일: 2026-03-22
 ## 공통 품질 체크
+- [x] QR 스캔 페이지 모바일 세로 스크롤(2026-03-22): `style.css` `#qr-scan-page.auth-page` — 스크롤·`100dvh`·safe-area; 실기기에서 카메라 아래 전화 인증까지 스와이프·주소창 접기 확인 권장
+- [x] 재석 확인 이중(5분 전+정각)·지각 후 QR/무인증 결석·수업종료 후 임시(2026-03-22): `qr-attendance.js` — `node --check qr-attendance.js` PASS · **실기기 시나리오**(이중 알림·지각→QR 메모·지각→종료 결석·종료 후 스캔)는 운영에서 확인 권장
+- [x] 출석 이력 처리방식·임시 체크 UX(2026-03-22): 4종 라벨·자리확인 배지 제거·원장만 처리/인증시간 편집·임시 체크 빨간 테두리·문구 통일 — `node --check script.js` + `node --check qr-attendance.js` PASS
 - [x] `verify-teacher-pin` **144~148차**(응답 정책·배포·JWT 설정·`invokeVerifyTeacherPin`): 코드·배포·대시보드 설정·**메인 진입 사용자 확인** (2026-03-22)
 - [x] `verify-teacher-pin` CORS: `npx supabase@latest functions deploy verify-teacher-pin` 후 로컬에서 preflight(OPTIONS **200** + CORS 헤더) 확인, `SUPABASE_URL` ref 오타 점검 (2026-03-22) — **배포 완료 확인(프로젝트 jzcrpdeomjmytfekcgqu)**
 - [x] 요구사항 재확인 후 구현 시작
@@ -64,6 +67,12 @@
 ## 테스트/검증 결과 기록
 | 날짜 | 작업 | 검증 방법 | 결과 | 비고 |
 |---|---|---|---|---|
+| 2026-03-22 | AUTO-20260322(staged 12개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
+| 2026-03-22 | 재석 확인 이중·지각/QR·종료 후 임시 | `node --check qr-attendance.js` + 코드 경로 점검(`pendingTimersDetail`, `scheduleLateFinalizeAbsentIfNoScan`, `saveEmergencyAttendanceAfterAllClassesEnded`) | PASS(코드) | 실기기: 5분 전/정각 알림·지각 후 스캔 메모·무스캔 결석·마지막 종료 후 스캔 권장 |
+| 2026-03-22 | 날짜 일정 다중+글자크기 | `node --check script.js database.js` + SQL 마이그레이션 파일 정적 검토 | PASS(코드) | **운영**: `SUPABASE_HOLIDAYS_MULTI_FONT_20260322.sql` 실행 후 다중 저장·`font_size` 조회 확인 |
+| 2026-03-22 | 관리자 로그인→메인 진입 속도 점검·개선 | 코드 경로 추적(`signIn`→`showMainApp`→`setCurrentTeacher`→`loadAndCleanData`) + `node --check script.js auth.js` | PASS(코드) | 병렬화·중복조회 제거·로딩 UI; 실제 체감은 네트워크·데이터량에 따름 |
+| 2026-03-22 | 전문가 2차 정적 검사(패턴·인증 구조) | `rg`로 `eval`/`new Function` 미검출, `grading-server/auth.py`·`main.py` JWT·CORS·레이트리밋 경로 확인, `innerHTML` 사용 범위 grep | PASS(정적) | 운영 JWT 미설정 시 API 인증 약화 가능 — 환경변수 필수. XSS는 보간 경로별 수동 점검 권장 |
+| 2026-03-22 | 종합 점검(에이전트): 정적·E2E·스모크 | `sync_doc_dates.py` + `node --check`(핵심 JS) + `compileall grading-server` + 머지 충돌 마커 없음 + `localhost:8000`에서 `npm run test:e2e`(tmp-e2e-runner) + HTTP 200 4경로 | PASS | E2E는 정적 서버 미기동 시 ERR_CONNECTION_REFUSED — 선기동 필수 |
 | 2026-03-22 | AUTO-20260322(staged 69개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-03-22 | 통합 스모크(입장 후 운영 동선) | 사용자 실기기: 오늘 일정 표시·학생 출석 1건 저장·메인↔숙제↔채점↔학부모 포털 진입 | PASS | 로그인/입장 트랙 후속 회귀, Gate C 근거 |
 | 2026-03-22 | 학생관리 148차(401·Bearer·대시보드 문서) | `invoke-verify-teacher-pin.js` Bearer 정책 + `SUPABASE_VERIFY_TEACHER_PIN_DASHBOARD.md` | PASS(코드) | **Supabase 대시보드**에서 verify-teacher-pin JWT 검증 OFF 후 입장 재시도 |

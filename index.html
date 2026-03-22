@@ -940,6 +940,17 @@
                     <button type="button" class="dset-color-chip" data-color="#c9a74a" onclick="setHolidayColor('#c9a74a')" style="background:#c9a74a;"></button>
                 </div>
                 <input type="hidden" id="holiday-color" value="#ef4444">
+
+                <div class="dset-section-label"><i class="fas fa-text-height"></i> 글자 크기 (캘린더 표시)</div>
+                <div class="dset-font-size-row">
+                    <input type="range" id="schedule-font-size" class="dset-font-range" min="8" max="22" step="1" value="13" oninput="onScheduleFontSizeInput(this.value)">
+                    <span id="schedule-font-size-val" class="dset-font-size-val">13px</span>
+                </div>
+                <input type="hidden" id="schedule-edit-id" value="">
+
+                <div class="dset-section-label"><i class="fas fa-list-ul"></i> 이 날짜에 등록된 일정</div>
+                <div id="schedule-existing-list" class="schedule-existing-list"></div>
+                <button type="button" class="dset-btn-add-new" onclick="resetScheduleEntryForm()"><i class="fas fa-plus"></i> 새 일정 추가</button>
             </div>
 
             <!-- 빨간날 (휴원) 지정은 숨김 처리된 hidden 필드로 유지 -->
