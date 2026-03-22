@@ -1043,8 +1043,10 @@
 - [ ] 다음 작업자가 바로 이어서 할 수 있게 문서가 갱신되었다.
 
 ## 변경 이력
+- 2026-03-22 - AUTO-20260322(staged 5개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-22 - AUTO-20260322(staged 7개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-22 - AUTO-20260322(staged 12개 파일 기준 문서 연동 자동기록): 연동 자동 기록
+- 2026-03-22 - **QR 스캔 카메라 영역 붕괴 수정(3차)**: 레이아웃 `min-height` 과다가 모바일 WebKit에서 카메라 컨테이너 높이 0에 가깝게 깨지는 사례 대응 — `.qr-reader-host`에 **`min-height`·배경** 확보, 모바일은 **스크롤 여유를 `padding-bottom`+스페이서**로만 부여(`style.css`·`mobile.css`).
 - 2026-03-22 - **QR 스캔 모바일 스크롤·전체화면 보조(2차)**: `min-height: calc(100dvh+…)`·하단 `.qr-scan-scroll-spacer`·카메라 `max-height`·`touch-action` 보정·`MutationObserver`로 video/canvas 터치 패치(`style.css`·`mobile.css`·`index.html`·`qr-attendance.js`). 스와이프 반경·주소창 접기 체감 개선.
 - 2026-03-22 - **QR 스캔 페이지 모바일 세로 스크롤**: `#qr-scan-page`에 `overflow-y: auto`·`-webkit-overflow-scrolling: touch`·`100dvh`·`align-items: stretch` 등 적용. 기존 `.auth-page`의 고정 뷰포트+overflow 없음 때문에 카메라+전화 인증 영역이 길 때 스크롤·주소창 접기 동작이 막히던 문제 완화(`style.css`).
 - 2026-03-22 - **재석 확인 이중 알림·지각 후 QR·수업종료 후 임시**: 일정마다 시작 **5분 전**+**정각** 재석 확인(`showAttendanceCheckNotification` phase). 지각 저장 시 수업 종료까지 `qr_scanned` 없으면 **결석** 확정 타이머. 지각+미스캔 상태에서 학생 QR 시 시작 시각 대비 **지연 분** 메모·상태 갱신. 마지막 수업 종료 후 스캔 시 앞 슬롯 **결석**+`[수업종료후임시]` 출석. (`qr-attendance.js`)

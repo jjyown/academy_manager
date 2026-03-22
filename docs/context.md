@@ -14,6 +14,8 @@
 ## 최근 의사결정 로그
 | 날짜 | 결정 | 이유 | 영향 범위 |
 |---|---|---|---|
+| 2026-03-22 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/checklist.md, docs/context.md, docs/plan.md, mobile.css, style.css |
+| 2026-03-22 | 전문가 합의(UIUX/프론트): 스크롤 여유만 **레이아웃 전체 `min-height`로** 키우면 일부 모바일 WebKit에서 **카메라 `#qr-reader` 높이가 붕괴**해 프리뷰가 사라지는 회귀 가능 → `.qr-reader-host`에 **`min-height`·배경** 고정, 스크롤 slack은 **`padding-bottom`·스페이서**로만 | 사용자 보고(QR 화면에 카메라 없이 전화 인증만 노출) | `style.css`, `mobile.css` |
 | 2026-03-22 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/checklist.md, docs/context.md, docs/plan.md, index.html, mobile.css 외 2개 |
 | 2026-03-22 | 전문가 합의(UIUX/프론트): QR 모바일에서 **스크롤 반경이 작고** 카메라 위 스와이프가 안 먹는 현상은 콘텐츠 높이 여유 부족 + html5-qrcode **video/canvas touch 차단**이 흔한 원인 → **min-height·하단 스페이서·카메라 max-height**로 스와이프 거리를 늘리고 **MutationObserver로 touch-action 보정** | 사용자 보고(위아래 스크롤 반경 부족·전체화면/주소창 접기 어려움) | `style.css`, `mobile.css`, `index.html`, `qr-attendance.js` |
 | 2026-03-22 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | SUPABASE_COMPLETE_SETUP.sql, SUPABASE_HOLIDAYS_MULTI_FONT_20260322.sql, auth.js, database.js, docs/checklist.md 외 7개 |

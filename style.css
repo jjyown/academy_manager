@@ -120,14 +120,17 @@ textarea:focus:not(:focus-visible) {
 .qr-toast-time { font-size: 12px; color: var(--gray); }
 
 .qr-scan-page-wrap { padding: 20px; }
-/* QR 리더: 모바일에서 max-height는 mobile.css에서 제한 */
+/* QR 리더: 카메라 주입 전·일시 실패 시에도 영역이 0 높이로 붕괴되지 않도록 min-height 필수 */
 .qr-reader-host {
     width: 100%;
+    min-height: 240px;
+    min-height: min(42vh, 380px);
     border-radius: 12px;
     overflow: hidden;
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
     position: relative;
     touch-action: pan-y pinch-zoom;
+    background: rgba(15, 23, 42, 0.45);
 }
 .qr-scan-scroll-spacer {
     display: none;

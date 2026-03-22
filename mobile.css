@@ -916,18 +916,20 @@
     #qr-scan-page > div,
     .qr-scan-layout {
         padding: 8px 4px 12px !important;
-        /* 스크롤 가능한 총 높이를 뷰포트보다 크게: 스와이프 반경·하단 패널 접근 */
-        min-height: calc(100dvh + min(45vh, 320px));
+        /* 스크롤 여유: 레이아웃 min-height 과다 시 카메라 영역 높이 계산 깨짐 방지 → 패딩+스페이서로만 확보 */
+        padding-bottom: max(28vh, 160px) !important;
         box-sizing: border-box;
     }
     .qr-scan-scroll-spacer {
         display: block;
         width: 100%;
-        min-height: clamp(100px, 28vh, 260px);
+        min-height: clamp(80px, 20vh, 200px);
         flex-shrink: 0;
     }
     #qr-scan-page .qr-reader-host {
-        max-height: min(52vh, 420px);
+        min-height: 200px;
+        min-height: min(40vh, 360px);
+        max-height: min(58vh, 480px);
         margin-left: auto;
         margin-right: auto;
     }
