@@ -929,17 +929,29 @@
                     <input type="date" id="schedule-end-date" class="m-input">
                 </div>
 
-                <!-- 색상 -->
-                <div class="dset-section-label"><i class="fas fa-palette"></i> 표시 색상</div>
-                <div class="dset-color-row" id="holiday-color-options">
-                    <button type="button" class="dset-color-chip" data-color="#ef4444" onclick="setHolidayColor('#ef4444')" style="background:#ef4444;"></button>
-                    <button type="button" class="dset-color-chip" data-color="#f97316" onclick="setHolidayColor('#f97316')" style="background:#f97316;"></button>
-                    <button type="button" class="dset-color-chip" data-color="#eab308" onclick="setHolidayColor('#eab308')" style="background:#eab308;"></button>
-                    <button type="button" class="dset-color-chip" data-color="#0ea5e9" onclick="setHolidayColor('#0ea5e9')" style="background:#0ea5e9;"></button>
-                    <button type="button" class="dset-color-chip" data-color="#10b981" onclick="setHolidayColor('#10b981')" style="background:#10b981;"></button>
-                    <button type="button" class="dset-color-chip" data-color="#c9a74a" onclick="setHolidayColor('#c9a74a')" style="background:#c9a74a;"></button>
+                <!-- 글자색 / 배경색 (학원·개인 일정) -->
+                <div class="dset-section-label"><i class="fas fa-font"></i> 글자 색상</div>
+                <div class="dset-color-row" id="holiday-text-color-options">
+                    <button type="button" class="dset-color-chip" data-color="#ef4444" onclick="setHolidayTextColor('#ef4444')" style="background:#ef4444;" title="글자"></button>
+                    <button type="button" class="dset-color-chip" data-color="#f97316" onclick="setHolidayTextColor('#f97316')" style="background:#f97316;"></button>
+                    <button type="button" class="dset-color-chip" data-color="#eab308" onclick="setHolidayTextColor('#eab308')" style="background:#eab308;"></button>
+                    <button type="button" class="dset-color-chip" data-color="#0ea5e9" onclick="setHolidayTextColor('#0ea5e9')" style="background:#0ea5e9;"></button>
+                    <button type="button" class="dset-color-chip" data-color="#10b981" onclick="setHolidayTextColor('#10b981')" style="background:#10b981;"></button>
+                    <button type="button" class="dset-color-chip" data-color="#c9a74a" onclick="setHolidayTextColor('#c9a74a')" style="background:#c9a74a;"></button>
                 </div>
-                <input type="hidden" id="holiday-color" value="#ef4444">
+                <input type="hidden" id="holiday-text-color" value="#ef4444">
+
+                <div class="dset-section-label"><i class="fas fa-fill-drip"></i> 배경 색상 (캘린더 칸)</div>
+                <div class="dset-color-row dset-bg-color-row" id="holiday-bg-color-options">
+                    <button type="button" class="dset-color-chip dset-bg-none" onclick="setHolidayBgColor('')" title="배경 없음">선택안함</button>
+                    <button type="button" class="dset-color-chip" data-color="#fecaca" onclick="setHolidayBgColor('#fecaca')" style="background:#fecaca;" title="연한 빨강"></button>
+                    <button type="button" class="dset-color-chip" data-color="#fed7aa" onclick="setHolidayBgColor('#fed7aa')" style="background:#fed7aa;"></button>
+                    <button type="button" class="dset-color-chip" data-color="#fef08a" onclick="setHolidayBgColor('#fef08a')" style="background:#fef08a;"></button>
+                    <button type="button" class="dset-color-chip" data-color="#bae6fd" onclick="setHolidayBgColor('#bae6fd')" style="background:#bae6fd;"></button>
+                    <button type="button" class="dset-color-chip" data-color="#bbf7d0" onclick="setHolidayBgColor('#bbf7d0')" style="background:#bbf7d0;"></button>
+                    <button type="button" class="dset-color-chip" data-color="#e9d5ff" onclick="setHolidayBgColor('#e9d5ff')" style="background:#e9d5ff;"></button>
+                </div>
+                <input type="hidden" id="holiday-bg-color" value="">
 
                 <div class="dset-section-label"><i class="fas fa-text-height"></i> 글자 크기 (캘린더 표시)</div>
                 <div class="dset-font-size-row">
@@ -950,7 +962,6 @@
 
                 <div class="dset-section-label"><i class="fas fa-list-ul"></i> 이 날짜에 등록된 일정</div>
                 <div id="schedule-existing-list" class="schedule-existing-list"></div>
-                <button type="button" class="dset-btn-add-new" onclick="resetScheduleEntryForm()"><i class="fas fa-plus"></i> 새 일정 추가</button>
             </div>
 
             <!-- 빨간날 (휴원) 지정은 숨김 처리된 hidden 필드로 유지 -->

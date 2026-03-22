@@ -14,8 +14,12 @@
 ## 최근 의사결정 로그
 | 날짜 | 결정 | 이유 | 영향 범위 |
 |---|---|---|---|
+| 2026-03-22 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | SUPABASE_HOLIDAYS_BG_COLOR_20260322.sql, database.js, docs/checklist.md, docs/context.md, docs/plan.md 외 3개 |
 | 2026-03-22 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/checklist.md, docs/context.md, docs/plan.md, index.html, qr-attendance.js 외 167개 |
 | 2026-03-22 | **ZIP 대조**: 사용자 제공 `academy_manager-main.zip`(최신 푸시) 기준 선생님 선택 QR은 **`showQRPasswordModal` → 모달(`qr-teacher-dropdown`/`qr-scan-password`) → `confirmQRPassword` → `setCurrentTeacher` → `openQRScanPage()`**. 로컬은 `teacher-select-qr-btn`+`openQRScanPageFromTeacherSelect`로 갈라져 모달이 안 뜨는 문제 — **배포본과 동일하게 되돌림**(`index.html`, `qr-attendance.js`, `script.js`) | 사용자 요청(깃허브 ZIP 이식) | `tmp-zip-compare/academy_manager-main/*` 대조 |
+| 2026-03-22 | 전문가 합의(UI/프론트): 월간 캘린더 **국가·법정 공휴일**은 **`public-holiday-cell`**. **학원·개인 일정**은 모달에서 **글자색·배경색 분리**(`textColor`/`bgColor`, DB `bg_color`)·「+ 새 일정 추가」버튼 제거(저장으로 추가) | 사용자 요청 | `index.html`, `script.js`, `database.js`, `SUPABASE_HOLIDAYS_BG_COLOR_20260322.sql` |
+| 2026-03-22 | 전문가 합의(UI/프론트): 배경은 **선택안함** 가능(`bg_color` null, 셀 `custom-holiday-no-bg`). 칩은 **파스텔** 톤으로, `style.css`는 `color-mix` 비율을 낮춰 공휴일·일정 칸이 **전반적으로 연하게** 보이게 함 | 사용자 피드백(진함) | `index.html`, `script.js`, `style.css` |
+| 2026-03-22 | 전문가 합의(UI/프론트): **국가·법정 공휴일**(`public-holiday-cell`) 배경 틴트만 **추가로 연하게** — 커스텀 일정과 별도로 `var(--red)` / `#dc2626` 믹스 비율만 하향 | 사용자 요청(공휴일 칸 진함) | `style.css` |
 | 2026-03-22 | 전문가 합의(UI/프론트): 선생님 선택에서 QR은 **전용 모달**에서 선생님·PIN을 받는 편이 **입장 폼과 동선이 분리**되어 재현·교육이 쉽고, 배포본과도 일치한다. 메인 `teacher-dropdown`+숨김 비밀번호에만 의존하면 “QR만 눌렀는데 반응 없음”이 나기 쉽다 | ZIP·Vercel 동작 복원 | `index.html`, `qr-attendance.js` |
 | 2026-03-22 | 전문가 합의(프론트): `isQRScanPageOpen`을 **`getComputedStyle`만 쓰면** 인라인 비어 있고 CSS에 `flex`만 있을 때 여전히 “열림”으로 오판 가능 → **GitHub와 같이 인라인 `display`만** 판별(미설정·`none`/`flex`는 setProperty와 동일). 미선택 시 **`showConfirm`(allowDuringQRScan)** + 드롭다운 포커스는 유지 | 토스트 가드 재발 방지 | `script.js`, `qr-attendance.js` |
 | 2026-03-22 | 전문가 합의(UI/프론트): 선생님 선택 QR **클릭 무반응**은 **히트 테스트 순서**(h1·폼이 버튼 위)·잔류 **전역 오버레이** 가능성 → 버튼 **DOM 맨 뒤**·`z-index:100`·`#teacher-select-qr-btn` **capture 클릭 바인딩**·숨김 `#confirm-dialog`/`#initial-loader` **`pointer-events:none`** | 사용자 재현 | `index.html`, `style.css`, `script.js` |

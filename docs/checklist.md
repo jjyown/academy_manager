@@ -2,6 +2,9 @@
 
 - 문서 기준일: 2026-03-22
 ## 공통 품질 체크
+- [x] 월간 캘린더 공휴일·학원일정 배경(2026-03-22): `public-holiday-cell`·`custom-holiday` 글자/배경 분리·`bg_color` SQL — `node --check script.js` PASS · Supabase 마이그레이션 적용 후 저장 확인 권장
+- [x] 캘린더 배경 **선택안함**·연한 톤(2026-03-22): `custom-holiday-no-bg`·파스텔 칩·`style.css` `color-mix` 완화 — `node --check script.js` PASS · 실기기에서 배경 없음/공휴일 농도 확인 권장
+- [x] **국가 공휴일** 칸 배경 추가 연화(2026-03-22): `public-holiday-cell`만 `color-mix` 비율 재하향 — 브라우저에서 삼일절 등 법정 공휴일 셀 확인 권장
 - [x] 선생님 선택 화면 QR → 스캔 → 닫기 → 선생님 선택 복귀(2026-03-22): 상단 QR → **`showQRPasswordModal`** → 모달에서 PIN → **`confirmQRPassword`** → `setCurrentTeacher` → **`openQRScanPage()`**(배포본/ZIP 동일)·`openedFromTeacherSelect`·닫기 시 `TEACHER_SELECT` — `node --check qr-attendance.js` PASS · 실기기 확인 권장
 - [x] `isQRScanPageOpen` 오판으로 토스트·확인창 전부 차단(2026-03-22): **인라인 `display`만** 판별(GitHub `origin/main`과 동일 원칙, `getComputedStyle` 단독은 CSS flex 오판 가능)·미선택 시 `showConfirm`+드롭다운 포커스 — `node --check script.js` + `qr-attendance.js` PASS · 미선택/미입력 시 안내 노출 실기기 확인 권장
 - [x] 선생님 선택 QR 버튼(2026-03-22): **`onclick="showQRPasswordModal()"`** + `.qr-teacher-select-top-btn`·`z-index:100`(ZIP·Vercel과 동일) — 별도 `teacher-select-qr-btn` / `bindTeacherSelectQrButton` 없음
@@ -81,6 +84,7 @@
 ## 테스트/검증 결과 기록
 | 날짜 | 작업 | 검증 방법 | 결과 | 비고 |
 |---|---|---|---|---|
+| 2026-03-22 | AUTO-20260322(staged 8개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-03-22 | AUTO-20260322(staged 172개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-03-22 | AUTO-20260322(staged 7개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-03-22 | AUTO-20260322(staged 5개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |

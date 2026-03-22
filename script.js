@@ -1606,13 +1606,45 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 function setupHolidayColorChips() {
-    const chips = document.querySelectorAll('.dset-color-chip, .color-chip');
-    chips.forEach(chip => {
-        chip.addEventListener('click', () => {
-            const color = chip.dataset.color;
-            setHolidayColor(color);
+    const section = document.getElementById('schedule-register-section');
+    if (section && !section._holidayChipDelegated) {
+        section._holidayChipDelegated = true;
+        section.addEventListener('click', (ev) => {
+            const chip = ev.target.closest('.dset-color-chip[data-color]');
+            if (!chip) return;
+            if (!chip.closest('#holiday-text-color-options') && !chip.closest('#holiday-bg-color-options')) return;
+            const c = chip.dataset.color;
+            if (!c) return;
+            if (chip.closest('#holiday-text-color-options')) setHolidayTextColor(c);
+            else if (chip.closest('#holiday-bg-color-options')) setHolidayBgColor(c);
         });
+    }
+}
+
+window.setHolidayTextColor = function (color) {
+    document.querySelectorAll('#holiday-text-color-options .dset-color-chip').forEach((c) => {
+        c.classList.toggle('active', c.dataset.color === color);
     });
+    const inp = document.getElementById('holiday-text-color');
+    if (inp) inp.value = color;
+};
+
+window.setHolidayBgColor = function (color) {
+    const none = color == null || String(color).trim() === '';
+    const v = none ? '' : String(color).trim();
+    document.querySelectorAll('#holiday-bg-color-options .dset-color-chip:not(.dset-bg-none)').forEach((c) => {
+        c.classList.toggle('active', !none && c.dataset.color === v);
+    });
+    const noneBtn = document.querySelector('#holiday-bg-color-options .dset-bg-none');
+    if (noneBtn) noneBtn.classList.toggle('active', none);
+    const inp = document.getElementById('holiday-bg-color');
+    if (inp) inp.value = v;
+};
+
+/** 하위 호환: 글자·배경 동일 적용 */
+function setHolidayColor(color) {
+    setHolidayTextColor(color);
+    setHolidayBgColor(color);
 }
 
 // 기능 메뉴 드로어 토글
@@ -1700,15 +1732,6 @@ function restorePageOnLoad() {
     navigateToPage('AUTH');
 }
 
-function setHolidayColor(color) {
-    const chips = document.querySelectorAll('.dset-color-chip, .color-chip');
-    chips.forEach(c => {
-        if (c.dataset.color === color) c.classList.add('active');
-        else c.classList.remove('active');
-    });
-    const colorInput = document.getElementById('holiday-color');
-    if (colorInput) colorInput.value = color;
-}
 
 async function hashPin(pin) {
     const enc = new TextEncoder().encode(pin);
@@ -3078,10 +3101,15 @@ function normalizeHolidayEntryOne(raw) {
     const name = String(raw.name || '').trim();
     if (!name) return null;
     const fontSize = Number(raw.fontSize != null ? raw.fontSize : raw.font_size);
+    const textColor = String(raw.textColor || raw.color || defaultColor).trim() || defaultColor;
+    const bgRaw = raw.bgColor != null && raw.bgColor !== '' ? raw.bgColor : raw.bg_color;
+    const bgColor = bgRaw != null && String(bgRaw).trim() !== '' ? String(bgRaw).trim() : null;
     return {
         id: raw.id != null && raw.id !== '' ? Number(raw.id) : null,
         name,
-        color: raw.color || defaultColor,
+        color: textColor,
+        textColor,
+        bgColor,
         scheduleType: raw.scheduleType === 'personal' ? 'personal' : 'academy',
         fontSize: Number.isFinite(fontSize) ? Math.min(32, Math.max(8, Math.round(fontSize))) : DEFAULT_SCHEDULE_FONT_SIZE
     };
@@ -3091,7 +3119,19 @@ function normalizeHolidayDayToArray(raw) {
     if (raw == null) return [];
     if (typeof raw === 'string') {
         const n = raw.trim();
-        return n ? [{ id: null, name: n, color: defaultColor, scheduleType: 'academy', fontSize: DEFAULT_SCHEDULE_FONT_SIZE }] : [];
+        return n
+            ? [
+                  {
+                      id: null,
+                      name: n,
+                      color: defaultColor,
+                      textColor: defaultColor,
+                      bgColor: null,
+                      scheduleType: 'academy',
+                      fontSize: DEFAULT_SCHEDULE_FONT_SIZE
+                  }
+              ]
+            : [];
     }
     if (Array.isArray(raw)) {
         return raw.map(normalizeHolidayEntryOne).filter(Boolean);
@@ -3134,7 +3174,7 @@ function getHolidayInfo(dateStr) {
     if (!entries.length) return null;
     return {
         name: entries.map((e) => e.name).join(' · '),
-        color: entries[0].color,
+        color: entries[0].textColor || entries[0].color,
         scheduleType: entries[0].scheduleType,
         fontSize: entries[0].fontSize,
         entries
@@ -3356,6 +3396,10 @@ function createCell(date, activeStudents, todayStr, precomputedSummaryRows) {
     const day = date.getDay();
     const holidayEntries = getHolidayCellEntries(dateStr);
     const customHolidayEntries = getCustomHolidayEntriesOnly(dateStr);
+    const isPublicHolidayOnly =
+        customHolidayEntries.length === 0 &&
+        holidayEntries.length > 0 &&
+        holidayEntries.every((e) => e.scheduleType === 'public');
     let dayClass = '';
     if (day === 0 || holidayEntries.length) dayClass = 'is-holiday';
     else if (day === 6) dayClass = 'sat';
@@ -3364,13 +3408,24 @@ function createCell(date, activeStudents, todayStr, precomputedSummaryRows) {
 
     if (customHolidayEntries.length) {
         cell.classList.add('custom-holiday');
-        cell.style.setProperty('--holiday-color', customHolidayEntries[0].color || 'var(--red)');
+        const first = customHolidayEntries[0];
+        const textC = first.textColor || first.color || defaultColor;
+        const bgRaw = first.bgColor != null ? String(first.bgColor).trim() : '';
+        cell.style.setProperty('--holiday-text-color', textC);
+        if (bgRaw === '') {
+            cell.classList.add('custom-holiday-no-bg');
+        } else {
+            cell.classList.remove('custom-holiday-no-bg');
+            cell.style.setProperty('--holiday-bg-mix', bgRaw);
+        }
+    } else if (isPublicHolidayOnly) {
+        cell.classList.add('public-holiday-cell');
     }
 
     const holidayStackHtml = holidayEntries.length
         ? `<div class="holiday-names-stack">${holidayEntries.map((e) => {
             const fs = e.fontSize || DEFAULT_SCHEDULE_FONT_SIZE;
-            const col = e.color || defaultColor;
+            const col = e.textColor || e.color || defaultColor;
             return `<span class="holiday-name" style="color:${col};font-size:${fs}px">${escapeHtml(e.name)}</span>`;
         }).join('')}</div>`
         : '';
@@ -6594,7 +6649,8 @@ window.resetScheduleEntryForm = function () {
     const rangeEl = document.getElementById('schedule-font-size');
     if (rangeEl) rangeEl.value = String(DEFAULT_SCHEDULE_FONT_SIZE);
     onScheduleFontSizeInput(String(DEFAULT_SCHEDULE_FONT_SIZE));
-    setHolidayColor('#ef4444');
+    setHolidayTextColor('#ef4444');
+    setHolidayBgColor('');
     const anchor = document.getElementById('setting-date-str')?.value;
     if (anchor) {
         const s = document.getElementById('schedule-start-date');
@@ -6609,13 +6665,23 @@ function renderScheduleExistingListForModal(dateStr) {
     if (!container) return;
     const entries = getCustomHolidayEntriesOnly(dateStr);
     if (!entries.length) {
-        container.innerHTML = '<div class="schedule-list-empty">등록된 일정이 없습니다. 아래에서 추가하세요.</div>';
+        container.innerHTML =
+            '<div class="schedule-list-empty">등록된 일정이 없습니다. 스케줄 이름을 입력한 뒤 저장하면 추가됩니다.</div>';
         return;
     }
     container.innerHTML = entries.map((e, idx) => {
         const typeLabel = e.scheduleType === 'academy' ? '학원' : '개인';
+        const tc = e.textColor || e.color || defaultColor;
+        const bc = e.bgColor != null && e.bgColor !== '' ? e.bgColor : '';
+        const bgDot =
+            bc !== ''
+                ? `<span class="sched-dot sched-dot-bg" style="background:${bc}" title="배경색"></span>`
+                : '<span class="sched-dot sched-dot-bg sched-dot-bg-empty" title="배경 없음"></span>';
         return `<div class="schedule-list-item">
-      <span class="sched-dot" style="background:${e.color}"></span>
+      <div class="sched-dots" aria-hidden="true">
+        <span class="sched-dot" style="background:${tc}" title="글자색"></span>
+        ${bgDot}
+      </div>
       <div class="sched-list-main">
         <span class="sched-name">${escapeHtml(e.name)}</span>
         <span class="sched-meta">${typeLabel} · ${e.fontSize || DEFAULT_SCHEDULE_FONT_SIZE}px</span>
@@ -6638,7 +6704,8 @@ window.editScheduleEntryInModal = function (idx) {
     if (editId) editId.value = e.id != null ? String(e.id) : '';
     document.getElementById('schedule-name').value = e.name;
     document.getElementById('schedule-type').value = e.scheduleType || 'academy';
-    setHolidayColor(e.color || '#ef4444');
+    setHolidayTextColor(e.textColor || e.color || '#ef4444');
+    setHolidayBgColor(e.bgColor != null && e.bgColor !== '' ? e.bgColor : '');
     const r = document.getElementById('schedule-font-size');
     const fs = e.fontSize || DEFAULT_SCHEDULE_FONT_SIZE;
     if (r) r.value = String(fs);
@@ -6699,7 +6766,9 @@ window.openDaySettings = function (dateStr) {
 window.saveDaySettings = async function () {
     const anchorDate = document.getElementById('setting-date-str').value;
     const scheduleName = (document.getElementById('schedule-name')?.value || '').trim();
-    const color = document.getElementById('holiday-color') ? document.getElementById('holiday-color').value : '#ef4444';
+    const textColor = document.getElementById('holiday-text-color')?.value || '#ef4444';
+    const bgRaw = (document.getElementById('holiday-bg-color')?.value ?? '').trim();
+    const bgColor = bgRaw === '' ? null : bgRaw;
     const scheduleType = document.getElementById('schedule-type')?.value || 'academy';
     const startDate = document.getElementById('schedule-start-date')?.value || anchorDate;
     const endDate = document.getElementById('schedule-end-date')?.value || anchorDate;
@@ -6725,12 +6794,20 @@ window.saveDaySettings = async function () {
         const arr = getCustomHolidayEntriesOnly(anchorDate).slice();
         const ix = arr.findIndex((x) => x.id != null && String(x.id) === String(editId));
         if (ix >= 0) {
-            arr[ix] = { ...arr[ix], name: scheduleName, color, scheduleType, fontSize };
+            arr[ix] = {
+                ...arr[ix],
+                name: scheduleName,
+                color: textColor,
+                textColor,
+                bgColor,
+                scheduleType,
+                fontSize
+            };
             customHolidays[anchorDate] = arr;
         }
         if (typeof updateHolidayInDatabase === 'function') {
             try {
-                await updateHolidayInDatabase(editId, { name: scheduleName, color, fontSize });
+                await updateHolidayInDatabase(editId, { name: scheduleName, color: textColor, bgColor, fontSize });
             } catch (dbError) {
                 console.error('스케줄 DB 수정 실패:', dbError);
                 showToast('DB 수정 실패: 마이그레이션(Supabase SQL) 적용 여부를 확인하세요.', 'error');
@@ -6747,14 +6824,23 @@ window.saveDaySettings = async function () {
         for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
             const ds = d.toISOString().split('T')[0];
             const prev = getCustomHolidayEntriesOnly(ds).slice();
-            const newEntry = { id: null, name: scheduleName, color, scheduleType, fontSize };
+            const newEntry = {
+                id: null,
+                name: scheduleName,
+                color: textColor,
+                textColor,
+                bgColor,
+                scheduleType,
+                fontSize
+            };
             if (typeof insertHolidayToDatabase === 'function') {
                 try {
                     const row = await insertHolidayToDatabase({
                         teacherId: teacherIdForRow,
                         date: ds,
                         name: scheduleName,
-                        color,
+                        color: textColor,
+                        bgColor,
                         fontSize
                     });
                     if (row && row.id != null) newEntry.id = Number(row.id);
@@ -7046,10 +7132,14 @@ async function loadAndCleanData() {
                     const ds = h.holiday_date;
                     if (!customHolidays[ds]) customHolidays[ds] = [];
                     const fs = h.font_size != null ? Number(h.font_size) : DEFAULT_SCHEDULE_FONT_SIZE;
+                    const tc = h.color || '#ef4444';
+                    const bg = h.bg_color != null && h.bg_color !== '' ? h.bg_color : null;
                     customHolidays[ds].push({
                         id: h.id != null ? Number(h.id) : null,
                         name: h.holiday_name,
-                        color: h.color || '#ef4444',
+                        color: tc,
+                        textColor: tc,
+                        bgColor: bg,
                         scheduleType: h.scheduleType || (h.teacher_id === 'academy' ? 'academy' : 'personal'),
                         fontSize: Number.isFinite(fs) ? Math.min(32, Math.max(8, Math.round(fs))) : DEFAULT_SCHEDULE_FONT_SIZE
                     });

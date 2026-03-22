@@ -83,7 +83,8 @@
 - **자동결석 보정 Network(2026-03-22)**: `autoMarkAbsentForPastSchedules` 슬롯당 이중 `getAttendanceRecordByStudentAndDate` → `getMergedAttendanceRecordForAutoAbsentSlot` **1회 조회** 병합으로 `attendance_records` 반복 요청 완화.
 - **선생님 선택 화면 QR(2026-03-22, 사용자 ZIP·Vercel 정합)**: 상단 QR → **`showQRPasswordModal()`** → `#qr-password-modal`에서 선생님·PIN → **`confirmQRPassword`** → **`setCurrentTeacher`** → **`openQRScanPage()`** 자동 오픈. 닫기 시 `openedFromTeacherSelect`로 **`TEACHER_SELECT` 복귀**. (로컬 실험 경로 `openQRScanPageFromTeacherSelect`+`#teacher-select-qr-btn` 제거 — 스크린샷 모달이 안 뜨던 원인)
 - **선생님 선택 QR·토스트 가드(2026-03-22)**: `isQRScanPageOpen()`은 인라인 `display`만 판별(`script.js`).
-- **검증**: `node --check qr-attendance.js` · `node --check script.js` PASS. **실기기**: QR 닫기·새로고침 후 오버레이 미잔류, Network 스팸 완화 확인 권장.
+- **월간 캘린더 공휴일·학원일정 배경(2026-03-22)**: 공휴일만 → **`public-holiday-cell`**. 학원·개인 일정은 모달에서 **글자 색** / **배경 색** 분리(`--holiday-text-color`, `--holiday-bg-mix` + Supabase `bg_color` 마이그레이션 `SUPABASE_HOLIDAYS_BG_COLOR_20260322.sql`). **후속(2026-03-22)**: 배경 **「선택안함」**(`bg_color` null, `custom-holiday-no-bg`)·칩 **파스텔 6색**(`index.html`)·`style.css`에서 공휴일·커스텀 `color-mix` 비율 **전반 하향**(다크 테마 포함)·모달 `dset-bg-none`·목록 `sched-dot-bg-empty` 스타일로 **칸 배경이 덜 진하게** 보이도록 정리. **국가 공휴일만(2026-03-22)**: `public-holiday-cell`의 빨강 `color-mix` 비율을 **추가 하향**(라이트·테마·야간/차콜) — 법정 공휴일 칸만 더 연한 틴트.
+- **검증**: `node --check qr-attendance.js` · `node --check script.js` PASS. **실기기**: QR 닫기·새로고침 후 오버레이 미잔류, Network 스팸 완화 확인 권장. 캘린더는 배경 없음·연한 배경 표시 확인 권장.
 - **다음 단계**: 운영 스모크 후 이슈 있으면 `docs/context.md` 기록.
 
 ### 선생님 입장 PIN 검증(`verify-teacher-pin`) — 2026-03-22
@@ -1058,6 +1059,7 @@
 - [ ] 다음 작업자가 바로 이어서 할 수 있게 문서가 갱신되었다.
 
 ## 변경 이력
+- 2026-03-22 - AUTO-20260322(staged 8개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-22 - AUTO-20260322(staged 172개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-22 - AUTO-20260322(staged 7개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-22 - AUTO-20260322(staged 5개 파일 기준 문서 연동 자동기록): 연동 자동 기록

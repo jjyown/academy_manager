@@ -2189,19 +2189,58 @@ textarea:focus:not(:focus-visible) {
 .grid-cell:nth-child(7n) { border-right: none; }
 
 .grid-cell:hover { background: #f5f7ff; transform: scale(1.02); z-index: 1; box-shadow: 0 2px 8px rgba(79,70,229,.08); }
+.grid-cell.public-holiday-cell:hover {
+    background: color-mix(in srgb, var(--red) 12%, #f5f7ff);
+}
+.grid-cell.custom-holiday:hover {
+    background: color-mix(in srgb, var(--holiday-bg-mix) 24%, #f5f7ff);
+}
 .grid-cell.drag-over { background: #eff6ff; box-shadow: inset 0 0 0 2px var(--primary); }
 .grid-cell.empty { background: white; cursor: default; }
 
 /* 다른 달 날짜 (이전/다음 달) */
 .grid-cell.other-month { background: #fafbfc; }
+.grid-cell.other-month.public-holiday-cell {
+    background: color-mix(in srgb, var(--red) 6%, #fafbfc);
+}
+.grid-cell.other-month.custom-holiday {
+    background: color-mix(in srgb, var(--holiday-bg-mix) 12%, #fafbfc);
+}
 .grid-cell.other-month .date-num { color: #d1d5db !important; font-weight: 400; }
 .grid-cell.other-month .holiday-name { opacity: 0.3; }
 .grid-cell.other-month .summary-badge { opacity: 0.3; }
 .grid-cell.other-month:hover { transform: none; box-shadow: none; background: #f5f6f8; }
+.grid-cell.other-month.public-holiday-cell:hover { background: color-mix(in srgb, var(--red) 10%, #f5f6f8); }
+.grid-cell.other-month.custom-holiday:hover { background: color-mix(in srgb, var(--holiday-bg-mix) 22%, #f5f6f8); }
 
-.grid-cell.custom-holiday { background: #fffbfb; }
-.grid-cell.custom-holiday .date-num { background: transparent; color: var(--holiday-color) !important; }
-.grid-cell.custom-holiday .holiday-name { color: var(--holiday-color) !important; font-weight: 600; }
+/* 국가·법정 공휴일(API/고정·음력)만 — 사용자 일정 없을 때 */
+.grid-cell.public-holiday-cell {
+    background: color-mix(in srgb, var(--red) 8%, var(--theme-cell, #ffffff));
+}
+.grid-cell.public-holiday-cell .date-num.is-holiday { color: #dc2626 !important; }
+
+/* 학원 전체·개인 일정: a모달 글자(--holiday-text-color)·배경(--holiday-bg-mix) 분리 */
+.grid-cell.custom-holiday {
+    --holiday-text-color: #ef4444;
+    --holiday-bg-mix: #fecaca;
+    background: color-mix(in srgb, var(--holiday-bg-mix) 22%, var(--theme-cell, #ffffff));
+}
+.grid-cell.custom-holiday.custom-holiday-no-bg {
+    background: var(--theme-cell, #ffffff);
+}
+.grid-cell.custom-holiday.custom-holiday-no-bg:hover {
+    background: #f5f7ff;
+}
+.grid-cell.other-month.custom-holiday.custom-holiday-no-bg {
+    background: #fafbfc;
+}
+.grid-cell.other-month.custom-holiday.custom-holiday-no-bg:hover {
+    background: #f5f6f8;
+    transform: none;
+    box-shadow: none;
+}
+.grid-cell.custom-holiday .date-num { background: transparent; color: var(--holiday-text-color) !important; }
+.grid-cell.custom-holiday .holiday-name { color: var(--holiday-text-color) !important; font-weight: 600; }
 
 .date-num {
     font-size: 12px;
@@ -2295,11 +2334,33 @@ textarea:focus:not(:focus-visible) {
     border: 1px solid var(--border, #e2e8f0);
 }
 .schedule-list-item:last-child { margin-bottom: 0; }
+.sched-dots {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+}
 .sched-dot {
     width: 10px;
     height: 10px;
     border-radius: 50%;
     flex-shrink: 0;
+}
+.sched-dot-bg {
+    box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.25);
+}
+.sched-dot-bg.sched-dot-bg-empty {
+    background: transparent !important;
+    box-shadow: inset 0 0 0 1px rgba(100, 116, 139, 0.45);
+    background-image: repeating-linear-gradient(
+        -45deg,
+        transparent,
+        transparent 3px,
+        rgba(148, 163, 184, 0.35) 3px,
+        rgba(148, 163, 184, 0.35) 4px
+    );
 }
 .sched-list-main {
     flex: 1;
@@ -2645,6 +2706,27 @@ textarea:focus:not(:focus-visible) {
     border-color: #0f172a;
     box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.12);
     transform: scale(1.1);
+}
+
+.dset-bg-color-row .dset-color-chip.dset-bg-none {
+    width: auto;
+    min-height: 34px;
+    padding: 0 12px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #64748b;
+    background: rgba(148, 163, 184, 0.12);
+    border: 2px dashed rgba(100, 116, 139, 0.45);
+}
+.dset-bg-color-row .dset-color-chip.dset-bg-none:hover {
+    background: rgba(148, 163, 184, 0.2);
+}
+.dset-bg-color-row .dset-color-chip.dset-bg-none.active {
+    border-style: solid;
+    border-color: #0f172a;
+    color: #0f172a;
+    background: rgba(15, 23, 42, 0.06);
 }
 
 /* Day Settings Footer */
@@ -5913,11 +5995,35 @@ textarea:focus:not(:focus-visible) {
 [data-theme] .grid-cell:hover {
     background: var(--theme-header, #f5f7ff);
 }
+[data-theme] .grid-cell.public-holiday-cell:hover {
+    background: color-mix(in srgb, var(--red) 11%, var(--theme-header, #f5f7ff));
+}
+[data-theme] .grid-cell.custom-holiday:hover {
+    background: color-mix(in srgb, var(--holiday-bg-mix) 26%, var(--theme-header, #f5f7ff));
+}
+[data-theme] .grid-cell.custom-holiday.custom-holiday-no-bg {
+    background: var(--theme-cell, var(--white));
+}
+[data-theme] .grid-cell.custom-holiday.custom-holiday-no-bg:hover {
+    background: var(--theme-header, #f5f7ff);
+}
+[data-theme] .grid-cell.other-month.custom-holiday.custom-holiday-no-bg {
+    background: var(--bg);
+}
+[data-theme] .grid-cell.other-month.custom-holiday.custom-holiday-no-bg:hover {
+    background: var(--theme-header);
+}
 [data-theme] .grid-cell.empty {
     background: var(--theme-cell, var(--white));
 }
 [data-theme] .grid-cell.other-month {
     background: var(--bg);
+}
+[data-theme] .grid-cell.other-month.public-holiday-cell {
+    background: color-mix(in srgb, var(--red) 7%, var(--bg));
+}
+[data-theme] .grid-cell.other-month.custom-holiday {
+    background: color-mix(in srgb, var(--holiday-bg-mix) 14%, var(--bg));
 }
 [data-theme] .weekday-header {
     background: var(--theme-header, var(--white));
@@ -6035,9 +6141,45 @@ textarea:focus:not(:focus-visible) {
 [data-theme="charcoal"] .grid-cell.other-month:hover {
     background: var(--theme-header);
 }
+[data-theme="night"] .grid-cell.other-month.public-holiday-cell,
+[data-theme="charcoal"] .grid-cell.other-month.public-holiday-cell {
+    background: color-mix(in srgb, #dc2626 13%, var(--theme-header));
+}
+[data-theme="night"] .grid-cell.other-month.custom-holiday,
+[data-theme="charcoal"] .grid-cell.other-month.custom-holiday {
+    background: color-mix(in srgb, var(--holiday-bg-mix) 20%, var(--theme-header));
+}
+[data-theme="night"] .grid-cell.public-holiday-cell,
+[data-theme="charcoal"] .grid-cell.public-holiday-cell {
+    background: color-mix(in srgb, #dc2626 18%, var(--theme-cell));
+}
+[data-theme="night"] .grid-cell.public-holiday-cell:hover,
+[data-theme="charcoal"] .grid-cell.public-holiday-cell:hover {
+    background: color-mix(in srgb, #dc2626 22%, var(--theme-header));
+}
 [data-theme="night"] .grid-cell.custom-holiday,
 [data-theme="charcoal"] .grid-cell.custom-holiday {
-    background: rgba(239,68,68,0.08);
+    background: color-mix(in srgb, var(--holiday-bg-mix) 28%, var(--theme-cell));
+}
+[data-theme="night"] .grid-cell.custom-holiday:hover,
+[data-theme="charcoal"] .grid-cell.custom-holiday:hover {
+    background: color-mix(in srgb, var(--holiday-bg-mix) 34%, var(--theme-header));
+}
+[data-theme="night"] .grid-cell.custom-holiday.custom-holiday-no-bg,
+[data-theme="charcoal"] .grid-cell.custom-holiday.custom-holiday-no-bg {
+    background: var(--theme-cell);
+}
+[data-theme="night"] .grid-cell.custom-holiday.custom-holiday-no-bg:hover,
+[data-theme="charcoal"] .grid-cell.custom-holiday.custom-holiday-no-bg:hover {
+    background: var(--theme-header);
+}
+[data-theme="night"] .grid-cell.other-month.custom-holiday.custom-holiday-no-bg,
+[data-theme="charcoal"] .grid-cell.other-month.custom-holiday.custom-holiday-no-bg {
+    background: var(--theme-header);
+}
+[data-theme="night"] .grid-cell.other-month.custom-holiday.custom-holiday-no-bg:hover,
+[data-theme="charcoal"] .grid-cell.other-month.custom-holiday.custom-holiday-no-bg:hover {
+    background: var(--theme-header);
 }
 [data-theme="night"] .weekday-header,
 [data-theme="charcoal"] .weekday-header {

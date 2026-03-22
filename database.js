@@ -550,6 +550,9 @@ window.insertHolidayToDatabase = async function(holidayData) {
             color: holidayData.color || '#ef4444',
             font_size: Number.isFinite(fontSize) ? Math.min(32, Math.max(8, Math.round(fontSize))) : 13
         };
+        if (holidayData.bgColor != null && holidayData.bgColor !== '') {
+            row.bg_color = holidayData.bgColor;
+        }
 
         const { data, error } = await supabase
             .from('holidays')
@@ -577,6 +580,9 @@ window.updateHolidayInDatabase = async function(holidayId, patch) {
             color: patch.color || '#ef4444',
             ...(Number.isFinite(fs) ? { font_size: Math.min(32, Math.max(8, Math.round(fs))) } : {})
         };
+        if (patch.bgColor !== undefined) {
+            updateRow.bg_color = patch.bgColor && String(patch.bgColor).trim() !== '' ? patch.bgColor : null;
+        }
         const { data, error } = await supabase
             .from('holidays')
             .update(updateRow)
@@ -616,7 +622,7 @@ window.getHolidaysByTeacher = async function(teacherId) {
         // 개인 스케줄 + 학원 전체 일정(teacher_id='academy') 모두 조회
         const { data, error } = await supabase
             .from('holidays')
-            .select('id, holiday_date, holiday_name, color, teacher_id, font_size')
+            .select('id, holiday_date, holiday_name, color, bg_color, teacher_id, font_size')
             .eq('owner_user_id', ownerId)
             .in('teacher_id', [teacherId, 'academy'])
             .order('holiday_date', { ascending: true })
