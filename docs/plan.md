@@ -77,6 +77,11 @@
   - 이후 작업 사이클 종료 시 `append_enterprise_log.py`를 표준 명령으로 포함해 자동 기록 누락을 방지
 
 ## 현재 스프린트 목표
+### QR 스캔 종료 PIN·반응형 2열 — 2026-03-22
+- **상태**: 코드 반영 완료. `resolveQrPinVerificationTarget()`로 관리자 PIN 경로(`requireAdmin` + `teacher_role=admin` 행) 정합, `shouldUseDualPanelMode`·`applyQRScanResponsiveLayout`·`style.css`로 PC·태블릿에서 카메라 좌·전화 패드 우 유지. PIN 실패 시 `mapVerifyTeacherPinFailureToMessage`로 안내 통일.
+- **검증**: `node --check qr-attendance.js` PASS. **실기기**: 원장 로그인 → 일반 교사 프로필로 QR → 종료 시 관리자 PIN, 가로·세로 태블릿에서 2열 배치 확인 권장.
+- **다음 단계**: 운영 스모크 후 이슈 있으면 `docs/context.md` 기록.
+
 ### 선생님 입장 PIN 검증(`verify-teacher-pin`) — 2026-03-22
 - **상태**: **사용자 확인 — 관리자 로그인 후 선생님 선택 → 입장 → 메인 페이지 진입 성공**(2026-03-22). 레포·Supabase(함수 배포, `Verify JWT with legacy secret` OFF, `invokeVerifyTeacherPin` 등) 반영 완료.
 - **다음 단계(권장)**: ~~짧은 스모크·페이지 연결~~ → **사용자 확인 PASS**(2026-03-22): 메인 오늘 일정·출석 저장·숙제/채점/학부모 포털 동선. 이후는 운영 중 이슈 발생 시 점검 또는 학생관리·수납 트랙(`docs/plan.md` 인계 요약) 우선순위에 따름.
@@ -1043,6 +1048,7 @@
 - [ ] 다음 작업자가 바로 이어서 할 수 있게 문서가 갱신되었다.
 
 ## 변경 이력
+- 2026-03-22 - AUTO-20260322(staged 5개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-22 - AUTO-20260322(staged 5개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-22 - AUTO-20260322(staged 5개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-22 - AUTO-20260322(staged 7개 파일 기준 문서 연동 자동기록): 연동 자동 기록

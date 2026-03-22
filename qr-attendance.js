@@ -11,8 +11,8 @@ const ATTENDANCE_GRACE_MINUTES = 2;
 
 function shouldUseDualPanelMode() {
     const w = window.innerWidth || 0;
-    // 10인치 태블릿 가로/전체화면 사용을 우선 타겟팅
-    return w >= 900 && w <= 1400;
+    // 좁은 폰(세로)만 1열, 태블릿·PC는 카메라(좌) + 전화 패드(우) 2열 유지
+    return w >= 560;
 }
 
 function getCurrentTeacherForQrPinGuard() {
@@ -26,9 +26,47 @@ function getCurrentTeacherForQrPinGuard() {
     return teacherList.find((t) => String(t?.id) === teacherId) || null;
 }
 
+/**
+ * PIN 검증 대상: 현재 선택 교사가 admin이면 그 행으로 requireAdmin 검증.
+ * 원장 앱 로그인(`current_user_role=admin`)인데 현재 프로필이 일반 교사면,
+ * 동일 owner 소속 `teacher_role=admin` 행(원장 PIN)으로 검증한다.
+ */
+function resolveQrPinVerificationTarget() {
+    const guard = getCurrentTeacherForQrPinGuard();
+    if (!guard) return null;
+
+    const roleFromTab = String(
+        typeof getCurrentTeacherRole === 'function' ? getCurrentTeacherRole() : ''
+    ).toLowerCase();
+    if (roleFromTab === 'admin') {
+        return { teacherId: String(guard.id), requireAdmin: true };
+    }
+
+    let appIsAdmin = false;
+    try {
+        if (typeof cachedLsGet === 'function' && String(cachedLsGet('current_user_role') || '') === 'admin') {
+            appIsAdmin = true;
+        }
+    } catch (_) {
+        /* noop */
+    }
+    if (!appIsAdmin && typeof localStorage !== 'undefined') {
+        appIsAdmin = localStorage.getItem('current_user_role') === 'admin';
+    }
+    if (appIsAdmin && Array.isArray(teacherList)) {
+        const adminTeacher = teacherList.find(
+            (t) => String(t?.teacher_role || 'teacher').toLowerCase() === 'admin'
+        );
+        if (adminTeacher && adminTeacher.id) {
+            return { teacherId: String(adminTeacher.id), requireAdmin: true };
+        }
+    }
+    return { teacherId: String(guard.id), requireAdmin: false };
+}
+
 async function verifyTeacherPinForAction(options = {}) {
-    const teacher = getCurrentTeacherForQrPinGuard();
-    if (!teacher) {
+    const target = resolveQrPinVerificationTarget();
+    if (!target) {
         showToast('선생님 인증 정보를 찾을 수 없습니다. 다시 로그인 후 시도해주세요.', 'warning');
         return false;
     }
@@ -37,9 +75,13 @@ async function verifyTeacherPinForAction(options = {}) {
         return false;
     }
 
-    const input = await window.showPrompt(options.message || '선생님 비밀번호를 입력해주세요.', {
-        title: options.title || '선생님 인증',
-        placeholder: options.placeholder || '선생님 비밀번호',
+    const requireAdmin = target.requireAdmin;
+    const defaultTitle = requireAdmin ? '관리자 인증' : '선생님 인증';
+    const defaultPlaceholder = requireAdmin ? '관리자 비밀번호' : '선생님 비밀번호';
+
+    const input = await window.showPrompt(options.message || '비밀번호를 입력해주세요.', {
+        title: options.title || defaultTitle,
+        placeholder: options.placeholder || defaultPlaceholder,
         inputType: 'password',
         okText: options.okText || '확인',
         cancelText: options.cancelText || '취소'
@@ -52,25 +94,38 @@ async function verifyTeacherPinForAction(options = {}) {
         return false;
     }
 
-    const verifyResult = await verifyTeacherPinWithServer(teacher.id, password, {
-        ownerUserId: cachedLsGet('current_owner_id')
+    const verifyResult = await verifyTeacherPinWithServer(target.teacherId, password, {
+        ownerUserId: cachedLsGet('current_owner_id'),
+        requireAdmin
     });
     if (!verifyResult.ok) {
-        showToast('비밀번호가 일치하지 않습니다.', 'warning');
+        const msg =
+            typeof mapVerifyTeacherPinFailureToMessage === 'function'
+                ? mapVerifyTeacherPinFailureToMessage(verifyResult)
+                : '비밀번호가 일치하지 않습니다.';
+        showToast(msg || '비밀번호가 일치하지 않습니다.', 'warning');
         return false;
     }
     return true;
 }
 
 async function verifyTeacherPinForQrClose() {
+    const t = resolveQrPinVerificationTarget();
     return verifyTeacherPinForAction({
-        message: '학생 출석 화면을 종료하려면 선생님 비밀번호를 입력해주세요.'
+        message:
+            t && t.requireAdmin
+                ? '학생 출석 화면을 종료하려면 관리자 비밀번호를 입력해주세요.'
+                : '학생 출석 화면을 종료하려면 선생님 비밀번호를 입력해주세요.'
     });
 }
 
 async function verifyTeacherPinForCameraSwitch() {
+    const t = resolveQrPinVerificationTarget();
     return verifyTeacherPinForAction({
-        message: '카메라를 전환하려면 선생님 비밀번호를 입력해주세요.'
+        message:
+            t && t.requireAdmin
+                ? '카메라를 전환하려면 관리자 비밀번호를 입력해주세요.'
+                : '카메라를 전환하려면 선생님 비밀번호를 입력해주세요.'
     });
 }
 
@@ -1276,8 +1331,7 @@ async function stopQRScannerForModeChange() {
 function applyQRScanResponsiveLayout() {
     const scanMain = document.querySelector('.qr-scan-main');
     if (!scanMain) return;
-    const isLandscape = (window.matchMedia && window.matchMedia('(orientation: landscape)').matches);
-    const useDual = shouldUseDualPanelMode() && isLandscape;
+    const useDual = shouldUseDualPanelMode();
     scanMain.classList.toggle('dual-mode', useDual);
 }
 
@@ -1350,10 +1404,14 @@ function unbindQRViewportGuard() {
     qrPhoneFocusOutHandler = null;
 }
 
-window.addEventListener('resize', () => {
+function onQRScanPageViewportChange() {
     const page = document.getElementById('qr-scan-page');
     if (!page || page.style.display !== 'flex') return;
     applyQRScanResponsiveLayout();
+}
+window.addEventListener('resize', onQRScanPageViewportChange);
+window.addEventListener('orientationchange', () => {
+    setTimeout(onQRScanPageViewportChange, 150);
 });
 
 // ========== QR 스캔 페이지 ==========

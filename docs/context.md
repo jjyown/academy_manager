@@ -14,6 +14,9 @@
 ## 최근 의사결정 로그
 | 날짜 | 결정 | 이유 | 영향 범위 |
 |---|---|---|---|
+| 2026-03-22 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/checklist.md, docs/context.md, docs/plan.md, qr-attendance.js, style.css |
+| 2026-03-22 | 전문가 합의(프론트/UX): QR 스캔 PIN 검증 실패 시 고정 문구 대신 **`mapVerifyTeacherPinFailureToMessage`** 로 토스트를 통일해 `invalid_pin`·`admin_required`·네트워크 등 구분 안내가 가능하게 한다 | 동일 Edge 응답인데 화면마다 메시지가 다르면 운영 혼선이 커지기 때문 | `qr-attendance.js`, `script.js` |
+| 2026-03-22 | 전문가 합의(프론트/보안): QR 스캔 종료·카메라 전환 PIN은 `verifyTeacherPinWithServer`에 **`requireAdmin`** 을 현재 선택 교사의 `teacher_role`과 일치시키고, **원장 앱 로그인**(`current_user_role=admin`)인데 현재 선택 프로필이 일반 교사면 **`teachers` 중 `teacher_role=admin` 행**으로 관리자 PIN을 검증한다(Edge `verify-teacher-pin`의 `admin_required`·PIN 해시 경로와 정합). 레이아웃은 **가로 모드·900~1400px 제한을 제거**하고 `≥560px`에서 카메라 좌·전화 패드 우 그리드·`clamp`로 반응형 유지 | 사용자 보고(관리자 비밀번호로도 QR이 안 닫힘·태블릿에서 좌우 배치 붕괴) | `qr-attendance.js`, `style.css` |
 | 2026-03-22 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/checklist.md, docs/context.md, docs/plan.md, index.html, style.css |
 | 2026-03-22 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/checklist.md, docs/context.md, docs/plan.md, mobile.css, style.css |
 | 2026-03-22 | 전문가 합의(UIUX/프론트): 11인치 태블릿 가로에서 QR+전화 패널이 **왼쪽으로 몰림**은 `#qr-scan-page`가 `align-items:stretch`라 `max-width` 박스가 가운데 오지 않는 전형적 flex 이슈 → **`≥769px`에서 `align-items:center`**, `.qr-scan-layout` **`margin:auto`**·좌우 대칭 패딩, dual-mode **열 간격·비율** 조정 | 사용자 보고(화면 왼쪽 치우침·어색함) | `style.css`, `index.html` |

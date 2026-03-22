@@ -137,7 +137,7 @@ textarea:focus:not(:focus-visible) {
 }
 .qr-scan-layout {
     width: 100%;
-    max-width: 960px;
+    max-width: min(1400px, 96vw);
     margin-left: auto;
     margin-right: auto;
     padding-left: clamp(12px, 3vw, 28px);
@@ -206,8 +206,8 @@ textarea:focus:not(:focus-visible) {
 }
 .qr-scan-main.dual-mode {
     display: grid;
-    grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.85fr);
-    gap: 20px;
+    grid-template-columns: minmax(0, 1.35fr) minmax(min(240px, 32vw), 0.88fr);
+    gap: clamp(12px, 2vw, 24px);
     align-items: start;
     justify-content: center;
     width: 100%;
@@ -218,15 +218,18 @@ textarea:focus:not(:focus-visible) {
 }
 .qr-scan-main.dual-mode #qr-scan-mode-qr { grid-column: 1; }
 .qr-scan-main.dual-mode #qr-scan-mode-phone { grid-column: 2; }
-.qr-scan-page-wrap.qr-keyboard-open {
-    align-items: flex-start !important;
-}
-.qr-scan-page-wrap.qr-keyboard-open .qr-scan-main.dual-mode {
-    grid-template-columns: 1fr;
-}
-.qr-scan-page-wrap.qr-keyboard-open .qr-scan-main.dual-mode #qr-scan-mode-qr,
-.qr-scan-page-wrap.qr-keyboard-open .qr-scan-main.dual-mode #qr-scan-mode-phone {
-    grid-column: 1;
+/* 좁은 화면에서만 키보드 시 1열로 전환(태블릿·PC는 좌우 유지) */
+@media (max-width: 599px) {
+    .qr-scan-page-wrap.qr-keyboard-open {
+        align-items: flex-start !important;
+    }
+    .qr-scan-page-wrap.qr-keyboard-open .qr-scan-main.dual-mode {
+        grid-template-columns: 1fr;
+    }
+    .qr-scan-page-wrap.qr-keyboard-open .qr-scan-main.dual-mode #qr-scan-mode-qr,
+    .qr-scan-page-wrap.qr-keyboard-open .qr-scan-main.dual-mode #qr-scan-mode-phone {
+        grid-column: 1;
+    }
 }
 .qr-scan-mode-panel { display: block; }
 .qr-camera-hidden { display: none !important; }
@@ -326,19 +329,29 @@ textarea:focus:not(:focus-visible) {
 .qr-phone-candidate-btn:hover { border-color: #93c5fd; background: rgba(37, 99, 235, 0.22); }
 
 @media (max-width: 920px) {
-    .qr-scan-layout { max-width: 760px; }
+    .qr-scan-layout { max-width: min(100%, 920px); }
     .qr-scan-main { max-width: none; }
     .qr-scan-main.dual-mode {
-        display: block;
-        grid-template-columns: unset;
+        grid-template-columns: minmax(0, 1.15fr) minmax(200px, 0.92fr);
+        gap: clamp(10px, 2vw, 18px);
     }
     .qr-phone-auth-panel { width: 100%; }
 }
 
-/* 10~11인치 태블릿: 이중 패널 간격·최대 폭으로 시선 중앙 배치 */
+/* 매우 좁은 폰: 세로 스택(560px 미만은 JS에서 dual-mode 해제와 동일) */
+@media (max-width: 559px) {
+    .qr-scan-main.dual-mode {
+        grid-template-columns: 1fr;
+    }
+    .qr-scan-main.dual-mode #qr-scan-mode-qr,
+    .qr-scan-main.dual-mode #qr-scan-mode-phone {
+        grid-column: 1;
+    }
+}
+/* 태블릿~중형 노트북: 패널 비율·간격 보강 */
 @media (min-width: 900px) and (max-width: 1400px) {
     .qr-scan-layout {
-        max-width: min(1100px, 96vw);
+        max-width: min(1200px, 96vw);
     }
     .qr-scan-main.dual-mode {
         grid-template-columns: minmax(280px, 1.25fr) minmax(300px, 0.95fr);

@@ -2,6 +2,7 @@
 
 - 문서 기준일: 2026-03-22
 ## 공통 품질 체크
+- [x] QR 스캔 종료·카메라 전환 PIN + 2열 레이아웃(2026-03-22): `qr-attendance.js`(`resolveQrPinVerificationTarget`, `requireAdmin`, 원장+일반교사 프로필)·`style.css`(560px+ dual-mode, 키보드 1열은 599px 이하만) — `node --check qr-attendance.js` PASS · 실기기 관리자 PIN·태블릿 좌우 배치 확인 권장
 - [x] QR 스캔 태블릿 가로 중앙 정렬(2026-03-22): `style.css`/`index.html` — 11인치 등에서 레이아웃·헤더 정돈; 실기기 가로 모드 확인 권장
 - [x] QR 스캔 카메라 영역 붕괴 회귀 수정(2026-03-22): `.qr-reader-host` min-height·모바일 레이아웃 min-height 완화 — 실기기에서 카메라+전화 패널 동시 노출 확인 권장
 - [x] QR 스캔 페이지 모바일 세로 스크롤(2026-03-22): `style.css`/`mobile.css`/`qr-attendance.js`/`index.html` — 스크롤 여유·스페이서·카메라 높이·video touch 보정; 실기기 스와이프·주소창 접기 확인 권장
@@ -69,6 +70,8 @@
 ## 테스트/검증 결과 기록
 | 날짜 | 작업 | 검증 방법 | 결과 | 비고 |
 |---|---|---|---|---|
+| 2026-03-22 | AUTO-20260322(staged 5개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
+| 2026-03-22 | QR 스캔 관리자 PIN·2열 레이아웃 | `node --check qr-attendance.js` + `mapVerifyTeacherPinFailureToMessage` 연동 | PASS(코드) | 실기기: 원장+일반교사 프로필·태블릿 좌우 배치 확인 권장 |
 | 2026-03-22 | AUTO-20260322(staged 5개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-03-22 | AUTO-20260322(staged 5개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-03-22 | AUTO-20260322(staged 7개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
