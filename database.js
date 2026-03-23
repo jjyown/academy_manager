@@ -32,6 +32,38 @@ function _getOwnerId() {
     return null;
 }
 
+/**
+ * schedule_date / 범위 삭제용: 월·일 한 자리(2026-2-5) 등을 YYYY-MM-DD로 통일.
+ * 문자열 비교(`2026-2-5` > `2026-02-28`)로 2월만 구간에서 빠지는 오류 방지.
+ */
+function _normalizeScheduleDateKey(input) {
+    if (input == null || input === '') return '';
+    const s = String(input).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    const m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (!m) return s;
+    const y = parseInt(m[1], 10);
+    const mo = parseInt(m[2], 10);
+    const d = parseInt(m[3], 10);
+    if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return s;
+    return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+window.normalizeScheduleDateKey = _normalizeScheduleDateKey;
+
+/** schedules.start_time 이 DB(TIME)와 HH:MM / HH:MM:SS 로 달라 삭제가 0건 되는 것 완화 */
+function _scheduleStartTimeDeleteVariants(startTime) {
+    const raw = String(startTime || '').trim();
+    if (!raw || raw === 'default') return null;
+    const m = raw.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+    if (!m) return [raw];
+    const hh = String(Math.min(23, parseInt(m[1], 10))).padStart(2, '0');
+    const mm = String(Math.min(59, parseInt(m[2], 10))).padStart(2, '0');
+    const ss = m[3] != null ? String(Math.min(59, parseInt(m[3], 10))).padStart(2, '0') : '00';
+    const hhmm = `${hh}:${mm}`;
+    const full = `${hh}:${mm}:${ss}`;
+    return Array.from(new Set([hhmm, full]));
+}
+
 // 세션 변경 감지 → 캐시 무효화
 if (typeof supabase !== 'undefined') {
     supabase.auth.onAuthStateChange((event) => {
@@ -312,7 +344,7 @@ window.saveScheduleToDatabase = async function(scheduleData) {
                 owner_user_id: ownerId,
                 teacher_id: scheduleData.teacherId,
                 student_id: parseInt(scheduleData.studentId),
-                schedule_date: scheduleData.date,
+                schedule_date: _normalizeScheduleDateKey(scheduleData.date),
                 start_time: scheduleData.startTime,
                 duration: parseInt(scheduleData.duration)
             }, {
@@ -349,7 +381,7 @@ window.saveSchedulesToDatabaseBatch = async function(scheduleList) {
             owner_user_id: ownerId,
             teacher_id: item.teacherId,
             student_id: parseInt(item.studentId),
-            schedule_date: item.date,
+            schedule_date: _normalizeScheduleDateKey(item.date),
             start_time: item.startTime,
             duration: parseInt(item.duration)
         }));
@@ -441,21 +473,45 @@ window.getSchedulesByStudent = async function(studentId) {
 
 window.deleteScheduleFromDatabase = async function(studentId, date, teacherId = null, startTime = null) {
     try {
-        const numericId = parseInt(studentId);
-        const effectiveTeacherId = teacherId || (typeof currentTeacherId !== 'undefined' ? currentTeacherId : null);
+        const numericId = parseInt(studentId, 10);
+        if (Number.isNaN(numericId)) {
+            throw new Error('[deleteScheduleFromDatabase] student_id가 유효하지 않습니다.');
+        }
+        const effectiveTeacherId = String(
+            teacherId || (typeof currentTeacherId !== 'undefined' ? currentTeacherId : '') || ''
+        ).trim();
         if (!effectiveTeacherId) {
-            console.warn('[deleteScheduleFromDatabase] teacherId가 없어 삭제를 중단합니다.');
-            return false;
+            throw new Error('[deleteScheduleFromDatabase] teacherId가 없어 삭제할 수 없습니다.');
+        }
+        const ownerId = _getOwnerId();
+        if (!ownerId) {
+            throw new Error('[deleteScheduleFromDatabase] owner(로그인) 정보가 없어 삭제할 수 없습니다.');
+        }
+
+        const dateKey = _normalizeScheduleDateKey(date);
+        if (!dateKey) {
+            throw new Error('[deleteScheduleFromDatabase] schedule_date가 유효하지 않습니다.');
         }
 
         let query = supabase
             .from('schedules')
             .delete()
+            .eq('owner_user_id', ownerId)
             .eq('student_id', numericId)
-            .eq('schedule_date', date)
+            .eq('schedule_date', dateKey)
             .eq('teacher_id', effectiveTeacherId);
 
-        if (startTime) query = query.eq('start_time', startTime);
+        const st = String(startTime || '').trim();
+        if (st && st !== 'default') {
+            const variants = _scheduleStartTimeDeleteVariants(st);
+            if (variants && variants.length > 1) {
+                query = query.in('start_time', variants);
+            } else if (variants && variants.length === 1) {
+                query = query.eq('start_time', variants[0]);
+            } else {
+                query = query.eq('start_time', st);
+            }
+        }
 
         const { error } = await query;
         if (error) throw error;
@@ -468,26 +524,29 @@ window.deleteScheduleFromDatabase = async function(studentId, date, teacherId = 
 
 window.deleteSchedulesByRange = async function(studentId, startDate, endDate, teacherId = null) {
     try {
-        const numericId = parseInt(studentId);
-        const effectiveTeacherId = teacherId || (typeof currentTeacherId !== 'undefined' ? currentTeacherId : null);
+        const numericId = parseInt(studentId, 10);
+        if (Number.isNaN(numericId)) {
+            throw new Error('[deleteSchedulesByRange] student_id가 유효하지 않습니다.');
+        }
+        const effectiveTeacherId = String(teacherId || (typeof currentTeacherId !== 'undefined' ? currentTeacherId : '') || '').trim();
         if (!effectiveTeacherId) {
-            console.warn('[deleteSchedulesByRange] teacherId가 없어 삭제를 중단합니다.');
-            return false;
+            throw new Error('[deleteSchedulesByRange] teacherId가 없어 삭제할 수 없습니다.');
         }
 
         const ownerId = _getOwnerId();
         if (!ownerId) {
-            console.warn('[deleteSchedulesByRange] ownerId가 없어 삭제를 중단합니다.');
-            return false;
+            throw new Error('[deleteSchedulesByRange] 로그인(owner) 정보가 없어 삭제할 수 없습니다.');
         }
+        const rangeStart = startDate ? _normalizeScheduleDateKey(startDate) : '';
+        const rangeEnd = endDate ? _normalizeScheduleDateKey(endDate) : '';
         let query = supabase
             .from('schedules')
             .delete()
             .eq('student_id', numericId)
             .eq('teacher_id', effectiveTeacherId)
             .eq('owner_user_id', ownerId);
-        if (startDate) query = query.gte('schedule_date', startDate);
-        if (endDate) query = query.lte('schedule_date', endDate);
+        if (rangeStart) query = query.gte('schedule_date', rangeStart);
+        if (rangeEnd) query = query.lte('schedule_date', rangeEnd);
 
         const { error } = await query;
         if (error) throw error;
@@ -500,21 +559,24 @@ window.deleteSchedulesByRange = async function(studentId, startDate, endDate, te
 
 window.deleteSchedulesByTeacherRange = async function(startDate, endDate, teacherId = null) {
     try {
-        const effectiveTeacherId = teacherId || (typeof currentTeacherId !== 'undefined' ? currentTeacherId : null);
+        const effectiveTeacherId = String(teacherId || (typeof currentTeacherId !== 'undefined' ? currentTeacherId : '') || '').trim();
         if (!effectiveTeacherId) {
-            console.warn('[deleteSchedulesByTeacherRange] teacherId가 없어 삭제를 중단합니다.');
-            return false;
+            throw new Error('[deleteSchedulesByTeacherRange] teacherId가 없어 삭제할 수 없습니다.');
         }
 
         const ownerId = _getOwnerId();
+        if (!ownerId) {
+            throw new Error('[deleteSchedulesByTeacherRange] 로그인(owner) 정보가 없어 삭제할 수 없습니다.');
+        }
+        const rangeStart = startDate ? _normalizeScheduleDateKey(startDate) : '';
+        const rangeEnd = endDate ? _normalizeScheduleDateKey(endDate) : '';
         let query = supabase
             .from('schedules')
             .delete()
-            .eq('teacher_id', effectiveTeacherId);
-
-        if (ownerId) query = query.eq('owner_user_id', ownerId);
-        if (startDate) query = query.gte('schedule_date', startDate);
-        if (endDate) query = query.lte('schedule_date', endDate);
+            .eq('teacher_id', effectiveTeacherId)
+            .eq('owner_user_id', ownerId);
+        if (rangeStart) query = query.gte('schedule_date', rangeStart);
+        if (rangeEnd) query = query.lte('schedule_date', rangeEnd);
 
         const { error } = await query;
         if (error) throw error;
@@ -524,6 +586,136 @@ window.deleteSchedulesByTeacherRange = async function(startDate, endDate, teache
         throw error;
     }
 }
+
+/**
+ * 기간 내 일정 — owner 기준(모든 선생님 teacher_id). 학생 필터는 선택.
+ * @param {string} startDate
+ * @param {string} endDate
+ * @param {string[]|null} studentIds - null/빈 배열이면 전체 학생
+ */
+window.fetchDistinctStudentIdsFromSchedulesInRangeForOwner = async function(startDate, endDate, studentIds = null) {
+    try {
+        if (typeof supabase === 'undefined') return [];
+        const ownerId = _getOwnerId();
+        const rangeStart = startDate ? _normalizeScheduleDateKey(startDate) : '';
+        const rangeEnd = endDate ? _normalizeScheduleDateKey(endDate) : '';
+        if (!ownerId || !rangeStart || !rangeEnd || rangeStart > rangeEnd) return [];
+        let query = supabase
+            .from('schedules')
+            .select('student_id')
+            .eq('owner_user_id', ownerId)
+            .gte('schedule_date', rangeStart)
+            .lte('schedule_date', rangeEnd);
+        const list = Array.isArray(studentIds) ? studentIds.map((id) => parseInt(id, 10)).filter((n) => !Number.isNaN(n)) : [];
+        if (list.length) query = query.in('student_id', list);
+        const { data, error } = await query;
+        if (error) {
+            console.error('[fetchDistinctStudentIdsFromSchedulesInRangeForOwner]', error);
+            return [];
+        }
+        const set = new Set((data || []).map((r) => String(r.student_id)));
+        return Array.from(set);
+    } catch (e) {
+        console.error('[fetchDistinctStudentIdsFromSchedulesInRangeForOwner] 예외:', e);
+        return [];
+    }
+};
+
+/** 기간 내 일정 행 수 — owner 전체(모든 선생님 시간표) */
+window.countScheduleRowsInRangeFromDbForOwner = async function(startDate, endDate, studentIds = null) {
+    try {
+        if (typeof supabase === 'undefined') return 0;
+        const ownerId = _getOwnerId();
+        const rangeStart = startDate ? _normalizeScheduleDateKey(startDate) : '';
+        const rangeEnd = endDate ? _normalizeScheduleDateKey(endDate) : '';
+        if (!ownerId || !rangeStart || !rangeEnd || rangeStart > rangeEnd) return 0;
+        let query = supabase
+            .from('schedules')
+            .select('*', { count: 'exact', head: true })
+            .eq('owner_user_id', ownerId)
+            .gte('schedule_date', rangeStart)
+            .lte('schedule_date', rangeEnd);
+        const list = Array.isArray(studentIds) ? studentIds.map((id) => parseInt(id, 10)).filter((n) => !Number.isNaN(n)) : [];
+        if (list.length) query = query.in('student_id', list);
+        const { count, error } = await query;
+        if (error) {
+            console.error('[countScheduleRowsInRangeFromDbForOwner]', error);
+            return 0;
+        }
+        return typeof count === 'number' ? count : 0;
+    } catch (e) {
+        console.error('[countScheduleRowsInRangeFromDbForOwner] 예외:', e);
+        return 0;
+    }
+};
+
+/** 기간 내 일정에 등장하는 teacher_id 목록(다른 선생님 일정 포함 여부 판별용) */
+window.fetchDistinctTeacherIdsFromSchedulesInRangeForOwner = async function(startDate, endDate, studentIds = null) {
+    try {
+        if (typeof supabase === 'undefined') return [];
+        const ownerId = _getOwnerId();
+        const rangeStart = startDate ? _normalizeScheduleDateKey(startDate) : '';
+        const rangeEnd = endDate ? _normalizeScheduleDateKey(endDate) : '';
+        if (!ownerId || !rangeStart || !rangeEnd || rangeStart > rangeEnd) return [];
+        let query = supabase
+            .from('schedules')
+            .select('teacher_id')
+            .eq('owner_user_id', ownerId)
+            .gte('schedule_date', rangeStart)
+            .lte('schedule_date', rangeEnd);
+        const list = Array.isArray(studentIds) ? studentIds.map((id) => parseInt(id, 10)).filter((n) => !Number.isNaN(n)) : [];
+        if (list.length) query = query.in('student_id', list);
+        const { data, error } = await query;
+        if (error) {
+            console.error('[fetchDistinctTeacherIdsFromSchedulesInRangeForOwner]', error);
+            return [];
+        }
+        const set = new Set((data || []).map((r) => String(r.teacher_id || '').trim()).filter(Boolean));
+        return Array.from(set);
+    } catch (e) {
+        console.error('[fetchDistinctTeacherIdsFromSchedulesInRangeForOwner] 예외:', e);
+        return [];
+    }
+};
+
+/**
+ * 기간 내 일정 일괄 삭제 — owner 소유 전체 선생님 시간표(teacher_id 무관)
+ * @param {string} startDate
+ * @param {string} endDate
+ * @param {{ studentIds?: string[]|null }} options - studentIds 있으면 해당 학생만
+ */
+window.deleteSchedulesByOwnerRange = async function(startDate, endDate, options = {}) {
+    try {
+        if (typeof supabase === 'undefined') {
+            throw new Error('[deleteSchedulesByOwnerRange] Supabase 미초기화');
+        }
+        const ownerId = _getOwnerId();
+        if (!ownerId) {
+            throw new Error('[deleteSchedulesByOwnerRange] 로그인(owner) 정보가 없어 삭제할 수 없습니다.');
+        }
+        const rangeStart = startDate ? _normalizeScheduleDateKey(startDate) : '';
+        const rangeEnd = endDate ? _normalizeScheduleDateKey(endDate) : '';
+        if (!rangeStart || !rangeEnd) {
+            throw new Error('[deleteSchedulesByOwnerRange] 기간이 유효하지 않습니다.');
+        }
+        const studentIds = options.studentIds;
+        if (Array.isArray(studentIds) && studentIds.length === 0) {
+            return true;
+        }
+        let query = supabase.from('schedules').delete().eq('owner_user_id', ownerId);
+        query = query.gte('schedule_date', rangeStart).lte('schedule_date', rangeEnd);
+        const list = Array.isArray(studentIds) && studentIds.length
+            ? studentIds.map((id) => parseInt(id, 10)).filter((n) => !Number.isNaN(n))
+            : [];
+        if (list.length) query = query.in('student_id', list);
+        const { error } = await query;
+        if (error) throw error;
+        return true;
+    } catch (error) {
+        console.error('[deleteSchedulesByOwnerRange] 에러:', error);
+        throw error;
+    }
+};
 
 
 // ========== 커스텀 휴일(Holidays) 관련 함수 ==========

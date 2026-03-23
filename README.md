@@ -57,6 +57,27 @@ cd academy-manager
 
 자세한 설정 방법은 `HOMEWORK_SETUP.sql` 파일 상단의 가이드를 참고하세요.
 
+## 🐳 채점 서버 Docker (로컬 / 클라우드 동일 이미지)
+
+채점 백엔드는 `grading-server/` (FastAPI)입니다. 로컬에서 venv로 실행하거나, 아래처럼 컨테이너로 띄울 수 있습니다.
+
+1. `cp grading-server/.env.example grading-server/.env` 후 Supabase·Google·API 키 등을 채웁니다.
+2. 저장소 루트에서:
+
+   ```bash
+   docker compose up --build
+   ```
+
+3. 기본 주소: `http://localhost:8000` (호스트 포트는 `GRADING_PORT=9000 docker compose up` 등으로 변경 가능).
+
+클라우드에 올릴 때는 같은 이미지를 레지스트리에 푸시하고, 플랫폼 시크릿에 `.env`와 동일한 변수를 넣으면 됩니다. 일부 플랫폼은 `PORT`를 자동 지정합니다(`Dockerfile`의 `CMD`가 이를 따릅니다).
+
+## ☁️ Vercel 배포 (highroad-math · 학부모 포털)
+
+- 프로젝트 이름을 **`highroad-math`** 로 두면 기본 주소가 `https://highroad-math.vercel.app` 형태가 됩니다.
+- 학부모 포털: **`https://highroad-math.vercel.app/parent-portal`**
+- 상세 절차·도메인·Supabase 안내: [`docs/VERCEL_HIGHROAD_PARENT_PORTAL.md`](docs/VERCEL_HIGHROAD_PARENT_PORTAL.md)
+
 ## 📊 기술 스택
 
 - **Frontend**: HTML5, CSS3, Vanilla JavaScript

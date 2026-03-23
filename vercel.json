@@ -1,6 +1,6 @@
 {
   "buildCommand": "echo 'Static site'",
-  "name": "academy-manager",
+  "name": "highroad-math",
   "cleanUrls": true,
   "trailingSlash": false,
   "rewrites": [

@@ -744,7 +744,7 @@
             </div>
             <div class="modal-content-padding">
                 <p style="font-size: 13px; color: var(--gray); margin-bottom: 20px; line-height: 1.5;">
-                    지정한 기간 내의 일정을 삭제합니다.<br>
+                    지정한 기간 내의 일정을 삭제합니다. (학생 원생 담당·어느 선생님이 칸에 올렸는지와 무관하게, 같은 원장 계정 소속 선생님 시간표에 있는 해당 기간 일정이 대상입니다.)<br>
                     <span style="color: var(--red);">* 출석체크가 되지 않은 예정된 일정만 삭제됩니다.</span>
                 </p>
                 <div class="input-group">
@@ -779,6 +779,52 @@
                 <button class="btn-delete-action" onclick="executePeriodDelete()">
                     <i class="fas fa-trash-alt"></i> 일정 삭제하기
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 기간 삭제: 담당 외 학생 일정 포함 시 -->
+    <div id="period-del-nonassign-modal" class="modal" style="display: none;">
+        <div class="modal-card period-delete-card" style="max-width: 440px;">
+            <div class="modal-header">
+                <h2>담당 학생 확인</h2>
+                <button type="button" class="btn-close-x" onclick="window.__periodDeleteCtx=null; closeModal('period-del-nonassign-modal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-content-padding">
+                <p id="period-del-nonassign-msg" style="font-size: 14px; color: var(--text, #334155); line-height: 1.55; margin-bottom: 16px;">
+                    선택한 기간에 <strong>원생 담당이 아닌 학생</strong>의 일정(내 시간표에 등록된 수업)이 포함되어 있습니다.
+                </p>
+                <p style="font-size: 13px; color: var(--gray); line-height: 1.5;">
+                    · <strong>삭제하기</strong>: 관리자 비밀번호 확인 후, 해당 기간의 위 일정을 <strong>모두</strong> 삭제합니다.<br>
+                    · <strong>아니요</strong>: <strong>담당 학생</strong> 일정만 삭제할지 다시 확인합니다.
+                </p>
+            </div>
+            <div class="modal-footer-actions period-del-footer period-del-footer--three">
+                <div class="period-del-footer-row period-del-footer-row--secondary">
+                    <button type="button" class="btn-cancel" onclick="window.__periodDeleteCtx=null; closeModal('period-del-nonassign-modal')">닫기</button>
+                    <button type="button" class="btn-cancel" onclick="periodDeleteChooseAssignedOnly()">아니요</button>
+                </div>
+                <button type="button" class="btn-delete-action" onclick="periodDeleteOpenAdminPin()">삭제하기</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="period-del-admin-modal" class="modal" style="display: none;">
+        <div class="modal-card period-delete-card" style="max-width: 400px;">
+            <div class="modal-header">
+                <h2>관리자 인증</h2>
+                <button type="button" class="btn-close-x" onclick="closeModal('period-del-admin-modal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-content-padding">
+                <p style="font-size: 13px; color: var(--gray); margin-bottom: 12px;">담당 외 학생 일정까지 삭제하려면 원장(관리자) 비밀번호를 입력하세요.</p>
+                <div class="input-group">
+                    <label for="period-del-admin-pin">관리자 비밀번호</label>
+                    <input type="password" id="period-del-admin-pin" class="m-input" autocomplete="current-password" placeholder="비밀번호 입력" onkeydown="if(event.key==='Enter'){event.preventDefault();periodDeleteSubmitAdminPin();}">
+                </div>
+            </div>
+            <div class="modal-footer-actions period-del-footer period-del-footer--admin">
+                <button type="button" class="btn-cancel" onclick="closeModal('period-del-admin-modal')">취소</button>
+                <button type="button" class="btn-delete-action" onclick="periodDeleteSubmitAdminPin()">확인</button>
             </div>
         </div>
     </div>

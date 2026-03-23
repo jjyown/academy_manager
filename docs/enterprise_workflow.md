@@ -1,6 +1,6 @@
 # 엔터프라이즈 개발 운영 플레이북
 
-- 문서 기준일: 2026-03-22
+- 문서 기준일: 2026-03-23
 - 적용 범위: 메인 페이지, 숙제 제출, 채점 페이지, 학부모 포털, Supabase 연동 전 구간
 
 ## 1) 작업 단위 정의 (Work Item)
@@ -91,6 +91,7 @@
   - 작업 단위 1건 완료 시 자동 로그를 본 문서 상단에 추가한다.
 
 ## 9) 자동 업데이트 로그
+- 2026-03-23 | AUTO-20260323 | staged 18개 파일 기준 문서 연동 자동기록 | gates: A:PASS,B:PASS,C:PASS,D:PASS,E:PASS | note: 연동 자동 기록
 - 2026-03-22 | AUTO-20260322 | staged 8개 파일 기준 문서 연동 자동기록 | gates: A:PASS,B:PASS,C:PASS,D:PASS,E:PASS | note: 연동 자동 기록
 - 2026-03-22 | AUTO-20260322 | staged 172개 파일 기준 문서 연동 자동기록 | gates: A:PASS,B:PASS,C:PASS,D:PASS,E:PASS | note: 연동 자동 기록
 - 2026-03-22 | AUTO-20260322 | staged 7개 파일 기준 문서 연동 자동기록 | gates: A:PASS,B:PASS,C:PASS,D:PASS,E:PASS | note: 연동 자동 기록

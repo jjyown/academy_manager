@@ -4341,25 +4341,68 @@ window.loadStudentAttendanceHistory = async function() {
             const processedLocal = toDatetimeLocalValue(historyMeta.processedIso);
             const tempRowClass = historyMeta.isTempCheck ? ' att-row-temp-check' : '';
 
+            const timeInputStyle =
+                'flex:1 1 auto;min-width:0;max-width:152px;width:100%;padding:3px 4px;border:1px solid #cbd5e1;border-radius:6px;font-size:11px;background:#fff;color:#334155;box-sizing:border-box;';
+            const timeInputKeyHandlers =
+                'onclick="event.stopPropagation();" onkeydown="event.stopPropagation(); if(event.key===\'Enter\'){ event.preventDefault(); saveAttendanceHistoryTimeField(this); }"';
             const processedTimeBlock = canEditHistoryTimes
-                ? `<label style="font-size:13px;color:#64748b;display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:0;">
-                        <span style="opacity:0.7;">✅</span> 처리시간
-                        <input type="datetime-local" class="att-history-time-input" data-record-id="${historyRecordIdVal}" data-field="processed_at" value="${escapeHtmlAttr(processedLocal)}"
-                            onclick="event.stopPropagation();" onchange="saveAttendanceHistoryTimeField(this)"
-                            style="width:min(100%, 280px);padding:4px 8px;border:1px solid #cbd5e1;border-radius:8px;font-size:12px;background:#fff;color:#334155;" />
+                ? `<label style="font-size:12px;color:#64748b;display:flex;align-items:center;gap:3px;flex-wrap:nowrap;margin:0;flex:1 1 0;min-width:0;">
+                        <span style="opacity:0.7;flex-shrink:0;">✅</span><span style="flex-shrink:0;">처리시간</span><span style="flex-shrink:0;">:</span>
+                        <input type="datetime-local" class="att-history-time-input" title="수정 후 Enter로 저장" data-record-id="${historyRecordIdVal}" data-field="processed_at" data-initial-value="${escapeHtmlAttr(processedLocal)}"
+                            value="${escapeHtmlAttr(processedLocal)}"
+                            ${timeInputKeyHandlers}
+                            style="${timeInputStyle}" />
                    </label>`
-                : `<span style="font-size:13px;color:#64748b;display:flex;align-items:center;gap:4px;">
-                        <span style="opacity:0.7;">✅</span> 처리시간 ${processedTimeLabel}
+                : `<span style="font-size:13px;color:#64748b;display:inline-flex;align-items:center;gap:4px;flex-wrap:nowrap;flex:0 0 auto;">
+                        <span style="opacity:0.7;">✅</span><span>처리시간 : ${processedTimeLabel}</span>
                    </span>`;
 
             const authTimeBlock = canEditHistoryTimes
-                ? `<label style="font-size:12px;color:#334155;background:#e2e8f0;padding:3px 8px;border-radius:6px;font-weight:600;display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;margin:0;">
-                        인증시간
-                        <input type="datetime-local" class="att-history-time-input" data-record-id="${historyRecordIdVal}" data-field="auth_time" value="${escapeHtmlAttr(authLocal)}"
-                            onclick="event.stopPropagation();" onchange="saveAttendanceHistoryTimeField(this)"
-                            style="width:min(100%, 280px);padding:4px 8px;border:1px solid #cbd5e1;border-radius:8px;font-size:12px;background:#fff;color:#334155;" />
+                ? `<label style="font-size:12px;color:#64748b;display:flex;align-items:center;gap:3px;flex-wrap:nowrap;margin:0;flex:1 1 0;min-width:0;">
+                        <span style="opacity:0.7;flex-shrink:0;">🕐</span><span style="flex-shrink:0;">인증시간</span><span style="flex-shrink:0;">:</span>
+                        <input type="datetime-local" class="att-history-time-input" title="수정 후 Enter로 저장" data-record-id="${historyRecordIdVal}" data-field="auth_time" data-initial-value="${escapeHtmlAttr(authLocal)}"
+                            value="${escapeHtmlAttr(authLocal)}"
+                            ${timeInputKeyHandlers}
+                            style="${timeInputStyle}" />
                    </label>`
-                : `<span style="font-size:12px;color:#334155;background:#e2e8f0;padding:3px 8px;border-radius:6px;font-weight:600;">인증시간 ${authTimeLabel}</span>`;
+                : `<span style="font-size:13px;color:#64748b;display:inline-flex;align-items:center;gap:4px;flex-wrap:nowrap;flex:0 0 auto;">
+                        <span style="opacity:0.7;">🕐</span><span>인증시간 : ${authTimeLabel}</span>
+                   </span>`;
+
+            /** 지각: 수업시간(슬롯 시작) 대비 인증시간까지 경과 분 — 인증시간 아래 안내 */
+            let lateMinutesHintHtml = '';
+            if (statusValue === 'late' && fallbackScheduledTime && fallbackScheduledTime !== 'default') {
+                let classStartMs = NaN;
+                try {
+                    const part = String(fallbackScheduledTime).trim().substring(0, 5);
+                    const hm = part.split(':');
+                    const hh = parseInt(hm[0], 10);
+                    const mm = parseInt(hm[1], 10);
+                    if (Number.isFinite(hh) && Number.isFinite(mm) && dateKey) {
+                        const d0 = new Date(`${dateKey}T${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:00`);
+                        if (!Number.isNaN(d0.getTime())) classStartMs = d0.getTime();
+                    }
+                } catch (_) {
+                    classStartMs = NaN;
+                }
+                let authMs = NaN;
+                if (historyMeta.authIso) {
+                    const a = new Date(historyMeta.authIso);
+                    if (!Number.isNaN(a.getTime())) authMs = a.getTime();
+                }
+                if (Number.isNaN(authMs) && authLocal) {
+                    const a2 = new Date(authLocal);
+                    if (!Number.isNaN(a2.getTime())) authMs = a2.getTime();
+                }
+                if (Number.isFinite(classStartMs) && Number.isFinite(authMs) && authMs > classStartMs) {
+                    const mins = Math.round((authMs - classStartMs) / 60000);
+                    if (mins > 0) {
+                        lateMinutesHintHtml = `<div class="att-late-minutes-hint" style="font-size:11px;color:#c2410c;font-weight:600;margin-top:3px;line-height:1.25;padding-left:1px;">${mins}분 지각</div>`;
+                    }
+                }
+            }
+
+            const authTimeColumn = `<div style="flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:stretch;">${authTimeBlock}${lateMinutesHintHtml}</div>`;
 
             detailsHtml += `
                 <div class="att-day-row${tempRowClass}" style="position:relative;display:flex;flex-direction:column;padding:16px 18px;background:${bgColor};border-radius:12px;border-left:4px solid ${statusColor};border-top:1px solid ${borderColor};border-right:1px solid ${borderColor};border-bottom:1px solid ${borderColor};cursor:${hasOtherTeachers ? 'pointer' : 'default'};" ${hasOtherTeachers ? 'data-has-tooltip="true"' : ''}>
@@ -4374,11 +4417,13 @@ window.loadStudentAttendanceHistory = async function() {
                                 <span style="font-size:13px;color:#64748b;display:flex;align-items:center;gap:4px;">
                                     <span style="opacity:0.7;">🕒</span> 수업시간 ${classTimeLabel}
                                 </span>
+                            </div>
+                            <div class="att-history-times-row" style="display:flex;align-items:flex-start;gap:6px;flex-wrap:nowrap;margin-top:6px;width:100%;min-width:0;">
                                 ${processedTimeBlock}
+                                ${authTimeColumn}
                             </div>
                             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:6px;">
                                 <span style="font-size:12px;${historyMeta.sourceStyle}padding:3px 8px;border-radius:6px;font-weight:600;">처리방식 ${historyMeta.sourceLabel}</span>
-                                ${authTimeBlock}
                             </div>
                         </div>
                         <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
@@ -4644,7 +4689,9 @@ window.saveAttendanceHistoryTimeField = async function(inputEl) {
         const recordId = String(inputEl?.dataset?.recordId || '').trim();
         const field = String(inputEl?.dataset?.field || '').trim();
         if (!recordId || !field || !['auth_time', 'processed_at'].includes(field)) return;
+        const initial = String(inputEl.dataset.initialValue ?? '');
         const val = String(inputEl.value || '').trim();
+        if (initial === val) return;
         if (!val) {
             showToast('시간을 입력해주세요.', 'warning');
             return;

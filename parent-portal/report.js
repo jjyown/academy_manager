@@ -174,6 +174,59 @@ function formatKoreanTime(timeStr) {
 	return base.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
 }
 
+/**
+ * 출석 이력 모달과 동일한 인증 시각 원본 (`qr-attendance.js` resolveHistoryMeta → authIso).
+ * `check_in_time`은 번호 인증 등에만 사용하고, 무조건 3순위로 쓰면 처리/체크 시각과 섞여 학부모 화면과 이력이 어긋날 수 있음.
+ */
+function resolveParentPortalAuthIso(rec) {
+	if (!rec) return null;
+	if (rec.auth_time) return rec.auth_time;
+	if (rec.qr_scanned && rec.qr_scan_time) return rec.qr_scan_time;
+	const judgment = String(rec.qr_judgment || '');
+	const memoText = String(rec.memo || '');
+	const source = String(rec.attendance_source || '').trim();
+	const hasPhoneAuth =
+		source === 'phone' ||
+		source === 'teacher_manual' ||
+		judgment.includes('전화번호인증') ||
+		memoText.includes('[전화번호인증]');
+	if (hasPhoneAuth && rec.check_in_time) return rec.check_in_time;
+	return null;
+}
+
+/** 출결 레코드에서 인증 시각(Date) — 이력 화면「인증시간」과 동일 소스 */
+function getParentPortalAuthTimestamp(rec) {
+	const raw = resolveParentPortalAuthIso(rec);
+	if (!raw) return null;
+	const d = new Date(raw);
+	return isNaN(d.getTime()) ? null : d;
+}
+
+function formatParentPortalAuthTime(rec) {
+	const d = getParentPortalAuthTimestamp(rec);
+	if (!d) return null;
+	return d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+}
+
+/** attendance_date + scheduled_time(HH:MM) 로컬 시작 시각 */
+function getParentPortalScheduledStart(rec) {
+	if (!rec || !rec.attendance_date || !rec.scheduled_time) return null;
+	const [h, m] = String(rec.scheduled_time).split(':').map(Number);
+	if (isNaN(h) || isNaN(m)) return null;
+	const [y, mo, d] = String(rec.attendance_date).split('-').map(Number);
+	if (!y || !mo || !d) return null;
+	return new Date(y, mo - 1, d, h, m, 0, 0);
+}
+
+/** 지각: 인증 시각 − 수업 시작(분), 음수는 0으로 클램프 */
+function getParentPortalLateMinutes(rec) {
+	if (!rec || String(rec.status) !== 'late') return null;
+	const start = getParentPortalScheduledStart(rec);
+	const auth = getParentPortalAuthTimestamp(rec);
+	if (!start || !auth) return null;
+	return Math.max(0, Math.round((auth.getTime() - start.getTime()) / 60000));
+}
+
 function getStatusInfo(status) {
 	switch(status) {
 		case 'present': return { text: '출석', cls: 'present', icon: '✅' };
@@ -557,7 +610,7 @@ async function loadMonthlyAttendance() {
 	try {
 		const { data: records, error } = await supabaseClient
 			.from('attendance_records')
-			.select('id, student_id, teacher_id, attendance_date, status, scheduled_time, check_in_time, qr_scanned, qr_scan_time, memo')
+			.select('id, student_id, teacher_id, attendance_date, status, scheduled_time, auth_time, check_in_time, qr_scanned, qr_scan_time, qr_judgment, attendance_source, memo')
 			.eq('student_id', String(currentStudent.id))
 			.gte('attendance_date', startDate)
 			.lte('attendance_date', endDate)
@@ -737,27 +790,41 @@ function showAttDateDetail(dateStr) {
 		const iconBg = si.cls === 'present' ? 'var(--green-bg)' : si.cls === 'late' ? 'var(--yellow-bg)' : si.cls === 'absent' ? 'var(--red-bg)' : 'var(--teal-bg)';
 		const iconColor = si.cls === 'present' ? 'var(--green)' : si.cls === 'late' ? 'var(--yellow)' : si.cls === 'absent' ? 'var(--red)' : 'var(--teal)';
 
-		let metaParts = [];
-		// 예정 시간
-		if (rec.scheduled_time) {
-			metaParts.push(`<span><i class="fas fa-clock"></i>수업 ${formatKoreanTime(rec.scheduled_time)}</span>`);
-		}
-		// QR 스캔 또는 선생님 확인
-		if (rec.qr_scanned && rec.qr_scan_time) {
-			const scanTime = new Date(rec.qr_scan_time).toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit' });
-			metaParts.push(`<span style="color:var(--teal);"><i class="fas fa-qrcode"></i>QR 스캔 ${scanTime}</span>`);
-		} else if (rec.check_in_time && !rec.qr_scanned) {
-			const ct = new Date(rec.check_in_time);
-			const checkStr = ct.toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit' });
-			metaParts.push(`<span style="color:var(--primary);"><i class="fas fa-user-check"></i>선생님 확인 ${checkStr}</span>`);
+		const st = String(rec.status || '');
+		const isAbsent = st === 'absent';
+		const showAuth = !isAbsent && (st === 'present' || st === 'late' || st === 'makeup' || st === 'etc');
+		const authLabel = showAuth ? formatParentPortalAuthTime(rec) : null;
+
+		let metaHtml = '';
+		// 지각 + 수업·인증 모두: 한 줄(nowrap)로 좌·우 정렬 — 부모 flex-wrap으로 줄바꿈 지그재그 방지
+		if (st === 'late' && rec.scheduled_time && showAuth && authLabel) {
+			const lateMin = getParentPortalLateMinutes(rec);
+			const lateLine = lateMin != null
+				? `<div class="att-late-min-line">${lateMin}분 지각</div>`
+				: '';
+			metaHtml = `<div class="att-meta-late-row"><span class="att-meta-class"><i class="fas fa-clock"></i>수업 ${formatKoreanTime(rec.scheduled_time)}</span><div class="att-meta-auth-col">${lateLine}<span class="att-meta-auth"><i class="fas fa-fingerprint"></i>인증 ${authLabel}</span></div></div>`;
+		} else {
+			const metaParts = [];
+			if (rec.scheduled_time) {
+				metaParts.push(`<span class="att-meta-class"><i class="fas fa-clock"></i>수업 ${formatKoreanTime(rec.scheduled_time)}</span>`);
+			}
+			if (showAuth && authLabel) {
+				metaParts.push(`<span class="att-meta-auth"><i class="fas fa-fingerprint"></i>인증 ${authLabel}</span>`);
+			}
+			metaHtml = metaParts.join('');
 		}
 		// 선생님 이름
 		const tName = getAttTeacherName(rec.teacher_id);
 		const teacherLabel = `<span class="att-teacher-label"><i class="fas fa-chalkboard-user"></i>${escapeHtml(tName)}</span>`;
 
-		// 메모 표시
-		const memoText = rec.memo ? escapeHtml(rec.memo) : '';
-		const memoHtml = memoText ? `<div class="att-detail-memo" style="margin-top:6px;padding:6px 10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.08);border-radius:8px;font-size:12px;color:var(--text-sec);line-height:1.5;display:flex;align-items:flex-start;gap:5px;"><i class="fas fa-comment-dots" style="margin-top:2px;font-size:11px;opacity:0.6;flex-shrink:0;"></i><span>${memoText}</span></div>` : '';
+		// 메모: 선생님이 출석 이력 하단에 적은 내용 — 지각·결석·보강·기타일 때만 학부모에게 노출(일반 출석은 미표시)
+		const memoRaw = String(rec.memo || '').trim();
+		const showMemoBox =
+			(st === 'late' || st === 'absent' || st === 'makeup' || st === 'etc') && memoRaw.length > 0;
+		const memoText = showMemoBox ? escapeHtml(memoRaw) : '';
+		const memoHtml = memoText
+			? `<div class="att-detail-memo" style="margin-top:6px;padding:6px 10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.08);border-radius:8px;font-size:12px;color:var(--text-sec);line-height:1.5;display:flex;align-items:flex-start;gap:5px;"><i class="fas fa-comment-dots" style="margin-top:2px;font-size:11px;opacity:0.6;flex-shrink:0;"></i><span>${memoText}</span></div>`
+			: '';
 
 		item.innerHTML = `
 			<div class="att-detail-icon" style="background:${iconBg};color:${iconColor};">
@@ -768,7 +835,7 @@ function showAttDateDetail(dateStr) {
 					<span style="color:${iconColor};">${si.text}</span>
 					${teacherLabel}
 				</div>
-				<div class="att-detail-meta">${metaParts.join('')}</div>
+				<div class="att-detail-meta">${metaHtml}</div>
 				${memoHtml}
 			</div>
 		`;

@@ -2574,6 +2574,46 @@ textarea:focus:not(:focus-visible) {
     gap: 8px;
 }
 
+/* 기간 삭제 담당 외 / 관리자 PIN: 전역 .btn-delete-action { width:100% }가 플렉스 행에서 취소 버튼을 찌그러뜨림 */
+.period-delete-card .period-del-footer {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+}
+.period-delete-card .period-del-footer-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: flex-end;
+    align-items: center;
+}
+.period-delete-card .period-del-footer-row--secondary .btn-cancel {
+    flex: 1 1 120px;
+    min-width: 100px;
+    max-width: calc(50% - 5px);
+    white-space: nowrap;
+}
+.period-delete-card .period-del-footer--three .btn-delete-action {
+    width: 100%;
+    max-width: none;
+    flex: 0 0 auto;
+}
+.period-delete-card .period-del-footer--admin {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    justify-content: flex-end;
+    align-items: stretch;
+    gap: 10px;
+}
+.period-delete-card .period-del-footer--admin .btn-cancel,
+.period-delete-card .period-del-footer--admin .btn-delete-action {
+    flex: 1 1 0;
+    min-width: 0;
+    width: auto;
+    max-width: none;
+    white-space: nowrap;
+}
+
 .btn-delete-action {
     width: 100%;
     padding: 11px 18px;
@@ -3765,6 +3805,11 @@ textarea:focus:not(:focus-visible) {
 /* 출석 이력: 임시 체크 레코드 강조 */
 .att-day-row.att-row-temp-check {
     box-shadow: inset 0 0 0 2px #ef4444;
+}
+
+/* 출석 이력: 처리시간·인증시간 한 줄 — 가로 스크롤바 숨김(내용은 qr-attendance.js에서 flex·폭으로 맞춤) */
+.att-history-times-row {
+    overflow-x: visible;
 }
 
 /* ============================================

@@ -1,6 +1,6 @@
 # 출석관리앱 작업 계획서
 
-- 문서 기준일: 2026-03-22
+- 문서 기준일: 2026-03-23
 ## 프로젝트 목표
 - 학생/수업 기준으로 출석 상태를 정확히 기록하고 조회한다.
 - 교사 권한으로만 수정 가능하도록 접근 제어를 적용한다.
@@ -77,6 +77,24 @@
   - 이후 작업 사이클 종료 시 `append_enterprise_log.py`를 표준 명령으로 포함해 자동 기록 누락을 방지
 
 ## 현재 스프린트 목표
+### Vercel highroad-math · 학부모 포털 URL — 2026-03-23
+- **상태**: [x] 완료 — `vercel.json` 프로젝트 `name`: `highroad-math`, 배포 가이드 `docs/VERCEL_HIGHROAD_PARENT_PORTAL.md`, `README.md` 링크.
+- **검증**: 정적 설정·문서 정합. 실제 Vercel에서 프로젝트명 동일 연결 후 `…/parent-portal` 스모크 권장.
+- **다음 단계**: 커스텀 도메인 연결 시 Vercel Domains + Supabase URL 설정 반영.
+
+### 채점 서버 Docker 배포 준비 — 2026-03-23
+- **상태**: [x] 완료 — 루트 `docker-compose.yml`, `grading-server/Dockerfile` 보강(`PORT`, 헬스체크, `curl`), `grading-server/.dockerignore`, `README.md` Docker 섹션.
+- **검증**: `grading-server/.env` 준비 후 `docker compose up --build` · `GET /health` 권장.
+- **다음 단계**: 클라우드 레지스트리 푸시·런타임 시크릿 연동·프로덕션 `PORT`/도메인 설정.
+
+### 기간 일정 삭제 · 담당 외 학생 모달 — 2026-03-23
+- **상태**: [x] 완료 — `executePeriodDelete`에서 **기간 내 실제 일정이 있는 학생**(전체: 로컬 `countStudentSchedulesInRange`>0 ∪ DB `schedules` 조회 ID, 학생 범위: 선택 학생 중 기간 일정 또는 DB 행 존재)만으로 `nonAssignees` 계산(잘못된 `filter(...|| true)` 제거). **`nonAssignees`는 `studentHasDifferentPrimaryTeacherThan(sid, currentTeacherId)`** 로만 판별 — 원생 담당이 **비어 있거나 불명확하면 담당 외로 간주하지 않음**(과거 데이터·매핑 누락 시 오탐 방지). 담당만 삭제 등 필터는 `studentPrimaryAssignedMatchesTeacher` 유지. **「전체」범위 미리보기·삭제 예정 건수·`targetStudentIds`**: **`getPeriodDeleteMergedStats`**(로컬 전 선생님 버킷 ∪ owner DB, 건수 `Math.max`(로컬 합, DB `count`)). **실행**: `deleteSchedulesByOwnerRange`·`collectScheduleSlotsByRangeFromDbAllTeachers`(`database.js`). 기간 내 **다른 선생님 `teacher_id` 행** 있으면 `showConfirm` 후 담당 외 모달·최종 확인. 모달 오픈·날짜 변경 시 미리보기 디바운스. 담당 외 포함 시 `#period-del-nonassign-modal` → **삭제하기** → `#period-del-admin-modal` + `verifyTeacherPinWithServer`(관리자) → `runPeriodDeleteExecute({ assignedOnly:false })`; **아니요** → `showConfirm` 후 `assignedOnly:true`. **닫기**는 `__periodDeleteCtx` 초기화(`index.html`). **푸터 UI**: `period-del-footer--three` / `period-del-footer--admin` + `style.css`로 전역 `.btn-delete-action { width:100% }`에 의한 **닫기·취소 버튼 찌그러짐** 완화.
+- **일정 schedule_date 정규화(2026-03-23)**: 비정규 `YYYY-M-D` 문자열이 구간 비교·`eq` 삭제를 깨뜨리는 문제 → 전역 정규화·로컬 키 병합.
+- **Supabase 일정 삭제 정합(2026-03-23)**: `deleteScheduleFromDatabase`에 `owner_user_id`·`start_time` 변형 매칭. 출석 모달 단건 삭제는 DB 성공 후 로컬 반영.
+- **전체 선생님 보기 동기화(2026-03-23)**: `timetableScope==='all'`일 때 캘린더는 `teacherScheduleData` 전 선생님 키를 합산하므로, 삭제 후 `reloadScheduleDataAfterOwnerMutation()`(`loadTeacherScheduleData` + `loadAllTeachersScheduleData`)로 타 선생님 버킷까지 갱신. `loadAllTeachersScheduleData`는 `teacherList` 기준 알려진 선생님은 DB 스냅샷 없으면 `{}`로 덮어 stale 제거.
+- **검증**: `node --check script.js` PASS. 실기기에서 담당 외 포함·원장 PIN·담당만 삭제·전체 삭제 각각 권장.
+- **다음 단계**: 삭제 후에도 일정이 남으면 Network·RLS·`owner_user_id`/`teacher_id` 불일치 원인분류.
+
 ### QR 스캔 종료 PIN·반응형 2열 — 2026-03-22
 - **상태**: 코드 반영 완료. `resolveQrPinVerificationTarget()`로 관리자 PIN 경로(`requireAdmin` + `teacher_role=admin` 행) 정합, `shouldUseDualPanelMode`·`applyQRScanResponsiveLayout`·`style.css`로 PC·태블릿에서 카메라 좌·전화 패드 우 유지. PIN 실패 시 `mapVerifyTeacherPinFailureToMessage`로 안내 통일. **헤더 UX(2026-03-22)**: 제목·닫기 상단 붙음 완화(`#qr-scan-page.auth-page`·`mobile.css` 패딩), 제스처 안내 문구(「상단 제목을…」) 제거(`index.html`). **전체화면 시 닫기 숨김**: `fullscreenchange`·`openQRScanPage`에서 `#qr-scan-close-wrap` 토글(`qr-attendance.js`, `style.css`). **선생님 선택·QR 모달(2026-03-22)**: `confirmQRPassword` / 세션 기억 `showQRPasswordModal`에서 PIN 검증 후 **`openQRScanPage()`** 호출 — 사용자 ZIP·배포본과 동일. **닫기 시 `await stopQRScannerForModeChange`** 로 카메라 해제 대기. **QR 오버레이 누적(2026-03-22)**: `#qr-scan-page`가 `navigateToPage`의 `pageStates`에 없어 메인 전환 시에도 남을 수 있음 → `ensureQrScanFullyClosed`(숨김·전체화면 해제·`stop`·video 트랙 보조 정지)를 `navigateToPage`/`setCurrentTeacher` 선행. **닫기 PIN**: 관리자 경로 실패 시 **현재 교사 선생님 PIN** 재시도.
 - **QR 닫기 후에도 화면 잔류(2026-03-22, 근본 수정)**: `style.css`의 `#qr-scan-page.auth-page`에 `display: flex !important`가 있으면 JS `style.display='none'`이 **무력화**될 수 있음 → **`display`의 `!important` 제거** + 열기/닫기/강제정리는 **`setProperty('display', …, 'important')`로 통일**. `isQRScanPageOpen`·재석확인·뷰포트 가드는 **computed/display** 기준 판별 보강.
@@ -86,6 +104,8 @@
 - **월간 캘린더 공휴일·학원일정 배경(2026-03-22)**: 공휴일만 → **`public-holiday-cell`**. 학원·개인 일정은 모달에서 **글자 색** / **배경 색** 분리(`--holiday-text-color`, `--holiday-bg-mix` + Supabase `bg_color` 마이그레이션 `SUPABASE_HOLIDAYS_BG_COLOR_20260322.sql`). **후속(2026-03-22)**: 배경 **「선택안함」**(`bg_color` null, `custom-holiday-no-bg`)·칩 **파스텔 6색**(`index.html`)·`style.css`에서 공휴일·커스텀 `color-mix` 비율 **전반 하향**(다크 테마 포함)·모달 `dset-bg-none`·목록 `sched-dot-bg-empty` 스타일로 **칸 배경이 덜 진하게** 보이도록 정리. **국가 공휴일만(2026-03-22)**: `public-holiday-cell`의 빨강 `color-mix` 비율을 **추가 하향**(라이트·테마·야간/차콜) — 법정 공휴일 칸만 더 연한 틴트.
 - **검증**: `node --check qr-attendance.js` · `node --check script.js` PASS. **실기기**: QR 닫기·새로고침 후 오버레이 미잔류, Network 스팸 완화 확인 권장. 캘린더는 배경 없음·연한 배경 표시 확인 권장.
 - **다음 단계**: 운영 스모크 후 이슈 있으면 `docs/context.md` 기록.
+
+- **출석 이력 카드 시간 필드(2026-03-22)**: 처리시간·인증시간을 **한 줄에** `처리시간 : [datetime]` · `인증시간 : [datetime]` 형태로 배치, 입력 폭 `max 200px`로 조정(`qr-attendance.js`). **저장 UX(2026-03-22)**: 자동 `onchange` 저장 제거 → **값이 바뀐 필드만「수정」버튼 활성화** 후 클릭 시 저장(`updateAttHistoryTimeApplyState` + `saveAttendanceHistoryTimeField`).
 
 ### 선생님 입장 PIN 검증(`verify-teacher-pin`) — 2026-03-22
 - **상태**: **사용자 확인 — 관리자 로그인 후 선생님 선택 → 입장 → 메인 페이지 진입 성공**(2026-03-22). 레포·Supabase(함수 배포, `Verify JWT with legacy secret` OFF, `invokeVerifyTeacherPin` 등) 반영 완료.
@@ -1059,6 +1079,13 @@
 - [ ] 다음 작업자가 바로 이어서 할 수 있게 문서가 갱신되었다.
 
 ## 변경 이력
+- 2026-03-23 - AUTO-20260323(staged 18개 파일 기준 문서 연동 자동기록): 연동 자동 기록
+- 2026-03-23 - **학부모 포털 출결 일별 카드**: 출석·보강 등은 **수업 + 인증시간**(`auth_time`→`qr_scan_time`→`check_in_time`), **지각**은 동일 + 인증 줄 **위에 N분 지각**(수업 시작 대비), **결석**은 **수업시간만**. 기존 QR/선생님 확인(처리방식) 구분 문구 제거(`parent-portal/report.js`, `parent-portal/index.html`, `node --check parent-portal/report.js` PASS).
+- 2026-03-23 - **학부모 포털 지각 레이아웃**: `.att-detail-meta`의 `flex-wrap` 때문에 수업·인증이 줄마다 갈라져 지그재그로 보이던 문제 → **지각**일 때만 `att-meta-late-row`(`nowrap`)로 수업과 (지각분+인증) 열을 **한 줄에 고정**(`parent-portal/report.js`, `parent-portal/index.html`).
+- 2026-03-23 - **학부모 포털 지각 세로 정렬**: `att-meta-late-row`를 `align-items: flex-end`로 — 수업 문구가 **인증** 줄과 같은 베이스라인에 오고, **N분 지각**은 인증 열 **위**에만 보이게 함(기존 `flex-start`는 수업이 지각분과 한 줄처럼 보임).
+- 2026-03-23 - **기간 내 일정 삭제(전체 학생)**: `executePeriodDelete`가 DB 삭제를 **기다리지 않고** 성공 토스트·렌더를 먼저 떠 이후 `loadTeacherScheduleData`로 일정이 **다시 채워 보이는** 문제 수정 — `await Promise.all` 후 `loadTeacherScheduleData`·토스트. `scope===all`일 때 `deleteSchedulesByTeacherRange`만 호출하고 학생별 `deleteSchedulesByRange` **중복 제거**. `deleteSchedulesByRange`/`deleteSchedulesByTeacherRange`는 owner·teacher 없으면 **throw**(조용히 `false` 반환 제거)(`script.js`, `database.js`, `node --check` PASS).
+- 2026-03-23 - **학부모 포털 인증시간 소스 정합**: 이력 화면 `authIso`와 동일하게 `auth_time` → (`qr_scanned`일 때만 `qr_scan_time`) → (번호인증일 때만 `check_in_time`). 기존 `check_in_time` 무조건 폴백 제거로 출석 이력「인증시간」과 학부모「인증」불일치 방지(`parent-portal/report.js`, `select`에 `qr_judgment`·`attendance_source` 추가).
+- 2026-03-23 - **학부모 포털 출결 메모**: 일별 카드 하단에 `attendance_records.memo` 표시 — **지각·결석·보강·기타**일 때만(일반 출석 `present`는 미표시). 선생님 이력 하단 메모(예: 보강 행에 「지각」 등)가 학부모에게도 보이도록 함(`parent-portal/report.js` `showAttDateDetail`).
 - 2026-03-22 - AUTO-20260322(staged 8개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-22 - AUTO-20260322(staged 172개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-22 - AUTO-20260322(staged 7개 파일 기준 문서 연동 자동기록): 연동 자동 기록

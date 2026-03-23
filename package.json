@@ -16,9 +16,7 @@
   ],
   "author": "",
   "license": "MIT",
-  "dependencies": {
-    "supabase-js": "^2.0.0"
-  },
+  "dependencies": {},
   "notes": {
     "vercel-setup": "Vercel 환경 변수 설정: REACT_APP_SUPABASE_URL, REACT_APP_SUPABASE_ANON_KEY",
     "local-setup": ".env.local 파일에 환경 변수 입력",

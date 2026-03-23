@@ -1,10 +1,25 @@
 # 출석관리앱 체크리스트
 
-- 문서 기준일: 2026-03-22
+- 문서 기준일: 2026-03-23
 ## 공통 품질 체크
+- [x] Vercel `highroad-math` 배포 문서(2026-03-23): `vercel.json` name · `docs/VERCEL_HIGHROAD_PARENT_PORTAL.md` · `README.md` — Vercel에서 프로젝트명 일치 후 `https://highroad-math.vercel.app/parent-portal` 스모크 권장
+- [x] 학부모 포털 출결 일별 카드(2026-03-23): 수업+인증·지각 시 N분 지각·결석은 수업만 — `parent-portal/report.js`·`index.html` · `node --check parent-portal/report.js` PASS · 실제 데이터로 인증·지각 분 표시 확인 권장
+- [x] 학부모 포털 지각 가로 정렬(2026-03-23): `att-meta-late-row`로 수업·인증 열 `nowrap` — 모바일에서 지그재그 줄바꿈 방지 · `node --check parent-portal/report.js` PASS
+- [x] 학부모 포털 지각 베이스라인(2026-03-23): `align-items: flex-end` — 수업·인증이 출석과 같이 한 줄, N분 지각은 인증 위만 · 브라우저 확인 권장
+- [x] 기간 일정 삭제 await·중복 제거(2026-03-23): `executePeriodDelete` + `deleteSchedulesByRange`/`deleteSchedulesByTeacherRange` throw 정책 · `node --check script.js` `database.js` PASS · 2월 전체 삭제 후 캘린더·DB 건수 확인 권장
+- [x] 기간 삭제 담당 외 학생 분기(2026-03-23): `checkSet` = 기간 내 로컬 일정 ∪ DB 학생 ID, 학생 범위는 선택+기간 일정·DB 교집합 · **`nonAssignees` = `studentHasDifferentPrimaryTeacherThan`만**(담당 필드 비어 있으면 담당 외로 보지 않음) · **「전체」범위**: `getPeriodDeleteMergedStats`(로컬 전 선생님∪owner DB)·`deleteSchedulesByOwnerRange`·다른 `teacher_id` 일정 시 `showConfirm` · 담당 외 시 모달→원장 PIN 또는 담당만 삭제 확인 · 닫기 시 `__periodDeleteCtx` 초기화 · 모달 푸터 `period-del-footer*`/`btn-cancel` 레이아웃(`style.css`) · `node --check script.js` `database.js` PASS · 다선생님·담당 외 혼합 기간 실기기 확인 권장
+- [x] schedule_date 비정규 문자열(2월 삭제·단건 복귀)(2026-03-23): `normalizeScheduleDateKey`·로컬 키 병합 · `node --check database.js` `script.js` PASS · 2월 기간·단건 삭제 후 새로고침 확인 권장
+- [x] 일정 단건 삭제 Supabase 정합(2026-03-23): `deleteScheduleFromDatabase` owner·시간 변형 · `deleteSingleSchedule` DB 선행 · `node --check database.js` `script.js` PASS · Network에서 `schedules` DELETE 확인 권장
+- [x] 전체 선생님 보기 + 기간 삭제 동기화(2026-03-23): 삭제 후 `reloadScheduleDataAfterOwnerMutation` · `loadAllTeachersScheduleData`에서 알려진 선생님 빈 버킷 stale 제거 · `executeBulkDelete` 동일 경로 · `node --check script.js` PASS · **전체 선생님** 표시에서 2월 전체 삭제 후 캘린더·콘솔 건수 감소 확인 권장
+- [x] 학부모 포털 인증시간=이력 authIso(2026-03-23): `resolveParentPortalAuthIso` + `qr_judgment`/`attendance_source` 조회 · `node --check parent-portal/report.js` PASS · 원장 인증시간 수정 후 학부모와 대조 권장
+- [x] 학부모 포털 출결 메모(2026-03-23): 지각·결석·보강·기타만 `memo` 하단 박스 · `node --check parent-portal/report.js` PASS · 보강+메모 등 확인 권장
+- [x] 출석 이력 처리·인증시간 Enter 저장(2026-03-23): `qr-attendance.js` — 수정 버튼 제거·Enter 적용 · `node --check qr-attendance.js` PASS · 관리자에서 실제 저장 동선 확인 권장
+- [x] 채점 서버 Docker·Compose(2026-03-23): 루트 `docker compose up --build`, `grading-server/.env` 필요 — 이미지 빌드·`/health` 헬스체크·`README.md` 배포 안내 · 클라우드 푸시 전 `docker compose` 스모크 권장
 - [x] 월간 캘린더 공휴일·학원일정 배경(2026-03-22): `public-holiday-cell`·`custom-holiday` 글자/배경 분리·`bg_color` SQL — `node --check script.js` PASS · Supabase 마이그레이션 적용 후 저장 확인 권장
 - [x] 캘린더 배경 **선택안함**·연한 톤(2026-03-22): `custom-holiday-no-bg`·파스텔 칩·`style.css` `color-mix` 완화 — `node --check script.js` PASS · 실기기에서 배경 없음/공휴일 농도 확인 권장
 - [x] **국가 공휴일** 칸 배경 추가 연화(2026-03-22): `public-holiday-cell`만 `color-mix` 비율 재하향 — 브라우저에서 삼일절 등 법정 공휴일 셀 확인 권장
+- [x] 출석 이력 **처리시간·인증시간** 한 줄 배치(2026-03-22): `qr-attendance.js` — `node --check qr-attendance.js` PASS · 출석 기록 패널에서 레이아웃 확인 권장
+- [x] 출석 이력 시간 **수정 버튼(변경 시만 활성화)**(2026-03-22): `qr-attendance.js` — `node --check qr-attendance.js` PASS · 관리자에서 적용·저장 동선 확인 권장
 - [x] 선생님 선택 화면 QR → 스캔 → 닫기 → 선생님 선택 복귀(2026-03-22): 상단 QR → **`showQRPasswordModal`** → 모달에서 PIN → **`confirmQRPassword`** → `setCurrentTeacher` → **`openQRScanPage()`**(배포본/ZIP 동일)·`openedFromTeacherSelect`·닫기 시 `TEACHER_SELECT` — `node --check qr-attendance.js` PASS · 실기기 확인 권장
 - [x] `isQRScanPageOpen` 오판으로 토스트·확인창 전부 차단(2026-03-22): **인라인 `display`만** 판별(GitHub `origin/main`과 동일 원칙, `getComputedStyle` 단독은 CSS flex 오판 가능)·미선택 시 `showConfirm`+드롭다운 포커스 — `node --check script.js` + `qr-attendance.js` PASS · 미선택/미입력 시 안내 노출 실기기 확인 권장
 - [x] 선생님 선택 QR 버튼(2026-03-22): **`onclick="showQRPasswordModal()"`** + `.qr-teacher-select-top-btn`·`z-index:100`(ZIP·Vercel과 동일) — 별도 `teacher-select-qr-btn` / `bindTeacherSelectQrButton` 없음
@@ -84,6 +99,14 @@
 ## 테스트/검증 결과 기록
 | 날짜 | 작업 | 검증 방법 | 결과 | 비고 |
 |---|---|---|---|---|
+| 2026-03-23 | AUTO-20260323(staged 18개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
+| 2026-03-23 | 기간 삭제 owner 전체·다른 선생님 확인 (`deleteSchedulesByOwnerRange` 등) | `node --check script.js` `database.js` · `runPeriodDeleteExecute` 경로 정적 검토 | PASS(코드) | 전체 선생님 보기·타 선생님 칸 일정이 있는 기간에서 삭제·다른 선생님 확인창 브라우저 확인 권장 |
+| 2026-03-23 | 기간 삭제「전체」집계 로컬∪DB (`getPeriodDeleteMergedStats`) | `node --check script.js` · 실행 루프(`runPeriodDeleteExecute`)와 동일 학생·건수 기준 정적 검토 | PASS(코드) | 담당 외 학생 일정만 DB에 있는 월에서 삭제 예정 건수·확인 모달 노출 브라우저 확인 권장 |
+| 2026-03-23 | 기간 삭제 담당 외 모달 오탐·푸터 UI | `studentHasDifferentPrimaryTeacherThan` + `period-del-footer*` 정적 검토 · `node --check script.js` | PASS(코드) | 담당 학생만 선택·기간 삭제 시 담당 외 모달 미표시·관리자 모달 취소 버튼 폭 브라우저 확인 권장 |
+| 2026-03-23 | 학부모 포털 인증시간(authIso 정합) | `resolveParentPortalAuthIso` + `select` 확장 + `node --check parent-portal/report.js` | PASS(코드) | 출석 이력 인증시간 수정 후 학부모 포털과 시각 일치 확인 권장 |
+| 2026-03-23 | 학부모 포털 출결 메모(지각·결석·보강·기타) | `showAttDateDetail` 조건 분기 + `node --check parent-portal/report.js` | PASS(코드) | 보강 등 `memo` 있는 행에서 하단 박스 확인 권장 |
+| 2026-03-23 | 학부모 포털 지각 레이아웃(`att-meta-late-row`) | `node --check parent-portal/report.js` + CSS `nowrap` 정적 검토 | PASS(코드) | 좁은 화면에서 수업·인증 나란히 표시 확인 권장 |
+| 2026-03-23 | 학부모 포털 출결 일별 카드(수업·인증·지각분) | `node --check parent-portal/report.js` + `attendance_records`에 `auth_time` 조회 필드 추가 정적 검토 | PASS(코드) | 브라우저에서 출석/지각/결석·인증 시각 없는 레거시 행 확인 권장 |
 | 2026-03-22 | AUTO-20260322(staged 8개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-03-22 | AUTO-20260322(staged 172개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-03-22 | AUTO-20260322(staged 7개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |

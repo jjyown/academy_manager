@@ -286,6 +286,59 @@ function dateToStr(date) {
     return str;
 }
 
+/** 로컬·레거시 키의 날짜를 YYYY-MM-DD로 통일 (database.js `normalizeScheduleDateKey`와 동일 목적) */
+function normalizeScheduleDateKeyLocal(input) {
+    if (typeof window.normalizeScheduleDateKey === 'function') {
+        return window.normalizeScheduleDateKey(input);
+    }
+    if (input == null || input === '') return '';
+    const s = String(input).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    const m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (!m) return s;
+    const y = parseInt(m[1], 10);
+    const mo = parseInt(m[2], 10);
+    const d = parseInt(m[3], 10);
+    if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return s;
+    return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
+/**
+ * teacherScheduleData 내 날짜 키(비정규 문자열)를 정규화해 병합.
+ * 로컬스토리지·구버전 데이터에 `2026-2-5` 형태가 남으면 구간 삭제 문자열 비교가 깨짐.
+ */
+function normalizeAllTeacherScheduleDataDateKeys() {
+    Object.keys(teacherScheduleData || {}).forEach((tid) => {
+        const byStudent = teacherScheduleData[tid];
+        if (!byStudent || typeof byStudent !== 'object') return;
+        Object.keys(byStudent).forEach((sid) => {
+            const byDate = byStudent[sid];
+            if (!byDate || typeof byDate !== 'object') return;
+            Object.keys(byDate).forEach((dk) => {
+                const nk = normalizeScheduleDateKeyLocal(dk);
+                if (!nk || nk === dk) return;
+                if (!byDate[nk]) {
+                    byDate[nk] = byDate[dk];
+                    delete byDate[dk];
+                } else {
+                    const ea = normalizeScheduleEntries(byDate[nk]);
+                    const eb = normalizeScheduleEntries(byDate[dk]);
+                    const seen = new Set();
+                    const merged = [];
+                    [...ea, ...eb].forEach((ent) => {
+                        const st = normalizeScheduleTimeKey(ent?.start || '');
+                        if (!st || st === 'default' || seen.has(st)) return;
+                        seen.add(st);
+                        merged.push(ent);
+                    });
+                    byDate[nk] = merged;
+                    delete byDate[dk];
+                }
+            });
+        });
+    });
+}
+
 function normalizeScheduleEntries(value) {
     if (!value) return [];
     return Array.isArray(value) ? value : [value];
@@ -361,7 +414,7 @@ async function checkScheduleOverlap(studentId, dateStr, newStart, newDuration, e
                 .select('teacher_id, start_time, duration')
                 .eq('owner_user_id', ownerId)
                 .eq('student_id', studentId)
-                .eq('schedule_date', dateStr);
+                .eq('schedule_date', normalizeScheduleDateKeyLocal(dateStr));
 
             if (!error && data) {
                 for (const row of data) {
@@ -5162,17 +5215,35 @@ async function _generateScheduleCore(excludeHolidays) {
 window.generateSchedule = function() { return _generateScheduleCore(false); };
 window.generateScheduleWithoutHolidays = function() { return _generateScheduleCore(true); };
 
-function countStudentSchedulesInRange(studentId, startStr, endStr) {
-    if (!studentId || !startStr || !endStr || startStr > endStr) return 0;
-    const teacherSchedules = teacherScheduleData[currentTeacherId] || {};
+function countStudentSchedulesInRangeForTeacher(teacherId, studentId, startStr, endStr) {
+    if (!teacherId || !studentId || !startStr || !endStr || startStr > endStr) return 0;
+    const nStart = normalizeScheduleDateKeyLocal(startStr);
+    const nEnd = normalizeScheduleDateKeyLocal(endStr);
+    if (!nStart || !nEnd || nStart > nEnd) return 0;
+    const teacherSchedules = teacherScheduleData[teacherId] || {};
     const studentSchedules = teacherSchedules[String(studentId)] || {};
     let count = 0;
     Object.keys(studentSchedules).forEach((dateStr) => {
-        if (dateStr < startStr || dateStr > endStr) return;
-        const entries = getScheduleEntries(currentTeacherId, String(studentId), dateStr);
+        const n = normalizeScheduleDateKeyLocal(dateStr);
+        if (!n || n < nStart || n > nEnd) return;
+        const entries = getScheduleEntries(teacherId, String(studentId), dateStr);
         count += entries.length;
     });
     return count;
+}
+
+function countStudentSchedulesInRange(studentId, startStr, endStr) {
+    if (!currentTeacherId) return 0;
+    return countStudentSchedulesInRangeForTeacher(currentTeacherId, studentId, startStr, endStr);
+}
+
+/** 모든 선생님 시간표에 걸친 일정 수(기간 삭제 집계용) */
+function countStudentSchedulesInRangeAllTeachers(studentId, startStr, endStr) {
+    let n = 0;
+    Object.keys(teacherScheduleData || {}).forEach((tid) => {
+        n += countStudentSchedulesInRangeForTeacher(tid, studentId, startStr, endStr);
+    });
+    return n;
 }
 
 function getMonthSpanCount(startStr, endStr) {
@@ -5316,7 +5387,9 @@ async function collectScheduleSlotsByRangeFromDb(studentId, startDate, endDate, 
     if (!ownerId) return [];
     const numericStudentId = parseInt(studentId, 10);
     if (Number.isNaN(numericStudentId)) return [];
-    if (!startDate || !endDate || !teacherId) return [];
+    const nStart = normalizeScheduleDateKeyLocal(startDate);
+    const nEnd = normalizeScheduleDateKeyLocal(endDate);
+    if (!nStart || !nEnd || !teacherId) return [];
 
     try {
         const { data, error } = await supabase
@@ -5325,8 +5398,8 @@ async function collectScheduleSlotsByRangeFromDb(studentId, startDate, endDate, 
             .eq('owner_user_id', ownerId)
             .eq('student_id', numericStudentId)
             .eq('teacher_id', String(teacherId))
-            .gte('schedule_date', startDate)
-            .lte('schedule_date', endDate);
+            .gte('schedule_date', nStart)
+            .lte('schedule_date', nEnd);
         if (error) {
             console.error('[collectScheduleSlotsByRangeFromDb] 조회 실패:', error);
             return [];
@@ -5334,7 +5407,7 @@ async function collectScheduleSlotsByRangeFromDb(studentId, startDate, endDate, 
         return (Array.isArray(data) ? data : [])
             .map((row) => ({
                 studentId,
-                dateStr: row?.schedule_date,
+                dateStr: normalizeScheduleDateKeyLocal(String(row?.schedule_date || '').trim()) || row?.schedule_date,
                 teacherId: String(teacherId),
                 startTime: normalizeScheduleTimeKey(row?.start_time || '')
             }))
@@ -5343,6 +5416,68 @@ async function collectScheduleSlotsByRangeFromDb(studentId, startDate, endDate, 
         console.error('[collectScheduleSlotsByRangeFromDb] 예외:', e);
         return [];
     }
+}
+
+/** 기간·학생 기준 DB 일정 슬롯 (모든 선생님 teacher_id) — 출석 정리용 */
+async function collectScheduleSlotsByRangeFromDbAllTeachers(studentId, startDate, endDate) {
+    if (typeof supabase === 'undefined') return [];
+    const ownerId = cachedLsGet('current_owner_id');
+    if (!ownerId) return [];
+    const numericStudentId = parseInt(studentId, 10);
+    if (Number.isNaN(numericStudentId)) return [];
+    const nStart = normalizeScheduleDateKeyLocal(startDate);
+    const nEnd = normalizeScheduleDateKeyLocal(endDate);
+    if (!nStart || !nEnd) return [];
+    try {
+        const { data, error } = await supabase
+            .from('schedules')
+            .select('schedule_date, start_time, teacher_id')
+            .eq('owner_user_id', ownerId)
+            .eq('student_id', numericStudentId)
+            .gte('schedule_date', nStart)
+            .lte('schedule_date', nEnd);
+        if (error) {
+            console.error('[collectScheduleSlotsByRangeFromDbAllTeachers] 조회 실패:', error);
+            return [];
+        }
+        return (Array.isArray(data) ? data : [])
+            .map((row) => ({
+                studentId,
+                dateStr: normalizeScheduleDateKeyLocal(String(row?.schedule_date || '').trim()) || row?.schedule_date,
+                teacherId: String(row?.teacher_id || '').trim(),
+                startTime: normalizeScheduleTimeKey(row?.start_time || '')
+            }))
+            .filter((row) => row.dateStr && row.teacherId && row.startTime && row.startTime !== 'default');
+    } catch (e) {
+        console.error('[collectScheduleSlotsByRangeFromDbAllTeachers] 예외:', e);
+        return [];
+    }
+}
+
+function collectLocalStudentIdsAcrossTeachersInRange(startDate, endDate, studentIdsFilter) {
+    const filter = Array.isArray(studentIdsFilter) && studentIdsFilter.length ? studentIdsFilter.map(String) : null;
+    const out = new Set();
+    Object.keys(teacherScheduleData || {}).forEach((tId) => {
+        const bucket = teacherScheduleData[tId] || {};
+        Object.keys(bucket).forEach((sid) => {
+            if (filter && !filter.includes(String(sid))) return;
+            if (countStudentSchedulesInRangeForTeacher(tId, sid, startDate, endDate) > 0) out.add(String(sid));
+        });
+    });
+    return Array.from(out);
+}
+
+/** 삭제 범위에 현재 선생님이 아닌 teacher_id로 등록된 일정이 있는지 (스키마상 일정 행의 teacher_id = 그 선생님 시간표) */
+async function hasOtherTeacherSchedulesInPeriodDeleteScope(startDate, endDate, scope, targetStudentIdsForFilter) {
+    if (typeof window.fetchDistinctTeacherIdsFromSchedulesInRangeForOwner !== 'function') return false;
+    const studentFilter =
+        scope === 'student' && Array.isArray(targetStudentIdsForFilter) && targetStudentIdsForFilter.length
+            ? targetStudentIdsForFilter.map(String)
+            : null;
+    const tids = await window.fetchDistinctTeacherIdsFromSchedulesInRangeForOwner(startDate, endDate, studentFilter);
+    const cur = normalizeTeacherIdForCompare(currentTeacherId);
+    if (!cur) return false;
+    return tids.some((t) => normalizeTeacherIdForCompare(t) !== cur);
 }
 
 window.executeBulkDelete = async function() {
@@ -5415,7 +5550,7 @@ window.executeBulkDelete = async function() {
             );
         }
 
-        await loadTeacherScheduleData(currentTeacherId);
+        await reloadScheduleDataAfterOwnerMutation();
     } catch (dbError) {
         console.error('[executeBulkDelete] 데이터베이스 삭제 실패:', dbError);
         showToast('데이터베이스 삭제 중 오류가 발생했습니다: ' + dbError.message, 'error');
@@ -5517,11 +5652,35 @@ window.deleteSingleSchedule = async function() {
         const ownerCandidates = Array.from(ownerCandidateSet);
         const normalizedOriginalStart = normalizeScheduleTimeKey(originalStart || '');
 
-        // 1. 로컬 메모리에서 먼저 삭제
+        // 1. Supabase 일정·출석 삭제를 먼저 완료 (성공 후에만 로컬 반영 — DB에 행이 남는 문제 방지)
+        try {
+            await Promise.all(
+                ownerCandidates.map((teacherIdCandidate) =>
+                    deleteScheduleFromDatabase(sid, dateStr, teacherIdCandidate, originalStart || null)
+                )
+            );
+            await Promise.all(
+                ownerCandidates.map((teacherIdCandidate) =>
+                    deleteAttendanceRecordBySlotFromDb(sid, dateStr, teacherIdCandidate, originalStart || null)
+                )
+            );
+        } catch (dbErr) {
+            console.error('[deleteSingleSchedule] Supabase 삭제 실패:', dbErr);
+            showToast('Supabase에서 일정을 삭제하지 못했습니다. 네트워크·로그인 상태를 확인해주세요.', 'error');
+            try {
+                await reloadScheduleDataAfterOwnerMutation();
+            } catch (_) {
+                /* noop */
+            }
+            renderCalendar();
+            closeModal('attendance-modal');
+            return;
+        }
+
+        // 2. 로컬 메모리에서 삭제
         removeTimeScopedValue(students[sIdx].attendance, dateStr, originalStart || '');
         removeTimeScopedValue(students[sIdx].records, dateStr, originalStart || '');
         removeTimeScopedValue(students[sIdx].shared_records, dateStr, originalStart || '');
-        // owner 후보군 기준으로 일정 데이터 삭제 (관리자 교차 편집/레거시 키 혼재 대응)
         ownerCandidates.forEach((teacherIdCandidate) => {
             const entries = getScheduleEntries(teacherIdCandidate, String(sid), dateStr);
             if (!entries.length) return;
@@ -5530,32 +5689,13 @@ window.deleteSingleSchedule = async function() {
                 : [];
             setScheduleEntries(teacherIdCandidate, String(sid), dateStr, nextEntries);
         });
-        
-        // 2. 데이터 저장 및 화면 업데이트
+
         saveData();
         ownerCandidates.forEach((teacherIdCandidate) => persistTeacherScheduleLocalFor(teacherIdCandidate));
         renderCalendar();
         if (document.getElementById('day-detail-modal').style.display === 'flex') renderDayEvents(dateStr);
-        
-        showToast(permission.adminOverride ? '일정이 삭제되었습니다. (관리자 권한)' : '일정이 삭제되었습니다.', 'success');
 
-        // 3. 데이터베이스 삭제는 백그라운드 처리 (일정 + 동일 슬롯 출석기록)
-        const dbDeleteTasks = ownerCandidates.flatMap((teacherIdCandidate) => ([
-            deleteScheduleFromDatabase(sid, dateStr, teacherIdCandidate, originalStart || null),
-            deleteAttendanceRecordBySlotFromDb(sid, dateStr, teacherIdCandidate, originalStart || null)
-        ]));
-        Promise.allSettled(dbDeleteTasks)
-            .then((results) => {
-                const failed = results.filter((r) => r.status === 'rejected');
-                if (failed.length > 0) {
-                    console.warn('[deleteSingleSchedule] 일부 DB 삭제 실패:', failed);
-                } else {
-                    console.log('[deleteSingleSchedule] DB 일정/출석 삭제 완료');
-                }
-            })
-            .catch(dbError => {
-                console.error('[deleteSingleSchedule] 데이터베이스 삭제 실패:', dbError);
-            });
+        showToast(permission.adminOverride ? '일정이 삭제되었습니다. (관리자 권한)' : '일정이 삭제되었습니다.', 'success');
     }
     closeModal('attendance-modal');
 }
@@ -5605,6 +5745,9 @@ window.togglePeriodDeleteStudent = function() {
     updatePeriodDeletePreview();
 }
 
+let _periodDelPreviewTimer = null;
+let _periodDelPreviewSeq = 0;
+
 window.updatePeriodDeletePreview = function() {
     const previewEl = document.getElementById('period-del-preview');
     const warningEl = document.getElementById('period-del-warning');
@@ -5626,9 +5769,114 @@ window.updatePeriodDeletePreview = function() {
         return;
     }
     const scope = document.getElementById('period-del-scope')?.value || 'all';
-    const targetStudentIds = scope === 'all'
-        ? Object.keys(teacherScheduleData[currentTeacherId] || {})
-        : [...selectedPeriodDeleteStudents];
+    const tid = currentTeacherId;
+
+    if (scope === 'all' && tid) {
+        const seq = ++_periodDelPreviewSeq;
+        previewEl.textContent = '삭제 예정 일정: …';
+        if (warningEl) {
+            warningEl.textContent = '기간 내 일정을 집계하는 중입니다…';
+            warningEl.classList.remove('danger');
+        }
+        if (_periodDelPreviewTimer) clearTimeout(_periodDelPreviewTimer);
+        _periodDelPreviewTimer = setTimeout(() => {
+            _periodDelPreviewTimer = null;
+            (async () => {
+                try {
+                    const { total, mergedIds } = await getPeriodDeleteMergedStats(startDate, endDate, { scope: 'all' });
+                    const mergedCount = mergedIds.length;
+                    if (seq !== _periodDelPreviewSeq) return;
+                    previewEl.textContent = `삭제 예정 일정: ${total}건`;
+                    if (warningEl) {
+                        warningEl.textContent = buildDeleteImpactText({
+                            scopeLabel: formatDeleteScopeLabel(scope, mergedCount),
+                            startStr: startDate,
+                            endStr: endDate,
+                            totalCount: total,
+                            monthSpan: getMonthSpanCount(startDate, endDate)
+                        });
+                        warningEl.classList.toggle('danger', total > 0);
+                    }
+                } catch (e) {
+                    console.error('[updatePeriodDeletePreview] 전체 범위 집계 실패:', e);
+                    if (seq !== _periodDelPreviewSeq) return;
+                    const fallbackKeys = Object.keys(teacherScheduleData[tid] || {});
+                    let total = 0;
+                    fallbackKeys.forEach((sid) => {
+                        total += countStudentSchedulesInRange(sid, startDate, endDate);
+                    });
+                    previewEl.textContent = `삭제 예정 일정: ${total}건`;
+                    if (warningEl) {
+                        warningEl.textContent = buildDeleteImpactText({
+                            scopeLabel: formatDeleteScopeLabel(scope, fallbackKeys.length),
+                            startStr: startDate,
+                            endStr: endDate,
+                            totalCount: total,
+                            monthSpan: getMonthSpanCount(startDate, endDate)
+                        });
+                        warningEl.classList.toggle('danger', total > 0);
+                    }
+                }
+            })();
+        }, 220);
+        return;
+    }
+
+    if (scope === 'student' && tid && selectedPeriodDeleteStudents.length) {
+        const seq = ++_periodDelPreviewSeq;
+        previewEl.textContent = '삭제 예정 일정: …';
+        if (warningEl) {
+            warningEl.textContent = '기간 내 일정을 집계하는 중입니다…';
+            warningEl.classList.remove('danger');
+        }
+        if (_periodDelPreviewTimer) clearTimeout(_periodDelPreviewTimer);
+        _periodDelPreviewTimer = setTimeout(() => {
+            _periodDelPreviewTimer = null;
+            (async () => {
+                try {
+                    const sel = selectedPeriodDeleteStudents.map(String);
+                    const { total, mergedIds } = await getPeriodDeleteMergedStats(startDate, endDate, {
+                        scope: 'student',
+                        studentIds: sel
+                    });
+                    if (seq !== _periodDelPreviewSeq) return;
+                    previewEl.textContent = `삭제 예정 일정: ${total}건`;
+                    if (warningEl) {
+                        warningEl.textContent = buildDeleteImpactText({
+                            scopeLabel: formatDeleteScopeLabel(scope, mergedIds.length),
+                            startStr: startDate,
+                            endStr: endDate,
+                            totalCount: total,
+                            monthSpan: getMonthSpanCount(startDate, endDate)
+                        });
+                        warningEl.classList.toggle('danger', total > 0);
+                    }
+                } catch (e) {
+                    console.error('[updatePeriodDeletePreview] 학생 범위 집계 실패:', e);
+                    if (seq !== _periodDelPreviewSeq) return;
+                    let total = 0;
+                    selectedPeriodDeleteStudents.forEach((sid) => {
+                        total += countStudentSchedulesInRange(sid, startDate, endDate);
+                    });
+                    previewEl.textContent = `삭제 예정 일정: ${total}건`;
+                    if (warningEl) {
+                        warningEl.textContent = buildDeleteImpactText({
+                            scopeLabel: formatDeleteScopeLabel(scope, selectedPeriodDeleteStudents.length),
+                            startStr: startDate,
+                            endStr: endDate,
+                            totalCount: total,
+                            monthSpan: getMonthSpanCount(startDate, endDate)
+                        });
+                        warningEl.classList.toggle('danger', total > 0);
+                    }
+                }
+            })();
+        }, 220);
+        return;
+    }
+
+    const targetStudentIds =
+        scope === 'all' ? Object.keys(teacherScheduleData[tid] || {}) : [...selectedPeriodDeleteStudents];
     let total = 0;
     targetStudentIds.forEach((sid) => {
         total += countStudentSchedulesInRange(sid, startDate, endDate);
@@ -5646,133 +5894,495 @@ window.updatePeriodDeletePreview = function() {
     }
 };
 
-// 기간별 일정 삭제 실행
-window.executePeriodDelete = async function() {
-    if (!ensureOwnedScheduleDeleteContext('기간별 일정 삭제')) return;
-    const scope = document.getElementById('period-del-scope').value;
-    const startDate = document.getElementById('period-del-start').value;
-    const endDate = document.getElementById('period-del-end').value;
-    
-    if (!startDate || !endDate) {
-        showToast('삭제 기간을 입력해주세요.', 'warning');
-        return;
-    }
-    
-    if (startDate > endDate) {
-        showToast('시작 날짜가 종료 날짜보다 늦습니다.', 'warning');
-        return;
-    }
-    
-    let targetStudentIds = [];
-    let expectedCount = 0;
-    let scopeLabel = '';
-    const monthSpan = getMonthSpanCount(startDate, endDate);
-    
-    if (scope === 'all') {
-        targetStudentIds = Object.keys(teacherScheduleData[currentTeacherId] || {});
-        scopeLabel = formatDeleteScopeLabel(scope, targetStudentIds.length);
-        targetStudentIds.forEach((sid) => {
-            expectedCount += countStudentSchedulesInRange(sid, startDate, endDate);
-        });
-    } else {
-        if (!selectedPeriodDeleteStudents.length) {
-            showToast('학생을 선택해주세요.', 'warning');
-            return;
+/** 기간·현재 선생님 기준 schedules 테이블에 있는 학생 ID (DB 기준, 로컬 누락 보정용) */
+async function fetchDistinctStudentIdsFromSchedulesInRange(teacherId, startDate, endDate) {
+    if (typeof supabase === 'undefined') return [];
+    const ownerId = cachedLsGet('current_owner_id');
+    const nStart = normalizeScheduleDateKeyLocal(startDate);
+    const nEnd = normalizeScheduleDateKeyLocal(endDate);
+    if (!ownerId || !teacherId || !nStart || !nEnd) return [];
+    try {
+        const { data, error } = await supabase
+            .from('schedules')
+            .select('student_id')
+            .eq('owner_user_id', ownerId)
+            .eq('teacher_id', String(teacherId))
+            .gte('schedule_date', nStart)
+            .lte('schedule_date', nEnd);
+        if (error) {
+            console.error('[fetchDistinctStudentIdsFromSchedulesInRange]', error);
+            return [];
         }
-        targetStudentIds = [...selectedPeriodDeleteStudents];
-        scopeLabel = formatDeleteScopeLabel(scope, targetStudentIds.length);
-        targetStudentIds.forEach((sid) => {
-            expectedCount += countStudentSchedulesInRange(sid, startDate, endDate);
-        });
+        const set = new Set((data || []).map((r) => String(r.student_id)));
+        return Array.from(set);
+    } catch (e) {
+        console.error('[fetchDistinctStudentIdsFromSchedulesInRange] 예외:', e);
+        return [];
     }
-    const confirmMessage = `${startDate} ~ ${endDate}${monthSpan > 1 ? ` (${monthSpan}개월)` : ''} 기간의 일정을 삭제하시겠습니까?\n\n- 범위: ${scopeLabel}\n- 삭제 예정: ${expectedCount}건\n- 대상: 내가 등록한 일정만\n\n삭제한 일정의 같은 시간 슬롯 출석기록도 함께 삭제됩니다.\n삭제 후 복구할 수 없습니다.`;
-    if (!(await showConfirm(confirmMessage, { type: 'danger', title: '삭제 확인', okText: '삭제' }))) return;
-    
-    let deletedCount = 0;
-    let deletedAny = false;
+}
 
-    // 1. 데이터베이스에서 먼저 삭제 (병렬 처리)
+/** 현재 선생님·기간에 `schedules` 테이블 행 수 (로컬 버킷에 없는 학생·담당 외 일정 포함) */
+async function countScheduleRowsInRangeFromDb(teacherId, startDate, endDate) {
+    if (typeof supabase === 'undefined') return 0;
+    const ownerId = cachedLsGet('current_owner_id');
+    const nStart = normalizeScheduleDateKeyLocal(startDate);
+    const nEnd = normalizeScheduleDateKeyLocal(endDate);
+    if (!ownerId || !teacherId || !nStart || !nEnd || nStart > nEnd) return 0;
+    try {
+        const { count, error } = await supabase
+            .from('schedules')
+            .select('*', { count: 'exact', head: true })
+            .eq('owner_user_id', ownerId)
+            .eq('teacher_id', String(teacherId))
+            .gte('schedule_date', nStart)
+            .lte('schedule_date', nEnd);
+        if (error) {
+            console.error('[countScheduleRowsInRangeFromDb]', error);
+            return 0;
+        }
+        return typeof count === 'number' ? count : 0;
+    } catch (e) {
+        console.error('[countScheduleRowsInRangeFromDb] 예외:', e);
+        return 0;
+    }
+}
+
+/**
+ * 기간 삭제 집계: owner 전체 시간표(모든 teacher_id) + 로컬 전 선생님 버킷.
+ * @param {{ scope?: 'all'|'student', studentIds?: string[] }} options
+ * @returns {{ total: number, mergedIds: string[], dbIds: string[], localKeys: string[] }}
+ */
+async function getPeriodDeleteMergedStats(startDate, endDate, options = {}) {
+    const scope = options.scope || 'all';
+    const pickIds = options.studentIds;
+    const nStart = normalizeScheduleDateKeyLocal(startDate);
+    const nEnd = normalizeScheduleDateKeyLocal(endDate);
+    if (!nStart || !nEnd || nStart > nEnd) {
+        return { total: 0, mergedIds: [], dbIds: [], localKeys: [] };
+    }
+    const studentFilter = scope === 'student' && Array.isArray(pickIds) && pickIds.length ? pickIds.map(String) : null;
+
+    let dbIds = [];
+    let dbTotal = 0;
+    if (typeof window.fetchDistinctStudentIdsFromSchedulesInRangeForOwner === 'function') {
+        dbIds = await window.fetchDistinctStudentIdsFromSchedulesInRangeForOwner(startDate, endDate, studentFilter);
+    } else {
+        dbIds = await fetchDistinctStudentIdsFromSchedulesInRange(currentTeacherId, startDate, endDate);
+    }
+    if (typeof window.countScheduleRowsInRangeFromDbForOwner === 'function') {
+        dbTotal = await window.countScheduleRowsInRangeFromDbForOwner(startDate, endDate, studentFilter);
+    } else {
+        dbTotal = await countScheduleRowsInRangeFromDb(currentTeacherId, startDate, endDate);
+    }
+
+    const localKeySet = new Set();
+    Object.keys(teacherScheduleData || {}).forEach((tId) => {
+        const bucket = teacherScheduleData[tId] || {};
+        Object.keys(bucket).forEach((sid) => {
+            if (studentFilter && !studentFilter.includes(String(sid))) return;
+            if (countStudentSchedulesInRangeForTeacher(tId, sid, startDate, endDate) > 0) localKeySet.add(String(sid));
+        });
+    });
+    const localKeys = Array.from(localKeySet);
+
+    const merged = new Set([...localKeys, ...dbIds.map(String)]);
+    let localSum = 0;
+    merged.forEach((sid) => {
+        localSum += countStudentSchedulesInRangeAllTeachers(sid, startDate, endDate);
+    });
+    return {
+        total: Math.max(localSum, dbTotal),
+        mergedIds: Array.from(merged),
+        dbIds,
+        localKeys
+    };
+}
+
+/**
+ * 기간 삭제 미리보기·확인용 건수: 로컬 합계와 DB 행 수 중 큰 값.
+ */
+async function countScheduleRowsInRangeMerged(startDate, endDate, options) {
+    const s = await getPeriodDeleteMergedStats(startDate, endDate, options || { scope: 'all' });
+    return s.total;
+}
+
+/** 학생의 원생 담당(teacher_id/매핑)이 현재 선생님과 일치하는지 (담당만 삭제·필터용) */
+function studentPrimaryAssignedMatchesTeacher(studentId, teacherId) {
+    const cur = normalizeTeacherIdForCompare(teacherId);
+    if (!cur) return false;
+    const assigned = normalizeTeacherIdForCompare(getAssignedTeacherId(studentId));
+    if (assigned) return assigned === cur;
+    const st = (students || []).find((s) => String(s?.id) === String(studentId));
+    if (st && st.teacher_id) {
+        const stTid = normalizeTeacherIdForCompare(resolveKnownTeacherId(st.teacher_id) || String(st.teacher_id));
+        if (stTid) return stTid === cur;
+    }
+    if (Array.isArray(currentTeacherStudents) && currentTeacherStudents.some((s) => String(s.id) === String(studentId))) {
+        return true;
+    }
+    return false;
+}
+
+/**
+ * 원생 담당이 현재 선생님이 **아님이 확실할 때만** true (담당 외 확인 모달용).
+ * getAssignedTeacherId/students.teacher_id가 비어 있으면 담당 외로 보지 않음 — 과거 데이터에서 오탐 방지.
+ */
+function studentHasDifferentPrimaryTeacherThan(studentId, teacherId) {
+    const cur = normalizeTeacherIdForCompare(teacherId);
+    if (!cur) return false;
+    const assigned = normalizeTeacherIdForCompare(getAssignedTeacherId(studentId));
+    if (assigned) return assigned !== cur;
+    const st = (students || []).find((s) => String(s?.id) === String(studentId));
+    if (st && st.teacher_id) {
+        const stTid = normalizeTeacherIdForCompare(resolveKnownTeacherId(st.teacher_id) || String(st.teacher_id));
+        if (stTid) return stTid !== cur;
+    }
+    return false;
+}
+
+function getOwnerAdminTeacherForPin() {
+    const list = teacherList || [];
+    const admin = list.find((t) => String(t.teacher_role || 'teacher') === 'admin');
+    return admin || null;
+}
+
+window.__periodDeleteCtx = null;
+
+window.periodDeleteOpenAdminPin = function() {
+    closeModal('period-del-nonassign-modal');
+    const el = document.getElementById('period-del-admin-pin');
+    if (el) el.value = '';
+    openModal('period-del-admin-modal');
+    setTimeout(() => {
+        try {
+            el?.focus();
+        } catch (_) {
+            /* noop */
+        }
+    }, 120);
+};
+
+window.periodDeleteChooseAssignedOnly = async function() {
+    closeModal('period-del-nonassign-modal');
+    const ctx = window.__periodDeleteCtx;
+    window.__periodDeleteCtx = null;
+    if (!ctx) return;
+    const ok = await showConfirm(
+        '담당으로 배정된 학생의 일정만 삭제합니다.\n\n계속하시겠습니까?',
+        { type: 'warning', title: '담당 학생만 삭제', okText: '확인', cancelText: '취소' }
+    );
+    if (!ok) return;
+    await runPeriodDeleteExecute({ ...ctx, assignedOnly: true });
+};
+
+window.periodDeleteSubmitAdminPin = async function() {
+    const pinEl = document.getElementById('period-del-admin-pin');
+    const pin = String(pinEl?.value || '').trim();
+    if (!pin) {
+        showToast('비밀번호를 입력해주세요.', 'warning');
+        return;
+    }
+    const adminRow = getOwnerAdminTeacherForPin();
+    if (!adminRow) {
+        showToast('관리자(원장) 선생님 정보를 찾을 수 없습니다.', 'error');
+        return;
+    }
+    const vr = await verifyTeacherPinWithServer(adminRow.id, pin, {
+        ownerUserId: cachedLsGet('current_owner_id'),
+        requireAdmin: true
+    });
+    if (!vr.ok) {
+        showToast(mapVerifyTeacherPinFailureToMessage(vr) || '관리자 비밀번호가 올바르지 않습니다.', 'error');
+        return;
+    }
+    closeModal('period-del-admin-modal');
+    const ctx = window.__periodDeleteCtx;
+    window.__periodDeleteCtx = null;
+    if (!ctx) return;
+    await runPeriodDeleteExecute({ ...ctx, assignedOnly: false });
+};
+
+/**
+ * @param {object} opts
+ * @param {'all'|'student'} opts.scope
+ * @param {string} opts.startDate
+ * @param {string} opts.endDate
+ * @param {string[]} opts.targetStudentIds — student 범위일 때 선택 학생
+ * @param {boolean} opts.assignedOnly — true면 원생 담당 학생만
+ */
+async function runPeriodDeleteExecute(opts) {
+    let {
+        scope,
+        startDate,
+        endDate,
+        targetStudentIds: inputTargetIds = [],
+        assignedOnly = false
+    } = opts;
+    startDate = normalizeScheduleDateKeyLocal(startDate);
+    endDate = normalizeScheduleDateKeyLocal(endDate);
+    const tid = currentTeacherId;
+
+    const filterForFetch = scope === 'student' ? inputTargetIds.map(String) : null;
+
+    let dbStudentIds = [];
+    if (typeof window.fetchDistinctStudentIdsFromSchedulesInRangeForOwner === 'function') {
+        dbStudentIds = await window.fetchDistinctStudentIdsFromSchedulesInRangeForOwner(startDate, endDate, filterForFetch);
+    } else {
+        dbStudentIds = await fetchDistinctStudentIdsFromSchedulesInRange(tid, startDate, endDate);
+    }
+
+    const localSids = collectLocalStudentIdsAcrossTeachersInRange(startDate, endDate, filterForFetch);
+    let loopStudentIds = Array.from(new Set([...localSids, ...dbStudentIds.map(String)]));
+    if (scope === 'student') {
+        const sel = new Set(inputTargetIds.map(String));
+        loopStudentIds = loopStudentIds.filter((sid) => sel.has(String(sid)));
+    }
+    if (assignedOnly) {
+        loopStudentIds = loopStudentIds.filter((sid) => studentPrimaryAssignedMatchesTeacher(sid, tid));
+    }
+
+    let deletedCount = 0;
+    let scheduleDbDeleteAttempted = false;
     const deleteRequests = [];
     const attendanceDeleteTargets = [];
+    const touchedTeacherIds = new Set();
 
-    if (scope === 'all' && typeof deleteSchedulesByTeacherRange === 'function') {
-        deleteRequests.push(deleteSchedulesByTeacherRange(startDate, endDate, currentTeacherId));
-        deletedAny = true;
+    const canOwnerBulk = typeof window.deleteSchedulesByOwnerRange === 'function';
+    let studentIdsForOwnerDelete = null;
+    if (scope === 'all') {
+        studentIdsForOwnerDelete = assignedOnly ? loopStudentIds : null;
+    } else {
+        studentIdsForOwnerDelete = inputTargetIds.map(String);
+        if (assignedOnly) {
+            studentIdsForOwnerDelete = studentIdsForOwnerDelete.filter((sid) => studentPrimaryAssignedMatchesTeacher(sid, tid));
+        }
     }
 
-    for (const sid of targetStudentIds) {
-        const student = students.find(s => String(s.id) === String(sid));
-        const dbSlotTargets = await collectScheduleSlotsByRangeFromDb(sid, startDate, endDate, currentTeacherId);
+    if (canOwnerBulk) {
+        const skipDb =
+            studentIdsForOwnerDelete !== null && Array.isArray(studentIdsForOwnerDelete) && studentIdsForOwnerDelete.length === 0;
+        if (!skipDb) {
+            deleteRequests.push(window.deleteSchedulesByOwnerRange(startDate, endDate, { studentIds: studentIdsForOwnerDelete }));
+            scheduleDbDeleteAttempted = true;
+        }
+    } else if (typeof deleteSchedulesByRange === 'function' && loopStudentIds.length) {
+        const teacherIdsFallback = [
+            ...new Set([
+                ...(Array.isArray(teacherList) ? teacherList.map((t) => String(t.id)) : []),
+                ...Object.keys(teacherScheduleData || {})
+            ])
+        ].filter(Boolean);
+        for (const otid of teacherIdsFallback) {
+            for (const sid of loopStudentIds) {
+                deleteRequests.push(deleteSchedulesByRange(sid, startDate, endDate, otid));
+            }
+        }
+        scheduleDbDeleteAttempted = true;
+    }
+
+    for (const sid of loopStudentIds) {
+        const student = students.find((s) => String(s.id) === String(sid));
+        const dbSlotTargets = await collectScheduleSlotsByRangeFromDbAllTeachers(sid, startDate, endDate);
         if (dbSlotTargets.length > 0) {
             attendanceDeleteTargets.push(...dbSlotTargets);
         }
 
-        // 항상 DB 삭제 요청을 보냄 (로컬에 없어도 DB에 있을 수 있음)
-        if (typeof deleteSchedulesByRange === 'function') {
-            deleteRequests.push(deleteSchedulesByRange(sid, startDate, endDate, currentTeacherId));
-            deletedAny = true;
-        }
-        // 로컬에서도 삭제 (있을 경우)
-        if (teacherScheduleData[currentTeacherId] && teacherScheduleData[currentTeacherId][sid]) {
-            const eventsToDelete = Object.keys(teacherScheduleData[currentTeacherId][sid]).filter(dateStr => {
-                return !(dateStr < startDate || dateStr > endDate);
+        Object.keys(teacherScheduleData || {}).forEach((loopTid) => {
+            if (!teacherScheduleData[loopTid] || !teacherScheduleData[loopTid][sid]) return;
+            const eventsToDelete = Object.keys(teacherScheduleData[loopTid][sid]).filter((dateStr) => {
+                const n = normalizeScheduleDateKeyLocal(dateStr);
+                return n && !(n < startDate || n > endDate);
             });
-            eventsToDelete.forEach(dateStr => {
-                const entries = getScheduleEntries(currentTeacherId, String(sid), dateStr);
+            eventsToDelete.forEach((dateStr) => {
+                const entries = getScheduleEntries(loopTid, String(sid), dateStr);
                 if (entries.length > 0) {
                     entries.forEach((entry) => {
                         const st = normalizeScheduleTimeKey(entry?.start || '');
                         if (!st || st === 'default') return;
-                        attendanceDeleteTargets.push({ studentId: sid, dateStr, teacherId: currentTeacherId, startTime: st });
+                        attendanceDeleteTargets.push({
+                            studentId: sid,
+                            dateStr,
+                            teacherId: loopTid,
+                            startTime: st
+                        });
                         if (student) {
                             removeTimeScopedValue(student.attendance, dateStr, st);
                             removeTimeScopedValue(student.records, dateStr, st);
                             removeTimeScopedValue(student.shared_records, dateStr, st);
                         }
                     });
-                    setScheduleEntries(currentTeacherId, String(sid), dateStr, []);
+                    setScheduleEntries(loopTid, String(sid), dateStr, []);
                     deletedCount += entries.length;
+                    touchedTeacherIds.add(String(loopTid));
                 }
             });
-        }
+        });
     }
 
     if (attendanceDeleteTargets.length > 0) {
-        const uniqueTargets = Array.from(new Map(
-            attendanceDeleteTargets.map((t) => [`${t.studentId}|${t.dateStr}|${t.teacherId}|${t.startTime}`, t])
-        ).values());
+        const uniqueTargets = Array.from(
+            new Map(attendanceDeleteTargets.map((t) => [`${t.studentId}|${t.dateStr}|${t.teacherId}|${t.startTime}`, t])).values()
+        );
         deleteRequests.push(
-            Promise.allSettled(uniqueTargets.map((t) => deleteAttendanceRecordBySlotFromDb(t.studentId, t.dateStr, t.teacherId, t.startTime)))
+            Promise.all(uniqueTargets.map((t) => deleteAttendanceRecordBySlotFromDb(t.studentId, t.dateStr, t.teacherId, t.startTime)))
         );
     }
 
-    if (deletedCount > 0) {
-        saveData();
-        persistTeacherScheduleLocal();
-        renderCalendar();
-        showToast(`총 ${deletedCount}개의 일정이 삭제되었습니다.`, 'success');
-    } else if (deletedAny) {
-        saveData();
-        persistTeacherScheduleLocal();
-        renderCalendar();
-        showToast('일정이 삭제되었습니다.', 'success');
-    } else {
-        showToast('삭제할 일정이 없습니다.', 'info');
-    }
-
     closeModal('period-delete-modal');
+    closeModal('period-del-nonassign-modal');
+    closeModal('period-del-admin-modal');
 
-    if (deleteRequests.length > 0) {
-        Promise.allSettled(deleteRequests).then(async results => {
-            const failed = results.filter(r => r.status === 'rejected');
-            if (failed.length) {
-                console.error('[executePeriodDelete] DB 삭제 실패:', failed);
-                return;
-            }
-            await loadTeacherScheduleData(currentTeacherId);
+    const persistLocalTouched = () => {
+        if (touchedTeacherIds.size > 0) {
+            touchedTeacherIds.forEach((id) => persistTeacherScheduleLocalFor(id));
+        } else {
+            persistTeacherScheduleLocal();
+        }
+    };
+
+    try {
+        if (deleteRequests.length > 0) {
+            await Promise.all(deleteRequests);
+        }
+        await reloadScheduleDataAfterOwnerMutation();
+        renderCalendar();
+
+        if (assignedOnly && !scheduleDbDeleteAttempted && deletedCount === 0) {
+            showToast('해당 기간에 삭제할 담당 학생 일정이 없습니다.', 'info');
+            saveData();
+            persistLocalTouched();
+            return;
+        }
+        if (deletedCount > 0) {
+            saveData();
+            persistLocalTouched();
+            showToast(`총 ${deletedCount}개의 일정이 삭제되었습니다.`, 'success');
+        } else if (scheduleDbDeleteAttempted) {
+            saveData();
+            persistLocalTouched();
+            showToast(assignedOnly ? '담당 학생 일정이 삭제되었습니다.' : '선택한 기간의 일정이 삭제되었습니다.', 'success');
+        } else {
+            showToast('삭제할 일정이 없습니다.', 'info');
+        }
+    } catch (e) {
+        console.error('[runPeriodDeleteExecute] DB 삭제 실패:', e);
+        showToast('일정 삭제에 실패했습니다. 네트워크·로그인 상태를 확인한 뒤 다시 시도해주세요.', 'error');
+        try {
+            await reloadScheduleDataAfterOwnerMutation();
             renderCalendar();
-        });
+        } catch (reloadErr) {
+            console.error('[runPeriodDeleteExecute] 일정 재로드 실패:', reloadErr);
+        }
     }
+}
+
+// 기간별 일정 삭제 실행
+window.executePeriodDelete = async function() {
+    if (!ensureOwnedScheduleDeleteContext('기간별 일정 삭제')) return;
+    const scope = document.getElementById('period-del-scope').value;
+    const startDate = normalizeScheduleDateKeyLocal(document.getElementById('period-del-start').value);
+    const endDate = normalizeScheduleDateKeyLocal(document.getElementById('period-del-end').value);
+
+    if (!startDate || !endDate) {
+        showToast('삭제 기간을 입력해주세요.', 'warning');
+        return;
+    }
+
+    if (startDate > endDate) {
+        showToast('시작 날짜가 종료 날짜보다 늦습니다.', 'warning');
+        return;
+    }
+
+    let targetStudentIds = [];
+    let expectedCount = 0;
+    let scopeLabel = '';
+    const monthSpan = getMonthSpanCount(startDate, endDate);
+
+    let dbIds = [];
+    let localKeys = [];
+
+    if (scope === 'all') {
+        const stats = await getPeriodDeleteMergedStats(startDate, endDate, { scope: 'all' });
+        targetStudentIds = stats.mergedIds;
+        expectedCount = stats.total;
+        dbIds = stats.dbIds;
+        localKeys = stats.localKeys;
+        scopeLabel = formatDeleteScopeLabel(scope, targetStudentIds.length);
+    } else {
+        if (!selectedPeriodDeleteStudents.length) {
+            showToast('학생을 선택해주세요.', 'warning');
+            return;
+        }
+        targetStudentIds = [...selectedPeriodDeleteStudents].map(String);
+        const stats = await getPeriodDeleteMergedStats(startDate, endDate, {
+            scope: 'student',
+            studentIds: targetStudentIds
+        });
+        expectedCount = stats.total;
+        dbIds = stats.dbIds;
+        localKeys = stats.localKeys;
+        scopeLabel = formatDeleteScopeLabel(scope, targetStudentIds.length);
+    }
+    const dbSet = new Set(dbIds.map(String));
+    /** 기간 내 실제 일정(로컬·전 선생님 또는 DB)이 있는 학생만 담당 여부 검사 */
+    let checkSet;
+    if (scope === 'all') {
+        const withLocalInRange = localKeys.filter(
+            (sid) => countStudentSchedulesInRangeAllTeachers(sid, startDate, endDate) > 0
+        );
+        checkSet = Array.from(new Set([...dbIds.map(String), ...withLocalInRange.map(String)]));
+    } else {
+        checkSet = targetStudentIds.filter(
+            (sid) =>
+                countStudentSchedulesInRangeAllTeachers(sid, startDate, endDate) > 0 || dbSet.has(String(sid))
+        );
+    }
+
+    if (
+        await hasOtherTeacherSchedulesInPeriodDeleteScope(
+            startDate,
+            endDate,
+            scope,
+            scope === 'student' ? targetStudentIds : null
+        )
+    ) {
+        const okForeign = await showConfirm(
+            '선택한 기간에 다른 선생님 시간표에만 등록된 일정이 포함되어 있습니다. (같은 학원 소속이어도 일정이 올라간 선생님 칸이 다르면 여기에 해당합니다.)\n\n삭제하면 다른 선생님 캘린더에서도 해당 일정이 제거됩니다.\n\n계속하시겠습니까?',
+            { type: 'warning', title: '다른 선생님 일정 포함', okText: '계속', cancelText: '취소' }
+        );
+        if (!okForeign) return;
+    }
+
+    const nonAssignees = checkSet.filter((sid) => studentHasDifferentPrimaryTeacherThan(sid, currentTeacherId));
+
+    if (nonAssignees.length > 0) {
+        window.__periodDeleteCtx = {
+            scope,
+            startDate,
+            endDate,
+            targetStudentIds,
+            monthSpan,
+            scopeLabel,
+            expectedCount
+        };
+        const msgEl = document.getElementById('period-del-nonassign-msg');
+        if (msgEl) {
+            msgEl.innerHTML = `선택한 기간에 <strong>원생 담당이 아닌 학생</strong>의 일정이 <strong>${nonAssignees.length}명</strong> 포함되어 있습니다.`;
+        }
+        openModal('period-del-nonassign-modal');
+        return;
+    }
+
+    const confirmMessage = `${startDate} ~ ${endDate}${monthSpan > 1 ? ` (${monthSpan}개월)` : ''} 기간의 일정을 삭제하시겠습니까?\n\n- 범위: ${scopeLabel}\n- 삭제 예정: ${expectedCount}건\n- 대상: 원장 계정 소속 전체 선생님 시간표에서 해당 기간·범위의 일정 (학생 담당·일정이 어느 선생님 칸에 있었는지와 무관)\n\n삭제한 일정의 같은 시간 슬롯 출석기록도 함께 삭제됩니다.\n삭제 후 복구할 수 없습니다.`;
+    if (!(await showConfirm(confirmMessage, { type: 'danger', title: '삭제 확인', okText: '삭제' }))) return;
+
+    await runPeriodDeleteExecute({
+        scope,
+        startDate,
+        endDate,
+        targetStudentIds,
+        assignedOnly: false
+    });
 }
 
 function getTestScoreStorageKey() {
@@ -7260,7 +7870,7 @@ async function loadTeacherScheduleData(teacherId) {
         const normalizedTeacherId = String(resolveKnownTeacherId(teacherId) || teacherId || '').trim();
         const appendScheduleEntry = (ownerTid, schedule) => {
             const sid = String(schedule?.student_id || '').trim();
-            const date = String(schedule?.schedule_date || '').trim();
+            const date = normalizeScheduleDateKeyLocal(String(schedule?.schedule_date || '').trim());
             const start = normalizeScheduleTimeKey(schedule?.start_time || '');
             if (!ownerTid || !sid || !date || !start || start === 'default') return;
             if (!teacherScheduleData[ownerTid]) teacherScheduleData[ownerTid] = {};
@@ -7335,12 +7945,23 @@ async function loadTeacherScheduleData(teacherId) {
         }
         console.log(`선생님 ${teacherId} 일정 데이터 로드 완료: ${Object.keys(teacherScheduleData[teacherId] || {}).length}명`);
         normalizeLegacyTeacherScheduleOwnership();
+        normalizeAllTeacherScheduleDataDateKeys();
         if (teacherId === currentTeacherId) {
             await refreshCurrentTeacherStudents();
         }
     } catch (e) {
         console.error('선생님 일정 데이터 로드 실패:', e);
         teacherScheduleData[teacherId] = {};
+    }
+}
+
+/** 일정 DB 변경(삭제·저장 등) 후: 현재 선생님 로드 + 전체 보기용 타 선생님 버킷 동기화 */
+async function reloadScheduleDataAfterOwnerMutation() {
+    const tid = currentTeacherId;
+    if (!tid) return;
+    await loadTeacherScheduleData(tid);
+    if (typeof loadAllTeachersScheduleData === 'function') {
+        await loadAllTeachersScheduleData();
     }
 }
 
@@ -7402,11 +8023,13 @@ async function loadAllTeachersScheduleData() {
             ).trim();
             if (!tid) return;
             const sid = String(schedule.student_id);
-            const date = schedule.schedule_date;
+            const date = normalizeScheduleDateKeyLocal(String(schedule.schedule_date || '').trim());
             const entry = {
                 start: schedule.start_time ? schedule.start_time.substring(0, 5) : schedule.start_time,
                 duration: schedule.duration
             };
+
+            if (!date) return;
 
             if (!otherTeachers[tid]) otherTeachers[tid] = {};
             if (!otherTeachers[tid][sid]) otherTeachers[tid][sid] = {};
@@ -7424,14 +8047,27 @@ async function loadAllTeachersScheduleData() {
         });
 
         // 현재 선생님 데이터는 유지하고, 다른 선생님 데이터를 병합
+        const knownTeacherIds = (teacherList || [])
+            .map((t) => String(t.id || '').trim())
+            .filter(Boolean);
+        const knownSet = new Set(knownTeacherIds.map(String));
+        // 알려진 선생님(현재 제외): DB에 해당 teacher_id 행이 없으면 otherTeachers[tid]가 비어 있음 → 빈 객체로 동기화
+        // (이전 구현은 for (tid in otherTeachers)만 갱신해, 일정이 전부 삭제된 선생님의 오래된 teacherScheduleData가 남을 수 있었음)
+        knownTeacherIds.forEach((kid) => {
+            if (String(kid) === String(currentTeacherId)) return;
+            teacherScheduleData[kid] = otherTeachers[kid] || {};
+        });
         for (const tid in otherTeachers) {
-            if (String(tid) === String(currentTeacherId)) continue; // 현재 선생님은 건드리지 않음
-            teacherScheduleData[tid] = otherTeachers[tid];
+            if (String(tid) === String(currentTeacherId)) continue;
+            if (!knownSet.has(String(tid))) {
+                teacherScheduleData[tid] = otherTeachers[tid];
+            }
         }
 
-        const otherCount = Object.keys(otherTeachers).filter(t => String(t) !== String(currentTeacherId)).length;
-        console.log(`[loadAllTeachersScheduleData] 다른 선생님 ${otherCount}명 일정 로드 완료 (총 ${(data || []).length}건)`);
+        const otherCount = knownTeacherIds.filter((t) => String(t) !== String(currentTeacherId)).length;
+        console.log(`[loadAllTeachersScheduleData] 다른 선생님(알려진 ${otherCount}명) 동기화 · DB 총 ${(data || []).length}건`);
         normalizeLegacyTeacherScheduleOwnership();
+        normalizeAllTeacherScheduleDataDateKeys();
         allScopeScheduleHydrated = true;
     } catch (e) {
         console.error('[loadAllTeachersScheduleData] 예외:', e);
@@ -8600,6 +9236,9 @@ async function renderQRTodaySummary() {
 
 window.openModal = function(id) {
     document.getElementById(id).style.display = 'flex';
+    if (id === 'period-delete-modal' && typeof window.updatePeriodDeletePreview === 'function') {
+        window.updatePeriodDeletePreview();
+    }
     if(id === 'qr-attendance-modal') {
         renderQRTodaySummary();
         if (typeof window.renderEmergencyAttendanceQueue === 'function') {
