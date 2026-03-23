@@ -3,11 +3,12 @@
 - 문서 기준일: 2026-03-23
 ## 공통 품질 체크
 - [x] Vercel `highroad-math` 배포(2026-03-23): `vercel.json` — `name` · `outputDirectory: "."`(`public` 미사용)·`installCommand` · `package.json` engines · `docs/VERCEL_HIGHROAD_PARENT_PORTAL.md` — 푸시 후 Redeploy·`https://highroad-math.vercel.app/parent-portal` 스모크 권장
+- [x] 학부모 포털 Vercel 경로(2026-03-23): `cleanUrls`·`/parent-portal` 무슬래시 시 상대 `report.js`→`/report.js` 404 방지 — `parent-portal/index.html`에 `/parent-portal/report.js`·`/css/`·`/js/` 절대 경로 · `homework/index.html` CSS·env 후보 보강 · 배포 후 조회·Network `report.js` 200 확인 권장
 - [x] 학부모 포털 출결 일별 카드(2026-03-23): 수업+인증·지각 시 N분 지각·결석은 수업만 — `parent-portal/report.js`·`index.html` · `node --check parent-portal/report.js` PASS · 실제 데이터로 인증·지각 분 표시 확인 권장
 - [x] 학부모 포털 지각 가로 정렬(2026-03-23): `att-meta-late-row`로 수업·인증 열 `nowrap` — 모바일에서 지그재그 줄바꿈 방지 · `node --check parent-portal/report.js` PASS
 - [x] 학부모 포털 지각 베이스라인(2026-03-23): `align-items: flex-end` — 수업·인증이 출석과 같이 한 줄, N분 지각은 인증 위만 · 브라우저 확인 권장
 - [x] 기간 일정 삭제 await·중복 제거(2026-03-23): `executePeriodDelete` + `deleteSchedulesByRange`/`deleteSchedulesByTeacherRange` throw 정책 · `node --check script.js` `database.js` PASS · 2월 전체 삭제 후 캘린더·DB 건수 확인 권장
-- [x] 기간 삭제 담당 외 학생 분기(2026-03-23): `checkSet` = 기간 내 로컬 일정 ∪ DB 학생 ID, 학생 범위는 선택+기간 일정·DB 교집합 · **`nonAssignees` = `studentHasDifferentPrimaryTeacherThan`만**(담당 필드 비어 있으면 담당 외로 보지 않음) · **「전체」범위**: `getPeriodDeleteMergedStats`(로컬 전 선생님∪owner DB)·`deleteSchedulesByOwnerRange`·다른 `teacher_id` 일정 시 `showConfirm` · 담당 외 시 모달→원장 PIN 또는 담당만 삭제 확인 · 닫기 시 `__periodDeleteCtx` 초기화 · 모달 푸터 `period-del-footer*`/`btn-cancel` 레이아웃(`style.css`) · `node --check script.js` `database.js` PASS · 다선생님·담당 외 혼합 기간 실기기 확인 권장
+- [x] 기간 삭제 정책(2026-03-23): **내 등록 vs 다른 선생님 등록**만(`hasAnyOtherTeacherScheduleInPeriod`·로컬 `hasOtherTeacherSchedulesLocalInRange`) · 타 선생님 있음 → `showConfirm` 후 `targetMode: 'owner'` · 내 일정만 → 확인 없이 `targetMode: 'currentTeacherOnly'`·`fetchDistinctStudentIdsFromSchedulesInRangeForTeacher` · 담당 외 모달·원장 PIN 제거 · `index.html` 안내 문구 · `node --check script.js` `database.js` PASS · 실기기 2케이스 권장
 - [x] schedule_date 비정규 문자열(2월 삭제·단건 복귀)(2026-03-23): `normalizeScheduleDateKey`·로컬 키 병합 · `node --check database.js` `script.js` PASS · 2월 기간·단건 삭제 후 새로고침 확인 권장
 - [x] 일정 단건 삭제 Supabase 정합(2026-03-23): `deleteScheduleFromDatabase` owner·시간 변형 · `deleteSingleSchedule` DB 선행 · `node --check database.js` `script.js` PASS · Network에서 `schedules` DELETE 확인 권장
 - [x] 전체 선생님 보기 + 기간 삭제 동기화(2026-03-23): 삭제 후 `reloadScheduleDataAfterOwnerMutation` · `loadAllTeachersScheduleData`에서 알려진 선생님 빈 버킷 stale 제거 · `executeBulkDelete` 동일 경로 · `node --check script.js` PASS · **전체 선생님** 표시에서 2월 전체 삭제 후 캘린더·콘솔 건수 감소 확인 권장
@@ -99,6 +100,7 @@
 ## 테스트/검증 결과 기록
 | 날짜 | 작업 | 검증 방법 | 결과 | 비고 |
 |---|---|---|---|---|
+| 2026-03-23 | AUTO-20260323(staged 10개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-03-23 | AUTO-20260323(staged 5개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-03-23 | AUTO-20260323(staged 2개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-03-23 | AUTO-20260323(staged 4개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |

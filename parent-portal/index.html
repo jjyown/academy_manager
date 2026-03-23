@@ -6,7 +6,7 @@
 	<title>하이로드 수학 | 학부모 포털</title>
 	<link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.8/dist/web/static/pretendard.css" />
 	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-	<link rel="stylesheet" href="../css/sub-shared.css">
+	<link rel="stylesheet" href="/css/sub-shared.css">
 	<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 	<script>
 		// 로컬/정적 배포 공통 환경변수 로더
@@ -25,7 +25,15 @@
 				});
 				return env;
 			};
-			const candidates = ['../.env.local', '../env.local', '.env.local', 'env.local'];
+			// cleanUrls(/parent-portal)일 때 상대경로가 루트로 풀리는 것을 피하려면 /parent-portal/ 기준 절대 경로를 먼저 시도
+			const candidates = [
+				'/parent-portal/.env.local',
+				'/parent-portal/env.local',
+				'../.env.local',
+				'../env.local',
+				'.env.local',
+				'env.local'
+			];
 			window.env = window.env || {};
 			for (const fileName of candidates) {
 				try {
@@ -1012,7 +1020,7 @@ window.showToast = window.ppShowToast;
 @keyframes toastSlide { from{opacity:0;transform:translateY(-20px)} to{opacity:1;transform:translateY(0)} }
 </style>
 
-<script src="../js/invoke-verify-teacher-pin.js"></script>
-<script src="report.js"></script>
+<script src="/js/invoke-verify-teacher-pin.js"></script>
+<script src="/parent-portal/report.js"></script>
 </body>
 </html>

@@ -81,6 +81,7 @@
 - **상태**: [x] 완료(2026-03-23 후속) — `vercel.json`: `name`·`outputDirectory: "."`·리라이트, 가이드 `docs/VERCEL_HIGHROAD_PARENT_PORTAL.md`.
 - **원인분류 (배포 `public` 오류)**: **외부플랫폼(Vercel)** — 산출물 경로 기본값이 `public/`인데 레포는 루트 정적 구조 → `outputDirectory` 명시로 해결.
 - **전문가 합의(프론트/운영)**: 멀티 페이지 정적 사이트는 Create React App식 `public/` 가정과 맞지 않으면 동일 오류가 난다. **레포 실제 파일 트리 = 배포 루트**로 고정하는 것이 맞다.
+- **학부모 포털 조회 불가(2026-03-23)**: `cleanUrls`로 URL이 `…/parent-portal`(끝 슬래시 없음)일 때 상대 경로 `report.js`가 **`/report.js`** 로 해석되어 404·`handleSearch is not defined`. 대응: `parent-portal/index.html`의 CSS·`invoke-verify-teacher-pin`·`report.js`를 **`/css/…`**, **`/js/…`**, **`/parent-portal/report.js`** 절대 경로로 변경. `.env.local` fetch 후보에 `/parent-portal/…` 추가(프로덕션에서는 여전히 미배포 시 404 가능·콘솔 노이즈). `homework/index.html` CSS·env 후보 동일 패턴 보강.
 - **검증**: 푸시 후 Vercel Redeploy → Build 성공·`…/parent-portal` HTTP 200 스모크 권장.
 - **다음 단계**: 커스텀 도메인 시 Domains + Supabase URL 설정. 대시보드 Output override가 `public`이면 제거.
 
@@ -89,12 +90,12 @@
 - **검증**: `grading-server/.env` 준비 후 `docker compose up --build` · `GET /health` 권장.
 - **다음 단계**: 클라우드 레지스트리 푸시·런타임 시크릿 연동·프로덕션 `PORT`/도메인 설정.
 
-### 기간 일정 삭제 · 담당 외 학생 모달 — 2026-03-23
-- **상태**: [x] 완료 — `executePeriodDelete`에서 **기간 내 실제 일정이 있는 학생**(전체: 로컬 `countStudentSchedulesInRange`>0 ∪ DB `schedules` 조회 ID, 학생 범위: 선택 학생 중 기간 일정 또는 DB 행 존재)만으로 `nonAssignees` 계산(잘못된 `filter(...|| true)` 제거). **`nonAssignees`는 `studentHasDifferentPrimaryTeacherThan(sid, currentTeacherId)`** 로만 판별 — 원생 담당이 **비어 있거나 불명확하면 담당 외로 간주하지 않음**(과거 데이터·매핑 누락 시 오탐 방지). 담당만 삭제 등 필터는 `studentPrimaryAssignedMatchesTeacher` 유지. **「전체」범위 미리보기·삭제 예정 건수·`targetStudentIds`**: **`getPeriodDeleteMergedStats`**(로컬 전 선생님 버킷 ∪ owner DB, 건수 `Math.max`(로컬 합, DB `count`)). **실행**: `deleteSchedulesByOwnerRange`·`collectScheduleSlotsByRangeFromDbAllTeachers`(`database.js`). 기간 내 **다른 선생님 `teacher_id` 행** 있으면 `showConfirm` 후 담당 외 모달·최종 확인. 모달 오픈·날짜 변경 시 미리보기 디바운스. 담당 외 포함 시 `#period-del-nonassign-modal` → **삭제하기** → `#period-del-admin-modal` + `verifyTeacherPinWithServer`(관리자) → `runPeriodDeleteExecute({ assignedOnly:false })`; **아니요** → `showConfirm` 후 `assignedOnly:true`. **닫기**는 `__periodDeleteCtx` 초기화(`index.html`). **푸터 UI**: `period-del-footer--three` / `period-del-footer--admin` + `style.css`로 전역 `.btn-delete-action { width:100% }`에 의한 **닫기·취소 버튼 찌그러짐** 완화.
+### 기간 일정 삭제 · 내 등록 vs 다른 선생님 등록 — 2026-03-23
+- **상태**: [x] 완료(정책 전환) — 구분은 **일정 등록 주체(`teacher_id`)만**: `hasAnyOtherTeacherScheduleInPeriod` = DB `fetchDistinctTeacherIdsFromSchedulesInRangeForOwner` + 로컬 `hasOtherTeacherSchedulesLocalInRange`. **다른 선생님 일정이 있으면** `showConfirm` 한 번 후 `runPeriodDeleteExecute({ targetMode: 'owner' })` → `deleteSchedulesByOwnerRange`·전 선생님 로컬·`collectScheduleSlotsByRangeFromDbAllTeachers`. **내가 등록한 일정만 있으면** 확인 없이 `targetMode: 'currentTeacherOnly'` → `deleteSchedulesByTeacherRange`·내 버킷만·`collectScheduleSlotsByRangeFromDb`. 담당 외 학생 모달·원장 PIN·`assignedOnly`/`nonAssignees`/`studentHasDifferentPrimaryTeacherThan` 경로 **제거**. `database.js`: `fetchDistinctStudentIdsFromSchedulesInRangeForTeacher`. 미리보기는 기존 `getPeriodDeleteMergedStats` 유지.
 - **일정 schedule_date 정규화(2026-03-23)**: 비정규 `YYYY-M-D` 문자열이 구간 비교·`eq` 삭제를 깨뜨리는 문제 → 전역 정규화·로컬 키 병합.
 - **Supabase 일정 삭제 정합(2026-03-23)**: `deleteScheduleFromDatabase`에 `owner_user_id`·`start_time` 변형 매칭. 출석 모달 단건 삭제는 DB 성공 후 로컬 반영.
 - **전체 선생님 보기 동기화(2026-03-23)**: `timetableScope==='all'`일 때 캘린더는 `teacherScheduleData` 전 선생님 키를 합산하므로, 삭제 후 `reloadScheduleDataAfterOwnerMutation()`(`loadTeacherScheduleData` + `loadAllTeachersScheduleData`)로 타 선생님 버킷까지 갱신. `loadAllTeachersScheduleData`는 `teacherList` 기준 알려진 선생님은 DB 스냅샷 없으면 `{}`로 덮어 stale 제거.
-- **검증**: `node --check script.js` PASS. 실기기에서 담당 외 포함·원장 PIN·담당만 삭제·전체 삭제 각각 권장.
+- **검증**: `node --check script.js` `database.js` PASS. 실기기: (1) 내 일정만 구간·(2) 타 선생님 일정 포함 구간 각각 권장.
 - **다음 단계**: 삭제 후에도 일정이 남으면 Network·RLS·`owner_user_id`/`teacher_id` 불일치 원인분류.
 
 ### QR 스캔 종료 PIN·반응형 2열 — 2026-03-22
@@ -1081,6 +1082,7 @@
 - [ ] 다음 작업자가 바로 이어서 할 수 있게 문서가 갱신되었다.
 
 ## 변경 이력
+- 2026-03-23 - AUTO-20260323(staged 10개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-23 - AUTO-20260323(staged 5개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-23 - AUTO-20260323(staged 2개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-23 - AUTO-20260323(staged 4개 파일 기준 문서 연동 자동기록): 연동 자동 기록
@@ -1092,6 +1094,8 @@
 - 2026-03-23 - **기간 내 일정 삭제(전체 학생)**: `executePeriodDelete`가 DB 삭제를 **기다리지 않고** 성공 토스트·렌더를 먼저 떠 이후 `loadTeacherScheduleData`로 일정이 **다시 채워 보이는** 문제 수정 — `await Promise.all` 후 `loadTeacherScheduleData`·토스트. `scope===all`일 때 `deleteSchedulesByTeacherRange`만 호출하고 학생별 `deleteSchedulesByRange` **중복 제거**. `deleteSchedulesByRange`/`deleteSchedulesByTeacherRange`는 owner·teacher 없으면 **throw**(조용히 `false` 반환 제거)(`script.js`, `database.js`, `node --check` PASS).
 - 2026-03-23 - **학부모 포털 인증시간 소스 정합**: 이력 화면 `authIso`와 동일하게 `auth_time` → (`qr_scanned`일 때만 `qr_scan_time`) → (번호인증일 때만 `check_in_time`). 기존 `check_in_time` 무조건 폴백 제거로 출석 이력「인증시간」과 학부모「인증」불일치 방지(`parent-portal/report.js`, `select`에 `qr_judgment`·`attendance_source` 추가).
 - 2026-03-23 - **학부모 포털 출결 메모**: 일별 카드 하단에 `attendance_records.memo` 표시 — **지각·결석·보강·기타**일 때만(일반 출석 `present`는 미표시). 선생님 이력 하단 메모(예: 보강 행에 「지각」 등)가 학부모에게도 보이도록 함(`parent-portal/report.js` `showAttDateDetail`).
+- 2026-03-23 - **Vercel 학부모 포털 조회 불가**: `parent-portal/index.html`의 `report.js`·CSS·`invoke-verify-teacher-pin`을 루트 절대 경로로 변경(`cleanUrls`로 상대 `report.js`가 `/report.js`로 404 나던 문제). `homework/index.html` CSS·`.env` fetch 후보 보강. `docs/VERCEL_HIGHROAD_PARENT_PORTAL.md`에 원인·대응 문서화.
+- 2026-03-23 - **문서**: 기간 삭제 정책 전환(등록 주체 기준·`targetMode`·담당 외/PIN 제거)을 `docs/context.md` 최근 의사결정 표에 1행 반영(인계 누락 보완).
 - 2026-03-22 - AUTO-20260322(staged 8개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-22 - AUTO-20260322(staged 172개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-22 - AUTO-20260322(staged 7개 파일 기준 문서 연동 자동기록): 연동 자동 기록

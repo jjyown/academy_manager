@@ -5480,6 +5480,31 @@ async function hasOtherTeacherSchedulesInPeriodDeleteScope(startDate, endDate, s
     return tids.some((t) => normalizeTeacherIdForCompare(t) !== cur);
 }
 
+/** 로컬 메모리: 기간 내 다른 선생님 시간표 버킷에 일정이 있는지 (등록 주체 = teacher_id) */
+function hasOtherTeacherSchedulesLocalInRange(startDate, endDate, scope, targetStudentIdsForFilter) {
+    const cur = normalizeTeacherIdForCompare(currentTeacherId);
+    if (!cur) return false;
+    const filter =
+        scope === 'student' && Array.isArray(targetStudentIdsForFilter) && targetStudentIdsForFilter.length
+            ? new Set(targetStudentIdsForFilter.map(String))
+            : null;
+    for (const tId of Object.keys(teacherScheduleData || {})) {
+        if (normalizeTeacherIdForCompare(tId) === cur) continue;
+        const bucket = teacherScheduleData[tId] || {};
+        for (const sid of Object.keys(bucket)) {
+            if (filter && !filter.has(String(sid))) continue;
+            if (countStudentSchedulesInRangeForTeacher(tId, sid, startDate, endDate) > 0) return true;
+        }
+    }
+    return false;
+}
+
+/** DB·로컬 합쳐서 「내가 아닌 선생님이 등록한 일정」이 기간에 있는지 */
+async function hasAnyOtherTeacherScheduleInPeriod(startDate, endDate, scope, targetStudentIdsForFilter) {
+    if (hasOtherTeacherSchedulesLocalInRange(startDate, endDate, scope, targetStudentIdsForFilter)) return true;
+    return hasOtherTeacherSchedulesInPeriodDeleteScope(startDate, endDate, scope, targetStudentIdsForFilter);
+}
+
 window.executeBulkDelete = async function() {
     if (!ensureOwnedScheduleDeleteContext('기간 삭제')) return;
     const sid = document.getElementById('bulk-del-sid').value;
@@ -6006,109 +6031,13 @@ async function countScheduleRowsInRangeMerged(startDate, endDate, options) {
     return s.total;
 }
 
-/** 학생의 원생 담당(teacher_id/매핑)이 현재 선생님과 일치하는지 (담당만 삭제·필터용) */
-function studentPrimaryAssignedMatchesTeacher(studentId, teacherId) {
-    const cur = normalizeTeacherIdForCompare(teacherId);
-    if (!cur) return false;
-    const assigned = normalizeTeacherIdForCompare(getAssignedTeacherId(studentId));
-    if (assigned) return assigned === cur;
-    const st = (students || []).find((s) => String(s?.id) === String(studentId));
-    if (st && st.teacher_id) {
-        const stTid = normalizeTeacherIdForCompare(resolveKnownTeacherId(st.teacher_id) || String(st.teacher_id));
-        if (stTid) return stTid === cur;
-    }
-    if (Array.isArray(currentTeacherStudents) && currentTeacherStudents.some((s) => String(s.id) === String(studentId))) {
-        return true;
-    }
-    return false;
-}
-
-/**
- * 원생 담당이 현재 선생님이 **아님이 확실할 때만** true (담당 외 확인 모달용).
- * getAssignedTeacherId/students.teacher_id가 비어 있으면 담당 외로 보지 않음 — 과거 데이터에서 오탐 방지.
- */
-function studentHasDifferentPrimaryTeacherThan(studentId, teacherId) {
-    const cur = normalizeTeacherIdForCompare(teacherId);
-    if (!cur) return false;
-    const assigned = normalizeTeacherIdForCompare(getAssignedTeacherId(studentId));
-    if (assigned) return assigned !== cur;
-    const st = (students || []).find((s) => String(s?.id) === String(studentId));
-    if (st && st.teacher_id) {
-        const stTid = normalizeTeacherIdForCompare(resolveKnownTeacherId(st.teacher_id) || String(st.teacher_id));
-        if (stTid) return stTid !== cur;
-    }
-    return false;
-}
-
-function getOwnerAdminTeacherForPin() {
-    const list = teacherList || [];
-    const admin = list.find((t) => String(t.teacher_role || 'teacher') === 'admin');
-    return admin || null;
-}
-
-window.__periodDeleteCtx = null;
-
-window.periodDeleteOpenAdminPin = function() {
-    closeModal('period-del-nonassign-modal');
-    const el = document.getElementById('period-del-admin-pin');
-    if (el) el.value = '';
-    openModal('period-del-admin-modal');
-    setTimeout(() => {
-        try {
-            el?.focus();
-        } catch (_) {
-            /* noop */
-        }
-    }, 120);
-};
-
-window.periodDeleteChooseAssignedOnly = async function() {
-    closeModal('period-del-nonassign-modal');
-    const ctx = window.__periodDeleteCtx;
-    window.__periodDeleteCtx = null;
-    if (!ctx) return;
-    const ok = await showConfirm(
-        '담당으로 배정된 학생의 일정만 삭제합니다.\n\n계속하시겠습니까?',
-        { type: 'warning', title: '담당 학생만 삭제', okText: '확인', cancelText: '취소' }
-    );
-    if (!ok) return;
-    await runPeriodDeleteExecute({ ...ctx, assignedOnly: true });
-};
-
-window.periodDeleteSubmitAdminPin = async function() {
-    const pinEl = document.getElementById('period-del-admin-pin');
-    const pin = String(pinEl?.value || '').trim();
-    if (!pin) {
-        showToast('비밀번호를 입력해주세요.', 'warning');
-        return;
-    }
-    const adminRow = getOwnerAdminTeacherForPin();
-    if (!adminRow) {
-        showToast('관리자(원장) 선생님 정보를 찾을 수 없습니다.', 'error');
-        return;
-    }
-    const vr = await verifyTeacherPinWithServer(adminRow.id, pin, {
-        ownerUserId: cachedLsGet('current_owner_id'),
-        requireAdmin: true
-    });
-    if (!vr.ok) {
-        showToast(mapVerifyTeacherPinFailureToMessage(vr) || '관리자 비밀번호가 올바르지 않습니다.', 'error');
-        return;
-    }
-    closeModal('period-del-admin-modal');
-    const ctx = window.__periodDeleteCtx;
-    window.__periodDeleteCtx = null;
-    if (!ctx) return;
-    await runPeriodDeleteExecute({ ...ctx, assignedOnly: false });
-};
-
 /**
  * @param {object} opts
  * @param {'all'|'student'} opts.scope
  * @param {string} opts.startDate
  * @param {string} opts.endDate
  * @param {string[]} opts.targetStudentIds — student 범위일 때 선택 학생
- * @param {boolean} opts.assignedOnly — true면 원생 담당 학생만
+ * @param {'owner'|'currentTeacherOnly'} opts.targetMode — owner: 다른 선생님 일정 포함 시 전체 삭제 / currentTeacherOnly: 내가 등록한 일정만
  */
 async function runPeriodDeleteExecute(opts) {
     let {
@@ -6116,7 +6045,7 @@ async function runPeriodDeleteExecute(opts) {
         startDate,
         endDate,
         targetStudentIds: inputTargetIds = [],
-        assignedOnly = false
+        targetMode = 'owner'
     } = opts;
     startDate = normalizeScheduleDateKeyLocal(startDate);
     endDate = normalizeScheduleDateKeyLocal(endDate);
@@ -6124,21 +6053,35 @@ async function runPeriodDeleteExecute(opts) {
 
     const filterForFetch = scope === 'student' ? inputTargetIds.map(String) : null;
 
-    let dbStudentIds = [];
-    if (typeof window.fetchDistinctStudentIdsFromSchedulesInRangeForOwner === 'function') {
-        dbStudentIds = await window.fetchDistinctStudentIdsFromSchedulesInRangeForOwner(startDate, endDate, filterForFetch);
+    let loopStudentIds = [];
+    if (targetMode === 'currentTeacherOnly') {
+        const localSids = Object.keys(teacherScheduleData[tid] || {}).filter(
+            (sid) => countStudentSchedulesInRangeForTeacher(tid, sid, startDate, endDate) > 0
+        );
+        let dbSids = [];
+        if (typeof window.fetchDistinctStudentIdsFromSchedulesInRangeForTeacher === 'function') {
+            dbSids = await window.fetchDistinctStudentIdsFromSchedulesInRangeForTeacher(tid, startDate, endDate, filterForFetch);
+        } else {
+            dbSids = await fetchDistinctStudentIdsFromSchedulesInRange(tid, startDate, endDate);
+        }
+        loopStudentIds = Array.from(new Set([...localSids.map(String), ...dbSids.map(String)]));
+        if (scope === 'student') {
+            const sel = new Set(inputTargetIds.map(String));
+            loopStudentIds = loopStudentIds.filter((sid) => sel.has(String(sid)));
+        }
     } else {
-        dbStudentIds = await fetchDistinctStudentIdsFromSchedulesInRange(tid, startDate, endDate);
-    }
-
-    const localSids = collectLocalStudentIdsAcrossTeachersInRange(startDate, endDate, filterForFetch);
-    let loopStudentIds = Array.from(new Set([...localSids, ...dbStudentIds.map(String)]));
-    if (scope === 'student') {
-        const sel = new Set(inputTargetIds.map(String));
-        loopStudentIds = loopStudentIds.filter((sid) => sel.has(String(sid)));
-    }
-    if (assignedOnly) {
-        loopStudentIds = loopStudentIds.filter((sid) => studentPrimaryAssignedMatchesTeacher(sid, tid));
+        let dbStudentIds = [];
+        if (typeof window.fetchDistinctStudentIdsFromSchedulesInRangeForOwner === 'function') {
+            dbStudentIds = await window.fetchDistinctStudentIdsFromSchedulesInRangeForOwner(startDate, endDate, filterForFetch);
+        } else {
+            dbStudentIds = await fetchDistinctStudentIdsFromSchedulesInRange(tid, startDate, endDate);
+        }
+        const localSids = collectLocalStudentIdsAcrossTeachersInRange(startDate, endDate, filterForFetch);
+        loopStudentIds = Array.from(new Set([...localSids, ...dbStudentIds.map(String)]));
+        if (scope === 'student') {
+            const sel = new Set(inputTargetIds.map(String));
+            loopStudentIds = loopStudentIds.filter((sid) => sel.has(String(sid)));
+        }
     }
 
     let deletedCount = 0;
@@ -6148,46 +6091,74 @@ async function runPeriodDeleteExecute(opts) {
     const touchedTeacherIds = new Set();
 
     const canOwnerBulk = typeof window.deleteSchedulesByOwnerRange === 'function';
-    let studentIdsForOwnerDelete = null;
-    if (scope === 'all') {
-        studentIdsForOwnerDelete = assignedOnly ? loopStudentIds : null;
+    const canTeacherBulk = typeof window.deleteSchedulesByTeacherRange === 'function';
+
+    if (targetMode === 'currentTeacherOnly') {
+        if (scope === 'all') {
+            if (canTeacherBulk) {
+                deleteRequests.push(window.deleteSchedulesByTeacherRange(startDate, endDate, tid));
+                scheduleDbDeleteAttempted = true;
+            } else if (typeof deleteSchedulesByRange === 'function' && loopStudentIds.length) {
+                for (const sid of loopStudentIds) {
+                    deleteRequests.push(deleteSchedulesByRange(sid, startDate, endDate, tid));
+                }
+                scheduleDbDeleteAttempted = true;
+            }
+        } else if (scope === 'student' && inputTargetIds.length) {
+            for (const sid of inputTargetIds.map(String)) {
+                if (typeof deleteSchedulesByRange === 'function') {
+                    deleteRequests.push(deleteSchedulesByRange(sid, startDate, endDate, tid));
+                    scheduleDbDeleteAttempted = true;
+                }
+            }
+        }
     } else {
-        studentIdsForOwnerDelete = inputTargetIds.map(String);
-        if (assignedOnly) {
-            studentIdsForOwnerDelete = studentIdsForOwnerDelete.filter((sid) => studentPrimaryAssignedMatchesTeacher(sid, tid));
+        let studentIdsForOwnerDelete = null;
+        if (scope === 'all') {
+            studentIdsForOwnerDelete = null;
+        } else {
+            studentIdsForOwnerDelete = inputTargetIds.map(String);
+        }
+
+        if (canOwnerBulk) {
+            const skipDb =
+                studentIdsForOwnerDelete !== null && Array.isArray(studentIdsForOwnerDelete) && studentIdsForOwnerDelete.length === 0;
+            if (!skipDb) {
+                deleteRequests.push(window.deleteSchedulesByOwnerRange(startDate, endDate, { studentIds: studentIdsForOwnerDelete }));
+                scheduleDbDeleteAttempted = true;
+            }
+        } else if (typeof deleteSchedulesByRange === 'function' && loopStudentIds.length) {
+            const teacherIdsFallback = [
+                ...new Set([
+                    ...(Array.isArray(teacherList) ? teacherList.map((t) => String(t.id)) : []),
+                    ...Object.keys(teacherScheduleData || {})
+                ])
+            ].filter(Boolean);
+            for (const otid of teacherIdsFallback) {
+                for (const sid of loopStudentIds) {
+                    deleteRequests.push(deleteSchedulesByRange(sid, startDate, endDate, otid));
+                }
+            }
+            scheduleDbDeleteAttempted = true;
         }
     }
 
-    if (canOwnerBulk) {
-        const skipDb =
-            studentIdsForOwnerDelete !== null && Array.isArray(studentIdsForOwnerDelete) && studentIdsForOwnerDelete.length === 0;
-        if (!skipDb) {
-            deleteRequests.push(window.deleteSchedulesByOwnerRange(startDate, endDate, { studentIds: studentIdsForOwnerDelete }));
-            scheduleDbDeleteAttempted = true;
-        }
-    } else if (typeof deleteSchedulesByRange === 'function' && loopStudentIds.length) {
-        const teacherIdsFallback = [
-            ...new Set([
-                ...(Array.isArray(teacherList) ? teacherList.map((t) => String(t.id)) : []),
-                ...Object.keys(teacherScheduleData || {})
-            ])
-        ].filter(Boolean);
-        for (const otid of teacherIdsFallback) {
-            for (const sid of loopStudentIds) {
-                deleteRequests.push(deleteSchedulesByRange(sid, startDate, endDate, otid));
-            }
-        }
-        scheduleDbDeleteAttempted = true;
-    }
+    const teacherKeysForLocal =
+        targetMode === 'currentTeacherOnly' ? [tid] : Object.keys(teacherScheduleData || {});
 
     for (const sid of loopStudentIds) {
         const student = students.find((s) => String(s.id) === String(sid));
-        const dbSlotTargets = await collectScheduleSlotsByRangeFromDbAllTeachers(sid, startDate, endDate);
+        let dbSlotTargets;
+        if (targetMode === 'currentTeacherOnly') {
+            dbSlotTargets = await collectScheduleSlotsByRangeFromDb(sid, startDate, endDate, tid);
+        } else {
+            dbSlotTargets = await collectScheduleSlotsByRangeFromDbAllTeachers(sid, startDate, endDate);
+        }
         if (dbSlotTargets.length > 0) {
             attendanceDeleteTargets.push(...dbSlotTargets);
         }
 
-        Object.keys(teacherScheduleData || {}).forEach((loopTid) => {
+        teacherKeysForLocal.forEach((loopTid) => {
             if (!teacherScheduleData[loopTid] || !teacherScheduleData[loopTid][sid]) return;
             const eventsToDelete = Object.keys(teacherScheduleData[loopTid][sid]).filter((dateStr) => {
                 const n = normalizeScheduleDateKeyLocal(dateStr);
@@ -6229,8 +6200,6 @@ async function runPeriodDeleteExecute(opts) {
     }
 
     closeModal('period-delete-modal');
-    closeModal('period-del-nonassign-modal');
-    closeModal('period-del-admin-modal');
 
     const persistLocalTouched = () => {
         if (touchedTeacherIds.size > 0) {
@@ -6247,12 +6216,6 @@ async function runPeriodDeleteExecute(opts) {
         await reloadScheduleDataAfterOwnerMutation();
         renderCalendar();
 
-        if (assignedOnly && !scheduleDbDeleteAttempted && deletedCount === 0) {
-            showToast('해당 기간에 삭제할 담당 학생 일정이 없습니다.', 'info');
-            saveData();
-            persistLocalTouched();
-            return;
-        }
         if (deletedCount > 0) {
             saveData();
             persistLocalTouched();
@@ -6260,7 +6223,12 @@ async function runPeriodDeleteExecute(opts) {
         } else if (scheduleDbDeleteAttempted) {
             saveData();
             persistLocalTouched();
-            showToast(assignedOnly ? '담당 학생 일정이 삭제되었습니다.' : '선택한 기간의 일정이 삭제되었습니다.', 'success');
+            showToast(
+                targetMode === 'currentTeacherOnly'
+                    ? '내가 등록한 일정이 삭제되었습니다.'
+                    : '선택한 기간의 일정이 삭제되었습니다.',
+                'success'
+            );
         } else {
             showToast('삭제할 일정이 없습니다.', 'info');
         }
@@ -6276,7 +6244,7 @@ async function runPeriodDeleteExecute(opts) {
     }
 }
 
-// 기간별 일정 삭제 실행
+// 기간별 일정 삭제 실행 — 「내가 등록한 일정」vs「다른 선생님이 등록한 일정」만 구분
 window.executePeriodDelete = async function() {
     if (!ensureOwnedScheduleDeleteContext('기간별 일정 삭제')) return;
     const scope = document.getElementById('period-del-scope').value;
@@ -6294,95 +6262,41 @@ window.executePeriodDelete = async function() {
     }
 
     let targetStudentIds = [];
-    let expectedCount = 0;
-    let scopeLabel = '';
-    const monthSpan = getMonthSpanCount(startDate, endDate);
-
-    let dbIds = [];
-    let localKeys = [];
-
-    if (scope === 'all') {
-        const stats = await getPeriodDeleteMergedStats(startDate, endDate, { scope: 'all' });
-        targetStudentIds = stats.mergedIds;
-        expectedCount = stats.total;
-        dbIds = stats.dbIds;
-        localKeys = stats.localKeys;
-        scopeLabel = formatDeleteScopeLabel(scope, targetStudentIds.length);
-    } else {
+    if (scope === 'student') {
         if (!selectedPeriodDeleteStudents.length) {
             showToast('학생을 선택해주세요.', 'warning');
             return;
         }
         targetStudentIds = [...selectedPeriodDeleteStudents].map(String);
-        const stats = await getPeriodDeleteMergedStats(startDate, endDate, {
-            scope: 'student',
-            studentIds: targetStudentIds
-        });
-        expectedCount = stats.total;
-        dbIds = stats.dbIds;
-        localKeys = stats.localKeys;
-        scopeLabel = formatDeleteScopeLabel(scope, targetStudentIds.length);
-    }
-    const dbSet = new Set(dbIds.map(String));
-    /** 기간 내 실제 일정(로컬·전 선생님 또는 DB)이 있는 학생만 담당 여부 검사 */
-    let checkSet;
-    if (scope === 'all') {
-        const withLocalInRange = localKeys.filter(
-            (sid) => countStudentSchedulesInRangeAllTeachers(sid, startDate, endDate) > 0
-        );
-        checkSet = Array.from(new Set([...dbIds.map(String), ...withLocalInRange.map(String)]));
-    } else {
-        checkSet = targetStudentIds.filter(
-            (sid) =>
-                countStudentSchedulesInRangeAllTeachers(sid, startDate, endDate) > 0 || dbSet.has(String(sid))
-        );
     }
 
-    if (
-        await hasOtherTeacherSchedulesInPeriodDeleteScope(
-            startDate,
-            endDate,
-            scope,
-            scope === 'student' ? targetStudentIds : null
-        )
-    ) {
-        const okForeign = await showConfirm(
-            '선택한 기간에 다른 선생님 시간표에만 등록된 일정이 포함되어 있습니다. (같은 학원 소속이어도 일정이 올라간 선생님 칸이 다르면 여기에 해당합니다.)\n\n삭제하면 다른 선생님 캘린더에서도 해당 일정이 제거됩니다.\n\n계속하시겠습니까?',
-            { type: 'warning', title: '다른 선생님 일정 포함', okText: '계속', cancelText: '취소' }
+    const studentFilter = scope === 'student' ? targetStudentIds : null;
+    const hasOther = await hasAnyOtherTeacherScheduleInPeriod(startDate, endDate, scope, studentFilter);
+
+    if (hasOther) {
+        const ok = await showConfirm(
+            '선택한 기간에 다른 선생님이 등록한 일정이 포함되어 있습니다.\n\n' +
+                '삭제하면 같은 원장 계정에 속한 모든 선생님 시간표에서, 해당 기간·범위의 일정이 함께 삭제됩니다.\n\n' +
+                '삭제한 일정과 같은 시간 슬롯의 출석 기록도 함께 삭제되며, 복구할 수 없습니다.\n\n계속하시겠습니까?',
+            { type: 'warning', title: '다른 선생님 일정 포함', okText: '삭제', cancelText: '취소' }
         );
-        if (!okForeign) return;
-    }
-
-    const nonAssignees = checkSet.filter((sid) => studentHasDifferentPrimaryTeacherThan(sid, currentTeacherId));
-
-    if (nonAssignees.length > 0) {
-        window.__periodDeleteCtx = {
+        if (!ok) return;
+        await runPeriodDeleteExecute({
             scope,
             startDate,
             endDate,
             targetStudentIds,
-            monthSpan,
-            scopeLabel,
-            expectedCount
-        };
-        const msgEl = document.getElementById('period-del-nonassign-msg');
-        if (msgEl) {
-            msgEl.innerHTML = `선택한 기간에 <strong>원생 담당이 아닌 학생</strong>의 일정이 <strong>${nonAssignees.length}명</strong> 포함되어 있습니다.`;
-        }
-        openModal('period-del-nonassign-modal');
-        return;
+            targetMode: 'owner'
+        });
+    } else {
+        await runPeriodDeleteExecute({
+            scope,
+            startDate,
+            endDate,
+            targetStudentIds,
+            targetMode: 'currentTeacherOnly'
+        });
     }
-
-    const confirmMessage = `${startDate} ~ ${endDate}${monthSpan > 1 ? ` (${monthSpan}개월)` : ''} 기간의 일정을 삭제하시겠습니까?\n\n- 범위: ${scopeLabel}\n- 삭제 예정: ${expectedCount}건\n- 대상: 원장 계정 소속 전체 선생님 시간표에서 해당 기간·범위의 일정 (학생 담당·일정이 어느 선생님 칸에 있었는지와 무관)\n\n삭제한 일정의 같은 시간 슬롯 출석기록도 함께 삭제됩니다.\n삭제 후 복구할 수 없습니다.`;
-    if (!(await showConfirm(confirmMessage, { type: 'danger', title: '삭제 확인', okText: '삭제' }))) return;
-
-    await runPeriodDeleteExecute({
-        scope,
-        startDate,
-        endDate,
-        targetStudentIds,
-        assignedOnly: false
-    });
 }
 
 function getTestScoreStorageKey() {

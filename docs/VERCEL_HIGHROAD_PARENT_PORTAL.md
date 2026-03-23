@@ -15,7 +15,7 @@
 
 **`parent-portal`만 Root Directory로 지정하면 안 됩니다.**
 
-`parent-portal/index.html`이 `../css/sub-shared.css`, `../js/invoke-verify-teacher-pin.js` 처럼 **상위 폴더(저장소 루트)** 의 `css/`, `js/` 를 참조합니다. 배포 루트가 `parent-portal` 뿐이면 `../` 경로가 사라져 **스타일·스크립트 404**가 납니다.
+`parent-portal/index.html`은 `/css/sub-shared.css`, `/js/invoke-verify-teacher-pin.js`, `/parent-portal/report.js` 처럼 **웹 루트 기준 절대 경로**로 공유 리소스를 불러옵니다. (루트 `vercel.json`의 `cleanUrls` 때문에 주소가 `…/parent-portal`처럼 **끝 슬래시 없이** 열리면, 예전처럼 `report.js`만 적으면 브라우저가 **`/report.js`로 잘못 요청**해 `handleSearch` 미정의·조회 불가가 납니다.) 배포 루트가 `parent-portal`만 지정되면 상위 `css/`·`js/` 자체가 없어 **404**가 납니다.
 
 | 설정 | 권장 |
 |------|------|
@@ -24,7 +24,12 @@
 | **Output Directory** | 루트 `vercel.json`에 **`"outputDirectory": "."`** — `index.html`·`parent-portal/` 등이 **저장소 루트**에 있고 `public/`을 쓰지 않음. 기본값이 `public`이면 `No Output Directory named "public" found` 오류. |
 | **학부모 포털 URL** | `https://highroad-math.vercel.app/parent-portal` (`vercel.json` 리라이트) |
 
-학부모 포털 “만” 올리고 싶다면, 별도로 `css`·`js` 경로를 `parent-portal` 안으로 복사하거나 상대 경로를 수정하는 작업이 필요합니다. 현재 레포 구조 기준으로는 **전체 클론 배포**가 맞습니다.
+학부모 포털 “만” 올리고 싶다면, 별도로 `css`·`js`를 `parent-portal` 안으로 복사하거나 동일 파일을 두도록 조정해야 합니다. 현재 레포 구조 기준으로는 **전체 클론 배포**가 맞습니다.
+
+### 학부모 포털 조회 불가(`report.js` 404 / `handleSearch is not defined`)
+
+- **원인**: `cleanUrls` + URL `…/parent-portal`(슬래시 없음)일 때 상대 `report.js`는 **`/report.js`** 로 해석될 수 있음.
+- **조치**: `parent-portal/index.html`에서 스크립트·CSS를 **`/parent-portal/report.js`**, **`/css/…`**, **`/js/…`** 루트 절대 경로로 사용(레포 반영됨). 배포 후 **Redeploy** 후 캐시 무시 새로고침으로 확인.
 
 ## 배포 절차 (Vercel 대시보드)
 

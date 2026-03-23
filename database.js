@@ -621,6 +621,43 @@ window.fetchDistinctStudentIdsFromSchedulesInRangeForOwner = async function(star
     }
 };
 
+/**
+ * 기간 내 일정 — 특정 선생님(teacher_id) 칸에 등록된 일정만
+ * @param {string} teacherId
+ * @param {string} startDate
+ * @param {string} endDate
+ * @param {string[]|null} studentIds
+ */
+window.fetchDistinctStudentIdsFromSchedulesInRangeForTeacher = async function(teacherId, startDate, endDate, studentIds = null) {
+    try {
+        if (typeof supabase === 'undefined') return [];
+        const ownerId = _getOwnerId();
+        const tid = String(teacherId || '').trim();
+        const rangeStart = startDate ? _normalizeScheduleDateKey(startDate) : '';
+        const rangeEnd = endDate ? _normalizeScheduleDateKey(endDate) : '';
+        if (!ownerId || !tid || !rangeStart || !rangeEnd || rangeStart > rangeEnd) return [];
+        let query = supabase
+            .from('schedules')
+            .select('student_id')
+            .eq('owner_user_id', ownerId)
+            .eq('teacher_id', tid)
+            .gte('schedule_date', rangeStart)
+            .lte('schedule_date', rangeEnd);
+        const list = Array.isArray(studentIds) ? studentIds.map((id) => parseInt(id, 10)).filter((n) => !Number.isNaN(n)) : [];
+        if (list.length) query = query.in('student_id', list);
+        const { data, error } = await query;
+        if (error) {
+            console.error('[fetchDistinctStudentIdsFromSchedulesInRangeForTeacher]', error);
+            return [];
+        }
+        const set = new Set((data || []).map((r) => String(r.student_id)));
+        return Array.from(set);
+    } catch (e) {
+        console.error('[fetchDistinctStudentIdsFromSchedulesInRangeForTeacher] 예외:', e);
+        return [];
+    }
+};
+
 /** 기간 내 일정 행 수 — owner 전체(모든 선생님 시간표) */
 window.countScheduleRowsInRangeFromDbForOwner = async function(startDate, endDate, studentIds = null) {
     try {
