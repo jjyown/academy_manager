@@ -986,9 +986,6 @@
                 </div>
                 <button class="btn-close-x" onclick="closeModal('history-modal')"><i class="fas fa-times"></i></button>
             </div>
-            <!-- 통계 요약 -->
-            <div class="hist-stats" id="hist-stats"></div>
-            <div class="hist-overview" id="hist-overview"></div>
             <div class="modal-body custom-scroll">
                 <div id="history-timeline" class="hist-list"></div>
                 <!-- 종합평가 섹션 -->
@@ -1004,32 +1001,6 @@
                             <i class="fas fa-save"></i> 저장
                         </button>
                     </div>
-                </div>
-                <div class="eval-section test-score-section" id="test-score-section">
-                    <div class="eval-section-header">
-                        <div class="eval-section-title"><i class="fas fa-chart-line"></i> 테스트 점수</div>
-                        <span class="eval-month-label" id="test-score-month-label"></span>
-                    </div>
-                    <div class="test-score-sync-row">
-                        <span id="test-score-sync-status" class="test-score-sync-status unknown">동기화 상태 확인 전</span>
-                        <button type="button" id="test-score-sync-check-btn" class="test-score-sync-check-btn" onclick="runTestScoreSyncCheck()">
-                            <i class="fas fa-stethoscope"></i> 동기화 점검
-                        </button>
-                    </div>
-                    <div class="test-score-form-row">
-                        <input type="text" id="test-score-name" class="m-input" placeholder="시험명 (예: 3월 모의고사)">
-                        <input type="date" id="test-score-date" class="m-input">
-                    </div>
-                    <div class="test-score-form-row">
-                        <input type="number" id="test-score-value" class="m-input" min="0" placeholder="점수">
-                        <input type="number" id="test-score-max" class="m-input" min="1" value="100" placeholder="만점">
-                        <button class="eval-save-btn test-score-save-btn" id="test-score-save-btn" onclick="saveTestScoreFromHistory()">
-                            <i class="fas fa-plus"></i> 점수 저장
-                        </button>
-                    </div>
-                    <div id="test-score-summary" class="test-score-summary"></div>
-                    <div id="test-score-trend" class="test-score-trend"></div>
-                    <div id="test-score-list" class="test-score-list"></div>
                 </div>
             </div>
         </div>

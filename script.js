@@ -6879,8 +6879,14 @@ window.openHistoryModal = async function() {
     container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--gray);">로딩 중...</div>';
     const statsEl = document.getElementById('hist-stats');
     const overviewEl = document.getElementById('hist-overview');
+    // 요청사항: "이번달 기록"은 메모 모음 전용(개인/공유 메모만)으로 사용
+    if (statsEl) {
+        statsEl.innerHTML = '';
+        statsEl.style.display = 'none';
+    }
     if (overviewEl) {
-        overviewEl.innerHTML = '<div class="hist-overview-loading"><i class="fas fa-spinner fa-spin"></i> 통합 요약 불러오는 중...</div>';
+        overviewEl.innerHTML = '';
+        overviewEl.style.display = 'none';
     }
     const monthPrefix = `${curYear}-${String(curMonth).padStart(2, '0')}`;
     historyActionContext = { studentId: String(sid), monthPrefix };
@@ -6956,33 +6962,12 @@ window.openHistoryModal = async function() {
 
     container.innerHTML = '';
 
-    const teacherSchedule = teacherScheduleData[currentTeacherId] || {};
-    const studentSchedule = teacherSchedule[sid] || {};
-    const scheduleDates = Object.keys(studentSchedule);
-
-    const allDates = new Set([...scheduleDates]);
-    if(s.attendance) Object.keys(s.attendance).forEach(d => allDates.add(d));
-    if(s.records) Object.keys(s.records).forEach(d => allDates.add(d));
-    if(s.shared_records) Object.keys(s.shared_records).forEach(d => allDates.add(d));
+    // 메모가 있는 날짜만 노출
+    const allDates = new Set();
+    if (s.records) Object.keys(s.records).forEach(d => allDates.add(d));
+    if (s.shared_records) Object.keys(s.shared_records).forEach(d => allDates.add(d));
     const monthlyEvents = Array.from(allDates).filter(date => date.startsWith(monthPrefix)).sort();
-
-    // 통계 계산
-    const stats = { present: 0, late: 0, absent: 0, makeup: 0 };
     const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
-
-    // Helper: 날짜에서 출석 상태 가져오기
-    function getStatusForDate(date) {
-        if (!s.attendance || !s.attendance[date]) return 'none';
-        if (typeof s.attendance[date] === 'object') {
-            const rawEntry = studentSchedule[date] || null;
-            const scheduleEntry = Array.isArray(rawEntry) ? rawEntry[0] : rawEntry;
-            const startTime = scheduleEntry?.start || null;
-            if (startTime && s.attendance[date][startTime]) return s.attendance[date][startTime];
-            const vals = Object.values(s.attendance[date]);
-            return vals.length > 0 ? vals[0] : 'none';
-        }
-        return s.attendance[date];
-    }
 
     // Helper: 메모 가져오기 (해당 날짜의 모든 메모를 합쳐서 반환, 중복 제거)
     function getMemo(recordObj, date) {
@@ -7007,24 +6992,12 @@ window.openHistoryModal = async function() {
         return recordObj[date];
     }
 
-    const statusMap = {
-        present: '출석', late: '지각', absent: '결석',
-        makeup: '보강', etc: '보강', none: '미처리'
-    };
-
     let html = '';
     monthlyEvents.forEach(date => {
-        const status = getStatusForDate(date);
-        if (stats[status] !== undefined) stats[status]++;
-        else if (status === 'etc') stats.makeup++;
-
-        const isScheduled = studentSchedule && studentSchedule[date];
         const privateMemo = getMemo(s.records, date);
         const sharedMemo = getMemo(s.shared_records, date);
         const dayNum = parseInt(date.split('-')[2]);
         const dow = dayNames[new Date(date).getDay()];
-        const badgeClass = (status === 'etc') ? 'makeup' : (status || 'none');
-        const badgeText = statusMap[status] || '미처리';
 
         let memosHtml = '';
         if (privateMemo || sharedMemo) {
@@ -7044,41 +7017,18 @@ window.openHistoryModal = async function() {
             <div class="hist-day-header">
                 <span class="hist-day-date">${dayNum}일</span>
                 <span class="hist-day-dow">${dow}요일</span>
-                ${!isScheduled ? '<span class="hist-day-deleted">(일정 삭제됨)</span>' : ''}
-                <span class="hist-day-badge ${badgeClass}">${badgeText}</span>
             </div>
             ${memosHtml}
         </div>`;
     });
 
     if (monthlyEvents.length === 0) {
-        container.innerHTML = '<div class="hist-list-empty"><i class="fas fa-inbox" style="font-size:28px;margin-bottom:10px;display:block;color:#cbd5e1;"></i>이번 달 수업/기록이 없습니다.</div>';
+        container.innerHTML = '<div class="hist-list-empty"><i class="fas fa-inbox" style="font-size:28px;margin-bottom:10px;display:block;color:#cbd5e1;"></i>이번 달 메모 기록이 없습니다.</div>';
     } else {
         container.innerHTML = html;
     }
 
-    // 통계 렌더링
-    statsEl.innerHTML = `
-        <div class="hist-stat-item present"><div class="hist-stat-num">${stats.present}</div><div class="hist-stat-label">출석</div></div>
-        <div class="hist-stat-item late"><div class="hist-stat-num">${stats.late}</div><div class="hist-stat-label">지각</div></div>
-        <div class="hist-stat-item absent"><div class="hist-stat-num">${stats.absent}</div><div class="hist-stat-label">결석</div></div>
-        <div class="hist-stat-item makeup"><div class="hist-stat-num">${stats.makeup}</div><div class="hist-stat-label">보강</div></div>
-    `;
-
-    const [homeworkSummary, paymentSummary, testScores] = await Promise.all([
-        getHistoryHomeworkSummary(sid, monthPrefix),
-        getHistoryPaymentSummary(s, sid, monthPrefix),
-        getMonthlyTestScoresWithFallback(sid, monthPrefix)
-    ]);
-    renderHistoryIntegratedOverview({
-        attendance: stats,
-        totalClassDays: monthlyEvents.length,
-        homework: homeworkSummary,
-        payment: paymentSummary,
-        testScores
-    });
-
-    // ★ 종합평가 로드
+    // 종합평가는 하단 유지 (테스트 점수 섹션은 제거됨)
     const evalMonthLabel = document.getElementById('eval-current-month');
     const evalTextarea = document.getElementById('eval-textarea-main');
     const evalCharCount = document.getElementById('eval-char-main');
@@ -7088,7 +7038,6 @@ window.openHistoryModal = async function() {
         evalTextarea.value = '';
         evalTextarea.dataset.studentId = sid;
         evalTextarea.dataset.evalMonth = monthPrefix;
-        // 글자수 카운터 이벤트
         evalTextarea.oninput = function() {
             if (evalCharCount) evalCharCount.textContent = this.value.length;
         };
@@ -7099,7 +7048,6 @@ window.openHistoryModal = async function() {
         evalSaveBtn.classList.remove('saved');
     }
 
-    // DB에서 기존 종합평가 불러오기
     try {
         if (typeof window.getStudentEvaluation === 'function') {
             const evalData = await window.getStudentEvaluation(sid, monthPrefix);
@@ -7111,8 +7059,6 @@ window.openHistoryModal = async function() {
     } catch (e) {
         console.error('[openHistoryModal] 종합평가 로드 실패:', e);
     }
-
-    await renderTestScoreSection(sid, monthPrefix, `${curYear}년 ${curMonth}월`, testScores);
 }
 // ★ 종합평가 저장
 window.saveEvalFromHistory = async function() {

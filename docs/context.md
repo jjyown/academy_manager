@@ -14,6 +14,8 @@
 ## 최근 의사결정 로그
 | 날짜 | 결정 | 이유 | 영향 범위 |
 |---|---|---|---|
+| 2026-03-23 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/checklist.md, docs/context.md, docs/plan.md, index.html, script.js |
+| 2026-03-23 | **학생 수업관리 `이번달 기록` 모달을 메모 중심으로 고정**: 상단 카운트·요약 4박스·테스트점수는 제거하고, 날짜별 개인메모·공유메모를 먼저 보여준다. 종합평가는 하단에 유지 | 사용 목적이 “한 달 메모 한눈에 보기”이므로 메모 탐색을 우선하고 보조 입력(종합평가)만 하단에 남기는 구성이 운영 동선에 더 적합 | `script.js` (`openHistoryModal`), `index.html` |
 | 2026-03-23 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/VERCEL_HIGHROAD_PARENT_PORTAL.md, docs/checklist.md, docs/context.md, docs/plan.md, homework/index.html 외 1개 |
 | 2026-03-23 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | database.js, docs/VERCEL_HIGHROAD_PARENT_PORTAL.md, docs/checklist.md, docs/context.md, docs/plan.md 외 5개 |
 | 2026-03-23 | **프로덕션 `.env` fetch 404**: 클라이언트에서 `.env`/`.env.local`을 `fetch`하면 Vercel에 파일이 없어 404·콘솔 빨강은 **정상적인 차단**(비밀 파일은 공개 금지). **localhost/127만** 파일 fetch 시도로 콘솔 소음 제거 | `parent-portal/index.html`, `homework/index.html` |

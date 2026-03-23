@@ -91,6 +91,12 @@
 - **검증**: `grading-server/.env` 준비 후 `docker compose up --build` · `GET /health` 권장.
 - **다음 단계**: 클라우드 레지스트리 푸시·런타임 시크릿 연동·프로덕션 `PORT`/도메인 설정.
 
+### 학생 수업관리 · 이번달 기록 메모 전용화 — 2026-03-23
+- **상태**: [x] 완료 — `openHistoryModal`를 메모 모음 전용으로 단순화.
+- **구현 요약**: `history-modal`에서 출석 통계·통합요약(숙제/수납/테스트)·테스트점수 렌더링을 제거하고, 날짜별 **개인메모/공유메모**만 노출. 메모가 있는 날짜만 목록에 표시. 추가로 `index.html`에서 상단 카운트(`hist-stats`)·요약 박스(`hist-overview`) DOM 자체를 제거. 종합평가는 하단에 유지.
+- **검증**: `ReadLints(script.js)` PASS.
+- **다음 단계**: 실기기에서 `이번달 기록` 모달에 개인/공유 메모 + 하단 종합평가만 노출되는지 확인(상단 카운트/요약 4박스/테스트점수 미노출).
+
 ### 기간 일정 삭제 · 내 등록 vs 다른 선생님 등록 — 2026-03-23
 - **상태**: [x] 완료(정책 전환) — 구분은 **일정 등록 주체(`teacher_id`)만**: `hasAnyOtherTeacherScheduleInPeriod` = DB `fetchDistinctTeacherIdsFromSchedulesInRangeForOwner` + 로컬 `hasOtherTeacherSchedulesLocalInRange`. **다른 선생님 일정이 있으면** `showConfirm` 한 번 후 `runPeriodDeleteExecute({ targetMode: 'owner' })` → `deleteSchedulesByOwnerRange`·전 선생님 로컬·`collectScheduleSlotsByRangeFromDbAllTeachers`. **내가 등록한 일정만 있으면** 확인 없이 `targetMode: 'currentTeacherOnly'` → `deleteSchedulesByTeacherRange`·내 버킷만·`collectScheduleSlotsByRangeFromDb`. 담당 외 학생 모달·원장 PIN·`assignedOnly`/`nonAssignees`/`studentHasDifferentPrimaryTeacherThan` 경로 **제거**. `database.js`: `fetchDistinctStudentIdsFromSchedulesInRangeForTeacher`. 미리보기는 기존 `getPeriodDeleteMergedStats` 유지.
 - **일정 schedule_date 정규화(2026-03-23)**: 비정규 `YYYY-M-D` 문자열이 구간 비교·`eq` 삭제를 깨뜨리는 문제 → 전역 정규화·로컬 키 병합.
@@ -1083,6 +1089,7 @@
 - [ ] 다음 작업자가 바로 이어서 할 수 있게 문서가 갱신되었다.
 
 ## 변경 이력
+- 2026-03-23 - AUTO-20260323(staged 5개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-23 - AUTO-20260323(staged 6개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-23 - AUTO-20260323(staged 10개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-23 - AUTO-20260323(staged 5개 파일 기준 문서 연동 자동기록): 연동 자동 기록
