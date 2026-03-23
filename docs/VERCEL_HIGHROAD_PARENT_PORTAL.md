@@ -60,6 +60,13 @@ https://highroad-math.vercel.app/parent-portal
 
 정적 배포에서는 루트의 `.env.local`을 그대로 올리지 않는 것이 일반적입니다. Vercel **Environment Variables**에 `REACT_APP_SUPABASE_URL` 등을 넣어도, 현재 HTML은 빌드 시 주입되지 않으면 클라이언트에 자동 반영되지 않을 수 있습니다. 필요 시 `parent-portal`용 env 로더·설정을 별도로 맞추는 것을 권장합니다.
 
+## 배포가 곧바로 실패할 때 (로그가 짧고 에러 한 줄이 안 보일 때)
+
+1. **Build Logs를 끝까지 스크롤**합니다. `Running "vercel build"` 직후에 나오는 **첫 번째 빨간 줄**이 실제 원인입니다.
+2. **GitHub `main`의 `package.json`**이 로컬과 같은지 확인합니다. 예전에 잘못된 `dependencies`(존재하지 않는 패키지 버전)가 남아 있으면 **Install** 단계에서 멈춥니다. 로컬에서 수정했다면 **커밋·푸시 후 Redeploy**가 필요합니다.
+3. **Root Directory**는 반드시 **저장소 루트**(비우기 또는 `.`)입니다. `parent-portal`만 루트로 두면 안 됩니다(위 문서 참고).
+4. **Project Settings → Build & Development Settings**에서 Build/Install Command에 **대시보드에서 잘못된 override**가 켜져 있지 않은지 확인합니다. 루트 `vercel.json`의 `buildCommand`/`installCommand`와 충돌하면 예상과 다르게 동작할 수 있습니다.
+
 ## 배포 실패: `npm install` / `No matching version found for supabase-js`
 
 루트 `package.json`에 존재하지 않는 패키지 버전이 있으면 Vercel이 **Install** 단계에서 실패합니다. (예: `supabase-js@^2.0.0` — npm에 해당 버전이 없음.)  

@@ -2,6 +2,9 @@
   "name": "academy-manager",
   "version": "2.0.0",
   "description": "클라우드 기반 학원 관리 시스템 - Supabase 연동",
+  "engines": {
+    "node": ">=18"
+  },
   "main": "index.html",
   "scripts": {
     "start": "python -m http.server 8000",

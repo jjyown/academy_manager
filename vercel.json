@@ -1,5 +1,6 @@
 {
   "buildCommand": "echo 'Static site'",
+  "installCommand": "npm install --no-audit --no-fund",
   "name": "highroad-math",
   "cleanUrls": true,
   "trailingSlash": false,
