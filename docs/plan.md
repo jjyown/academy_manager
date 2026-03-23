@@ -80,7 +80,7 @@
 ### Vercel highroad-math · 학부모 포털 URL — 2026-03-23
 - **상태**: [x] 완료 — `vercel.json` 프로젝트 `name`: `highroad-math`, 배포 가이드 `docs/VERCEL_HIGHROAD_PARENT_PORTAL.md`, `README.md` 링크.
 - **검증**: 정적 설정·문서 정합. 실제 Vercel에서 프로젝트명 동일 연결 후 `…/parent-portal` 스모크 권장.
-- **다음 단계**: 대시보드 배포 실패 시 Build Log 전체·GitHub `main`의 `package.json` 동기화(푸시)·Root Directory 루트 확인 → 이후 커스텀 도메인 시 Vercel Domains + Supabase URL 설정 반영.
+- **다음 단계**: 배포 실패 시 Build Log에서 `npm install` **이후** 빨간 `npm ERR!` 줄까지 스크롤해 원인 확인 → GitHub `main`의 `package.json` 동기화(푸시)·Root Directory 루트 확인 → 이후 커스텀 도메인 시 Vercel Domains + Supabase URL 설정 반영.
 
 ### 채점 서버 Docker 배포 준비 — 2026-03-23
 - **상태**: [x] 완료 — 루트 `docker-compose.yml`, `grading-server/Dockerfile` 보강(`PORT`, 헬스체크, `curl`), `grading-server/.dockerignore`, `README.md` Docker 섹션.
@@ -1079,6 +1079,7 @@
 - [ ] 다음 작업자가 바로 이어서 할 수 있게 문서가 갱신되었다.
 
 ## 변경 이력
+- 2026-03-23 - AUTO-20260323(staged 4개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-23 - AUTO-20260323(staged 6개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-23 - AUTO-20260323(staged 18개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-23 - **학부모 포털 출결 일별 카드**: 출석·보강 등은 **수업 + 인증시간**(`auth_time`→`qr_scan_time`→`check_in_time`), **지각**은 동일 + 인증 줄 **위에 N분 지각**(수업 시작 대비), **결석**은 **수업시간만**. 기존 QR/선생님 확인(처리방식) 구분 문구 제거(`parent-portal/report.js`, `parent-portal/index.html`, `node --check parent-portal/report.js` PASS).

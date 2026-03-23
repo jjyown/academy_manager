@@ -60,6 +60,11 @@ https://highroad-math.vercel.app/parent-portal
 
 정적 배포에서는 루트의 `.env.local`을 그대로 올리지 않는 것이 일반적입니다. Vercel **Environment Variables**에 `REACT_APP_SUPABASE_URL` 등을 넣어도, 현재 HTML은 빌드 시 주입되지 않으면 클라이언트에 자동 반영되지 않을 수 있습니다. 필요 시 `parent-portal`용 env 로더·설정을 별도로 맞추는 것을 권장합니다.
 
+## `npm install` 직후 로그가 멈춘 것처럼 보일 때
+
+- 로그에 `Running "install" command: npm install ...` 다음에 **실제 에러(빨간 줄·`npm ERR!`)** 가 이어집니다. **아래로 스크롤**해야 합니다. 10줄만 보이면 실패 원인이 잘립니다.
+- 노란 **`engines` / Node 버전 경고**는 Vercel이 “메이저 자동 업그레이드 가능”을 알리는 것이며, **그 자체가 빌드 실패 원인은 아닙니다.** 레포에서는 `package.json`의 `engines.node`를 `20.x`처럼 **고정**해 경고를 줄일 수 있습니다.
+
 ## 배포가 곧바로 실패할 때 (로그가 짧고 에러 한 줄이 안 보일 때)
 
 1. **Build Logs를 끝까지 스크롤**합니다. `Running "vercel build"` 직후에 나오는 **첫 번째 빨간 줄**이 실제 원인입니다.
