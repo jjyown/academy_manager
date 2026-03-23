@@ -91,6 +91,7 @@
   - 작업 단위 1건 완료 시 자동 로그를 본 문서 상단에 추가한다.
 
 ## 9) 자동 업데이트 로그
+- 2026-03-23 | AUTO-20260323 | staged 6개 파일 기준 문서 연동 자동기록 | gates: A:PASS,B:PASS,C:PASS,D:PASS,E:PASS | note: 연동 자동 기록
 - 2026-03-23 | AUTO-20260323 | staged 10개 파일 기준 문서 연동 자동기록 | gates: A:PASS,B:PASS,C:PASS,D:PASS,E:PASS | note: 연동 자동 기록
 - 2026-03-23 | AUTO-20260323 | staged 5개 파일 기준 문서 연동 자동기록 | gates: A:PASS,B:PASS,C:PASS,D:PASS,E:PASS | note: 연동 자동 기록
 - 2026-03-23 | AUTO-20260323 | staged 2개 파일 기준 문서 연동 자동기록 | gates: A:PASS,B:PASS,C:PASS,D:PASS,E:PASS | note: 연동 자동 기록

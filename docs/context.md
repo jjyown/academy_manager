@@ -14,7 +14,9 @@
 ## 최근 의사결정 로그
 | 날짜 | 결정 | 이유 | 영향 범위 |
 |---|---|---|---|
+| 2026-03-23 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/VERCEL_HIGHROAD_PARENT_PORTAL.md, docs/checklist.md, docs/context.md, docs/plan.md, homework/index.html 외 1개 |
 | 2026-03-23 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | database.js, docs/VERCEL_HIGHROAD_PARENT_PORTAL.md, docs/checklist.md, docs/context.md, docs/plan.md 외 5개 |
+| 2026-03-23 | **프로덕션 `.env` fetch 404**: 클라이언트에서 `.env`/`.env.local`을 `fetch`하면 Vercel에 파일이 없어 404·콘솔 빨강은 **정상적인 차단**(비밀 파일은 공개 금지). **localhost/127만** 파일 fetch 시도로 콘솔 소음 제거 | `parent-portal/index.html`, `homework/index.html` |
 | 2026-03-23 | **Vercel 학부모 포털 `report.js` 404**: `vercel.json` `cleanUrls`로 `/parent-portal` 접속 시 상대 `report.js`→`/report.js`로 풀려 스크립트 미로드·`handleSearch` 미정의. **루트 절대 경로**(`/parent-portal/report.js`, `/css/`, `/js/`)로 고정. `.env.local` fetch는 프로덕션에서 파일 미배포 시 404가 남을 수 있음(기능은 `localStorage` 등 기존 경로로 폴백) | **외부플랫폼(정적 URL 해석)** — 로컬 파일 열기/슬래시 유무와 다르게 동작 | `parent-portal/index.html`, `homework/index.html`, `docs/VERCEL_HIGHROAD_PARENT_PORTAL.md` |
 | 2026-03-23 | **기간 삭제 정책 전환(등록 주체 기준)**: 「내가 `teacher_id`로 등록한 일정」vs「다른 선생님이 등록한 일정」만 구분. 타 선생님 일정이 기간에 있으면 `showConfirm` 후 owner 전체 삭제(`targetMode: 'owner'`); **내 일정만**이면 확인 없이 `deleteSchedulesByTeacherRange` 등(`targetMode: 'currentTeacherOnly'`). 담당 외 학생·원장 PIN 모달 제거(이전 행 28·30·34·`nonAssignees` 흐름은 **대체**). DB `fetchDistinctStudentIdsFromSchedulesInRangeForTeacher` 추가 | 사용자 요청·UX 단순화. **전문가(프론트/운영)**: 삭제 위험은 “누가 칸에 올렸는지”로 맞추는 편이 담당 필드와의 불일치 오해를 줄임 | `script.js`, `database.js`, `index.html` |
 | 2026-03-23 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/VERCEL_HIGHROAD_PARENT_PORTAL.md, docs/checklist.md, docs/context.md, docs/plan.md, vercel.json |

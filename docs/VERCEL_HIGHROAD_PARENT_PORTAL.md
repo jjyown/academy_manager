@@ -31,6 +31,11 @@
 - **원인**: `cleanUrls` + URL `…/parent-portal`(슬래시 없음)일 때 상대 `report.js`는 **`/report.js`** 로 해석될 수 있음.
 - **조치**: `parent-portal/index.html`에서 스크립트·CSS를 **`/parent-portal/report.js`**, **`/css/…`**, **`/js/…`** 루트 절대 경로로 사용(레포 반영됨). 배포 후 **Redeploy** 후 캐시 무시 새로고침으로 확인.
 
+### 콘솔에 `.env.local` / `.env` 404 (프로덕션)
+
+- **의미**: 클라이언트가 env 파일을 `fetch`하면 Vercel에는 해당 파일이 없어 **404는 당연**이며, 비밀값을 웹으로 두면 안 되므로 **정상적인 차단**이다.
+- **조치**: `localhost` / `127.0.0.1`에서만 env 파일 fetch를 시도하도록 하면 **불필요한 404 로그가 사라진다**(레포 반영). 프로덕션 Supabase URL은 `localStorage` 등 기존 경로에 의존하거나 Vercel 환경변수+빌드 주입 등으로 별도 운영.
+
 ## 배포 절차 (Vercel 대시보드)
 
 1. [Vercel](https://vercel.com) 로그인 → **Add New…** → **Project**.

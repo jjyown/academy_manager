@@ -15,6 +15,12 @@
 				window.env = {};
 				return;
 			}
+			// Vercel 등 프로덕션에는 .env 파일을 공개하지 않음 → fetch 시도 시 404만 콘솔에 쌓임. 로컬에서만 파일 로드.
+			const h = window.location.hostname;
+			if (h !== 'localhost' && h !== '127.0.0.1') {
+				window.env = window.env || {};
+				return;
+			}
 			const parseEnvText = (text) => {
 				const env = {};
 				String(text || '').split('\n').forEach((line) => {

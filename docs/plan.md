@@ -82,6 +82,7 @@
 - **원인분류 (배포 `public` 오류)**: **외부플랫폼(Vercel)** — 산출물 경로 기본값이 `public/`인데 레포는 루트 정적 구조 → `outputDirectory` 명시로 해결.
 - **전문가 합의(프론트/운영)**: 멀티 페이지 정적 사이트는 Create React App식 `public/` 가정과 맞지 않으면 동일 오류가 난다. **레포 실제 파일 트리 = 배포 루트**로 고정하는 것이 맞다.
 - **학부모 포털 조회 불가(2026-03-23)**: `cleanUrls`로 URL이 `…/parent-portal`(끝 슬래시 없음)일 때 상대 경로 `report.js`가 **`/report.js`** 로 해석되어 404·`handleSearch is not defined`. 대응: `parent-portal/index.html`의 CSS·`invoke-verify-teacher-pin`·`report.js`를 **`/css/…`**, **`/js/…`**, **`/parent-portal/report.js`** 절대 경로로 변경. `.env.local` fetch 후보에 `/parent-portal/…` 추가(프로덕션에서는 여전히 미배포 시 404 가능·콘솔 노이즈). `homework/index.html` CSS·env 후보 동일 패턴 보강.
+- **프로덕션 `.env` fetch 404 콘솔(2026-03-23)**: Vercel에는 `.env`를 공개하지 않아 404는 예상됨. **`localhost`/`127.0.0.1`에서만** env 파일 fetch 시도 → `parent-portal`·`homework` 동일.
 - **검증**: 푸시 후 Vercel Redeploy → Build 성공·`…/parent-portal` HTTP 200 스모크 권장.
 - **다음 단계**: 커스텀 도메인 시 Domains + Supabase URL 설정. 대시보드 Output override가 `public`이면 제거.
 
@@ -1082,6 +1083,7 @@
 - [ ] 다음 작업자가 바로 이어서 할 수 있게 문서가 갱신되었다.
 
 ## 변경 이력
+- 2026-03-23 - AUTO-20260323(staged 6개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-23 - AUTO-20260323(staged 10개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-23 - AUTO-20260323(staged 5개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-23 - AUTO-20260323(staged 2개 파일 기준 문서 연동 자동기록): 연동 자동 기록
@@ -1094,6 +1096,7 @@
 - 2026-03-23 - **기간 내 일정 삭제(전체 학생)**: `executePeriodDelete`가 DB 삭제를 **기다리지 않고** 성공 토스트·렌더를 먼저 떠 이후 `loadTeacherScheduleData`로 일정이 **다시 채워 보이는** 문제 수정 — `await Promise.all` 후 `loadTeacherScheduleData`·토스트. `scope===all`일 때 `deleteSchedulesByTeacherRange`만 호출하고 학생별 `deleteSchedulesByRange` **중복 제거**. `deleteSchedulesByRange`/`deleteSchedulesByTeacherRange`는 owner·teacher 없으면 **throw**(조용히 `false` 반환 제거)(`script.js`, `database.js`, `node --check` PASS).
 - 2026-03-23 - **학부모 포털 인증시간 소스 정합**: 이력 화면 `authIso`와 동일하게 `auth_time` → (`qr_scanned`일 때만 `qr_scan_time`) → (번호인증일 때만 `check_in_time`). 기존 `check_in_time` 무조건 폴백 제거로 출석 이력「인증시간」과 학부모「인증」불일치 방지(`parent-portal/report.js`, `select`에 `qr_judgment`·`attendance_source` 추가).
 - 2026-03-23 - **학부모 포털 출결 메모**: 일별 카드 하단에 `attendance_records.memo` 표시 — **지각·결석·보강·기타**일 때만(일반 출석 `present`는 미표시). 선생님 이력 하단 메모(예: 보강 행에 「지각」 등)가 학부모에게도 보이도록 함(`parent-portal/report.js` `showAttDateDetail`).
+- 2026-03-23 - **Vercel `.env` fetch 404 콘솔**: `parent-portal`·`homework`에서 env 파일 `fetch`를 `localhost`/`127.0.0.1`에서만 수행해 프로덕션 404 로그 감소.
 - 2026-03-23 - **Vercel 학부모 포털 조회 불가**: `parent-portal/index.html`의 `report.js`·CSS·`invoke-verify-teacher-pin`을 루트 절대 경로로 변경(`cleanUrls`로 상대 `report.js`가 `/report.js`로 404 나던 문제). `homework/index.html` CSS·`.env` fetch 후보 보강. `docs/VERCEL_HIGHROAD_PARENT_PORTAL.md`에 원인·대응 문서화.
 - 2026-03-23 - **문서**: 기간 삭제 정책 전환(등록 주체 기준·`targetMode`·담당 외/PIN 제거)을 `docs/context.md` 최근 의사결정 표에 1행 반영(인계 누락 보완).
 - 2026-03-22 - AUTO-20260322(staged 8개 파일 기준 문서 연동 자동기록): 연동 자동 기록
