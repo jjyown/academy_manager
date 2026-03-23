@@ -2,7 +2,7 @@
 
 - 문서 기준일: 2026-03-23
 ## 공통 품질 체크
-- [x] Vercel `highroad-math` 배포 문서(2026-03-23): `vercel.json` name · `installCommand` · `package.json` engines · `docs/VERCEL_HIGHROAD_PARENT_PORTAL.md`(실패 시 로그·GitHub 동기화)·`README.md` — 프로젝트명 일치 후 `https://highroad-math.vercel.app/parent-portal` 스모크 권장
+- [x] Vercel `highroad-math` 배포(2026-03-23): `vercel.json` — `name` · `outputDirectory: "."`(`public` 미사용)·`installCommand` · `package.json` engines · `docs/VERCEL_HIGHROAD_PARENT_PORTAL.md` — 푸시 후 Redeploy·`https://highroad-math.vercel.app/parent-portal` 스모크 권장
 - [x] 학부모 포털 출결 일별 카드(2026-03-23): 수업+인증·지각 시 N분 지각·결석은 수업만 — `parent-portal/report.js`·`index.html` · `node --check parent-portal/report.js` PASS · 실제 데이터로 인증·지각 분 표시 확인 권장
 - [x] 학부모 포털 지각 가로 정렬(2026-03-23): `att-meta-late-row`로 수업·인증 열 `nowrap` — 모바일에서 지그재그 줄바꿈 방지 · `node --check parent-portal/report.js` PASS
 - [x] 학부모 포털 지각 베이스라인(2026-03-23): `align-items: flex-end` — 수업·인증이 출석과 같이 한 줄, N분 지각은 인증 위만 · 브라우저 확인 권장
@@ -99,6 +99,7 @@
 ## 테스트/검증 결과 기록
 | 날짜 | 작업 | 검증 방법 | 결과 | 비고 |
 |---|---|---|---|---|
+| 2026-03-23 | AUTO-20260323(staged 5개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-03-23 | AUTO-20260323(staged 2개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-03-23 | AUTO-20260323(staged 4개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-03-23 | AUTO-20260323(staged 6개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |

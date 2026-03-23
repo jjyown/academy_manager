@@ -21,7 +21,8 @@
 |------|------|
 | **Root Directory** | 비우기 또는 **`.`** (저장소 전체) |
 | **Project Name** | `highroad-math` |
-| 학부모 포털 URL | `https://highroad-math.vercel.app/parent-portal` (루트 전체 배포 시 `vercel.json` 리라이트 사용) |
+| **Output Directory** | 루트 `vercel.json`에 **`"outputDirectory": "."`** — `index.html`·`parent-portal/` 등이 **저장소 루트**에 있고 `public/`을 쓰지 않음. 기본값이 `public`이면 `No Output Directory named "public" found` 오류. |
+| **학부모 포털 URL** | `https://highroad-math.vercel.app/parent-portal` (`vercel.json` 리라이트) |
 
 학부모 포털 “만” 올리고 싶다면, 별도로 `css`·`js` 경로를 `parent-portal` 안으로 복사하거나 상대 경로를 수정하는 작업이 필요합니다. 현재 레포 구조 기준으로는 **전체 클론 배포**가 맞습니다.
 
@@ -105,6 +106,14 @@ https://highroad-math.vercel.app/parent-portal
 2. **GitHub `main`의 `package.json`**이 로컬과 같은지 확인합니다. 예전에 잘못된 `dependencies`(존재하지 않는 패키지 버전)가 남아 있으면 **Install** 단계에서 멈춥니다. 로컬에서 수정했다면 **커밋·푸시 후 Redeploy**가 필요합니다.
 3. **Root Directory**는 반드시 **저장소 루트**(비우기 또는 `.`)입니다. `parent-portal`만 루트로 두면 안 됩니다(위 문서 참고).
 4. **Project Settings → Build & Development Settings**에서 Build/Install Command에 **대시보드에서 잘못된 override**가 켜져 있지 않은지 확인합니다. 루트 `vercel.json`의 `buildCommand`/`installCommand`와 충돌하면 예상과 다르게 동작할 수 있습니다.
+
+## 배포 실패: `No Output Directory named "public" found`
+
+**증상 (Build Log):** `Error: No Output Directory named "public" found after the Build completed.`
+
+**원인:** Vercel(또는 프로젝트 설정)이 정적 산출물을 **`public/`** 아래에서 찾는데, 이 저장소는 **`index.html`이 루트**이고 `public/` 디렉터리를 배포 단위로 쓰지 않는다.
+
+**조치:** 루트 `vercel.json`에 **`"outputDirectory": "."`** 를 넣어 배포 루트를 저장소 루트로 고정한다. 대시보드 **Output Directory** override가 `public`으로 켜져 있으면 끄거나 **`.`** 로 맞춘다.
 
 ## 배포 실패: `npm install` / `No matching version found for supabase-js`
 

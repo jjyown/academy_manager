@@ -78,9 +78,11 @@
 
 ## 현재 스프린트 목표
 ### Vercel highroad-math · 학부모 포털 URL — 2026-03-23
-- **상태**: [x] 완료 — `vercel.json` 프로젝트 `name`: `highroad-math`, 배포 가이드 `docs/VERCEL_HIGHROAD_PARENT_PORTAL.md`, `README.md` 링크.
-- **검증**: 정적 설정·문서 정합. 실제 Vercel에서 프로젝트명 동일 연결 후 `…/parent-portal` 스모크 권장.
-- **다음 단계**: 배포 실패 시 Build Log에서 `npm install` **이후** 빨간 `npm ERR!` 줄까지 스크롤해 원인 확인 → GitHub `main`의 `package.json` 동기화(푸시)·Root Directory 루트 확인 → 이후 커스텀 도메인 시 Vercel Domains + Supabase URL 설정 반영.
+- **상태**: [x] 완료(2026-03-23 후속) — `vercel.json`: `name`·`outputDirectory: "."`·리라이트, 가이드 `docs/VERCEL_HIGHROAD_PARENT_PORTAL.md`.
+- **원인분류 (배포 `public` 오류)**: **외부플랫폼(Vercel)** — 산출물 경로 기본값이 `public/`인데 레포는 루트 정적 구조 → `outputDirectory` 명시로 해결.
+- **전문가 합의(프론트/운영)**: 멀티 페이지 정적 사이트는 Create React App식 `public/` 가정과 맞지 않으면 동일 오류가 난다. **레포 실제 파일 트리 = 배포 루트**로 고정하는 것이 맞다.
+- **검증**: 푸시 후 Vercel Redeploy → Build 성공·`…/parent-portal` HTTP 200 스모크 권장.
+- **다음 단계**: 커스텀 도메인 시 Domains + Supabase URL 설정. 대시보드 Output override가 `public`이면 제거.
 
 ### 채점 서버 Docker 배포 준비 — 2026-03-23
 - **상태**: [x] 완료 — 루트 `docker-compose.yml`, `grading-server/Dockerfile` 보강(`PORT`, 헬스체크, `curl`), `grading-server/.dockerignore`, `README.md` Docker 섹션.
@@ -1079,6 +1081,7 @@
 - [ ] 다음 작업자가 바로 이어서 할 수 있게 문서가 갱신되었다.
 
 ## 변경 이력
+- 2026-03-23 - AUTO-20260323(staged 5개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-23 - AUTO-20260323(staged 2개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-23 - AUTO-20260323(staged 4개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-23 - AUTO-20260323(staged 6개 파일 기준 문서 연동 자동기록): 연동 자동 기록

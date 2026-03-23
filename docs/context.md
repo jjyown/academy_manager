@@ -14,10 +14,12 @@
 ## 최근 의사결정 로그
 | 날짜 | 결정 | 이유 | 영향 범위 |
 |---|---|---|---|
+| 2026-03-23 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/VERCEL_HIGHROAD_PARENT_PORTAL.md, docs/checklist.md, docs/context.md, docs/plan.md, vercel.json |
 | 2026-03-23 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/VERCEL_HIGHROAD_PARENT_PORTAL.md, docs/context.md |
 | 2026-03-23 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/VERCEL_HIGHROAD_PARENT_PORTAL.md, docs/context.md, docs/plan.md, package.json |
 | 2026-03-23 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/VERCEL_HIGHROAD_PARENT_PORTAL.md, docs/checklist.md, docs/context.md, docs/plan.md, package.json 외 1개 |
 | 2026-03-23 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | README.md, database.js, docker-compose.yml, docs/VERCEL_HIGHROAD_PARENT_PORTAL.md, docs/checklist.md 외 13개 |
+| 2026-03-23 | **Vercel `No Output Directory named "public"`**: 빌드는 성공했으나 산출물을 `public/`에서 찾음 — 레포는 루트에 `index.html` 등. **원인분류: 외부플랫폼(배포 설정)**. **조치:** `vercel.json`에 `"outputDirectory": "."` + 대시보드 Output override가 `public`이면 해제. **전문가(프론트/운영):** 정적 멀티 경로(`parent-portal/` 등)는 CRA 기본 `public/` 가정과 충돌하기 쉬워 루트 명시가 안전 | `vercel.json`, `docs/VERCEL_HIGHROAD_PARENT_PORTAL.md` |
 | 2026-03-23 | **Vercel + GitHub `main` 없음**: 브라우저 콘솔 `does not contain ... branch or commit reference "main"` → 저장소에 `main` 없음·빈 repo·프로덕션 브랜치 불일치 가능. Git 푸시·GitHub 기본 브랜치·Vercel Production Branch 정합 우선 | 외부플랫폼(Git) | `docs/VERCEL_HIGHROAD_PARENT_PORTAL.md` |
 | 2026-03-23 | **Vercel 로그가 `Vercel CLI` 직후로만 보임**: 스트리밍 지연·UI 잘림 가능 → 새로고침·하단 스크롤·배포 요약 빨간 한 줄 확인. `install` 단계가 없으면 원격 `vercel.json` JSON 유효성·푸시 여부 점검. 상세는 `docs/VERCEL_HIGHROAD_PARENT_PORTAL.md` | 외부플랫폼 로그 해석 | `docs/VERCEL_HIGHROAD_PARENT_PORTAL.md` |
 | 2026-03-23 | **Vercel 로그·Node 경고**: `npm install` 다음 줄에 실제 `npm ERR!`가 나오므로 로그 하단 스크롤 필수. `engines.node`를 `>=18` 대신 **`20.x` 고정**해 “메이저 자동 업그레이드” 노란 경고 완화 | 배포 로그 해석·재현성 | `package.json`, `docs/VERCEL_HIGHROAD_PARENT_PORTAL.md` |
