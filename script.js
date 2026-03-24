@@ -4412,69 +4412,55 @@ window.openAttendanceModal = async function(sid, dateStr, startTime, ownerTeache
     document.getElementById('att-date').value = dateStr;
     document.getElementById('att-edit-date').value = dateStr;
 
-    // 개인 메모 로드 (로컬 우선, 없으면 DB에서 조회)
+    // 개인/공유 메모는 반드시 student_evaluations에서만 로드합니다.
+    // 출석기록(memo/shared_memo)과의 섞임을 구조적으로 차단합니다.
     const memoDiv = document.getElementById('att-memo');
-    let savedRecord = '';
-    if (s.records && s.records[dateStr]) {
-        if (startTime && typeof s.records[dateStr] === 'object') {
-            savedRecord = s.records[dateStr][startTime] || '';
-        } else if (typeof s.records[dateStr] === 'string') {
-            savedRecord = s.records[dateStr];
-        }
-    }
-    // 로컬에 없으면 DB에서 가져오기
-    if (!savedRecord) {
-        try {
-            if (typeof window.getAttendanceRecordByStudentAndDate === 'function') {
-                const dbRecord = await window.getAttendanceRecordByStudentAndDate(sid, dateStr, effectiveOwnerTeacherId, startTime);
-                if (dbRecord && dbRecord.memo) {
-                    savedRecord = dbRecord.memo;
-                    // 로컬에도 저장
-                    if (!s.records) s.records = {};
-                    if (!s.records[dateStr] || typeof s.records[dateStr] !== 'object') s.records[dateStr] = {};
-                    s.records[dateStr][startTime || 'default'] = savedRecord;
-                }
-            }
-        } catch (e) {
-            console.error('[openAttendanceModal] 개인 메모 DB 조회 실패:', e);
-        }
-    }
-    memoDiv.innerHTML = savedRecord;
-
-    // 공유 메모 로드 (구조화 데이터 활용 - 다른 선생님 메모는 읽기전용, 본인 메모는 편집 가능)
     const sharedMemoDiv = document.getElementById('att-shared-memo');
     const sharedOthersDiv = document.getElementById('att-shared-memo-others');
+
+    let savedRecord = '';
     let mySharedMemo = '';
     let othersHtml = '';
+
     try {
-        if (typeof window.getSharedMemosStructured === 'function') {
-            const memoList = await window.getSharedMemosStructured(sid, dateStr);
-            const myId = String(currentTeacherId);
-            const otherMemos = [];
-            for (const m of memoList) {
-                if (String(m.teacher_id) === myId) {
-                    mySharedMemo = m.memo;
-                } else {
-                    otherMemos.push(m);
+        if (typeof window.getStudentClassMemos === 'function') {
+            const evalMonth = String(dateStr || '').slice(0, 7);
+            const timeKey = normalizedRequestedStart || 'default';
+            const { class_memos, class_shared_memos } = await window.getStudentClassMemos(sid, evalMonth);
+
+            savedRecord = class_memos?.[dateStr]?.[timeKey] || '';
+
+            const slotShared = class_shared_memos?.[dateStr]?.[timeKey] || {};
+            const myId = String(currentTeacherId || '');
+            const teacherIds = Object.keys(slotShared);
+
+            if (teacherIds.length > 0) {
+                const otherTeacherEntries = [];
+                for (const tid of teacherIds) {
+                    const memoText = slotShared[tid] || '';
+                    if (tid === myId) {
+                        mySharedMemo = memoText;
+                    } else {
+                        otherTeacherEntries.push({ teacherId: tid, memo: memoText });
+                    }
                 }
-            }
-            if (otherMemos.length > 0) {
-                othersHtml = '<div class="shared-memo-header"><i class="fas fa-users"></i> 다른 선생님 공유 메모</div>';
-                otherMemos.forEach(m => {
-                    othersHtml += `<div class="shared-memo-item"><span class="shared-memo-teacher">${m.teacher_name}</span><div class="shared-memo-text">${m.memo}</div></div>`;
-                });
+
+                if (otherTeacherEntries.length > 0) {
+                    othersHtml = '<div class="shared-memo-header"><i class="fas fa-users"></i> 다른 선생님 공유 메모</div>';
+                    otherTeacherEntries.forEach((m) => {
+                        const tName = getTeacherNameById(m.teacherId) || '알 수 없음';
+                        othersHtml += `<div class="shared-memo-item"><span class="shared-memo-teacher">${tName}</span><div class="shared-memo-text">${m.memo}</div></div>`;
+                    });
+                }
             }
         }
     } catch (e) {
-        console.error('[openAttendanceModal] 공유 메모 DB 조회 실패:', e);
+        console.error('[openAttendanceModal] 수업관리 메모(student_evaluations) 로드 실패:', e);
     }
-    // 다른 선생님 메모 표시 (읽기전용)
-    if (sharedOthersDiv) {
-        sharedOthersDiv.innerHTML = othersHtml;
-        // 표시/숨김은 switchMemoTab에서 처리
-    }
-    // 본인 공유 메모만 편집 영역에 로드
-    sharedMemoDiv.innerHTML = mySharedMemo;
+
+    memoDiv.innerHTML = savedRecord;
+    if (sharedOthersDiv) sharedOthersDiv.innerHTML = othersHtml;
+    if (sharedMemoDiv) sharedMemoDiv.innerHTML = mySharedMemo;
 
     // 탭 초기화 (개인 메모 활성)
     switchMemoTab('private');
@@ -4606,6 +4592,17 @@ window.updateClassTime = async function() {
 
         renderCalendar(); 
         if (document.getElementById('day-detail-modal').style.display === 'flex') { if (currentDetailDate === newDateStr || currentDetailDate === oldDateStr) renderDayEvents(currentDetailDate); }
+        if (typeof window.onScheduleSlotChangedForAttendanceCheck === 'function') {
+            window.onScheduleSlotChangedForAttendanceCheck({
+                studentId: sid,
+                oldDateStr,
+                newDateStr,
+                oldStart: originalStart,
+                newStart,
+                oldTeacherIds: uniqueOldOwnerCandidates,
+                newTeacherId: targetTeacherId
+            });
+        }
         // ★ 일정 변경 후 다른 선생님 데이터 갱신 + 타이머 갱신
         await loadAllTeachersScheduleData();
         if (typeof window.initMissedScanChecks === 'function') window.initMissedScanChecks();
@@ -4645,16 +4642,56 @@ window.setAttendance = async function(status, options = {}) {
         saveData();
 
         // DB에도 상태 업데이트 (기존 시간/스캔 결과 유지)
+        // ※ 수업관리 메모는 student_evaluations로 이동하므로, 출석 상태 저장 시에는 메모를 건드리지 않습니다.
         // 반드시 scheduled_time(수업 시작시간)까지 포함하여 upsert
-        const memoData = { memo: memo || null, shared_memo: sharedMemo || null };
         const lastSavedRecord = await persistAttendanceStatusToDbForTeacher(
             sid,
             dateStr,
             status,
             ownerTeacherId,
             resolvedStartTime,
-            memoData
+            null
         );
+
+        // 수업관리 메모(JSON) 저장
+        try {
+            if (typeof window.getStudentClassMemos === 'function' && typeof window.saveStudentClassMemos === 'function') {
+                const evalMonth = String(dateStr || '').slice(0, 7);
+                const timeKey = resolvedStartTime || 'default';
+
+                const teacherKey = String(ownerTeacherId || currentTeacherId || '');
+                const memoText = memo || '';
+                const sharedMemoText = sharedMemo || '';
+
+                const existing = await window.getStudentClassMemos(sid, evalMonth);
+                const classMemos = existing.class_memos || {};
+                const classSharedMemos = existing.class_shared_memos || {};
+
+                if (!classMemos[dateStr]) classMemos[dateStr] = {};
+                if (!classSharedMemos[dateStr]) classSharedMemos[dateStr] = {};
+
+                if (memoText.trim()) {
+                    classMemos[dateStr][timeKey] = memoText;
+                } else {
+                    if (classMemos[dateStr]) delete classMemos[dateStr][timeKey];
+                    if (classMemos[dateStr] && Object.keys(classMemos[dateStr]).length === 0) delete classMemos[dateStr];
+                }
+
+                if (!classSharedMemos[dateStr][timeKey]) classSharedMemos[dateStr][timeKey] = {};
+                if (sharedMemoText.trim()) {
+                    classSharedMemos[dateStr][timeKey][teacherKey] = sharedMemoText;
+                } else {
+                    if (classSharedMemos[dateStr]?.[timeKey]) delete classSharedMemos[dateStr][timeKey][teacherKey];
+                    if (classSharedMemos[dateStr]?.[timeKey] && Object.keys(classSharedMemos[dateStr][timeKey]).length === 0) delete classSharedMemos[dateStr][timeKey];
+                    if (classSharedMemos[dateStr] && Object.keys(classSharedMemos[dateStr]).length === 0) delete classSharedMemos[dateStr];
+                }
+
+                await window.saveStudentClassMemos(sid, evalMonth, classMemos, classSharedMemos, teacherKey);
+            }
+        } catch (e) {
+            console.error('[setAttendance] 수업관리 메모 저장 실패:', e);
+        }
+
         if (typeof window.updateAttendanceSourceDisplay === 'function') {
             window.updateAttendanceSourceDisplay(lastSavedRecord || {
                 qr_scanned: false,
@@ -4905,10 +4942,8 @@ async function persistAttendanceStatusToDbForTeacher(studentId, dateStr, status,
     const studentSchedule = teacherSchedule[String(studentId)] || {};
     const schedule = studentSchedule[dateStr] || null;
 
-    // memoData가 전달되면 해당 값 사용, 아니면 기존 DB 값 유지
-    const memoValue = (memoData && memoData.memo !== undefined) ? memoData.memo : (existing?.memo || null);
-    const sharedMemoValue = (memoData && memoData.shared_memo !== undefined) ? memoData.shared_memo : (existing?.shared_memo || null);
-
+    // NOTE: 수업관리 메모는 attendance_records.class_*가 아니라
+    // student_evaluations.class_* JSON으로 이동합니다. 따라서 출석 상태 저장 시에는 메모를 건드리지 않습니다.
     const payload = {
         studentId: studentId,
         teacherId: String(teacherId || existing?.teacher_id || currentTeacherId || ''),
@@ -4923,9 +4958,7 @@ async function persistAttendanceStatusToDbForTeacher(studentId, dateStr, status,
         attendance_source: existing?.attendance_source || (existing?.qr_scanned ? 'qr' : 'teacher'),
         authTime: existing?.auth_time || existing?.qr_scan_time || existing?.check_in_time || new Date().toISOString(),
         presenceChecked: existing?.presence_checked || false,
-        processedAt: new Date().toISOString(),
-        memo: memoValue,
-        shared_memo: sharedMemoValue
+        processedAt: new Date().toISOString()
     };
 
     let savedRecord = null;
@@ -4966,8 +4999,6 @@ async function persistAttendanceStatusToDbForTeacher(studentId, dateStr, status,
                     authTime: ownerAllAfterSave?.auth_time || existing?.auth_time || new Date().toISOString(),
                     presenceChecked: ownerAllAfterSave?.presence_checked || existing?.presence_checked || false,
                     processedAt: new Date().toISOString(),
-                    memo: memoValue,
-                    shared_memo: sharedMemoValue
                 };
                 savedRecord = await window.saveAttendanceRecord(reconcilePayload);
                 await cleanupLegacyAbsentShadowRecord(studentId, dateStr, teacherId, startTime, status);
@@ -5026,25 +5057,37 @@ window.saveOnlyMemo = async function() {
 
         saveData();
 
-        // DB에도 공유 메모 저장
+        // DB에도 수업관리 메모 저장(student_evaluations)
         try {
-            if (typeof window.saveAttendanceRecord === 'function') {
-                const existing = typeof window.getAttendanceRecordByStudentAndDate === 'function'
-                    ? await window.getAttendanceRecordByStudentAndDate(sid, dateStr, ownerTeacherId, resolvedStartTime)
-                    : null;
-                const localStatus = getSlotValueByNormalizedTime(students[sIdx].attendance?.[dateStr], resolvedStartTime);
-                const currentStatus = existing?.status || localStatus || 'none';
-                await window.saveAttendanceRecord({
-                    studentId: sid,
-                    teacherId: ownerTeacherId,
-                    attendanceDate: dateStr,
-                    scheduledTime: resolvedStartTime || null,
-                    status: currentStatus,
-                    checkInTime: existing ? existing.check_in_time : null,
-                    qrScanned: existing ? existing.qr_scanned : false,
-                    memo: privateMemo || null,
-                    shared_memo: sharedMemo || null
-                });
+            if (typeof window.getStudentClassMemos === 'function' && typeof window.saveStudentClassMemos === 'function') {
+                const evalMonth = String(dateStr || '').slice(0, 7);
+                const timeKey = resolvedStartTime || 'default';
+                const teacherKey = String(ownerTeacherId || currentTeacherId || '');
+
+                const existing = await window.getStudentClassMemos(sid, evalMonth);
+                const classMemos = existing.class_memos || {};
+                const classSharedMemos = existing.class_shared_memos || {};
+
+                if (!classMemos[dateStr]) classMemos[dateStr] = {};
+                if (!classSharedMemos[dateStr]) classSharedMemos[dateStr] = {};
+                if (!classSharedMemos[dateStr][timeKey]) classSharedMemos[dateStr][timeKey] = {};
+
+                if (privateMemo && privateMemo.trim()) {
+                    classMemos[dateStr][timeKey] = privateMemo;
+                } else {
+                    if (classMemos[dateStr]) delete classMemos[dateStr][timeKey];
+                    if (classMemos[dateStr] && Object.keys(classMemos[dateStr]).length === 0) delete classMemos[dateStr];
+                }
+
+                if (sharedMemo && sharedMemo.trim()) {
+                    classSharedMemos[dateStr][timeKey][teacherKey] = sharedMemo;
+                } else {
+                    if (classSharedMemos[dateStr]?.[timeKey]) delete classSharedMemos[dateStr][timeKey][teacherKey];
+                    if (classSharedMemos[dateStr]?.[timeKey] && Object.keys(classSharedMemos[dateStr][timeKey]).length === 0) delete classSharedMemos[dateStr][timeKey];
+                    if (classSharedMemos[dateStr] && Object.keys(classSharedMemos[dateStr]).length === 0) delete classSharedMemos[dateStr];
+                }
+
+                await window.saveStudentClassMemos(sid, evalMonth, classMemos, classSharedMemos, teacherKey);
             }
         } catch (e) {
             console.error('[saveOnlyMemo] DB 저장 실패:', e);
@@ -6440,6 +6483,49 @@ window.runTestScoreSyncCheck = async function() {
     }
 };
 
+/**
+ * 모달 기준월(monthPrefix)을 끝으로 하는 최근 numMonths개월의 [startDate, endDate] (YYYY-MM-DD).
+ * 예: 2026-03, 3 → 2026-01-01 ~ 2026-03-31
+ */
+function monthAnchorRangeMonths(monthPrefix, numMonths) {
+    const n = Math.max(1, Math.min(12, parseInt(numMonths, 10) || 1));
+    const parts = String(monthPrefix || '').split('-');
+    const y = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10);
+    if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) {
+        return { startDate: '', endDate: '' };
+    }
+    const endLast = new Date(y, m, 0).getDate();
+    const endDate = `${y}-${String(m).padStart(2, '0')}-${String(endLast).padStart(2, '0')}`;
+    let sm = m - (n - 1);
+    let sy = y;
+    while (sm < 1) {
+        sm += 12;
+        sy -= 1;
+    }
+    const startDate = `${sy}-${String(sm).padStart(2, '0')}-01`;
+    return { startDate, endDate };
+}
+
+function scheduleStudentEvalChartRefresh() {
+    const panel = document.getElementById('student-eval-panel-chart');
+    if (!panel || panel.style.display === 'none') return;
+    if (typeof window.renderStudentEvalChartPanel === 'function') {
+        window.renderStudentEvalChartPanel();
+    }
+}
+
+/** 시험일 → 시험명 순 정렬 (그래프·목록 동일 순서) */
+function sortScoresByExamDate(scores) {
+    if (!Array.isArray(scores)) return [];
+    return [...scores].sort((a, b) => {
+        const da = String(a.examDate || '');
+        const db = String(b.examDate || '');
+        if (da !== db) return da.localeCompare(db);
+        return String(a.examName || '').localeCompare(String(b.examName || ''), 'ko-KR');
+    });
+}
+
 function buildTestScoreSummary(scores) {
     if (!scores.length) {
         return '<div class="test-score-empty">이번 달 저장된 테스트 점수가 없습니다.</div>';
@@ -6477,26 +6563,141 @@ function buildTestScoreSummary(scores) {
     `;
 }
 
-function buildTestScoreTrendBars(scores) {
+function buildTestScoreTrendBars(scores, wide) {
     if (!scores.length) return '';
-    return scores.map((item) => {
+    const sorted = sortScoresByExamDate(scores);
+    const wwrap = wide ? ' test-trend-bar-wrap--wide' : '';
+    return sorted.map((item) => {
         const maxScore = Number(item.maxScore || 0);
         const score = Number(item.score || 0);
         const percent = maxScore > 0 ? Math.max(0, Math.min(100, Math.round((score / maxScore) * 100))) : 0;
         const dayLabel = String(item.examDate || '').split('-').slice(1).join('/');
+        const rawName = String(item.examName || '테스트');
+        const shortName = rawName.length > 6 ? `${rawName.slice(0, 5)}…` : rawName;
         const title = `${item.examName || '테스트'} ${score}/${maxScore} (${percent}%)`;
         return `
-            <div class="test-trend-bar" title="${escapeHtml(title)}">
-                <span class="test-trend-fill" style="height:${percent}%;"></span>
+            <div class="test-trend-bar-wrap${wwrap}">
+                <span class="test-trend-pct-label">${percent}%</span>
+                <div class="test-trend-bar" title="${escapeHtml(title)}">
+                    <span class="test-trend-fill" style="height:${percent}%;"></span>
+                </div>
                 <span class="test-trend-day">${escapeHtml(dayLabel || '-')}</span>
+                <span class="test-trend-name" title="${escapeHtml(item.examName || '')}">${escapeHtml(shortName)}</span>
             </div>
         `;
     }).join('');
 }
 
+/**
+ * 만점 대비 비율(%) 추이 — SVG 라인 + 가로 막대 영역 래퍼
+ * @param {object} [opts] wide: 대형(그래프 탭), rangeMode: 다월 조회 안내 문구
+ */
+function buildTestScoreVisualizationHtml(scores, opts) {
+    opts = opts || {};
+    const wide = opts.wide === true;
+    const rangeMode = opts.rangeMode === true;
+    const silentEmpty = opts.silentEmpty === true;
+    const suppressVizHead = opts.suppressVizHead === true;
+    const wrapClass = `test-score-viz-wrap${wide ? ' test-score-viz--wide' : ''}${suppressVizHead && wide ? ' test-score-viz--chart-tab' : ''}`;
+
+    if (!scores.length) {
+        if (silentEmpty) {
+            return `<div class="${wrapClass}"><div class="test-score-viz-empty test-score-viz-empty--silent" aria-hidden="true"></div></div>`;
+        }
+        const emptyInner = rangeMode
+            ? `<p>선택한 기간에 등록된 점수가 없습니다.</p><span class="test-score-viz-empty-hint">「점수」탭에서 저장한 시험만 그래프에 반영됩니다.</span>`
+            : `<p>이번 달 등록된 점수가 없습니다.</p><span class="test-score-viz-empty-hint">아래에서 시험명·시험일·점수를 입력해 저장하세요.</span>`;
+        return `
+            <div class="${wrapClass}">
+            <div class="test-score-viz-empty">
+                <i class="fas fa-chart-line" aria-hidden="true"></i>
+                ${emptyInner}
+            </div></div>`;
+    }
+
+    const normalized = sortScoresByExamDate(scores)
+        .map((item) => {
+            const maxScore = Number(item.maxScore || 0);
+            const score = Number(item.score || 0);
+            const percent = maxScore > 0 ? Math.max(0, Math.min(100, Math.round((score / maxScore) * 100))) : 0;
+            return { ...item, score, maxScore, percent };
+        })
+        .filter((item) => Number.isFinite(item.percent));
+
+    if (!normalized.length) {
+        return `<div class="${wrapClass}"><div class="test-score-empty">점수 데이터를 계산할 수 없습니다.</div></div>`;
+    }
+
+    const n = normalized.length;
+    const padL = wide ? 24 : 22;
+    const padR = 6;
+    const padT = wide ? 8 : 6;
+    const padB = 4;
+    const chartW = 100 - padL - padR;
+    const chartH = wide ? 62 : 52;
+    const svgH = wide ? 78 : 64;
+    let lineSvg = '';
+    if (n >= 2) {
+        const pts = normalized.map((item, i) => {
+            const x = padL + (i / (n - 1)) * chartW;
+            const y = padT + (100 - item.percent) / 100 * chartH;
+            return `${x.toFixed(2)},${y.toFixed(2)}`;
+        }).join(' ');
+        const dots = normalized.map((item, i) => {
+            const x = padL + (i / (n - 1)) * chartW;
+            const y = padT + (100 - item.percent) / 100 * chartH;
+            return `<circle class="test-line-dot" cx="${x.toFixed(2)}" cy="${y.toFixed(2)}" r="${wide ? 2.6 : 2.2}" />`;
+        }).join('');
+        lineSvg = `
+            <svg class="test-score-line-svg" viewBox="0 0 100 ${svgH}" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+                <text x="2" y="10" class="test-score-y-tick">100</text>
+                <text x="6" y="${padT + chartH / 2 + 2}" class="test-score-y-tick">50</text>
+                <text x="8" y="${padT + chartH + 2}" class="test-score-y-tick">0</text>
+                <line class="test-score-grid" x1="${padL}" y1="${padT + chartH / 2}" x2="100" y2="${padT + chartH / 2}" />
+                <line class="test-score-grid test-score-grid--base" x1="${padL}" y1="${padT + chartH}" x2="100" y2="${padT + chartH}" />
+                <polyline class="test-score-line" fill="none" points="${pts}" />
+                ${dots}
+            </svg>`;
+    } else {
+        const item = normalized[0];
+        const x = padL + chartW / 2;
+        const y = padT + (100 - item.percent) / 100 * chartH;
+        lineSvg = `
+            <svg class="test-score-line-svg" viewBox="0 0 100 ${svgH}" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+                <text x="2" y="10" class="test-score-y-tick">100</text>
+                <text x="6" y="${padT + chartH / 2 + 2}" class="test-score-y-tick">50</text>
+                <text x="8" y="${padT + chartH + 2}" class="test-score-y-tick">0</text>
+                <line class="test-score-grid test-score-grid--base" x1="${padL}" y1="${padT + chartH}" x2="100" y2="${padT + chartH}" />
+                <circle class="test-line-dot test-line-dot--solo" cx="${x.toFixed(2)}" cy="${y.toFixed(2)}" r="3.5" />
+            </svg>`;
+    }
+
+    const subLine = opts.rangeTitle
+        ? opts.rangeTitle
+        : '막대·선 그래프는 동일 데이터 기준(시험일 순)';
+
+    const headBlock = suppressVizHead
+        ? ''
+        : `
+        <div class="test-score-viz-head">
+            <span class="test-score-viz-title"><i class="fas fa-percentage"></i> 만점 대비 비율 추이</span>
+            <span class="test-score-viz-sub">${escapeHtml(subLine)}</span>
+        </div>`;
+
+    return `
+        <div class="${wrapClass}">
+        ${headBlock}
+        ${lineSvg}
+        <div class="test-score-trend test-score-trend--bars${wide ? ' test-score-trend--bars-wide' : ''}" role="img" aria-label="시험 만점 대비 비율 막대 그래프">
+            ${buildTestScoreTrendBars(scores, wide)}
+        </div>
+        </div>`;
+}
+
 function buildTestScoreList(scores) {
     if (!scores.length) return '';
-    return scores.map((item) => {
+    const sorted = sortScoresByExamDate(scores);
+    return sorted.map((item) => {
         const maxScore = Number(item.maxScore || 0);
         const score = Number(item.score || 0);
         const percent = maxScore > 0 ? Math.round((score / maxScore) * 100) : 0;
@@ -6517,7 +6718,6 @@ function buildTestScoreList(scores) {
 async function renderTestScoreSection(studentId, monthPrefix, monthLabel, preloadedScores) {
     const monthEl = document.getElementById('test-score-month-label');
     const summaryEl = document.getElementById('test-score-summary');
-    const trendEl = document.getElementById('test-score-trend');
     const listEl = document.getElementById('test-score-list');
     const dateInput = document.getElementById('test-score-date');
     const nameInput = document.getElementById('test-score-name');
@@ -6537,14 +6737,55 @@ async function renderTestScoreSection(studentId, monthPrefix, monthLabel, preloa
         valueInput.dataset.studentId = String(studentId);
         valueInput.dataset.monthPrefix = monthPrefix;
     }
-    if (summaryEl && trendEl && listEl) {
+    if (summaryEl && listEl) {
         const scores = Array.isArray(preloadedScores) ? preloadedScores : await getMonthlyTestScoresWithFallback(studentId, monthPrefix);
         summaryEl.innerHTML = buildTestScoreSummary(scores);
-        trendEl.innerHTML = scores.length ? buildTestScoreTrendBars(scores) : '';
         listEl.innerHTML = buildTestScoreList(scores);
         renderTestScoreSyncStatus();
     }
+    scheduleStudentEvalChartRefresh();
 }
+
+/**
+ * 평가 모달 「그래프」탭: 기준월~역산 N개월 구간을 Supabase에서 조회해 대형 시각화 표시
+ */
+window.renderStudentEvalChartPanel = async function() {
+    const host = document.getElementById('student-eval-chart-wide');
+    const rangeIn = document.getElementById('student-eval-chart-range');
+    if (!host) return;
+    const sid = String(historyActionContext.studentId || '');
+    const monthPrefix = String(historyActionContext.monthPrefix || '');
+    if (!sid || !monthPrefix) {
+        host.innerHTML = '<div class="test-score-viz-empty test-score-viz-empty--silent" aria-hidden="true"></div>';
+        return;
+    }
+    let months = parseInt(rangeIn && rangeIn.value !== '' ? rangeIn.value : '3', 10);
+    if (!Number.isFinite(months)) months = 3;
+    months = Math.max(1, Math.min(12, months));
+    if (rangeIn && String(rangeIn.value) !== String(months)) rangeIn.value = String(months);
+    const { startDate, endDate } = monthAnchorRangeMonths(monthPrefix, months);
+    if (!startDate || !endDate) {
+        host.innerHTML = '<div class="test-score-viz-empty test-score-viz-empty--silent" aria-hidden="true"></div>';
+        return;
+    }
+    host.innerHTML = '<div class="student-eval-chart-host-loading" aria-busy="true" aria-hidden="true"></div>';
+    try {
+        let scores = [];
+        if (typeof window.getStudentTestScoresByDateRange === 'function') {
+            scores = await window.getStudentTestScoresByDateRange(sid, startDate, endDate);
+        }
+        host.innerHTML = buildTestScoreVisualizationHtml(scores, {
+            wide: true,
+            rangeMode: true,
+            silentEmpty: true,
+            suppressVizHead: true,
+            rangeTitle: ''
+        });
+    } catch (e) {
+        console.error('[renderStudentEvalChartPanel]', e);
+        host.innerHTML = '<div class="test-score-viz-empty test-score-viz-empty--silent" aria-hidden="true"></div>';
+    }
+};
 
 function toSafeNumber(value) {
     if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
@@ -6724,6 +6965,7 @@ window.openHistoryAttendanceAction = async function() {
     }
 
     closeModal('history-modal');
+    closeModal('student-eval-modal');
 
     if (targetStart) {
         await openAttendanceModal(sid, targetDate, targetStart);
@@ -6759,12 +7001,24 @@ window.openHistoryPaymentAction = function() {
     }
 
     closeModal('history-modal');
+    closeModal('student-eval-modal');
     setTimeout(() => {
         window.openPaymentLedgerModal(sid, monthPrefix);
     }, 40);
 };
 
 window.openHistoryScoreAction = function() {
+    const evalModal = document.getElementById('student-eval-modal');
+    if (evalModal && evalModal.style.display === 'flex') {
+        if (typeof window.switchStudentEvalTab === 'function') {
+            window.switchStudentEvalTab('score');
+        }
+        setTimeout(() => {
+            const nameInput = document.getElementById('test-score-name');
+            if (nameInput) nameInput.focus();
+        }, 80);
+        return;
+    }
     const section = document.getElementById('test-score-section');
     if (!section) return;
     section.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -6822,28 +7076,44 @@ window.saveTestScoreFromHistory = async function() {
     }
 
     let savedRow = localRow;
+    let remoteOk = false;
+    let remoteSaveErr = null;
     if (typeof window.saveStudentTestScore === 'function') {
         try {
             const remoteSaved = await window.saveStudentTestScore(localRow);
-            if (remoteSaved && remoteSaved.id) savedRow = remoteSaved;
+            if (remoteSaved && remoteSaved.id) {
+                savedRow = remoteSaved;
+                remoteOk = true;
+            }
             setTestScoreSyncState('remote', `원격 저장 성공 · ${new Date().toLocaleTimeString('ko-KR')}`);
         } catch (error) {
+            remoteSaveErr = error;
             console.warn('[saveTestScoreFromHistory] 원격 저장 실패, 로컬 폴백:', error);
             setTestScoreSyncState('local', `원격 저장 실패 · 로컬 저장 (${error.message || 'unknown'})`);
+            showToast(`Supabase 저장 실패: ${error.message || '알 수 없는 오류'} (같은 내용은 기기에 백업됨)`, 'error');
         }
     } else {
         setTestScoreSyncState('local', '원격 저장 함수 미구성 · 로컬 저장');
     }
     upsertLocalTestScore(savedRow);
     valueInput.value = '';
-    if (!nameInput.value) nameInput.focus();
+    nameInput.value = '';
+    nameInput.focus();
     await renderTestScoreSection(studentId, monthPrefix, `${monthPrefix.slice(0, 4)}년 ${monthPrefix.slice(5)}월`);
 
     if (saveBtn) {
         saveBtn.disabled = false;
         saveBtn.innerHTML = '<i class="fas fa-plus"></i> 점수 저장';
     }
-    showToast(savedRow.id === localRow.id ? '테스트 점수가 저장되었습니다. (로컬 저장)' : '테스트 점수가 저장되었습니다.', 'success');
+    if (remoteOk) {
+        showToast('테스트 점수가 저장되었습니다.', 'success');
+    } else if (remoteSaveErr) {
+        /* Supabase 오류 토스트는 catch에서 이미 표시 */
+    } else if (typeof window.saveStudentTestScore === 'function') {
+        showToast('로컬에만 저장되었습니다. 동기화 점검 또는 로그인 상태를 확인하세요.', 'warning');
+    } else {
+        showToast('테스트 점수가 저장되었습니다. (로컬 전용)', 'warning');
+    }
 };
 
 window.deleteTestScoreFromHistory = async function(scoreId) {
@@ -6863,113 +7133,124 @@ window.deleteTestScoreFromHistory = async function(scoreId) {
     }
     removeLocalTestScore(scoreId);
     await renderTestScoreSection(studentId, monthPrefix, `${monthPrefix.slice(0, 4)}년 ${monthPrefix.slice(5)}월`);
+    scheduleStudentEvalChartRefresh();
     showToast('테스트 점수가 삭제되었습니다.', 'info');
 };
 
-window.openHistoryModal = async function() {
-    const sid = document.getElementById('att-student-id').value;
-    const s = students.find(x => String(x.id) === String(sid));
-    if(!s) return;
-    const curYear = currentDate.getFullYear();
-    const curMonth = currentDate.getMonth() + 1;
-    document.getElementById('history-modal').style.display = 'flex';
-    document.getElementById('hist-title').textContent = `${s.name} (${s.grade})${s.school ? ' · ' + s.school : ''}`;
-    document.getElementById('hist-subtitle').textContent = `${curYear}년 ${curMonth}월 학습 기록`;
-    const container = document.getElementById('history-timeline');
-    container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--gray);">로딩 중...</div>';
-    const statsEl = document.getElementById('hist-stats');
-    const overviewEl = document.getElementById('hist-overview');
-    // 요청사항: "이번달 기록"은 메모 모음 전용(개인/공유 메모만)으로 사용
-    if (statsEl) {
-        statsEl.innerHTML = '';
-        statsEl.style.display = 'none';
-    }
-    if (overviewEl) {
-        overviewEl.innerHTML = '';
-        overviewEl.style.display = 'none';
-    }
-    const monthPrefix = `${curYear}-${String(curMonth).padStart(2, '0')}`;
-    historyActionContext = { studentId: String(sid), monthPrefix };
+/**
+ * 수업관리에서 저장한 월별 개인/공유 메모를 학생 객체에 채운 뒤 출석 레코드로 상태를 보조 동기화한다.
+ * @param {object} s students 배열의 학생 객체
+ * @param {string} sid 학생 id
+ * @param {string} monthPrefix `YYYY-MM`
+ */
+async function hydrateMonthlyClassMemosForStudent(s, sid, monthPrefix) {
+    const parts = String(monthPrefix || '').split('-');
+    const curYear = parseInt(parts[0], 10);
+    const curMonth = parseInt(parts[1], 10);
+    if (!curYear || !curMonth) return;
 
-    // DB에서 해당 학생의 이번 달 전체 출석 레코드를 조회 (메모 + 공유 메모 모두)
     try {
         const ownerId = localStorage.getItem('current_owner_id');
-        if (ownerId) {
-            const numericId = parseInt(sid);
-            const startDate = `${monthPrefix}-01`;
-            // 해당 월의 마지막 날짜를 정확히 계산 (2월 31일 같은 잘못된 날짜 방지)
-            const lastDay = new Date(curYear, curMonth, 0).getDate();
-            const endDate = `${monthPrefix}-${String(lastDay).padStart(2, '0')}`;
+        if (!ownerId) return;
+        const numericId = parseInt(sid, 10);
 
-            // 1) 공유 메모: teacher_id 무관하게 전체 조회
-            const { data: allRecords, error: allErr } = await supabase
-                .from('attendance_records')
-                .select('attendance_date, scheduled_time, teacher_id, memo, shared_memo, status')
-                .eq('owner_user_id', ownerId)
-                .eq('student_id', numericId)
-                .gte('attendance_date', startDate)
-                .lte('attendance_date', endDate);
+        if (s.records && typeof s.records === 'object') {
+            Object.keys(s.records).forEach((k) => {
+                if (k && typeof k === 'string' && k.startsWith(monthPrefix)) delete s.records[k];
+            });
+        } else {
+            s.records = {};
+        }
+        if (s.shared_records && typeof s.shared_records === 'object') {
+            Object.keys(s.shared_records).forEach((k) => {
+                if (k && typeof k === 'string' && k.startsWith(monthPrefix)) delete s.shared_records[k];
+            });
+        } else {
+            s.shared_records = {};
+        }
 
-            if (!allErr && allRecords && allRecords.length > 0) {
-                if (!s.shared_records) s.shared_records = {};
+        if (typeof window.getStudentClassMemos === 'function') {
+            try {
+                const { class_memos, class_shared_memos } = await window.getStudentClassMemos(sid, monthPrefix);
+
                 if (!s.records) s.records = {};
-
-                // 선생님 이름 매핑
-                const teacherNames = {};
-                if (typeof teacherList !== 'undefined' && teacherList) {
-                    teacherList.forEach(t => { teacherNames[String(t.id)] = t.name; });
-                }
-
-                allRecords.forEach(rec => {
-                    const dk = rec.attendance_date;
-                    const tk = normalizeScheduleTimeKey(rec.scheduled_time);
-                    const sharedKey = `${tk}__${rec.teacher_id || 'unknown'}`;
-
-                    // 공유 메모 (선생님 이름 태그 포함)
-                    if (rec.shared_memo && rec.shared_memo.trim()) {
-                        if (!s.shared_records[dk] || typeof s.shared_records[dk] !== 'object') {
-                            s.shared_records[dk] = {};
+                Object.entries(class_memos || {}).forEach(([dateKey, timeMap]) => {
+                    if (!dateKey || !String(dateKey).startsWith(monthPrefix)) return;
+                    if (!timeMap || typeof timeMap !== 'object') return;
+                    if (!s.records[dateKey] || typeof s.records[dateKey] !== 'object') s.records[dateKey] = {};
+                    Object.entries(timeMap).forEach(([timeKey, memoHtml]) => {
+                        if (memoHtml && String(memoHtml).trim()) {
+                            const tk = normalizeScheduleTimeKey(String(timeKey || '')) || String(timeKey || 'default');
+                            s.records[dateKey][tk] = memoHtml;
                         }
-                        const tName = teacherNames[String(rec.teacher_id)] || '알 수 없음';
-                        s.shared_records[dk][sharedKey] = `<span style="display:inline-block;background:#eef2ff;color:#4f46e5;font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;margin-bottom:3px;">${tName}</span><div>${rec.shared_memo}</div>`;
-                    }
-
-                    // 개인 메모 (현재 선생님의 것만)
-                    if (rec.memo && rec.memo.trim() && String(rec.teacher_id) === String(currentTeacherId)) {
-                        if (!s.records[dk] || typeof s.records[dk] !== 'object') {
-                            s.records[dk] = {};
-                        }
-                        s.records[dk][tk] = rec.memo;
-                    }
-
-                    // 출석 상태도 동기화 (누락 방지)
-                    if (rec.status) {
-                        if (!s.attendance) s.attendance = {};
-                        if (!s.attendance[dk] || typeof s.attendance[dk] !== 'object') {
-                            s.attendance[dk] = {};
-                        }
-                        // 현재 선생님 레코드이거나, 아직 상태 없으면 반영
-                        if (String(rec.teacher_id) === String(currentTeacherId) || !s.attendance[dk][tk]) {
-                            s.attendance[dk][tk] = rec.status;
-                        }
-                    }
+                    });
                 });
+
+                if (!s.shared_records) s.shared_records = {};
+                Object.entries(class_shared_memos || {}).forEach(([dateKey, timeMap]) => {
+                    if (!dateKey || !String(dateKey).startsWith(monthPrefix)) return;
+                    if (!timeMap || typeof timeMap !== 'object') return;
+                    if (!s.shared_records[dateKey] || typeof s.shared_records[dateKey] !== 'object') s.shared_records[dateKey] = {};
+                    Object.entries(timeMap).forEach(([timeKey, teacherMap]) => {
+                        if (!teacherMap || typeof teacherMap !== 'object') return;
+                        const tk = normalizeScheduleTimeKey(String(timeKey || '')) || String(timeKey || 'default');
+                        Object.entries(teacherMap).forEach(([teacherId, memoHtml]) => {
+                            if (!memoHtml || !String(memoHtml).trim()) return;
+                            const tid = String(teacherId || 'unknown');
+                            const tName = getTeacherNameById(tid) || '알 수 없음';
+                            const sharedKey = `${tk}__${tid}`;
+                            s.shared_records[dateKey][sharedKey] =
+                                `<span style="display:inline-block;background:#eef2ff;color:#4f46e5;font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;margin-bottom:3px;">${tName}</span><div>${memoHtml}</div>`;
+                        });
+                    });
+                });
+            } catch (memoLoadError) {
+                console.error('[hydrateMonthlyClassMemosForStudent] 수업관리 메모 로드 실패:', memoLoadError);
             }
         }
+
+        const startDate = `${monthPrefix}-01`;
+        const lastDay = new Date(curYear, curMonth, 0).getDate();
+        const endDate = `${monthPrefix}-${String(lastDay).padStart(2, '0')}`;
+
+        const { data: allRecords, error: allErr } = await supabase
+            .from('attendance_records')
+            .select('attendance_date, scheduled_time, teacher_id, status')
+            .eq('owner_user_id', ownerId)
+            .eq('student_id', numericId)
+            .gte('attendance_date', startDate)
+            .lte('attendance_date', endDate);
+
+        if (!allErr && allRecords && allRecords.length > 0) {
+            allRecords.forEach(rec => {
+                const dk = rec.attendance_date;
+                const tk = normalizeScheduleTimeKey(rec.scheduled_time);
+                if (rec.status) {
+                    if (!s.attendance) s.attendance = {};
+                    if (!s.attendance[dk] || typeof s.attendance[dk] !== 'object') {
+                        s.attendance[dk] = {};
+                    }
+                    if (String(rec.teacher_id) === String(currentTeacherId) || !s.attendance[dk][tk]) {
+                        s.attendance[dk][tk] = rec.status;
+                    }
+                }
+            });
+        }
     } catch (e) {
-        console.error('[openHistoryModal] DB 메모 조회 실패:', e);
+        console.error('[hydrateMonthlyClassMemosForStudent] DB 메모 조회 실패:', e);
     }
+}
 
-    container.innerHTML = '';
-
-    // 메모가 있는 날짜만 노출
+/**
+ * hydrate 이후 `s.records` / `s.shared_records`로 월별 메모 타임라인 HTML 생성
+ */
+function buildMonthlyMemoTimelineHtml(s, monthPrefix) {
     const allDates = new Set();
     if (s.records) Object.keys(s.records).forEach(d => allDates.add(d));
     if (s.shared_records) Object.keys(s.shared_records).forEach(d => allDates.add(d));
     const monthlyEvents = Array.from(allDates).filter(date => date.startsWith(monthPrefix)).sort();
     const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
 
-    // Helper: 메모 가져오기 (해당 날짜의 모든 메모를 합쳐서 반환, 중복 제거)
     function getMemo(recordObj, date) {
         if (!recordObj || !recordObj[date]) return '';
         if (typeof recordObj[date] === 'object') {
@@ -6992,11 +7273,15 @@ window.openHistoryModal = async function() {
         return recordObj[date];
     }
 
+    if (monthlyEvents.length === 0) {
+        return '<div class="hist-list-empty"><i class="fas fa-inbox" style="font-size:28px;margin-bottom:10px;display:block;color:#cbd5e1;"></i>이번 달 메모 기록이 없습니다.</div>';
+    }
+
     let html = '';
     monthlyEvents.forEach(date => {
         const privateMemo = getMemo(s.records, date);
         const sharedMemo = getMemo(s.shared_records, date);
-        const dayNum = parseInt(date.split('-')[2]);
+        const dayNum = parseInt(date.split('-')[2], 10);
         const dow = dayNames[new Date(date).getDay()];
 
         let memosHtml = '';
@@ -7006,7 +7291,7 @@ window.openHistoryModal = async function() {
                 memosHtml += `<div class="hist-memo-block"><div class="hist-memo-label"><i class="fas fa-lock"></i> 개인 메모</div><div>${privateMemo}</div></div>`;
             }
             if (sharedMemo) {
-                memosHtml += `<div class="hist-memo-block"><div class="hist-memo-label shared"><i class="fas fa-users"></i> 공유 메모</div><div>${sharedMemo}</div></div>`;
+                memosHtml += `<div class="hist-memo-block"><div>${sharedMemo}</div></div>`;
             }
             memosHtml += '</div>';
         } else {
@@ -7021,14 +7306,49 @@ window.openHistoryModal = async function() {
             ${memosHtml}
         </div>`;
     });
+    return html;
+}
 
-    if (monthlyEvents.length === 0) {
-        container.innerHTML = '<div class="hist-list-empty"><i class="fas fa-inbox" style="font-size:28px;margin-bottom:10px;display:block;color:#cbd5e1;"></i>이번 달 메모 기록이 없습니다.</div>';
-    } else {
-        container.innerHTML = html;
+/**
+ * 월별 학습 기록 모달(`history-modal`).
+ * @param {boolean} [memoOnly=false] true면 수업관리「이번달 기록」경로 — 날짜별 메모만 보이고 종합평가 블록은 숨김.
+ */
+window.openHistoryModal = async function(memoOnly) {
+    const sid = document.getElementById('att-student-id').value;
+    const s = students.find(x => String(x.id) === String(sid));
+    if(!s) return;
+    const curYear = currentDate.getFullYear();
+    const curMonth = currentDate.getMonth() + 1;
+    const memoOnlyMode = memoOnly === true;
+    document.getElementById('history-modal').style.display = 'flex';
+    document.getElementById('hist-title').textContent = `${s.name} (${s.grade})${s.school ? ' · ' + s.school : ''}`;
+    document.getElementById('hist-subtitle').textContent = `${curYear}년 ${curMonth}월 학습 기록`;
+    const container = document.getElementById('history-timeline');
+    container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--gray);">로딩 중...</div>';
+    const statsEl = document.getElementById('hist-stats');
+    const overviewEl = document.getElementById('hist-overview');
+    if (statsEl) {
+        statsEl.innerHTML = '';
+        statsEl.style.display = 'none';
+    }
+    if (overviewEl) {
+        overviewEl.innerHTML = '';
+        overviewEl.style.display = 'none';
+    }
+    const monthPrefix = `${curYear}-${String(curMonth).padStart(2, '0')}`;
+    historyActionContext = { studentId: String(sid), monthPrefix };
+
+    await hydrateMonthlyClassMemosForStudent(s, sid, monthPrefix);
+
+    container.innerHTML = buildMonthlyMemoTimelineHtml(s, monthPrefix);
+
+    const evalSection = document.getElementById('eval-section');
+    if (evalSection) evalSection.style.display = memoOnlyMode ? 'none' : '';
+
+    if (memoOnlyMode) {
+        return;
     }
 
-    // 종합평가는 하단 유지 (테스트 점수 섹션은 제거됨)
     const evalMonthLabel = document.getElementById('eval-current-month');
     const evalTextarea = document.getElementById('eval-textarea-main');
     const evalCharCount = document.getElementById('eval-char-main');
@@ -7103,6 +7423,150 @@ window.saveEvalFromHistory = async function() {
         showToast('종합평가 저장에 실패했습니다.', 'error');
     }
 }
+
+/** 학생 목록 「평가」모달: 기록 / 점수 / 그래프 탭 전환 */
+window.switchStudentEvalTab = function(tab) {
+    const t = tab === 'score' ? 'score' : (tab === 'chart' ? 'chart' : 'record');
+    const isRecord = t === 'record';
+    const isScore = t === 'score';
+    const isChart = t === 'chart';
+    const panelR = document.getElementById('student-eval-panel-record');
+    const panelS = document.getElementById('student-eval-panel-score');
+    const panelC = document.getElementById('student-eval-panel-chart');
+    const tabR = document.getElementById('student-eval-tab-record');
+    const tabS = document.getElementById('student-eval-tab-score');
+    const tabC = document.getElementById('student-eval-tab-chart');
+    if (panelR) panelR.style.display = isRecord ? 'block' : 'none';
+    if (panelS) panelS.style.display = isScore ? 'block' : 'none';
+    if (panelC) panelC.style.display = isChart ? 'block' : 'none';
+    if (tabR) tabR.classList.toggle('active', isRecord);
+    if (tabS) tabS.classList.toggle('active', isScore);
+    if (tabC) tabC.classList.toggle('active', isChart);
+    if (isChart && typeof window.renderStudentEvalChartPanel === 'function') {
+        window.renderStudentEvalChartPanel();
+    }
+};
+
+/**
+ * 학생 목록 전용 「평가」모달 — 기록 탭(수업관리 월별 메모), 점수 탭(테스트 점수), 하단 종합평가 고정
+ * @param {string} studentId
+ * @param {{ initialTab?: 'record'|'score'|'chart' }} [options]
+ */
+window.openStudentEvalModal = async function(studentId, options) {
+    let initialTab = 'record';
+    if (options && options.initialTab === 'score') initialTab = 'score';
+    else if (options && options.initialTab === 'chart') initialTab = 'chart';
+    const sid = String(studentId || '');
+    if (!sid) return;
+    const s = students.find((x) => String(x.id) === String(sid));
+    if (!s) {
+        showToast('학생 정보를 찾을 수 없습니다.', 'warning');
+        return;
+    }
+
+    closeModal('history-modal');
+
+    const curYear = currentDate.getFullYear();
+    const curMonth = currentDate.getMonth() + 1;
+    const monthPrefix = `${curYear}-${String(curMonth).padStart(2, '0')}`;
+    historyActionContext = { studentId: sid, monthPrefix };
+
+    const modal = document.getElementById('student-eval-modal');
+    if (!modal) {
+        showToast('평가 화면을 찾을 수 없습니다.', 'warning');
+        return;
+    }
+    modal.style.display = 'flex';
+
+    const titleEl = document.getElementById('student-eval-title');
+    const subEl = document.getElementById('student-eval-subtitle');
+    if (titleEl) titleEl.textContent = `${s.name} (${s.grade})${s.school ? ' · ' + s.school : ''}`;
+    if (subEl) subEl.textContent = `${curYear}년 ${curMonth}월 학습 · 평가`;
+
+    const timelineEl = document.getElementById('student-eval-timeline');
+    if (timelineEl) timelineEl.innerHTML = '<div style="text-align:center;padding:20px;color:var(--gray);">로딩 중...</div>';
+
+    await hydrateMonthlyClassMemosForStudent(s, sid, monthPrefix);
+    if (timelineEl) timelineEl.innerHTML = buildMonthlyMemoTimelineHtml(s, monthPrefix);
+
+    const evalMonthLabel = document.getElementById('student-eval-month-label');
+    const evalTextarea = document.getElementById('student-eval-textarea');
+    const evalCharCount = document.getElementById('student-eval-char');
+    const evalSaveBtn = document.getElementById('student-eval-save-btn');
+    if (evalMonthLabel) evalMonthLabel.textContent = `${curYear}년 ${curMonth}월`;
+    if (evalTextarea) {
+        evalTextarea.value = '';
+        evalTextarea.dataset.studentId = sid;
+        evalTextarea.dataset.evalMonth = monthPrefix;
+        evalTextarea.oninput = function() {
+            if (evalCharCount) evalCharCount.textContent = this.value.length;
+        };
+    }
+    if (evalCharCount) evalCharCount.textContent = '0';
+    if (evalSaveBtn) {
+        evalSaveBtn.innerHTML = '<i class="fas fa-save"></i> 저장';
+        evalSaveBtn.classList.remove('saved');
+    }
+
+    try {
+        if (typeof window.getStudentEvaluation === 'function') {
+            const evalData = await window.getStudentEvaluation(sid, monthPrefix);
+            if (evalData && evalData.comment && evalTextarea) {
+                evalTextarea.value = evalData.comment;
+                if (evalCharCount) evalCharCount.textContent = String(evalData.comment || '').length;
+            }
+        }
+    } catch (e) {
+        console.error('[openStudentEvalModal] 종합평가 로드 실패:', e);
+    }
+
+    const monthLabel = `${monthPrefix.slice(0, 4)}년 ${monthPrefix.slice(5)}월`;
+    await renderTestScoreSection(sid, monthPrefix, monthLabel);
+
+    window.switchStudentEvalTab(initialTab);
+};
+
+window.saveStudentEvalFromModal = async function() {
+    const evalTextarea = document.getElementById('student-eval-textarea');
+    const evalSaveBtn = document.getElementById('student-eval-save-btn');
+    if (!evalTextarea) return;
+
+    const studentId = evalTextarea.dataset.studentId;
+    const evalMonth = evalTextarea.dataset.evalMonth;
+    const comment = evalTextarea.value.trim();
+
+    if (!studentId || !evalMonth) {
+        showToast('학생 정보를 찾을 수 없습니다.', 'warning');
+        return;
+    }
+
+    if (evalSaveBtn) {
+        evalSaveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 저장 중...';
+        evalSaveBtn.disabled = true;
+    }
+
+    try {
+        await window.saveStudentEvaluation(studentId, evalMonth, comment, currentTeacherId);
+
+        if (evalSaveBtn) {
+            evalSaveBtn.innerHTML = '<i class="fas fa-check"></i> 저장 완료';
+            evalSaveBtn.classList.add('saved');
+            evalSaveBtn.disabled = false;
+            setTimeout(() => {
+                evalSaveBtn.innerHTML = '<i class="fas fa-save"></i> 저장';
+                evalSaveBtn.classList.remove('saved');
+            }, 2000);
+        }
+        showToast('종합평가가 저장되었습니다.', 'success');
+    } catch (e) {
+        console.error('[saveStudentEvalFromModal] 종합평가 저장 실패:', e);
+        if (evalSaveBtn) {
+            evalSaveBtn.innerHTML = '<i class="fas fa-save"></i> 저장';
+            evalSaveBtn.disabled = false;
+        }
+        showToast('종합평가 저장에 실패했습니다.', 'error');
+    }
+};
 
 window.onScheduleFontSizeInput = function (val) {
     const el = document.getElementById('schedule-font-size-val');
@@ -7371,6 +7835,76 @@ window.deleteScheduleFromModal = async function () {
     showToast('일정이 삭제되었습니다.', 'success');
 };
 
+/**
+ * Supabase public.payments 를 로컬 students[].payments 에 병합
+ * - ledger_json 이 있으면 updatedAt 비교 후 더 최신 쪽을 반영
+ * - 레거시 DB 행만 있으면 최소 원장 객체로 복원
+ */
+function mergeRemotePaymentsIntoPaymentsMap(students, remoteRows) {
+    if (!remoteRows || !remoteRows.length || !students || !students.length) return;
+    const byStudent = new Map();
+    for (const row of remoteRows) {
+        const sid = String(row.student_id);
+        if (!byStudent.has(sid)) byStudent.set(sid, []);
+        byStudent.get(sid).push(row);
+    }
+    for (const s of students) {
+        const sid = String(s.id);
+        const rows = byStudent.get(sid);
+        if (!rows) continue;
+        if (!s.payments) s.payments = {};
+        for (const row of rows) {
+            const mk = row.payment_month;
+            if (!mk) continue;
+            const localMonth = s.payments[mk] || {};
+            const localLedger = localMonth.ledger;
+            const remoteLedger = row.ledger_json;
+
+            if (remoteLedger && typeof remoteLedger === 'object') {
+                const rTime = remoteLedger.updatedAt ? new Date(remoteLedger.updatedAt).getTime() : 0;
+                const lTime = localLedger && localLedger.updatedAt ? new Date(localLedger.updatedAt).getTime() : 0;
+                if (!localLedger || rTime > lTime) {
+                    if (!s.payments[mk]) s.payments[mk] = {};
+                    s.payments[mk].ledger = { ...remoteLedger };
+                }
+            } else if (!localLedger && (row.channel != null || row.supply_amount != null || row.paid_at_text || row.reference_id)) {
+                if (!s.payments[mk]) s.payments[mk] = {};
+                const refund = Number(row.refund_amount) || 0;
+                const paidNet = Number(row.paid_amount) || 0;
+                s.payments[mk].ledger = {
+                    dueAmount: Number(row.amount) || 0,
+                    paidAmount: paidNet + refund,
+                    supplyAmount: Number(row.supply_amount) || 0,
+                    vatAmount: Number(row.vat_amount) || 0,
+                    paidAt: row.paid_at_text || (row.payment_date ? String(row.payment_date) : ''),
+                    channel: row.channel || '',
+                    method: row.method || '',
+                    referenceId: row.reference_id || '',
+                    evidenceType: row.evidence_type || 'manual',
+                    evidenceNumber: row.evidence_number || '',
+                    evidenceName: row.evidence_name || '',
+                    unmatchedDeposit: Boolean(row.unmatched_deposit),
+                    refundAmount: refund,
+                    refundReason: String(row.refund_reason || ''),
+                    note: row.memo || '',
+                    updatedAt: new Date().toISOString(),
+                    syncSource: 'db_flat_columns'
+                };
+            } else if (!localLedger && (row.amount != null || row.paid_amount != null)) {
+                if (!s.payments[mk]) s.payments[mk] = {};
+                s.payments[mk].ledger = {
+                    dueAmount: Number(row.amount) || 0,
+                    paidAmount: Number(row.paid_amount) || 0,
+                    paidAt: row.payment_date ? String(row.payment_date) : '',
+                    note: row.memo || '',
+                    updatedAt: new Date().toISOString(),
+                    syncSource: 'db_row_fallback'
+                };
+            }
+        }
+    }
+}
+
 async function loadAndCleanData() {
     let records = [];
     try {
@@ -7392,13 +7926,17 @@ async function loadAndCleanData() {
             console.warn('[loadAndCleanData] 로컬 payments 캐시 로드 실패:', e);
         }
         
-        // 학생 목록과 owner 전체 출석 기록을 동시에 조회(순차 대비 왕복 1회 절약)
+        // 학생 목록과 owner 전체 출석 기록·수납(payments)을 동시에 조회
         const attendancePromise = typeof getAttendanceRecordsByOwner === 'function'
             ? getAttendanceRecordsByOwner(null)
             : Promise.resolve([]);
-        const [supabaseStudents, recordsFetched] = await Promise.all([
+        const remotePaymentsPromise = typeof getPaymentsByOwnerForSync === 'function'
+            ? getPaymentsByOwnerForSync()
+            : Promise.resolve([]);
+        const [supabaseStudents, recordsFetched, remotePayments] = await Promise.all([
             getAllStudents(),
-            attendancePromise
+            attendancePromise,
+            remotePaymentsPromise
         ]);
         records = recordsFetched || [];
         console.log('[loadAndCleanData] Supabase 학생 수:', supabaseStudents.length);
@@ -7426,14 +7964,16 @@ async function loadAndCleanData() {
                 studentCode: s.student_code || '',
                 status: s.status || 'active',
                 statusChangedDate: s.status_changed_date || null,
+                teacher_id: s.teacher_id || '',
                 events: [],
                 attendance: {},
                 records: {},
                 shared_records: {},
-                // 수납 원장은 현재 로컬 원장(source of operation)을 유지해야 새로고침 시 수정분이 유실되지 않는다.
+                // 수납: 로컬 캐시 우선 병합 후, Supabase payments(ledger_json)로 최신분 보강
                 payments: localPaymentsByStudentId.get(String(s.id)) || {}
             });
             });
+            mergeRemotePaymentsIntoPaymentsMap(students, remotePayments || []);
             // 로컬 스토리지에도 백업 저장
             localStorage.setItem(ownerKey, JSON.stringify(students));
             console.log(`[loadAndCleanData] Supabase에서 학생 데이터 로드 완료: ${students.length}명`);
@@ -7452,6 +7992,20 @@ async function loadAndCleanData() {
         // 출석 기록: 소유자 기준 전체 레코드를 로드해 학생에 반영 (모든 선생님 공통)
         // ★ 시간별 객체 형태로 저장: student.attendance[date][scheduled_time] = status
         const studentById = new Map((students || []).map((s) => [String(s.id), s]));
+        const isAttendanceReasonMemo = (txt) => {
+            const t = String(txt || '').trim();
+            if (!t) return false;
+            const patterns = [
+                '[전화번호인증]',
+                '전화번호인증',
+                '[지각후인증]',
+                '지각후인증',
+                '[수업종료후임시]',
+                '수업종료후임시',
+                '임시출석'
+            ];
+            return patterns.some(p => t.includes(p));
+        };
         if (records && records.length > 0 && students.length > 0) {
                 // scheduled_time까지 포함한 키로 중복 제거
                 const recordMap = new Map();
@@ -7506,8 +8060,11 @@ async function loadAndCleanData() {
                     }
                     student.attendance[dateKey][scheduledTimeKey] = record.status;
 
-                    // 개인 메모 동기화 (DB → 로컬 records)
-                    if (record.memo) {
+                    // 개인 메모 동기화 (DB → 로컬 records) : class_memo 우선
+                    const memoCandidate = (record.class_memo !== undefined && record.class_memo !== null)
+                        ? record.class_memo
+                        : record.memo;
+                    if (memoCandidate && String(memoCandidate).trim() && !isAttendanceReasonMemo(memoCandidate)) {
                         if (!student.records) student.records = {};
                         if (typeof student.records[dateKey] === 'string') {
                             const prev = student.records[dateKey];
@@ -7517,11 +8074,14 @@ async function loadAndCleanData() {
                         if (!student.records[dateKey] || typeof student.records[dateKey] !== 'object') {
                             student.records[dateKey] = {};
                         }
-                        student.records[dateKey][scheduledTimeKey] = record.memo;
+                        student.records[dateKey][scheduledTimeKey] = memoCandidate;
                     }
 
-                    // 공유 메모 동기화 (DB → 로컬 shared_records)
-                    if (record.shared_memo) {
+                    // 공유 메모 동기화 (DB → 로컬 shared_records) : class_shared_memo 우선
+                    const sharedCandidate = (record.class_shared_memo !== undefined && record.class_shared_memo !== null)
+                        ? record.class_shared_memo
+                        : record.shared_memo;
+                    if (sharedCandidate && String(sharedCandidate).trim() && !isAttendanceReasonMemo(sharedCandidate)) {
                         if (!student.shared_records) student.shared_records = {};
                         if (typeof student.shared_records[dateKey] === 'string') {
                             const prev = student.shared_records[dateKey];
@@ -7531,7 +8091,7 @@ async function loadAndCleanData() {
                         if (!student.shared_records[dateKey] || typeof student.shared_records[dateKey] !== 'object') {
                             student.shared_records[dateKey] = {};
                         }
-                        student.shared_records[dateKey][scheduledTimeKey] = record.shared_memo;
+                        student.shared_records[dateKey][scheduledTimeKey] = sharedCandidate;
                     }
 
                     // QR 스캔 시간 동기화 (상세기록 표시용)
@@ -7562,13 +8122,17 @@ async function loadAndCleanData() {
             try {
                 const { data: sharedData, error: sharedErr } = await supabase
                     .from('attendance_records')
-                    .select('student_id, attendance_date, scheduled_time, teacher_id, shared_memo')
+                    .select('student_id, attendance_date, scheduled_time, teacher_id, shared_memo, class_shared_memo')
                     .eq('owner_user_id', ownerId)
-                    .not('shared_memo', 'is', null);
+                    ;
 
                 if (!sharedErr && sharedData && sharedData.length > 0) {
                     sharedData.forEach(rec => {
-                        if (!rec.shared_memo || !rec.shared_memo.trim()) return;
+                        const sharedCandidate = (rec.class_shared_memo !== undefined && rec.class_shared_memo !== null)
+                            ? rec.class_shared_memo
+                            : rec.shared_memo;
+                        if (!sharedCandidate || !String(sharedCandidate).trim()) return;
+                        if (isAttendanceReasonMemo(sharedCandidate)) return;
                         const student = studentById.get(String(rec.student_id));
                         if (!student) return;
                         if (!student.shared_records) student.shared_records = {};
@@ -7577,7 +8141,7 @@ async function loadAndCleanData() {
                         if (!student.shared_records[dk] || typeof student.shared_records[dk] !== 'object') {
                             student.shared_records[dk] = {};
                         }
-                        student.shared_records[dk][tk] = rec.shared_memo;
+                        student.shared_records[dk][tk] = sharedCandidate;
                     });
                     console.log(`[loadAndCleanData] 공유 메모 동기화 완료: ${sharedData.length}건`);
                 }
@@ -8329,14 +8893,9 @@ window.openHistoryFromStudentList = async function(studentId, focusScoreInput) {
         toggleStudentList();
     }
 
-    await window.openHistoryModal();
-    if (focusScoreInput) {
-        setTimeout(() => {
-            if (typeof window.openHistoryScoreAction === 'function') {
-                window.openHistoryScoreAction();
-            }
-        }, 80);
-    }
+    await window.openStudentEvalModal(sid, {
+        initialTab: focusScoreInput ? 'score' : 'record'
+    });
 };
 
 // 동명이인 감지: 같은 이름의 학생이 여러 명인지 확인
@@ -8503,11 +9062,8 @@ window.renderDrawerList = function() {
                     <span>${s.studentPhone || '-'}</span>
                 </div>
                 <div class="student-quick-actions">
-                    <button type="button" class="student-quick-btn" onclick="event.stopPropagation(); openHistoryFromStudentList('${s.id}', false)">
-                        <i class="fas fa-history"></i> 이력
-                    </button>
-                    <button type="button" class="student-quick-btn score" onclick="event.stopPropagation(); openHistoryFromStudentList('${s.id}', true)">
-                        <i class="fas fa-square-poll-vertical"></i> 점수
+                    <button type="button" class="student-quick-btn eval" onclick="event.stopPropagation(); openHistoryFromStudentList('${s.id}', false)" title="수업 메모·점수·종합평가">
+                        <i class="fas fa-star"></i> 평가
                     </button>
                 </div>
                 ${assignControl}

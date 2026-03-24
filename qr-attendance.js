@@ -154,7 +154,17 @@ const pendingAttendanceChecks = new Map();
 // 활성 타이머: timeKey → { early: timeoutId|null, start: timeoutId|null } (5분 전 + 정각)
 const pendingTimersDetail = new Map();
 
+function normalizeAttendanceTimeKey(value) {
+    if (typeof window.normalizeScheduleTimeKey === 'function') {
+        const normalized = window.normalizeScheduleTimeKey(value);
+        if (normalized) return String(normalized).trim();
+    }
+    return String(value || '').trim().substring(0, 5);
+}
+
 function clearAttendanceCheckTimersForTimeKey(timeKey) {
+    timeKey = normalizeAttendanceTimeKey(timeKey);
+    if (!timeKey) return;
     const t = pendingTimersDetail.get(timeKey);
     if (!t) return;
     if (t.early) clearTimeout(t.early);
@@ -162,9 +172,47 @@ function clearAttendanceCheckTimersForTimeKey(timeKey) {
     pendingTimersDetail.delete(timeKey);
 }
 
+function _isPendingAttendanceItemStillScheduled(item, todayStr) {
+    if (!item || !item.dateStr || !item.scheduleStart) return false;
+    if (String(item.dateStr) !== String(todayStr)) return false;
+    const normalizedStart = normalizeAttendanceTimeKey(item.scheduleStart);
+    if (!normalizedStart) return false;
+
+    try {
+        if (typeof getScheduleEntries === 'function') {
+            const entries = getScheduleEntries(String(item.teacherId), String(item.studentId), String(item.dateStr)) || [];
+            return entries.some((entry) => normalizeAttendanceTimeKey(entry?.start || '') === normalizedStart);
+        }
+    } catch (e) {
+        console.error('[재석확인] getScheduleEntries 검증 실패:', e);
+    }
+
+    const teacherSchedule = (teacherScheduleData || {})[String(item.teacherId)] || {};
+    const studentSchedule = teacherSchedule[String(item.studentId)] || {};
+    const rawData = studentSchedule[String(item.dateStr)];
+    if (!rawData) return false;
+    const entries = Array.isArray(rawData) ? rawData : [rawData];
+    return entries.some((entry) => normalizeAttendanceTimeKey(entry?.start || '') === normalizedStart);
+}
+
+function prunePendingAttendanceChecksAgainstCurrentSchedules() {
+    const todayStr = (typeof getTodayStr === 'function') ? getTodayStr() : formatDateToYYYYMMDD(new Date());
+    for (const [timeKey, items] of pendingAttendanceChecks.entries()) {
+        const validItems = (items || []).filter((item) => item && !item._done && _isPendingAttendanceItemStillScheduled(item, todayStr));
+        if (validItems.length === 0) {
+            pendingAttendanceChecks.delete(timeKey);
+            clearAttendanceCheckTimersForTimeKey(timeKey);
+            clearSnoozeForTimeKey(timeKey);
+        } else {
+            pendingAttendanceChecks.set(timeKey, validItems);
+        }
+    }
+}
+
 // 재석 확인 대기 큐에 등록
 function registerPendingAttendanceCheck(studentId, studentName, teacherId, scheduleStart, dateStr) {
-    const timeKey = scheduleStart; // "HH:MM"
+    const timeKey = normalizeAttendanceTimeKey(scheduleStart); // "HH:MM"
+    if (!timeKey) return;
     if (!pendingAttendanceChecks.has(timeKey)) {
         pendingAttendanceChecks.set(timeKey, []);
     }
@@ -174,13 +222,13 @@ function registerPendingAttendanceCheck(studentId, studentName, teacherId, sched
         return;
     }
     const teacherName = (typeof getTeacherNameById === 'function') ? getTeacherNameById(teacherId) : teacherId;
-    existing.push({ studentId, studentName, teacherId, teacherName, scheduleStart, dateStr });
-    console.log(`[재석확인] 등록: ${studentName} - ${scheduleStart} (${teacherName})`);
+    existing.push({ studentId, studentName, teacherId, teacherName, scheduleStart: timeKey, dateStr });
+    console.log(`[재석확인] 등록: ${studentName} - ${timeKey} (${teacherName})`);
 
     // ★ 수업 시작 5분 전 + 수업 시작 정각 — 각각 별도 알림
     if (!pendingTimersDetail.has(timeKey)) {
         const nowMs = Date.now();
-        const [h, m] = scheduleStart.split(':').map(Number);
+        const [h, m] = timeKey.split(':').map(Number);
         const targetTime = new Date();
         targetTime.setHours(h, m, 0, 0);
 
@@ -204,7 +252,7 @@ function registerPendingAttendanceCheck(studentId, studentName, teacherId, sched
         timers.start = scheduleShow(delayStart, 'start');
         pendingTimersDetail.set(timeKey, timers);
 
-        console.log(`[재석확인] 이중 타이머: ${scheduleStart} (5분전·정각)`);
+        console.log(`[재석확인] 이중 타이머: ${timeKey} (5분전·정각)`);
     }
 }
 
@@ -344,7 +392,7 @@ async function saveEmergencyAttendanceAfterAllClassesEnded(opts) {
         authTime: nowIso,
         presenceChecked: false,
         processedAt: nowIso,
-        memo: '[수업종료후임시] 당일 등록 일정이 모두 종료된 뒤 도착 인증',
+        memo: null,
         shared_memo: null
     });
 
@@ -372,43 +420,34 @@ async function saveEmergencyAttendanceAfterAllClassesEnded(opts) {
 // phase: 'early' 수업 5분 전 | 'start' 수업 시작 정각 | 기타(스누즈 등)
 // ★ 체크박스 선택 + 상태 버튼 방식
 function showAttendanceCheckNotification(timeKey, phase) {
+    timeKey = normalizeAttendanceTimeKey(timeKey);
+    if (!timeKey) return;
+    const snoozeUntil = Number(snoozeUntilByTimeKey.get(timeKey) || 0);
+    if (snoozeUntil > Date.now()) {
+        return;
+    }
+    if (snoozeUntil > 0) {
+        snoozeUntilByTimeKey.delete(timeKey);
+    }
+
     const items = pendingAttendanceChecks.get(timeKey);
     if (!items || items.length === 0) {
         pendingAttendanceChecks.delete(timeKey);
         clearAttendanceCheckTimersForTimeKey(timeKey);
+        clearSnoozeForTimeKey(timeKey);
         return;
     }
 
     // 일정 변경/삭제 후에도 남아있는 재석확인 큐를 정리 (오탐 팝업 방지)
     const todayStr = (typeof getTodayStr === 'function') ? getTodayStr() : formatDateToYYYYMMDD(new Date());
-    const isStillScheduled = (item) => {
-        if (!item || !item.dateStr || !item.scheduleStart) return false;
-        if (String(item.dateStr) !== String(todayStr)) return false;
-
-        try {
-            if (typeof getScheduleEntries === 'function') {
-                const entries = getScheduleEntries(String(item.teacherId), String(item.studentId), String(item.dateStr)) || [];
-                return entries.some((entry) => String(entry?.start || '') === String(item.scheduleStart));
-            }
-        } catch (e) {
-            console.error('[재석확인] getScheduleEntries 검증 실패:', e);
-        }
-
-        const teacherSchedule = (teacherScheduleData || {})[String(item.teacherId)] || {};
-        const studentSchedule = teacherSchedule[String(item.studentId)] || {};
-        const rawData = studentSchedule[String(item.dateStr)];
-        if (!rawData) return false;
-        const entries = Array.isArray(rawData) ? rawData : [rawData];
-        return entries.some((entry) => String(entry?.start || '') === String(item.scheduleStart));
-    };
-
-    const validItems = items.filter((item) => item && !item._done && isStillScheduled(item));
+    const validItems = items.filter((item) => item && !item._done && _isPendingAttendanceItemStillScheduled(item, todayStr));
     if (validItems.length !== items.length) {
         pendingAttendanceChecks.set(timeKey, validItems);
     }
     if (validItems.length === 0) {
         pendingAttendanceChecks.delete(timeKey);
         clearAttendanceCheckTimersForTimeKey(timeKey);
+        clearSnoozeForTimeKey(timeKey);
         return;
     }
     
@@ -623,10 +662,7 @@ window.handleAttendanceCheckSelected = async function(status) {
                 if (nextItems.length === 0) {
                     pendingAttendanceChecks.delete(timeKey);
                     clearAttendanceCheckTimersForTimeKey(timeKey);
-                    if (snoozeTimers.has(timeKey)) {
-                        clearTimeout(snoozeTimers.get(timeKey));
-                        snoozeTimers.delete(timeKey);
-                    }
+                    clearSnoozeForTimeKey(timeKey);
                 } else {
                     pendingAttendanceChecks.set(timeKey, nextItems);
                 }
@@ -655,11 +691,7 @@ window.handleSingleAttendanceCheck = async function(timeKey, idx, status) {
             if (nextItems.length === 0) {
                 pendingAttendanceChecks.delete(timeKey);
                 clearAttendanceCheckTimersForTimeKey(timeKey);
-                // 스누즈 타이머도 정리
-                if (snoozeTimers.has(timeKey)) {
-                    clearTimeout(snoozeTimers.get(timeKey));
-                    snoozeTimers.delete(timeKey);
-                }
+                clearSnoozeForTimeKey(timeKey);
             } else {
                 pendingAttendanceChecks.set(timeKey, nextItems);
             }
@@ -679,12 +711,23 @@ window.handleAttendanceCheckAll = async function(status) {
 // ★ 재석 확인 스누즈 (5분 후 재알림)
 const SNOOZE_INTERVAL_MS = 5 * 60 * 1000; // 5분
 const snoozeTimers = new Map();
+const snoozeUntilByTimeKey = new Map();
+
+function clearSnoozeForTimeKey(timeKey) {
+    timeKey = normalizeAttendanceTimeKey(timeKey);
+    if (!timeKey) return;
+    if (snoozeTimers.has(timeKey)) {
+        clearTimeout(snoozeTimers.get(timeKey));
+        snoozeTimers.delete(timeKey);
+    }
+    snoozeUntilByTimeKey.delete(timeKey);
+}
 
 window.snoozeAttendanceCheck = function() {
     // 아직 처리되지 않은 항목이 있는 timeKey들을 수집
     const pendingKeys = [];
     for (const [key, items] of pendingAttendanceChecks.entries()) {
-        const remaining = items.filter(i => !i._done);
+        const remaining = items.filter(i => !i._done && String(i.teacherId) === String(currentTeacherId));
         if (remaining.length > 0) pendingKeys.push(key);
     }
 
@@ -695,17 +738,19 @@ window.snoozeAttendanceCheck = function() {
 
     // 5분 후 재알림 타이머 설정
     pendingKeys.forEach(timeKey => {
-        // 기존 스누즈 타이머가 있으면 제거
-        if (snoozeTimers.has(timeKey)) {
-            clearTimeout(snoozeTimers.get(timeKey));
-        }
+        clearSnoozeForTimeKey(timeKey);
+        const nextNotifyAt = Date.now() + SNOOZE_INTERVAL_MS;
+        snoozeUntilByTimeKey.set(timeKey, nextNotifyAt);
 
         const timerId = setTimeout(() => {
             snoozeTimers.delete(timeKey);
+            const until = Number(snoozeUntilByTimeKey.get(timeKey) || 0);
+            if (until > Date.now()) return;
+            snoozeUntilByTimeKey.delete(timeKey);
             const items = pendingAttendanceChecks.get(timeKey);
-            if (items && items.some(i => !i._done)) {
+            if (items && items.some(i => !i._done && String(i.teacherId) === String(currentTeacherId))) {
                 console.log(`[재석확인] 스누즈 재알림: ${timeKey}`);
-                showAttendanceCheckNotification(timeKey);
+                showAttendanceCheckNotification(timeKey, 'snooze');
             }
         }, SNOOZE_INTERVAL_MS);
 
@@ -714,6 +759,52 @@ window.snoozeAttendanceCheck = function() {
     });
 
     showToast('5분 후에 다시 알려드릴게요', 'info');
+};
+
+window.onScheduleSlotChangedForAttendanceCheck = function(payload = {}) {
+    try {
+        const sid = String(payload.studentId || '').trim();
+        if (!sid) return;
+        const oldDate = String(payload.oldDateStr || '').trim();
+        const newDate = String(payload.newDateStr || '').trim();
+        const oldStart = normalizeAttendanceTimeKey(payload.oldStart || '');
+        const newStart = normalizeAttendanceTimeKey(payload.newStart || '');
+        const oldStartRaw = String(payload.oldStart || '').trim();
+        const newStartRaw = String(payload.newStart || '').trim();
+        const oldTeacherIds = Array.isArray(payload.oldTeacherIds)
+            ? payload.oldTeacherIds.map((x) => String(x || '').trim()).filter(Boolean)
+            : [];
+        const newTeacherId = String(payload.newTeacherId || '').trim();
+        const affectedTeacherIds = Array.from(new Set([...oldTeacherIds, newTeacherId].filter(Boolean)));
+        const affectedDates = Array.from(new Set([oldDate, newDate].filter(Boolean)));
+
+        for (const [timeKey, items] of pendingAttendanceChecks.entries()) {
+            const next = (items || []).filter((item) => {
+                if (!item || String(item.studentId) !== sid) return true;
+                if (affectedTeacherIds.length && !affectedTeacherIds.includes(String(item.teacherId || '').trim())) return true;
+                if (affectedDates.length && !affectedDates.includes(String(item.dateStr || '').trim())) return true;
+                const todayStr = (typeof getTodayStr === 'function') ? getTodayStr() : formatDateToYYYYMMDD(new Date());
+                return _isPendingAttendanceItemStillScheduled(item, todayStr);
+            });
+            if (!next.length) {
+                pendingAttendanceChecks.delete(timeKey);
+                clearAttendanceCheckTimersForTimeKey(timeKey);
+                clearSnoozeForTimeKey(timeKey);
+            } else {
+                pendingAttendanceChecks.set(timeKey, next);
+            }
+        }
+
+        // 일정 변경 후에는 해당 슬롯의 알림 중복 방지 키도 정리해, 새로운 시간 기준으로 재평가되게 함
+        affectedTeacherIds.forEach((tid) => {
+            if (oldDate && oldStart) missedScanAlerted.delete(`${sid}_${oldStart}_${oldDate}_${tid}`);
+            if (oldDate && oldStartRaw && oldStartRaw !== oldStart) missedScanAlerted.delete(`${sid}_${oldStartRaw}_${oldDate}_${tid}`);
+            if (newDate && newStart) missedScanAlerted.delete(`${sid}_${newStart}_${newDate}_${tid}`);
+            if (newDate && newStartRaw && newStartRaw !== newStart) missedScanAlerted.delete(`${sid}_${newStartRaw}_${newDate}_${tid}`);
+        });
+    } catch (e) {
+        console.warn('[onScheduleSlotChangedForAttendanceCheck] 정리 실패:', e);
+    }
 };
 
 // ========== 미스캔 학생 자동 알림 시스템 ==========
@@ -731,6 +822,8 @@ window.initMissedScanChecks = function() {
         clearTimeout(timerId);
     }
     missedScanTimers.clear();
+    // 일정 변경으로 남아있을 수 있는 재석확인 대기큐/스누즈 정리
+    prunePendingAttendanceChecksAgainstCurrentSchedules();
     
     if (typeof teacherScheduleData === 'undefined') return;
     
@@ -753,8 +846,10 @@ window.initMissedScanChecks = function() {
             
             for (const classInfo of entries) {
                 if (!classInfo || !classInfo.start || classInfo.start === 'default') continue;
+                const normalizedStart = normalizeAttendanceTimeKey(classInfo.start);
+                if (!normalizedStart) continue;
                 
-                const [h, m] = classInfo.start.split(':').map(Number);
+                const [h, m] = normalizedStart.split(':').map(Number);
                 if (isNaN(h) || isNaN(m)) continue;
                 
                 const scheduleTime = new Date(now);
@@ -763,17 +858,17 @@ window.initMissedScanChecks = function() {
                 // ★ 5분 전에 확인 (수업 시작 5분 전에 체크)
                 const EARLY_CHECK_MS = 5 * 60 * 1000;
                 const delay = scheduleTime.getTime() - EARLY_CHECK_MS - now.getTime();
-                const timerKey = `${studentId}_${classInfo.start}_${teacherId}`;
+                const timerKey = `${studentId}_${normalizedStart}_${teacherId}`;
                 
                 if (delay <= 0) {
-                    const alertKey = `${studentId}_${classInfo.start}_${todayStr}_${teacherId}`;
+                    const alertKey = `${studentId}_${normalizedStart}_${todayStr}_${teacherId}`;
                     if (!missedScanAlerted.has(alertKey)) {
-                        setTimeout(() => checkMissedScan(studentId, classInfo.start, todayStr, teacherId), 1000);
+                        setTimeout(() => checkMissedScan(studentId, normalizedStart, todayStr, teacherId), 1000);
                     }
                 } else {
                     if (!missedScanTimers.has(timerKey)) {
                         const timerId = setTimeout(() => {
-                            checkMissedScan(studentId, classInfo.start, todayStr, teacherId);
+                            checkMissedScan(studentId, normalizedStart, todayStr, teacherId);
                             missedScanTimers.delete(timerKey);
                         }, delay);
                         missedScanTimers.set(timerKey, timerId);
@@ -792,7 +887,9 @@ window.initMissedScanChecks = function() {
 // 특정 학생/시간의 미스캔 여부 확인
 async function checkMissedScan(studentId, scheduleStart, dateStr, teacherId) {
     const effectiveTeacherId = teacherId || currentTeacherId;
-    const alertKey = `${studentId}_${scheduleStart}_${dateStr}_${effectiveTeacherId}`;
+    const normalizedStart = normalizeAttendanceTimeKey(scheduleStart);
+    if (!normalizedStart) return;
+    const alertKey = `${studentId}_${normalizedStart}_${dateStr}_${effectiveTeacherId}`;
     if (missedScanAlerted.has(alertKey)) return;
     
     // ★ 현재 선생님의 일정만 알림 표시
@@ -801,7 +898,7 @@ async function checkMissedScan(studentId, scheduleStart, dateStr, teacherId) {
     // DB에서 해당 시간의 출결 기록 확인
     try {
         const record = await getAttendanceRecordByStudentAndDate(
-            studentId, dateStr, effectiveTeacherId, scheduleStart
+            studentId, dateStr, effectiveTeacherId, normalizedStart
         );
         
         if (record) {
@@ -813,7 +910,7 @@ async function checkMissedScan(studentId, scheduleStart, dateStr, teacherId) {
         const student = students.find(s => String(s.id) === String(studentId));
         if (student && student.attendance && student.attendance[dateStr]) {
             const att = student.attendance[dateStr];
-            if (typeof att === 'object' && att[scheduleStart]) return;
+            if (typeof att === 'object' && att[normalizedStart]) return;
         }
         
         // 출결 기록 없음 → 재석 확인 대기 큐에 등록
@@ -824,10 +921,10 @@ async function checkMissedScan(studentId, scheduleStart, dateStr, teacherId) {
             studentId,
             studentName,
             effectiveTeacherId,
-            scheduleStart,
+            normalizedStart,
             dateStr
         );
-        console.log(`[미스캔체크] ⚠️ ${studentName} ${scheduleStart} 수업 - 재석 확인 알림`);
+        console.log(`[미스캔체크] ⚠️ ${studentName} ${normalizedStart} 수업 - 재석 확인 알림`);
         
     } catch (e) {
         console.error('[미스캔체크] 확인 실패:', e);
@@ -1281,6 +1378,15 @@ window.submitPhoneAttendanceAuth = async function() {
     }
     phoneAuthSubmitting = true;
     try {
+        /* 4자리 입력 직후 입력창을 바로 비워 다음 입력이 섞이지 않게 함 */
+        if (input) {
+            input.value = '';
+            try {
+                input.focus();
+            } catch (_) {
+                /* noop */
+            }
+        }
         const candidates = getPhoneSuffixMatchCandidates(suffix);
         if (candidates.length === 0) {
             if (resultEl) resultEl.innerHTML = '<div class="qr-phone-auth-empty">일치하는 학생이 없습니다.</div>';
@@ -1298,7 +1404,6 @@ window.submitPhoneAttendanceAuth = async function() {
             return;
         }
         if (resultEl) resultEl.innerHTML = '';
-        if (input) input.value = '';
         await processAttendanceFromQR(qrPayload, { authMode: 'phone_last4', phoneSuffix: suffix });
     } finally {
         phoneAuthSubmitting = false;
@@ -2703,9 +2808,7 @@ async function processAttendanceFromQR(qrData, authMeta = null) {
                     authTime: nowIso,
                     presenceChecked: false,
                     processedAt: nowIso,
-                    memo: isPhoneAuthMode
-                        ? `[자동일정생성] 일정 미등록 상태에서 전화번호 인증(${phoneSuffix4}) → ${autoStartTime} 일정 생성, 출석 미처리 저장`
-                        : `[자동일정생성] 일정 미등록 상태에서 QR 스캔 → ${autoStartTime} 일정 생성, 출석 미처리 저장`,
+                    memo: null,
                     shared_memo: null
                 });
 
@@ -2820,8 +2923,6 @@ async function processAttendanceFromQR(qrData, authMeta = null) {
                     if (teacherLateAwaitingScan) {
                         const scanIso = today.toISOString();
                         const diffMinStudent = Math.round((today - classStart) / 60000);
-                        const memoLine = `[지각후인증] 수업시작(${startTimeStr}) 대비 학생 인증까지 약 ${diffMinStudent}분`;
-                        const prevMemo = String(existingRecord.memo || '').trim();
                         await saveAttendanceRecord({
                             studentId: studentId,
                             teacherId: String(scheduleItem.teacherId),
@@ -2836,7 +2937,7 @@ async function processAttendanceFromQR(qrData, authMeta = null) {
                             authTime: scanIso,
                             presenceChecked: true,
                             processedAt: scanIso,
-                            memo: prevMemo ? `${prevMemo}\n${memoLine}` : memoLine,
+                            memo: existingRecord.memo || null,
                             shared_memo: existingRecord.shared_memo || null
                         });
                         processedCount++;
@@ -2865,7 +2966,21 @@ async function processAttendanceFromQR(qrData, authMeta = null) {
                     }
                     
                     // ★ 이미 QR 스캔 완료된 기록이면 건너뛰기 (중복 스캔 방지)
-                    const alreadyHandled = !!(existingRecord && isHandledAttendanceStatus(existingRecord.status));
+                    const isAbsentAlreadyHandled = (rec) => {
+                        if (!rec) return false;
+                        const st = String(rec.status || '').toLowerCase();
+                        if (st !== 'absent') return false;
+                        // teacher 체크 직후 absent는 qr_judgment이 '부재 확인'이며 qr 처리 전입니다.
+                        // 따라서 QR/번호인증이 1회 반영된 뒤에는 아래 조건 중 하나로 "이미 처리"를 판정합니다.
+                        if (rec.qr_scanned === true) return true; // QR 모드: qr_scanned true
+                        if (rec.qr_scan_time) return true; // QR 모드 보조
+                        const judgment = String(rec.qr_judgment || '');
+                        if (judgment.includes('전화번호인증')) return true; // 전화번호 인증 모드
+                        if (judgment.includes('결석')) return true; // QR/전화 반영 후 공통(예: '결석 (수업 종료)')
+                        return false;
+                    };
+
+                    const alreadyHandled = !!(existingRecord && (isHandledAttendanceStatus(existingRecord.status) || isAbsentAlreadyHandled(existingRecord)));
                     if (alreadyHandled) {
                         console.log(`[processAttendanceFromQR] 이미 QR 스캔 처리됨: ${startTimeStr} → ${existingRecord.status}`);
                         if (!primaryStatus) {
@@ -2877,12 +2992,38 @@ async function processAttendanceFromQR(qrData, authMeta = null) {
                     let status, judgmentText, diffMin;
                     
                     const graceEnd = new Date(classStart.getTime() + ATTENDANCE_GRACE_MINUTES * 60000);
+                    const existingWasAbsent = !!(existingRecord && String(existingRecord.status || '').toLowerCase() === 'absent');
                     if (today >= classEnd) {
                         // ★ 수업 종료시간 이후 → 결석
                         status = 'absent';
                         diffMin = Math.round((today - classStart) / 60000);
                         judgmentText = '결석 (수업 종료)';
                         console.log(`[processAttendanceFromQR] ❌ 결석: ${studentName} → ${startTimeStr} (수업 종료됨, ${diffMin}분 경과)`);
+
+                        // 요청사항:
+                        // "결석 처리된 학생이 수업 시간이 지난 뒤 QR을 찍으면"
+                        // - 지각 알림이 아니라 결석으로 표시
+                        // - 임시출석 일정(임시 체크)을 QR 찍은 시각(autoStartTime)으로 즉시 추가
+                        // 단, 중복 추가 방지를 위해 scan 1회 처리 중 1번만 추가합니다.
+                        const emergencyTeacherId = String(currentTeacherId || '');
+                        const scheduleTeacherId = String(scheduleItem?.teacherId || '');
+                        if (
+                            existingWasAbsent
+                            && !emergencyAfterAllClassesAdded
+                            && emergencyTeacherId
+                            && scheduleTeacherId
+                            && scheduleTeacherId === emergencyTeacherId
+                        ) {
+                            emergencyAfterAllClassesAdded = true;
+                            await saveEmergencyAttendanceAfterAllClassesEnded({
+                                studentId,
+                                studentName,
+                                dateStr,
+                                today,
+                                isPhoneAuthMode,
+                                phoneSuffix4
+                            });
+                        }
                     } else if (today <= graceEnd) {
                         // ★ 수업 시작 후 grace 구간까지는 출석
                         status = 'present';
@@ -2921,13 +3062,7 @@ async function processAttendanceFromQR(qrData, authMeta = null) {
                         authTime: today.toISOString(),
                         presenceChecked: false,
                         processedAt: today.toISOString(),
-                        memo: isPhoneAuthMode
-                            ? (() => {
-                                const prev = String(existingRecord?.memo || '').trim();
-                                const line = `[전화번호인증] 뒷자리:${phoneSuffix4}`;
-                                return prev ? `${prev}\n${line}` : line;
-                            })()
-                            : (existingRecord?.memo || null),
+                        memo: existingRecord?.memo || null,
                         shared_memo: existingRecord?.shared_memo || null
                     });
                     processedCount++;
@@ -3200,7 +3335,10 @@ function showQRScanToast(student, status, extra) {
         if (extra && typeof extra === 'object' && typeof extra.diffMinutes === 'number') {
             const diffAbs = Math.abs(extra.diffMinutes);
             statusText = '결석 처리';
-            timeText = `수업 ${extra.scheduledTimeStr} · 스캔 ${extra.scanTimeStr} · ${diffAbs}분 지각`;
+            // 결석 상태에서도 기존 메시지가 "분 지각"으로 표시되던 UX를 수정합니다.
+            // (결석은 "지각"으로 표현하지 않고, 단순 경과/시간 차로 중립화)
+            // 사용 요청: 결석 표시 시 "얼마나 늦었는지" 분 수치 자체는 노출하지 않습니다.
+            timeText = `수업 ${extra.scheduledTimeStr} · 스캔 ${extra.scanTimeStr}`;
         } else {
             statusText = '결석 처리';
             timeText = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
@@ -4791,10 +4929,15 @@ function clearAttendanceSlotFromLocalMemory(studentId, dateStr, scheduledTime) {
             delete student.attendance[dateStr];
         }
     };
+
     const student = (students || []).find((s) => String(s.id) === targetStudentId);
     if (student) removeFromStudent(student);
     const currentStudent = (currentTeacherStudents || []).find((s) => String(s.id) === targetStudentId);
     if (currentStudent) removeFromStudent(currentStudent);
+
+    // 주의: 출석기록(메모 포함) 삭제는 "출석 사유 메모(memo/shared_memo)"만 영향을 주고,
+    // 수업관리 모달 메모(class_memo/class_shared_memo)와는 분리되어야 합니다.
+    // 따라서 로컬 students.records/shared_records 및 #att-memo DOM은 건드리지 않습니다.
 }
 
 async function deleteAttendanceRecordsForHistorySlot(studentId, dateStr, teacherId, scheduledTime) {
@@ -5052,6 +5195,9 @@ async function saveAttendanceRecord(recordData) {
             ? !!recordData.presenceChecked
             : hasPresenceCheckToken;
 
+        // 메모는 "있는 키만" 업데이트해야(부재/분리 컬럼 롤백 방지) 이전 값이 남습니다.
+        const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
+
         const record = {
             student_id: studentIdValue,  // BIGINT (숫자)
             teacher_id: String(recordData.teacherId),  // TEXT (문자열)
@@ -5066,10 +5212,16 @@ async function saveAttendanceRecord(recordData) {
             attendance_source: normalizedSource,
             auth_time: authTime,
             presence_checked: presenceChecked,
-            processed_at: processedAt,
-            memo: recordData.memo || null,
-            shared_memo: recordData.shared_memo !== undefined ? recordData.shared_memo : null
+            processed_at: processedAt
         };
+
+        // 출석기록 메모(지각/결석 등 사유)
+        if (hasOwn(recordData, 'memo')) record.memo = recordData.memo || null;
+        if (hasOwn(recordData, 'shared_memo')) record.shared_memo = recordData.shared_memo !== undefined ? recordData.shared_memo : null;
+
+        // 수업관리 메모(공부 상태)
+        if (hasOwn(recordData, 'class_memo')) record.class_memo = recordData.class_memo || null;
+        if (hasOwn(recordData, 'class_shared_memo')) record.class_shared_memo = recordData.class_shared_memo !== undefined ? recordData.class_shared_memo : null;
         
         console.log('[saveAttendanceRecord] 저장 시도:', record);
         
@@ -5122,13 +5274,28 @@ async function getSharedMemoForStudent(studentId, dateStr, tagged) {
         const numericId = parseInt(studentId);
         if (isNaN(numericId)) return '';
 
+        const isAttendanceReasonMemo = (txt) => {
+            const t = String(txt || '').trim();
+            if (!t) return false;
+            const patterns = [
+                '[전화번호인증]',
+                '전화번호인증',
+                '[지각후인증]',
+                '지각후인증',
+                '[수업종료후임시]',
+                '수업종료후임시',
+                '임시출석'
+            ];
+            return patterns.some(p => t.includes(p));
+        };
+
         const { data, error } = await supabase
             .from('attendance_records')
-            .select('shared_memo, teacher_id, scheduled_time')
+            .select('class_shared_memo, shared_memo, teacher_id, scheduled_time')
             .eq('owner_user_id', ownerId)
             .eq('student_id', numericId)
             .eq('attendance_date', dateStr)
-            .not('shared_memo', 'is', null);
+            ;
 
         if (error) {
             console.error('[getSharedMemoForStudent] 에러:', error);
@@ -5146,8 +5313,11 @@ async function getSharedMemoForStudent(studentId, dateStr, tagged) {
         const memos = [];
         const seen = new Set();
         for (const rec of data) {
-            if (rec.shared_memo && rec.shared_memo.trim()) {
-                const trimmed = rec.shared_memo.trim();
+            const raw = (rec.class_shared_memo !== null && rec.class_shared_memo !== undefined && String(rec.class_shared_memo).trim())
+                ? rec.class_shared_memo
+                : rec.shared_memo;
+            if (raw && String(raw).trim() && !isAttendanceReasonMemo(raw)) {
+                const trimmed = String(raw).trim();
                 if (!seen.has(trimmed)) {
                     seen.add(trimmed);
                     const tName = teacherNames[String(rec.teacher_id)] || '알 수 없음';
@@ -5177,13 +5347,28 @@ async function getSharedMemosStructured(studentId, dateStr) {
         const numericId = parseInt(studentId);
         if (isNaN(numericId)) return [];
 
+        const isAttendanceReasonMemo = (txt) => {
+            const t = String(txt || '').trim();
+            if (!t) return false;
+            const patterns = [
+                '[전화번호인증]',
+                '전화번호인증',
+                '[지각후인증]',
+                '지각후인증',
+                '[수업종료후임시]',
+                '수업종료후임시',
+                '임시출석'
+            ];
+            return patterns.some(p => t.includes(p));
+        };
+
         const { data, error } = await supabase
             .from('attendance_records')
-            .select('shared_memo, teacher_id, scheduled_time')
+            .select('class_shared_memo, shared_memo, teacher_id, scheduled_time')
             .eq('owner_user_id', ownerId)
             .eq('student_id', numericId)
             .eq('attendance_date', dateStr)
-            .not('shared_memo', 'is', null);
+            ;
 
         if (error) { console.error('[getSharedMemosStructured] 에러:', error); return []; }
         if (!data || data.length === 0) return [];
@@ -5197,14 +5382,19 @@ async function getSharedMemosStructured(studentId, dateStr) {
         const result = [];
         const seen = new Set();
         for (const rec of data) {
-            if (rec.shared_memo && rec.shared_memo.trim()) {
-                const key = `${rec.teacher_id}__${rec.shared_memo.trim()}`;
+            const raw = (rec.class_shared_memo !== null && rec.class_shared_memo !== undefined && String(rec.class_shared_memo).trim())
+                ? rec.class_shared_memo
+                : rec.shared_memo;
+
+            if (raw && String(raw).trim() && !isAttendanceReasonMemo(raw)) {
+                const trimmed = String(raw).trim();
+                const key = `${rec.teacher_id}__${trimmed}`;
                 if (!seen.has(key)) {
                     seen.add(key);
                     result.push({
                         teacher_id: rec.teacher_id,
                         teacher_name: teacherNames[String(rec.teacher_id)] || '알 수 없음',
-                        memo: rec.shared_memo.trim()
+                        memo: trimmed
                     });
                 }
             }

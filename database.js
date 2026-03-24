@@ -33,6 +33,31 @@ function _getOwnerId() {
 }
 
 /**
+ * RLS(`owner_user_id = auth.uid()`) 통과를 위해 **세션 UID를 우선**한다.
+ * `current_owner_id`가 세션과 다르면 세션으로 교정해 localStorage에 기록한다.
+ */
+async function _resolveOwnerUserId() {
+    let sessionUid = null;
+    try {
+        const { data: { session } } = await supabase.auth.getSession();
+        sessionUid = session?.user?.id || null;
+    } catch (e) {
+        console.warn('[_resolveOwnerUserId] getSession 실패:', e);
+    }
+    const ls = localStorage.getItem('current_owner_id');
+    if (sessionUid) {
+        if (ls && ls !== sessionUid) {
+            console.warn('[_resolveOwnerUserId] current_owner_id를 세션과 일치시킵니다.');
+        }
+        try {
+            localStorage.setItem('current_owner_id', sessionUid);
+        } catch (_) { /* ignore */ }
+        return sessionUid;
+    }
+    return ls || null;
+}
+
+/**
  * schedule_date / 범위 삭제용: 월·일 한 자리(2026-2-5) 등을 YYYY-MM-DD로 통일.
  * 문자열 비교(`2026-2-5` > `2026-02-28`)로 2월만 구간에서 빠지는 오류 방지.
  */
@@ -899,19 +924,50 @@ window.savePaymentToDatabase = async function(paymentData) {
             throw new Error('로그인이 필요합니다');
         }
 
+        const row = {
+            owner_user_id: ownerId,
+            teacher_id: paymentData.teacherId,
+            student_id: parseInt(paymentData.studentId, 10),
+            payment_month: paymentData.month,
+            amount: parseInt(paymentData.amount, 10),
+            paid_amount: parseInt(paymentData.paidAmount || 0, 10),
+            payment_status: paymentData.status || 'unpaid',
+            payment_date: paymentData.paymentDate || null,
+            memo: paymentData.memo != null ? paymentData.memo : null,
+            ledger_json: paymentData.ledgerJson != null ? paymentData.ledgerJson : null,
+            supply_amount: Math.max(0, parseInt(paymentData.supplyAmount ?? 0, 10) || 0),
+            vat_amount: Math.max(0, parseInt(paymentData.vatAmount ?? 0, 10) || 0),
+            refund_amount: Math.max(0, parseInt(paymentData.refundAmount ?? 0, 10) || 0),
+            refund_reason: paymentData.refundReason != null && String(paymentData.refundReason).trim() !== ''
+                ? String(paymentData.refundReason).trim()
+                : null,
+            channel: paymentData.channel != null && String(paymentData.channel).trim() !== ''
+                ? String(paymentData.channel).trim()
+                : null,
+            method: paymentData.method != null && String(paymentData.method).trim() !== ''
+                ? String(paymentData.method).trim()
+                : null,
+            reference_id: paymentData.referenceId != null && String(paymentData.referenceId).trim() !== ''
+                ? String(paymentData.referenceId).trim()
+                : null,
+            evidence_type: paymentData.evidenceType != null && String(paymentData.evidenceType).trim() !== ''
+                ? String(paymentData.evidenceType).trim()
+                : null,
+            evidence_number: paymentData.evidenceNumber != null && String(paymentData.evidenceNumber).trim() !== ''
+                ? String(paymentData.evidenceNumber).trim()
+                : null,
+            evidence_name: paymentData.evidenceName != null && String(paymentData.evidenceName).trim() !== ''
+                ? String(paymentData.evidenceName).trim()
+                : null,
+            unmatched_deposit: Boolean(paymentData.unmatchedDeposit),
+            paid_at_text: paymentData.paidAtText != null && String(paymentData.paidAtText).trim() !== ''
+                ? String(paymentData.paidAtText).trim()
+                : null
+        };
+
         const { data, error } = await supabase
             .from('payments')
-            .upsert({
-                owner_user_id: ownerId,
-                teacher_id: paymentData.teacherId,
-                student_id: parseInt(paymentData.studentId),
-                payment_month: paymentData.month,
-                amount: parseInt(paymentData.amount),
-                paid_amount: parseInt(paymentData.paidAmount || 0),
-                payment_status: paymentData.status || 'unpaid',
-                payment_date: paymentData.paymentDate || null,
-                memo: paymentData.memo || null
-            }, {
+            .upsert(row, {
                 onConflict: 'student_id,payment_month',
                 ignoreDuplicates: false
             })
@@ -926,13 +982,44 @@ window.savePaymentToDatabase = async function(paymentData) {
     }
 }
 
+/** owner 소유 payments 전부(수납 동기화·로드 병합용) */
+window.getPaymentsByOwnerForSync = async function() {
+    try {
+        if (typeof supabase === 'undefined') return [];
+        const ownerId = _getOwnerId();
+        if (!ownerId) return [];
+
+        const { data, error } = await supabase
+            .from('payments')
+            .select([
+                'student_id', 'payment_month', 'amount', 'paid_amount', 'payment_status', 'payment_date', 'memo',
+                'ledger_json', 'created_at',
+                'supply_amount', 'vat_amount', 'refund_amount', 'refund_reason',
+                'channel', 'method', 'reference_id', 'evidence_type', 'evidence_number', 'evidence_name',
+                'unmatched_deposit', 'paid_at_text'
+            ].join(', '))
+            .eq('owner_user_id', ownerId);
+
+        if (error) throw error;
+        return data || [];
+    } catch (error) {
+        console.warn('[getPaymentsByOwnerForSync] 에러:', error);
+        return [];
+    }
+}
+
 window.getPaymentsByMonth = async function(teacherId, month) {
     try {
         const ownerId = _getOwnerId();
 
         const { data, error } = await supabase
             .from('payments')
-            .select('id, student_id, amount, paid_amount, payment_status, payment_date, memo')
+            .select([
+                'id', 'student_id', 'amount', 'paid_amount', 'payment_status', 'payment_date', 'memo', 'ledger_json',
+                'supply_amount', 'vat_amount', 'refund_amount', 'refund_reason',
+                'channel', 'method', 'reference_id', 'evidence_type', 'evidence_number', 'evidence_name',
+                'unmatched_deposit', 'paid_at_text'
+            ].join(', '))
             .eq('owner_user_id', ownerId)
             .eq('teacher_id', teacherId)
             .eq('payment_month', month);
@@ -952,7 +1039,12 @@ window.getPaymentsByStudent = async function(studentId) {
 
         const { data, error } = await supabase
             .from('payments')
-            .select('id, payment_month, amount, paid_amount, payment_status, payment_date, memo')
+            .select([
+                'id', 'payment_month', 'amount', 'paid_amount', 'payment_status', 'payment_date', 'memo', 'ledger_json',
+                'supply_amount', 'vat_amount', 'refund_amount', 'refund_reason',
+                'channel', 'method', 'reference_id', 'evidence_type', 'evidence_number', 'evidence_name',
+                'unmatched_deposit', 'paid_at_text'
+            ].join(', '))
             .eq('owner_user_id', ownerId)
             .eq('student_id', numericId)
             .order('payment_month', { ascending: false });
@@ -1012,11 +1104,65 @@ window.saveStudentEvaluation = async function(studentId, evalMonth, comment, tea
     }
 }
 
+// ========== 수업관리 메모(JSON) 관리 ==========
+// student_evaluations.class_memos / class_shared_memos를 month 단위로 로드/저장합니다.
+// class_memos: { "YYYY-MM-DD": { "HH:MM": "<memo-html>" } }
+// class_shared_memos: { "YYYY-MM-DD": { "HH:MM": { "<teacher_id>": "<shared-memo-html>" } } }
+window.getStudentClassMemos = async function(studentId, evalMonth) {
+    try {
+        const { data, error } = await supabase
+            .from('student_evaluations')
+            .select('class_memos, class_shared_memos')
+            .eq('student_id', parseInt(studentId))
+            .eq('eval_month', evalMonth)
+            .maybeSingle();
+
+        if (error && error.code !== 'PGRST116') throw error;
+
+        return {
+            class_memos: (data && data.class_memos && typeof data.class_memos === 'object') ? data.class_memos : {},
+            class_shared_memos: (data && data.class_shared_memos && typeof data.class_shared_memos === 'object') ? data.class_shared_memos : {}
+        };
+    } catch (error) {
+        console.error('[getStudentClassMemos] 에러:', error);
+        return { class_memos: {}, class_shared_memos: {} };
+    }
+}
+
+window.saveStudentClassMemos = async function(studentId, evalMonth, classMemos, classSharedMemos, teacherId) {
+    try {
+        const ownerId = _getOwnerId();
+        if (!ownerId) throw new Error('로그인이 필요합니다');
+
+        const payload = {
+            student_id: parseInt(studentId),
+            eval_month: evalMonth,
+            owner_user_id: ownerId,
+            teacher_id: String(teacherId || ''),
+            class_memos: classMemos && typeof classMemos === 'object' ? classMemos : {},
+            class_shared_memos: classSharedMemos && typeof classSharedMemos === 'object' ? classSharedMemos : {},
+            updated_at: new Date().toISOString()
+        };
+
+        const { data, error } = await supabase
+            .from('student_evaluations')
+            .upsert(payload, { onConflict: 'student_id,eval_month' })
+            .select('id, student_id, eval_month, class_memos, class_shared_memos')
+            .maybeSingle();
+
+        if (error) throw error;
+        return data || null;
+    } catch (error) {
+        console.error('[saveStudentClassMemos] 에러:', error);
+        throw error;
+    }
+}
+
 // ========== 테스트 점수 관리 ==========
 
 window.getStudentTestScoresByMonth = async function(studentId, monthPrefix) {
     try {
-        const ownerId = _getOwnerId();
+        const ownerId = await _resolveOwnerUserId();
         if (!ownerId) return [];
         const startDate = `${monthPrefix}-01`;
         const [year, month] = monthPrefix.split('-').map(Number);
@@ -1051,14 +1197,52 @@ window.getStudentTestScoresByMonth = async function(studentId, monthPrefix) {
     }
 }
 
+/** 시험일이 [startDate, endDate] 구간에 들어가는 점수 전부 (그래프 탭 다월 조회용) */
+window.getStudentTestScoresByDateRange = async function(studentId, startDate, endDate) {
+    try {
+        const ownerId = await _resolveOwnerUserId();
+        if (!ownerId) return [];
+        const sd = _normalizeScheduleDateKey(startDate);
+        const ed = _normalizeScheduleDateKey(endDate);
+        if (!sd || !ed || sd > ed) return [];
+
+        const { data, error } = await supabase
+            .from('student_test_scores')
+            .select('id, student_id, teacher_id, exam_name, exam_date, score, max_score, created_at, updated_at')
+            .eq('owner_user_id', ownerId)
+            .eq('student_id', parseInt(studentId, 10))
+            .gte('exam_date', sd)
+            .lte('exam_date', ed)
+            .order('exam_date', { ascending: true })
+            .order('created_at', { ascending: true });
+
+        if (error) throw error;
+        return (data || []).map((row) => ({
+            id: row.id,
+            studentId: String(row.student_id),
+            teacherId: row.teacher_id ? String(row.teacher_id) : '',
+            examName: row.exam_name || '',
+            examDate: row.exam_date || '',
+            score: Number(row.score || 0),
+            maxScore: Number(row.max_score || 0),
+            createdAt: row.created_at || '',
+            updatedAt: row.updated_at || ''
+        }));
+    } catch (error) {
+        console.error('[getStudentTestScoresByDateRange] 에러:', error);
+        throw error;
+    }
+};
+
 window.saveStudentTestScore = async function(scoreRow) {
     try {
-        const ownerId = _getOwnerId();
+        const ownerId = await _resolveOwnerUserId();
         if (!ownerId) throw new Error('로그인이 필요합니다');
+        const tid = String(scoreRow.teacherId || '').trim();
         const payload = {
             owner_user_id: ownerId,
             student_id: parseInt(scoreRow.studentId),
-            teacher_id: String(scoreRow.teacherId || ''),
+            teacher_id: tid || null,
             exam_name: String(scoreRow.examName || '').trim(),
             exam_date: scoreRow.examDate,
             score: Number(scoreRow.score || 0),
@@ -1095,7 +1279,7 @@ window.saveStudentTestScore = async function(scoreRow) {
 
 window.deleteStudentTestScore = async function(scoreId) {
     try {
-        const ownerId = _getOwnerId();
+        const ownerId = await _resolveOwnerUserId();
         if (!ownerId) throw new Error('로그인이 필요합니다');
         const { error } = await supabase
             .from('student_test_scores')

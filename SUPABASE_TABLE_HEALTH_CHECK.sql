@@ -111,7 +111,7 @@ ORDER BY t.relname, c.conname;
    ========================================================= */
 SELECT 'students.teacher_id -> teachers.id' AS check_name, count(*) AS orphan_count
 FROM public.students s
-LEFT JOIN public.teachers t ON s.teacher_id = t.id
+LEFT JOIN public.teachers t ON s.teacher_id::text = t.id::text
 WHERE s.teacher_id IS NOT NULL
   AND t.id IS NULL
 UNION ALL
@@ -123,7 +123,7 @@ WHERE sc.student_id IS NOT NULL
 UNION ALL
 SELECT 'schedules.teacher_id -> teachers.id', count(*)
 FROM public.schedules sc
-LEFT JOIN public.teachers t ON sc.teacher_id = t.id
+LEFT JOIN public.teachers t ON sc.teacher_id::text = t.id::text
 WHERE sc.teacher_id IS NOT NULL
   AND t.id IS NULL
 UNION ALL
@@ -135,7 +135,7 @@ WHERE ar.student_id IS NOT NULL
 UNION ALL
 SELECT 'attendance_records.teacher_id -> teachers.id', count(*)
 FROM public.attendance_records ar
-LEFT JOIN public.teachers t ON ar.teacher_id = t.id
+LEFT JOIN public.teachers t ON ar.teacher_id::text = t.id::text
 WHERE ar.teacher_id IS NOT NULL
   AND t.id IS NULL
 UNION ALL
@@ -147,7 +147,7 @@ WHERE hs.student_id IS NOT NULL
 UNION ALL
 SELECT 'homework_submissions.teacher_id -> teachers.id', count(*)
 FROM public.homework_submissions hs
-LEFT JOIN public.teachers t ON hs.teacher_id = t.id
+LEFT JOIN public.teachers t ON hs.teacher_id::text = t.id::text
 WHERE hs.teacher_id IS NOT NULL
   AND t.id IS NULL;
 

@@ -110,6 +110,8 @@ CREATE TABLE IF NOT EXISTS attendance_records (
     processed_at TIMESTAMPTZ,         -- 최종 처리 시각
     memo TEXT,                        -- 선생님 개인 메모
     shared_memo TEXT,                 -- 학부모에게 공유되는 메모
+    class_memo TEXT,                  -- 수업관리(공부 상태) 개인 메모
+    class_shared_memo TEXT,          -- 수업관리(공부 상태) 공유 메모
     created_at TIMESTAMPTZ DEFAULT now(),
     UNIQUE(student_id, attendance_date, teacher_id, scheduled_time)
 );
@@ -147,11 +149,24 @@ CREATE TABLE IF NOT EXISTS payments (
     teacher_id TEXT REFERENCES teachers(id) ON DELETE CASCADE,
     student_id BIGINT REFERENCES students(id) ON DELETE CASCADE,
     payment_month TEXT NOT NULL,      -- 형식: 'YYYY-MM'
-    amount INTEGER DEFAULT 0,
-    paid_amount INTEGER DEFAULT 0,
+    amount INTEGER DEFAULT 0,         -- 청구금액(원장 dueAmount)
+    paid_amount INTEGER DEFAULT 0,   -- 순수납(환불 차감 후)
     payment_status TEXT DEFAULT 'unpaid' CHECK (payment_status IN ('paid', 'unpaid', 'partial')),
-    payment_date DATE,
-    memo TEXT,
+    payment_date DATE,                 -- 수납일(날짜 부분)
+    memo TEXT,                         -- 메모(원장 note)
+    ledger_json JSONB,                 -- 원장 전체 스냅샷(상세·감사용)
+    supply_amount INTEGER DEFAULT 0,
+    vat_amount INTEGER DEFAULT 0,
+    refund_amount INTEGER DEFAULT 0,
+    refund_reason TEXT,
+    channel TEXT,
+    method TEXT,
+    reference_id TEXT,
+    evidence_type TEXT,
+    evidence_number TEXT,
+    evidence_name TEXT,
+    unmatched_deposit BOOLEAN DEFAULT FALSE,
+    paid_at_text TEXT,                 -- 수납일시 원문(시간 포함 가능)
     created_at TIMESTAMPTZ DEFAULT now(),
     UNIQUE(student_id, payment_month)
 );
@@ -310,6 +325,60 @@ DO $$ BEGIN
     -- teachers.google_drive_connected
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='teachers' AND column_name='google_drive_connected') THEN
         ALTER TABLE teachers ADD COLUMN google_drive_connected BOOLEAN DEFAULT FALSE;
+    END IF;
+    -- payments.ledger_json (수납 원장 스냅샷)
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='payments')
+       AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='payments' AND column_name='ledger_json') THEN
+        ALTER TABLE payments ADD COLUMN ledger_json JSONB DEFAULT NULL;
+    END IF;
+    -- payments 수납 모달 필드(조회·CSV용 정규화 컬럼)
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='payments')
+       AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='payments' AND column_name='supply_amount') THEN
+        ALTER TABLE payments ADD COLUMN supply_amount INTEGER DEFAULT 0;
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='payments')
+       AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='payments' AND column_name='vat_amount') THEN
+        ALTER TABLE payments ADD COLUMN vat_amount INTEGER DEFAULT 0;
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='payments')
+       AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='payments' AND column_name='refund_amount') THEN
+        ALTER TABLE payments ADD COLUMN refund_amount INTEGER DEFAULT 0;
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='payments')
+       AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='payments' AND column_name='refund_reason') THEN
+        ALTER TABLE payments ADD COLUMN refund_reason TEXT;
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='payments')
+       AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='payments' AND column_name='channel') THEN
+        ALTER TABLE payments ADD COLUMN channel TEXT;
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='payments')
+       AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='payments' AND column_name='method') THEN
+        ALTER TABLE payments ADD COLUMN method TEXT;
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='payments')
+       AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='payments' AND column_name='reference_id') THEN
+        ALTER TABLE payments ADD COLUMN reference_id TEXT;
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='payments')
+       AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='payments' AND column_name='evidence_type') THEN
+        ALTER TABLE payments ADD COLUMN evidence_type TEXT;
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='payments')
+       AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='payments' AND column_name='evidence_number') THEN
+        ALTER TABLE payments ADD COLUMN evidence_number TEXT;
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='payments')
+       AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='payments' AND column_name='evidence_name') THEN
+        ALTER TABLE payments ADD COLUMN evidence_name TEXT;
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='payments')
+       AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='payments' AND column_name='unmatched_deposit') THEN
+        ALTER TABLE payments ADD COLUMN unmatched_deposit BOOLEAN DEFAULT FALSE;
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='payments')
+       AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='payments' AND column_name='paid_at_text') THEN
+        ALTER TABLE payments ADD COLUMN paid_at_text TEXT;
     END IF;
 END $$;
 

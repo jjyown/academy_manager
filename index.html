@@ -891,7 +891,7 @@
                 </div>
             </div>
             <div class="attendance-modal-footer">
-                <button class="btn-history" onclick="openHistoryModal()"><i class="fas fa-history"></i> 이번달 기록</button>
+                <button class="btn-history" onclick="openHistoryModal(true)"><i class="fas fa-history"></i> 이번달 기록</button>
                 <button class="btn-delete-schedule" onclick="deleteSingleSchedule()"><i class="fas fa-trash"></i> 일정 삭제</button>
             </div>
         </div>
@@ -1006,6 +1006,86 @@
         </div>
     </div>
 
+    <!-- 학생 목록 「평가」: 기록(수업관리 월별 메모) / 점수 탭 + 하단 종합평가 고정 -->
+    <div id="student-eval-modal" class="modal" style="display: none;">
+        <div class="modal-card student-eval-card">
+            <div class="modal-header">
+                <div>
+                    <h2 id="student-eval-title">학생 이름</h2>
+                    <span id="student-eval-subtitle" class="hist-subtitle"></span>
+                </div>
+                <button type="button" class="btn-close-x" onclick="closeModal('student-eval-modal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="student-eval-layout">
+                <div class="student-eval-scroll custom-scroll">
+                    <div class="student-eval-tabbar">
+                        <button type="button" id="student-eval-tab-record" class="student-eval-tab active" onclick="switchStudentEvalTab('record')">
+                            <i class="fas fa-calendar-days"></i> 기록
+                        </button>
+                        <button type="button" id="student-eval-tab-score" class="student-eval-tab" onclick="switchStudentEvalTab('score')">
+                            <i class="fas fa-square-poll-vertical"></i> 점수
+                        </button>
+                        <button type="button" id="student-eval-tab-chart" class="student-eval-tab" onclick="switchStudentEvalTab('chart')">
+                            <i class="fas fa-chart-area"></i> 그래프
+                        </button>
+                    </div>
+                    <div id="student-eval-panel-record" class="student-eval-panel">
+                        <p class="student-eval-tab-hint">수업관리에서 입력한 개인·공유 메모를 해당 월 기준으로 모았습니다.</p>
+                        <div id="student-eval-timeline" class="hist-list"></div>
+                    </div>
+                    <div id="student-eval-panel-score" class="student-eval-panel" style="display:none;">
+                        <div class="eval-section test-score-section" id="test-score-section">
+                            <div class="eval-section-header">
+                                <div class="eval-section-title"><i class="fas fa-chart-line"></i> 테스트 점수</div>
+                                <span class="eval-month-label" id="test-score-month-label"></span>
+                            </div>
+                            <div class="test-score-sync-row">
+                                <span id="test-score-sync-status" class="test-score-sync-status unknown">동기화 상태 확인 전</span>
+                                <button type="button" id="test-score-sync-check-btn" class="test-score-sync-check-btn" onclick="runTestScoreSyncCheck()">
+                                    <i class="fas fa-stethoscope"></i> 동기화 점검
+                                </button>
+                            </div>
+                            <div class="test-score-form-row">
+                                <input type="text" id="test-score-name" class="m-input" placeholder="시험명 (예: 3월 모의고사)">
+                                <input type="date" id="test-score-date" class="m-input">
+                            </div>
+                            <div class="test-score-form-row">
+                                <input type="number" id="test-score-value" class="m-input" min="0" placeholder="점수">
+                                <input type="number" id="test-score-max" class="m-input" min="1" value="100" placeholder="만점">
+                                <button class="eval-save-btn test-score-save-btn" id="test-score-save-btn" onclick="saveTestScoreFromHistory()">
+                                    <i class="fas fa-plus"></i> 점수 저장
+                                </button>
+                            </div>
+                            <div id="test-score-summary" class="test-score-summary"></div>
+                            <div id="test-score-list" class="test-score-list"></div>
+                        </div>
+                    </div>
+                    <div id="student-eval-panel-chart" class="student-eval-panel student-eval-panel--chart" style="display:none;">
+                        <div class="student-eval-chart-toolbar">
+                            <label for="student-eval-chart-range" class="student-eval-chart-label">조회</label>
+                            <input type="number" id="student-eval-chart-range" class="m-input student-eval-chart-input" min="1" max="12" step="1" value="3" inputmode="numeric" autocomplete="off" title="1~12개월" onchange="renderStudentEvalChartPanel()" onkeydown="if(event.key==='Enter'){ event.preventDefault(); renderStudentEvalChartPanel(); }">
+                            <span class="student-eval-chart-unit" aria-hidden="true">개월</span>
+                        </div>
+                        <div id="student-eval-chart-wide" class="student-eval-chart-host custom-scroll"></div>
+                    </div>
+                </div>
+                <div class="student-eval-footer eval-section" id="student-eval-section">
+                    <div class="eval-section-header">
+                        <div class="eval-section-title"><i class="fas fa-star"></i> 종합 평가</div>
+                        <span class="eval-month-label" id="student-eval-month-label"></span>
+                    </div>
+                    <textarea id="student-eval-textarea" class="eval-textarea-main" placeholder="이번 달 학생에 대한 종합 평가를 작성하세요..." maxlength="500"></textarea>
+                    <div class="eval-bottom-row">
+                        <span class="eval-char-info"><span id="student-eval-char">0</span>/500</span>
+                        <button type="button" class="eval-save-btn" id="student-eval-save-btn" onclick="saveStudentEvalFromModal()">
+                            <i class="fas fa-save"></i> 저장
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div id="payment-modal" class="modal" style="display: none;">
         <div class="modal-card payment-card">
             <div class="pay-header">
@@ -1108,59 +1188,6 @@
                         <strong id="pay-close-unmatched">0건</strong>
                     </div>
                 </div>
-                <div class="pay-channel-grid">
-                    <div class="pay-channel-item">
-                        <div class="pay-channel-item-main">
-                            <span>결제선생</span>
-                            <strong id="pay-channel-kpay">0원</strong>
-                        </div>
-                        <div class="pay-channel-reconcile">
-                            <input id="pay-channel-kpay-actual" class="pay-channel-actual-input" type="text" placeholder="외부 실합계"
-                                   oninput="formatNumberWithComma(this)" onchange="updateCloseReconcileInput('kpay', this.value)">
-                            <div id="pay-channel-kpay-diff" class="pay-channel-diff is-zero">차이 0원</div>
-                        </div>
-                    </div>
-                    <div class="pay-channel-item">
-                        <div class="pay-channel-item-main">
-                            <span>비즐</span>
-                            <strong id="pay-channel-bizzle">0원</strong>
-                        </div>
-                        <div class="pay-channel-reconcile">
-                            <input id="pay-channel-bizzle-actual" class="pay-channel-actual-input" type="text" placeholder="외부 실합계"
-                                   oninput="formatNumberWithComma(this)" onchange="updateCloseReconcileInput('bizzle', this.value)">
-                            <div id="pay-channel-bizzle-diff" class="pay-channel-diff is-zero">차이 0원</div>
-                        </div>
-                    </div>
-                    <div class="pay-channel-item">
-                        <div class="pay-channel-item-main">
-                            <span>통장</span>
-                            <strong id="pay-channel-bank">0원</strong>
-                        </div>
-                        <div class="pay-channel-reconcile">
-                            <input id="pay-channel-bank-actual" class="pay-channel-actual-input" type="text" placeholder="외부 실합계"
-                                   oninput="formatNumberWithComma(this)" onchange="updateCloseReconcileInput('bank', this.value)">
-                            <div id="pay-channel-bank-diff" class="pay-channel-diff is-zero">차이 0원</div>
-                        </div>
-                    </div>
-                    <div class="pay-channel-item">
-                        <div class="pay-channel-item-main">
-                            <span>기타</span>
-                            <strong id="pay-channel-etc">0원</strong>
-                        </div>
-                        <div class="pay-channel-reconcile">
-                            <input id="pay-channel-etc-actual" class="pay-channel-actual-input" type="text" placeholder="외부 실합계"
-                                   oninput="formatNumberWithComma(this)" onchange="updateCloseReconcileInput('etc', this.value)">
-                            <div id="pay-channel-etc-diff" class="pay-channel-diff is-zero">차이 0원</div>
-                        </div>
-                    </div>
-                </div>
-                <div class="pay-reconcile-total-wrap">
-                    <div id="pay-reconcile-total" class="pay-reconcile-total is-zero">
-                        장부와 실제 합계 차이 0원
-                        <span class="pay-term-help" title="장부와 실제 합계 차이: 앱 원장 합계에서 외부 실합계를 뺀 값입니다. 0원에 가까울수록 정산이 맞습니다.">?</span>
-                    </div>
-                    <div class="pay-reconcile-help">앱 원장 합계 - 외부 실합계의 전체 차이입니다. 0원에 가까울수록 정산이 맞습니다.</div>
-                </div>
                 <div class="pay-report-actions">
                     <button class="pay-report-btn" onclick="downloadMonthlyLedgerCsv()"><i class="fas fa-file-csv"></i> 월 원장 CSV</button>
                     <button class="pay-report-btn" onclick="downloadOutstandingCsv()"><i class="fas fa-file-csv"></i> 미수금 CSV</button>
@@ -1168,10 +1195,6 @@
                     <button class="pay-report-btn" onclick="downloadRefundCsv()"><i class="fas fa-file-csv"></i> 환불내역 CSV</button>
                 </div>
                 <div class="pay-report-options">
-                    <label class="pay-report-option">
-                        <input id="pay-csv-option-reconcile" type="checkbox">
-                        <span>월 원장/수단별 CSV에 장부-실제 차이값 추가</span>
-                    </label>
                     <label class="pay-report-option">
                         <input id="pay-csv-option-payroll" type="checkbox">
                         <span>월 원장/수단별 CSV에 인건비 상세 메타 추가</span>
@@ -1301,25 +1324,16 @@
                         <input type="date" id="ledger-paid-at" class="m-input">
                     </div>
                     <div class="input-group">
-                        <label>결제경로</label>
-                        <select id="ledger-channel" class="m-input">
-                            <option value="결제선생">결제선생</option>
-                            <option value="비즐">비즐</option>
-                            <option value="통장">통장</option>
-                        </select>
-                    </div>
-                    <div class="input-group">
                         <label>결제수단</label>
                         <select id="ledger-method" class="m-input">
                             <option value="카드">카드</option>
-                            <option value="동백전">동백전</option>
                             <option value="계좌이체">계좌이체</option>
-                            <option value="현금">현금</option>
+                            <option value="QR코드">QR코드</option>
                         </select>
                     </div>
                     <div class="input-group">
                         <label>거래확인번호</label>
-                        <input type="text" id="ledger-reference-id" class="m-input" placeholder="승인번호/이체확인번호">
+                        <input type="text" id="ledger-reference-id" class="m-input" placeholder="카드승인번호/이체확인번호/QR거래번호">
                     </div>
                     <div class="input-group">
                         <label title="증빙유형: 어떤 영수증/증빙으로 처리할지 선택합니다.">영수증 종류(증빙유형) <span class="pay-term-help" title="영수증 종류(증빙유형): 세금계산서/카드전표/현금영수증 등">?</span></label>
@@ -1352,7 +1366,7 @@
                     </div>
                     <div class="input-group" style="grid-column: 1 / -1;">
                         <label>메모</label>
-                        <textarea id="ledger-note" class="m-input" rows="3" placeholder="예: 결제선생 링크결제, 3월분 일부 수납"></textarea>
+                        <textarea id="ledger-note" class="m-input" rows="3" placeholder="예: 카드결제, 3월분 일부 수납"></textarea>
                     </div>
                 </div>
                 <button class="btn-save-main" onclick="savePaymentLedger()">원장 저장</button>
@@ -1367,7 +1381,7 @@
                 <button class="btn-close-x" onclick="closeModal('payment-ai-modal')"><i class="fas fa-times"></i></button>
             </div>
             <div class="modal-body-scrollable custom-scroll" style="padding: 20px;">
-                <p class="pay-ai-desc">결제선생/비즐/통장 증빙 이미지를 업로드하면 원장 입력 초안을 제안합니다.</p>
+                <p class="pay-ai-desc">카드/계좌이체/QR코드 증빙 이미지를 업로드하면 원장 입력 초안을 제안합니다.</p>
                 <div class="pay-ledger-grid pay-ai-suggested-zone">
                     <div class="input-group">
                         <label>학생(힌트)</label>
@@ -1380,9 +1394,9 @@
                     <div class="input-group">
                         <label>증빙 유형</label>
                         <select id="pay-ai-source-type" class="m-input">
-                            <option value="결제선생 화면">결제선생 화면</option>
-                            <option value="비즐 화면">비즐 화면</option>
-                            <option value="이체내역">이체내역</option>
+                            <option value="카드결제 화면">카드결제 화면</option>
+                            <option value="계좌이체 내역">계좌이체 내역</option>
+                            <option value="QR결제 내역">QR결제 내역</option>
                             <option value="기타">기타</option>
                         </select>
                     </div>
@@ -1436,27 +1450,16 @@
                         <input type="date" id="pay-ai-review-paid-at" class="m-input">
                     </div>
                     <div class="input-group">
-                        <label>결제경로</label>
-                        <select id="pay-ai-review-channel" class="m-input">
-                            <option value="결제선생">결제선생</option>
-                            <option value="비즐">비즐</option>
-                            <option value="통장">통장</option>
-                            <option value="기타">기타</option>
-                        </select>
-                    </div>
-                    <div class="input-group">
                         <label>결제수단</label>
                         <select id="pay-ai-review-method" class="m-input">
                             <option value="카드">카드</option>
-                            <option value="동백전">동백전</option>
                             <option value="계좌이체">계좌이체</option>
-                            <option value="현금">현금</option>
-                            <option value="기타">기타</option>
+                            <option value="QR코드">QR코드</option>
                         </select>
                     </div>
                     <div class="input-group">
                         <label>거래확인번호</label>
-                        <input type="text" id="pay-ai-review-reference-id" class="m-input">
+                        <input type="text" id="pay-ai-review-reference-id" class="m-input" placeholder="카드승인번호/이체확인번호/QR거래번호">
                     </div>
                     <div class="input-group" style="grid-column: 1 / -1;">
                         <label style="display:flex; align-items:center; gap:8px;">

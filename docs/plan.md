@@ -1,6 +1,6 @@
 # 출석관리앱 작업 계획서
 
-- 문서 기준일: 2026-03-23
+- 문서 기준일: 2026-03-25
 ## 프로젝트 목표
 - 학생/수업 기준으로 출석 상태를 정확히 기록하고 조회한다.
 - 교사 권한으로만 수정 가능하도록 접근 제어를 적용한다.
@@ -77,6 +77,60 @@
   - 이후 작업 사이클 종료 시 `append_enterprise_log.py`를 표준 명령으로 포함해 자동 기록 누락을 방지
 
 ## 현재 스프린트 목표
+### 학습기록 UX 분리(1단계) — 수업관리「이번달 기록」에서 종합평가 제외 — 2026-03-25
+- **상태**: [x] 완료(1/3 단계) — 3단계: 점수 그래프·UX 고도화는 후속.
+- **전문가 합의(교육운영/UI)**: 수업관리 중「이번달 기록」은 **당월 메모·일지 확인**에 집중하고, 종합평가는 **별도 평가 맥락**으로 두는 편이 인지 부담이 적다. 학생목록에서 열 기존 이력 모달은 당분간 종합평가 하단을 유지해 동선 단절을 막는다.
+- **구현 요약**: `openHistoryModal(memoOnly)` — `memoOnly===true`일 때 `#eval-section` 숨김·종합평가 로드 생략. 수업관리 버튼은 `openHistoryModal(true)`. `openHistoryFromStudentList`는 인자 없이 호출(기본 false).
+- **검증**: `node --check script.js` PASS.
+
+### 학생목록 「평가」모달(2단계) — 기록/점수 탭 + 하단 종합평가 — 2026-03-25
+- **상태**: [x] 완료(2/3 단계)
+- **전문가 합의(교육/UI/프론트)**: 「기록」은 **수업관리에서 입력한 개인·공유 메모를 월별로 한눈에 보는 탭**으로 정의. 점수는 별도 탭으로 두되 하단 **종합평가**는 탭과 무관하게 고정해 “한 학생·한 달” 평가 단위를 유지. 이력·점수 버튼 통합으로 학생 카드 액션을 줄인다.
+- **구현 요약**: `hydrateMonthlyClassMemosForStudent` + `buildMonthlyMemoTimelineHtml`로 수업관리 메모 로드·렌더 공통화. `student-eval-modal` — 탭 기록(`#student-eval-timeline`) / 점수(`#test-score-section` DOM 복구), `saveStudentEvalFromModal`·`openStudentEvalModal`·`switchStudentEvalTab`. 학생 목록 버튼 **「평가」** 단일화. 출석/수납 단축 동선에서 `student-eval-modal`도 함께 닫기.
+- **검증**: `node --check script.js` PASS · `ReadLints(index.html, style.css)` PASS.
+
+### 점수 탭 그래프·UX 고도화(3단계) — 2026-03-25
+- **상태**: [x] 완료
+- **원인분류(Supabase 미저장)**: `Supabase` + `코드` — `saveStudentTestScore`가 `_getOwnerId()`만 사용해 `current_owner_id`가 세션과 어긋나면 `owner_user_id`가 RLS(`auth.uid()`)와 불일치·INSERT 실패.
+- **전문가 합의(교육·UI)**: 원점수·만점이 시험마다 달라 **만점 대비 비율(%)**이 추이 비교에 가장 직관적이다. 시험일 순 정렬로 막대·선이 같은 스토리를 말하게 한다. 빈 달은 안내 카드로 입력 유도. **그래프는 점수 입력과 분리**해 큰 캔버스에서 보고, **기준월 기준 1~12개월** 구간을 선택해 장기 추이를 본다.
+- **구현 요약**:
+  - `database.js`: `saveStudentTestScore` → `await _resolveOwnerUserId()`, `teacher_id` 빈 문자열 → `null`.
+  - `getStudentTestScoresByDateRange`로 그래프 탭 다월 조회(이미 존재).
+  - `student-eval-modal`에 **「그래프」** 탭: `monthAnchorRangeMonths`·`renderStudentEvalChartPanel`·`#student-eval-chart-wide` + `buildTestScoreVisualizationHtml(..., { wide: true, rangeMode: true })`. 점수 탭은 요약·목록만(차트 DOM 제거).
+  - **후속(UX)**: 그래프 탭 상단 안내·메타 문구 제거, 조회 구간을 **숫자 입력(1~12개월)**·`silentEmpty`·`suppressVizHead`로 그래프 영역 확대, 스크롤 영역 flex로 호스트 높이 확보.
+  - **후속(UX)**: 점수 저장 후 **시험명** 초기화, QR **전화 뒷자리 4자리** 제출 직후 입력창 초기화(`qr-attendance.js`).
+  - `saveTestScoreFromHistory`: 원격 실패 시 명확한 오류 토스트, 저장 후 `scheduleStudentEvalChartRefresh`.
+- **검증**: `node --check script.js` · `node --check database.js` PASS · `ReadLints(style.css)` 권장.
+
+### 수납 원장 모달 단순화(결제경로 제거) — 2026-03-24
+- **상태**: [x] 완료 — `결제경로` 입력 제거, `결제수단`을 `카드/계좌이체/QR코드`로 운영 기준에 맞게 조정.
+- **구현 요약**: `index.html` 수납 원장 모달에서 `ledger-channel` 필드를 제거하고, `js/payment.js`에서 저장 시 `결제수단`으로 내부 `channel`을 자동 매핑(`계좌이체→통장`, `카드/QR코드→기타`)하도록 변경. 추가로 AI 검토 모달(`pay-ai-review/multi-review`)도 동일 옵션으로 통일하고, `거래확인번호` placeholder를 `카드승인번호/이체확인번호/QR거래번호`로 명확화.
+- **검증**: `node --check js/payment.js` PASS, `ReadLints(index.html, js/payment.js)` PASS.
+
+### 결제 증빙 업로드+AI 추출 모달 용어 통일 — 2026-03-24
+- **상태**: [x] 완료
+- **구현 요약**: 이미지 업로드 모달(`payment-ai-modal`)의 안내 문구를 `카드/계좌이체/QR코드` 기준으로 변경하고, 증빙 유형 옵션을 `카드결제 화면/계좌이체 내역/QR결제 내역/기타`로 재정의. `openPaymentAiModal` 기본값도 `카드결제 화면`으로 갱신.
+- **검증**: `node --check js/payment.js` PASS, `ReadLints(index.html, js/payment.js)` PASS.
+
+### 수납관리 대사(차이) 영역 제거 — 2026-03-24
+- **상태**: [x] 완료 — 수납/비용 관리 좌측의 수단별 대사 카드(결제선생/비즐/통장/기타)와 `장부와 실제 합계 차이` 요약 박스를 제거.
+- **구현 요약**: `index.html`에서 `pay-channel-grid`, `pay-reconcile-total-wrap`, CSV 옵션의 `pay-csv-option-reconcile` 항목을 삭제해 요청된 UI 영역을 완전 제거.
+- **검증**: `ReadLints(index.html)` PASS.
+
+### 재석확인 스누즈/일정변경 기준시각 보정 — 2026-03-24
+- **상태**: [x] 완료
+- **원인분류**: `코드` — 일정 변경 후 `initMissedScanChecks()`가 미스캔 타이머만 재설정하고, 기존 재석확인 대기큐(`pendingAttendanceChecks`)·스누즈(`snoozeUntilByTimeKey`)는 정리하지 않아 구시간(예: 18:30) 기준 알림이 잔류.
+- **전문가 합의(프론트/운영QA)**: 일정 변경 이벤트에서 재석확인 큐를 즉시 재검증·정리하고, 알림 시점에도 현재 시간표 재검증을 중복 적용해 stale 알림을 방지해야 함.
+- **구현 요약**:
+  - `qr-attendance.js`: `_isPendingAttendanceItemStillScheduled`, `prunePendingAttendanceChecksAgainstCurrentSchedules`, `onScheduleSlotChangedForAttendanceCheck` 추가.
+  - 일정 변경 시(학생/교사/일자/시각) 해당 슬롯의 대기큐·타이머·스누즈·알림중복키(`missedScanAlerted`)를 정리.
+  - `initMissedScanChecks()` 시작 시 전역 prune 수행.
+  - `script.js`: `updateClassTime` 완료 직후 `onScheduleSlotChangedForAttendanceCheck(...)` 호출 연동.
+- **추가 보강(재발 방지)**:
+  - 재석확인/스누즈/미스캔의 시간 키를 `normalizeAttendanceTimeKey`로 `HH:MM` 강제 통일.
+  - `alertKey`/`timerKey`/큐 키를 정규화해 `HH:MM` vs `HH:MM:SS` 포맷 차이로 스누즈 가드가 깨지는 케이스를 차단.
+- **검증**: `node --check qr-attendance.js` / `node --check script.js` PASS, `ReadLints(qr-attendance.js, script.js)` PASS.
+
 ### Vercel highroad-math · 학부모 포털 URL — 2026-03-23
 - **상태**: [x] 완료(2026-03-23 후속) — `vercel.json`: `name`·`outputDirectory: "."`·리라이트, 가이드 `docs/VERCEL_HIGHROAD_PARENT_PORTAL.md`.
 - **원인분류 (배포 `public` 오류)**: **외부플랫폼(Vercel)** — 산출물 경로 기본값이 `public/`인데 레포는 루트 정적 구조 → `outputDirectory` 명시로 해결.
@@ -1089,6 +1143,7 @@
 - [ ] 다음 작업자가 바로 이어서 할 수 있게 문서가 갱신되었다.
 
 ## 변경 이력
+- 2026-03-25 - AUTO-20260325(staged 15개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-23 - AUTO-20260323(staged 5개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-23 - AUTO-20260323(staged 6개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-23 - AUTO-20260323(staged 10개 파일 기준 문서 연동 자동기록): 연동 자동 기록

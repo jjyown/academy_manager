@@ -654,6 +654,21 @@ function normalizeChannel(channel) {
     return '기타';
 }
 
+function deriveChannelFromMethod(method) {
+    const raw = String(method || '').trim();
+    if (raw === '계좌이체') return '통장';
+    if (raw === '카드' || raw === 'QR코드') return '기타';
+    return normalizeChannel(raw);
+}
+
+function normalizePaymentMethod(method, channel = '') {
+    const raw = String(method || '').trim();
+    if (raw === '카드' || raw === '계좌이체' || raw === 'QR코드') return raw;
+    const ch = normalizeChannel(channel);
+    if (ch === '통장') return '계좌이체';
+    return '카드';
+}
+
 function paymentStatusToLabel(status) {
     return {
         paid: '완납',
@@ -1602,7 +1617,7 @@ function getLedgerPrefill(student, monthKey) {
         supplyAmount: parseAmount(ledger.supplyAmount || ledger.paidAmount || summary.totalPaidGross || summary.totalPaid || 0),
         vatAmount: parseAmount(ledger.vatAmount || 0),
         paidAt: ledger.paidAt || (summary.totalPaid > 0 ? todayStr : ''),
-        channel: ledger.channel || '통장',
+        channel: ledger.channel || deriveChannelFromMethod(ledger.method || '계좌이체'),
         method: ledger.method || '계좌이체',
         referenceId: ledger.referenceId || '',
         evidenceType: ledger.evidenceType || 'manual',
@@ -1644,6 +1659,199 @@ function saveLedgerEntryByStudentId(studentId, monthKey, payload) {
     };
 }
 
+/** Supabase payments.teacher_id — 학생 담당 선생님 우선, 없으면 현재 로그인 선생님 */
+function resolvePaymentTeacherIdForSync(student) {
+    const fromStudent = student && student.teacher_id != null ? String(student.teacher_id).trim() : '';
+    if (fromStudent) return fromStudent;
+    if (typeof getCurrentTeacherId === 'function') {
+        const cur = String(getCurrentTeacherId() || '').trim();
+        if (cur) return cur;
+    }
+    return '';
+}
+
+function buildLedgerSnapshotForDb(student, monthKey) {
+    const monthData = student?.payments?.[monthKey] || {};
+    const summary = getPaymentSummary(student, monthKey, monthData);
+    const ledger = monthData.ledger || null;
+    if (ledger) {
+        return {
+            ...ledger,
+            updatedAt: ledger.updatedAt || new Date().toISOString(),
+            syncSource: 'ledger'
+        };
+    }
+    const fees = summary.fees || {};
+    const dates = [fees.tuition && fees.tuition.date, fees.textbook && fees.textbook.date, fees.special && fees.special.date]
+        .filter(Boolean)
+        .map(String);
+    const paidAtGuess = dates.length ? dates.sort().slice(-1)[0] : '';
+    return {
+        dueAmount: Math.max(0, parseAmount(summary.totalDue)),
+        paidAmount: Math.max(0, parseAmount(summary.totalPaid)),
+        supplyAmount: Math.max(0, parseAmount(summary.totalPaid)),
+        vatAmount: 0,
+        paidAt: paidAtGuess,
+        channel: '통장',
+        method: '계좌이체',
+        referenceId: '',
+        evidenceNumber: '',
+        unmatchedDeposit: false,
+        refundAmount: 0,
+        refundReason: '',
+        note: '',
+        source: 'legacy',
+        fees: {
+            tuition: fees.tuition || {},
+            textbook: fees.textbook || {},
+            special: fees.special || {}
+        },
+        totalDue: summary.totalDue,
+        totalPaid: summary.totalPaid,
+        updatedAt: new Date().toISOString(),
+        syncSource: 'legacy'
+    };
+}
+
+/** 수납 모달·원장의 세부 필드를 DB 정규화 컬럼에 맞게 추출 */
+function derivePaymentDetailFieldsFromLedgerState(student, monthKey) {
+    const monthData = student?.payments?.[monthKey] || {};
+    const summary = getPaymentSummary(student, monthKey, monthData);
+    const ledger = monthData.ledger || null;
+    if (ledger) {
+        return {
+            supplyAmount: Math.max(0, parseAmount(ledger.supplyAmount)),
+            vatAmount: Math.max(0, parseAmount(ledger.vatAmount)),
+            refundAmount: Math.max(0, parseAmount(ledger.refundAmount)),
+            refundReason: String(ledger.refundReason || '').trim(),
+            channel: String(ledger.channel || '').trim(),
+            method: String(ledger.method || '').trim(),
+            referenceId: String(ledger.referenceId || '').trim(),
+            evidenceType: String(ledger.evidenceType || 'manual').trim(),
+            evidenceNumber: String(ledger.evidenceNumber || '').trim(),
+            evidenceName: String(ledger.evidenceName || '').trim(),
+            unmatchedDeposit: Boolean(ledger.unmatchedDeposit),
+            paidAtText: String(ledger.paidAt || '').trim()
+        };
+    }
+    return {
+        supplyAmount: Math.max(0, parseAmount(summary.totalPaid)),
+        vatAmount: 0,
+        refundAmount: 0,
+        refundReason: '',
+        channel: '통장',
+        method: '계좌이체',
+        referenceId: '',
+        evidenceType: 'manual',
+        evidenceNumber: '',
+        evidenceName: '',
+        unmatchedDeposit: false,
+        paidAtText: ''
+    };
+}
+
+function deriveDbFieldsFromPaymentState(student, monthKey) {
+    const monthData = student?.payments?.[monthKey] || {};
+    const summary = getPaymentSummary(student, monthKey, monthData);
+    const ledger = monthData.ledger || null;
+
+    if (ledger) {
+        const amount = Math.max(0, parseAmount(ledger.dueAmount));
+        const paidGross = Math.max(0, parseAmount(ledger.paidAmount));
+        const refund = Math.max(0, parseAmount(ledger.refundAmount));
+        const paidNet = Math.max(0, paidGross - refund);
+        const paidAt = (ledger.paidAt || '').trim();
+        const paymentDate = paidAt.length >= 10 ? paidAt.slice(0, 10) : null;
+        let status = 'unpaid';
+        if (ledger.unmatchedDeposit) {
+            status = paidNet > 0 ? 'partial' : 'unpaid';
+        } else if (amount === 0 && paidNet === 0) status = 'unpaid';
+        else if (amount > 0 && paidNet >= amount) status = 'paid';
+        else if (paidNet > 0) status = 'partial';
+        else status = 'unpaid';
+        return {
+            amount,
+            paidAmount: paidNet,
+            status,
+            paymentDate,
+            memo: (ledger.note || '').trim()
+        };
+    }
+
+    const amount = Math.max(0, parseAmount(summary.totalDue));
+    const paidNet = Math.max(0, parseAmount(summary.totalPaid));
+    const fees = summary.fees || {};
+    let paymentDate = null;
+    const dates = [fees.tuition && fees.tuition.date, fees.textbook && fees.textbook.date, fees.special && fees.special.date]
+        .filter(Boolean)
+        .map(String);
+    if (dates.length) paymentDate = dates.sort().slice(-1)[0];
+
+    let status = 'unpaid';
+    if (amount === 0 && paidNet === 0) status = 'unpaid';
+    else if (amount > 0 && paidNet >= amount) status = 'paid';
+    else if (paidNet > 0) status = 'partial';
+    else status = 'unpaid';
+
+    return { amount, paidAmount: paidNet, status, paymentDate, memo: '' };
+}
+
+/**
+ * 수납(해당 학생·청구월)을 Supabase public.payments 에 upsert
+ * @returns {Promise<{ok?:boolean, skipped?:boolean, reason?:string, error?:Error}>}
+ */
+async function syncPaymentMonthToSupabase(studentId, monthKey, options = {}) {
+    const silent = Boolean(options.silent);
+    try {
+        if (typeof window.savePaymentToDatabase !== 'function') return { ok: false, skipped: true };
+        if (typeof supabase === 'undefined' || !supabase) return { ok: false, skipped: true };
+
+        const ownerId = typeof cachedLsGet === 'function' ? cachedLsGet('current_owner_id') : localStorage.getItem('current_owner_id');
+        if (!ownerId) return { ok: false, reason: 'no_owner' };
+
+        const student = (students || []).find(s => String(s.id) === String(studentId));
+        if (!student) return { ok: false, reason: 'no_student' };
+
+        const teacherId = resolvePaymentTeacherIdForSync(student);
+        if (!teacherId) {
+            if (!silent) console.warn('[syncPaymentMonthToSupabase] teacher_id 없음 — Supabase 동기화 생략');
+            return { ok: false, reason: 'no_teacher' };
+        }
+
+        const ledgerJson = buildLedgerSnapshotForDb(student, monthKey);
+        const fields = deriveDbFieldsFromPaymentState(student, monthKey);
+        const detail = derivePaymentDetailFieldsFromLedgerState(student, monthKey);
+
+        await window.savePaymentToDatabase({
+            studentId,
+            month: monthKey,
+            teacherId,
+            amount: fields.amount,
+            paidAmount: fields.paidAmount,
+            status: fields.status,
+            paymentDate: fields.paymentDate,
+            memo: fields.memo || null,
+            ledgerJson,
+            supplyAmount: detail.supplyAmount,
+            vatAmount: detail.vatAmount,
+            refundAmount: detail.refundAmount,
+            refundReason: detail.refundReason || null,
+            channel: detail.channel || null,
+            method: detail.method || null,
+            referenceId: detail.referenceId || null,
+            evidenceType: detail.evidenceType || null,
+            evidenceNumber: detail.evidenceNumber || null,
+            evidenceName: detail.evidenceName || null,
+            unmatchedDeposit: detail.unmatchedDeposit,
+            paidAtText: detail.paidAtText || null
+        });
+        return { ok: true };
+    } catch (e) {
+        if (!silent) console.error('[syncPaymentMonthToSupabase]', e);
+        return { ok: false, error: e };
+    }
+}
+
 window.openPaymentLedgerModal = function(studentId = '', monthKey = '') {
     const role = getCurrentTeacherRole();
     if (role !== 'admin') {
@@ -1668,7 +1876,6 @@ window.openPaymentLedgerModal = function(studentId = '', monthKey = '') {
     const supplyInput = document.getElementById('ledger-supply-amount');
     const vatInput = document.getElementById('ledger-vat-amount');
     const paidAtInput = document.getElementById('ledger-paid-at');
-    const channelInput = document.getElementById('ledger-channel');
     const methodInput = document.getElementById('ledger-method');
     const refInput = document.getElementById('ledger-reference-id');
     const evidenceTypeInput = document.getElementById('ledger-evidence-type');
@@ -1701,7 +1908,6 @@ window.openPaymentLedgerModal = function(studentId = '', monthKey = '') {
     if (supplyInput) supplyInput.value = prefill.supplyAmount ? prefill.supplyAmount.toLocaleString() : '';
     if (vatInput) vatInput.value = prefill.vatAmount ? prefill.vatAmount.toLocaleString() : '';
     if (paidAtInput) paidAtInput.value = prefill.paidAt || '';
-    if (channelInput) channelInput.value = prefill.channel;
     if (methodInput) methodInput.value = prefill.method;
     if (refInput) refInput.value = prefill.referenceId;
     if (evidenceTypeInput) evidenceTypeInput.value = prefill.evidenceType || 'manual';
@@ -1726,8 +1932,8 @@ window.savePaymentLedger = function() {
     const supplyAmount = parseAmount(document.getElementById('ledger-supply-amount')?.value || 0);
     const vatAmount = parseAmount(document.getElementById('ledger-vat-amount')?.value || 0);
     const paidAt = (document.getElementById('ledger-paid-at')?.value || '').trim();
-    const channel = (document.getElementById('ledger-channel')?.value || '').trim();
     const method = (document.getElementById('ledger-method')?.value || '').trim();
+    const channel = deriveChannelFromMethod(method);
     const referenceId = (document.getElementById('ledger-reference-id')?.value || '').trim();
     const evidenceType = (document.getElementById('ledger-evidence-type')?.value || '').trim() || 'manual';
     const evidenceNumber = (document.getElementById('ledger-evidence-number')?.value || '').trim();
@@ -1818,6 +2024,16 @@ window.savePaymentLedger = function() {
     closeModal('payment-ledger-modal');
     renderPaymentList();
     showToast('수납 원장 항목이 저장되었습니다.', 'success');
+    void syncPaymentMonthToSupabase(studentId, monthKey).then((r) => {
+        if (r && r.ok) return;
+        if (r && r.skipped) return;
+        if (r && r.reason === 'no_teacher') {
+            showToast('로컬에는 저장되었습니다. 학생 담당 선생님 정보가 없어 Supabase 수납 동기화를 건너뛰었습니다.', 'warning');
+            return;
+        }
+        if (r && r.reason === 'no_owner') return;
+        showToast('로컬에는 저장되었으나 Supabase 동기화에 실패했습니다. payments.ledger_json 마이그레이션·네트워크를 확인하세요.', 'warning');
+    });
 }
 
 window.openPaymentAiModal = function() {
@@ -1838,7 +2054,7 @@ window.openPaymentAiModal = function() {
 
     studentSelect.innerHTML = buildStudentOptionsHtml(activeStudents);
     monthInput.value = getCurrentPaymentMonthKey();
-    sourceType.value = '결제선생 화면';
+    sourceType.value = '카드결제 화면';
     extractMode.value = 'single';
     fileInput.value = '';
     runBtn.disabled = false;
@@ -1960,7 +2176,6 @@ function openPaymentAiReviewModal(draft) {
     const dueInput = document.getElementById('pay-ai-review-due-amount');
     const paidInput = document.getElementById('pay-ai-review-paid-amount');
     const paidAtInput = document.getElementById('pay-ai-review-paid-at');
-    const channelInput = document.getElementById('pay-ai-review-channel');
     const methodInput = document.getElementById('pay-ai-review-method');
     const referenceInput = document.getElementById('pay-ai-review-reference-id');
     const unmatchedInput = document.getElementById('pay-ai-review-unmatched');
@@ -1972,8 +2187,7 @@ function openPaymentAiReviewModal(draft) {
     if (dueInput) dueInput.value = parseAmount(draft.due_amount || 0).toLocaleString();
     if (paidInput) paidInput.value = parseAmount(draft.paid_amount || 0).toLocaleString();
     if (paidAtInput) paidAtInput.value = (draft.paid_at || '').slice(0, 10);
-    if (channelInput) channelInput.value = draft.channel || '통장';
-    if (methodInput) methodInput.value = draft.method || '계좌이체';
+    if (methodInput) methodInput.value = normalizePaymentMethod(draft.method || '', draft.channel || '');
     if (referenceInput) referenceInput.value = draft.reference_id || '';
     if (unmatchedInput) unmatchedInput.checked = Boolean(draft.unmatched_deposit);
     if (refundAmountInput) refundAmountInput.value = '';
@@ -2037,27 +2251,16 @@ function buildPaymentAiMultiRowHtml(draft, index, activeStudents) {
                     <input type="date" class="m-input pay-ai-multi-paid-at" value="${escapeHtml((draft.paid_at || '').slice(0, 10))}">
                 </div>
                 <div class="input-group">
-                    <label>결제경로</label>
-                    <select class="m-input pay-ai-multi-channel">
-                        <option value="결제선생" ${draft.channel === '결제선생' ? 'selected' : ''}>결제선생</option>
-                        <option value="비즐" ${draft.channel === '비즐' ? 'selected' : ''}>비즐</option>
-                        <option value="통장" ${draft.channel === '통장' ? 'selected' : ''}>통장</option>
-                        <option value="기타" ${draft.channel === '기타' ? 'selected' : ''}>기타</option>
-                    </select>
-                </div>
-                <div class="input-group">
                     <label>결제수단</label>
                     <select class="m-input pay-ai-multi-method">
-                        <option value="카드" ${draft.method === '카드' ? 'selected' : ''}>카드</option>
-                        <option value="동백전" ${draft.method === '동백전' ? 'selected' : ''}>동백전</option>
-                        <option value="계좌이체" ${draft.method === '계좌이체' ? 'selected' : ''}>계좌이체</option>
-                        <option value="현금" ${draft.method === '현금' ? 'selected' : ''}>현금</option>
-                        <option value="기타" ${draft.method === '기타' ? 'selected' : ''}>기타</option>
+                        <option value="카드" ${normalizePaymentMethod(draft.method || '', draft.channel || '') === '카드' ? 'selected' : ''}>카드</option>
+                        <option value="계좌이체" ${normalizePaymentMethod(draft.method || '', draft.channel || '') === '계좌이체' ? 'selected' : ''}>계좌이체</option>
+                        <option value="QR코드" ${normalizePaymentMethod(draft.method || '', draft.channel || '') === 'QR코드' ? 'selected' : ''}>QR코드</option>
                     </select>
                 </div>
                 <div class="input-group">
                     <label>거래확인번호</label>
-                    <input type="text" class="m-input pay-ai-multi-reference-id" value="${escapeHtml(draft.reference_id || '')}">
+                    <input type="text" class="m-input pay-ai-multi-reference-id" value="${escapeHtml(draft.reference_id || '')}" placeholder="카드승인번호/이체확인번호/QR거래번호">
                 </div>
                 <div class="input-group" style="grid-column: 1 / -1;">
                     <label style="display:flex; align-items:center; gap:8px;">
@@ -2122,8 +2325,8 @@ window.savePaymentAiMultiReview = function(forceUnmatched = false) {
         const dueAmount = parseAmount(row.querySelector('.pay-ai-multi-due-amount')?.value || 0);
         const paidAmount = parseAmount(row.querySelector('.pay-ai-multi-paid-amount')?.value || 0);
         const paidAt = (row.querySelector('.pay-ai-multi-paid-at')?.value || '').trim();
-        const channel = (row.querySelector('.pay-ai-multi-channel')?.value || '').trim();
         const method = (row.querySelector('.pay-ai-multi-method')?.value || '').trim();
+        const channel = deriveChannelFromMethod(method);
         const referenceId = (row.querySelector('.pay-ai-multi-reference-id')?.value || '').trim();
         const note = (row.querySelector('.pay-ai-multi-note')?.value || '').trim();
         const unmatchedChecked = Boolean(row.querySelector('.pay-ai-multi-unmatched')?.checked);
@@ -2168,6 +2371,7 @@ window.savePaymentAiMultiReview = function(forceUnmatched = false) {
                     evidenceType: 'ai_extract',
                     evidenceName: draftMeta?.evidenceName || ''
                 });
+                void syncPaymentMonthToSupabase(studentId, monthKey, { silent: true });
             }
             successCount += 1;
         } catch (err) {
@@ -2197,8 +2401,8 @@ window.savePaymentAiReview = function(forceUnmatched = false) {
     const dueAmount = parseAmount(document.getElementById('pay-ai-review-due-amount')?.value || 0);
     const paidAmount = parseAmount(document.getElementById('pay-ai-review-paid-amount')?.value || 0);
     const paidAt = (document.getElementById('pay-ai-review-paid-at')?.value || '').trim();
-    const channel = (document.getElementById('pay-ai-review-channel')?.value || '').trim();
     const method = (document.getElementById('pay-ai-review-method')?.value || '').trim();
+    const channel = deriveChannelFromMethod(method);
     const referenceId = (document.getElementById('pay-ai-review-reference-id')?.value || '').trim();
     const note = (document.getElementById('pay-ai-review-note')?.value || '').trim();
     const unmatchedChecked = Boolean(document.getElementById('pay-ai-review-unmatched')?.checked);
@@ -2273,6 +2477,13 @@ window.savePaymentAiReview = function(forceUnmatched = false) {
     closeModal('payment-ai-review-modal');
     renderPaymentList();
     showToast(unmatchedDeposit ? '미확인입금으로 저장되었습니다.' : 'AI 검토 결과가 저장되었습니다.', 'success');
+    void syncPaymentMonthToSupabase(studentId, monthKey).then((r) => {
+        if (r && r.ok) return;
+        if (r && r.skipped) return;
+        if (r && r.reason === 'no_teacher') {
+            showToast('Supabase 수납 동기화를 건너뛰었습니다(선생님 ID 없음).', 'warning');
+        }
+    });
 }
 
 window.openHomeworkPage = function() {
@@ -3128,6 +3339,13 @@ window.batchQuickPayAll = async function() {
             if (t.amount > 0 && !t.date) t.date = dateStr;
         });
     });
-    saveData();
+    saveData(true);
     renderPaymentList();
+    for (const item of unpaid) {
+        try {
+            await syncPaymentMonthToSupabase(item.student.id, monthKey, { silent: true });
+        } catch (e) {
+            console.warn('[batchQuickPayAll] Supabase 동기화 실패:', e);
+        }
+    }
 }

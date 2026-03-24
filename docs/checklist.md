@@ -1,7 +1,18 @@
 # 출석관리앱 체크리스트
 
-- 문서 기준일: 2026-03-23
+- 문서 기준일: 2026-03-25
 ## 공통 품질 체크
+- [x] 점수 저장·QR 전화인증 입력 초기화(2026-03-25): `saveTestScoreFromHistory` 시험명 비움 · `submitPhoneAttendanceAuth` 4자리 제출 직후 `#qr-phone-last4-input` 비움 · `node --check script.js` `qr-attendance.js` PASS
+- [x] 그래프 탭 조회 입력·영역 확대(2026-03-25): 드롭다운→숫자 입력·안내·메타·빈상태 문구 제거·`silentEmpty`/`suppressVizHead`/`test-score-viz--chart-tab` · `node --check script.js` PASS · 실기기: 1~12개월 입력·그래프 크기 확인 권장
+- [x] 학생 평가 모달 점수 Supabase·그래프 탭(2026-03-25): `saveStudentTestScore` → `_resolveOwnerUserId` · 그래프 탭 1~12개월·`getStudentTestScoresByDateRange` · 점수 탭 차트 제거 · `node --check script.js` `database.js` PASS · 실기기: 점수 저장 후 Supabase 반영·그래프 탭 조회 권장
+- [x] 점수 탭 그래프 고도화(2026-03-25): 만점 대비 % SVG 라인·막대 %·시험일 순·빈 달 안내 · `node --check script.js` PASS · `ReadLints(style.css)` PASS · 실기기: 점수 2건+ 시 라인·막대 일치 확인 권장
+- [x] 학생목록 「평가」모달·기록/점수 탭(2026-03-25): `student-eval-modal`·`openStudentEvalModal`·기록=수업관리 월별 메모·점수=테스트점수·하단 종합평가 고정·카드 버튼 `평가` 단일화 · `node --check script.js` PASS · `ReadLints(index.html, style.css)` PASS · 실기기: 평가→기록/점수·종합저장 권장
+- [x] 수업관리 이번달 기록에서 종합평가 숨김(2026-03-25): `openHistoryModal(true)`·`#eval-section` display none · `node --check script.js` PASS · 실기기: 수업관리→이번달 기록=메모만 확인 권장
+- [x] 재석확인 1분 내 재노출 보강(2026-03-24): `qr-attendance.js` 시간키를 `normalizeAttendanceTimeKey(HH:MM)`로 통일해 큐/스누즈/미스캔 `alertKey`·`timerKey` 포맷 불일치(`HH:MM` vs `HH:MM:SS`) 제거 · `node --check qr-attendance.js` PASS · `ReadLints(qr-attendance.js)` PASS
+- [x] 결제 증빙 업로드+AI 추출 모달 통일(2026-03-24): `payment-ai-modal` 안내 문구를 `카드/계좌이체/QR코드` 기준으로 변경, 증빙 유형 옵션을 `카드결제 화면/계좌이체 내역/QR결제 내역/기타`로 재정의, 기본값을 `카드결제 화면`으로 수정 · `node --check js/payment.js` PASS · `ReadLints(index.html, js/payment.js)` PASS
+- [x] 재석확인 스누즈/일정변경 기준시각 보정(2026-03-24): `qr-attendance.js`에 일정 유효성 기반 큐 prune + 일정 변경 훅(`onScheduleSlotChangedForAttendanceCheck`) 추가, `script.js` `updateClassTime` 연동 · `node --check qr-attendance.js` `script.js` PASS · `ReadLints(qr-attendance.js, script.js)` PASS
+- [x] 수납관리 대사(차이) 영역 제거(2026-03-24): `index.html`에서 수단별 대사 카드(`pay-channel-grid`)와 합계 차이 박스(`pay-reconcile-total-wrap`), CSV 차이 옵션(`pay-csv-option-reconcile`) 제거 · `ReadLints(index.html)` PASS
+- [x] 수납 결제수단 옵션/용어 통일(2026-03-24): 메인 원장+AI 검토 모달의 결제수단을 `카드/계좌이체/QR코드`로 통일, AI 결제경로 입력 제거, 거래확인번호 placeholder를 결제수단 예시로 명확화, 채널 자동 매핑(`계좌이체→통장`, `카드/QR코드→기타`) 반영 · `node --check js/payment.js` PASS · `ReadLints(index.html, js/payment.js)` PASS
 - [x] Vercel `highroad-math` 배포(2026-03-23): `vercel.json` — `name` · `outputDirectory: "."`(`public` 미사용)·`installCommand` · `package.json` engines · `docs/VERCEL_HIGHROAD_PARENT_PORTAL.md` — 푸시 후 Redeploy·`https://highroad-math.vercel.app/parent-portal` 스모크 권장
 - [x] 학부모 포털 Vercel 경로(2026-03-23): `cleanUrls`·`/parent-portal` 무슬래시 시 상대 `report.js`→`/report.js` 404 방지 — `parent-portal/index.html`에 `/parent-portal/report.js`·`/css/`·`/js/` 절대 경로 · `homework/index.html` CSS·env 후보 보강 · 배포 후 조회·Network `report.js` 200 확인 권장
 - [x] Vercel `.env` fetch 404 콘솔(2026-03-23): 프로덕션에서 `fetch` 시도 자체를 생략 — `localhost`/`127.0.0.1`에서만 env 파일 로드 · `parent-portal`·`homework` · 배포 후 콘솔 빨강 404 감소 확인 권장
@@ -103,6 +114,7 @@
 ## 테스트/검증 결과 기록
 | 날짜 | 작업 | 검증 방법 | 결과 | 비고 |
 |---|---|---|---|---|
+| 2026-03-25 | AUTO-20260325(staged 15개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-03-23 | AUTO-20260323(staged 5개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-03-23 | AUTO-20260323(staged 6개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-03-23 | AUTO-20260323(staged 10개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
