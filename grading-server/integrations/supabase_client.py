@@ -292,6 +292,27 @@ async def update_submission_grading_status(submission_id: int, status: str):
     await run_query(sb.table("homework_submissions").update({"grading_status": status}).eq("id", submission_id).execute)
 
 
+async def get_homework_submissions_by_owner_student_dates(
+    owner_user_id: str,
+    student_id: int,
+    date_from: str,
+    date_to: str,
+) -> list[dict]:
+    """원장(owner_user_id) 소유 숙제 제출 — Service Role로 RLS 우회 조회 (채점 관리 UI용)"""
+    sb = get_supabase()
+    q = (
+        sb.table("homework_submissions")
+        .select("id, submission_date, file_name, status, created_at, student_id, owner_user_id")
+        .eq("owner_user_id", owner_user_id)
+        .eq("student_id", student_id)
+        .gte("submission_date", date_from)
+        .lte("submission_date", date_to)
+        .order("submission_date")
+    )
+    res = await run_query(q.execute)
+    return res.data or []
+
+
 # ── students ──
 
 async def get_student(student_id: int) -> dict | None:

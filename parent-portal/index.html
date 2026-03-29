@@ -220,6 +220,139 @@
 			font-size: 32px; display: block; margin-bottom: 12px; opacity: 0.3;
 			animation: emptyPulse 2s ease-in-out infinite;
 		}
+		/* Score trend */
+		.score-empty {
+			text-align: center;
+			padding: 28px 16px;
+			color: var(--gray);
+			font-size: 13px;
+			line-height: 1.6;
+		}
+		.score-empty i {
+			font-size: 28px;
+			display: block;
+			margin-bottom: 10px;
+			opacity: 0.4;
+		}
+		.score-query-row {
+			display: flex;
+			align-items: center;
+			gap: 10px;
+			margin-bottom: 10px;
+			flex-wrap: wrap;
+		}
+		.score-query-label {
+			font-size: 13px;
+			font-weight: 700;
+			color: var(--text-sec);
+		}
+		.score-query-month {
+			padding: 7px 10px;
+			background: rgba(15,23,42,0.55);
+			border: 1px solid var(--border);
+			border-radius: 10px;
+			color: var(--text);
+			font-size: 13px;
+			font-weight: 700;
+			outline: none;
+		}
+		.score-query-sep {
+			font-size: 12px;
+			font-weight: 700;
+			color: var(--text-sec);
+		}
+		.score-query-hint {
+			font-size: 11px;
+			color: var(--gray);
+			margin-left: auto;
+		}
+		.score-chart-wrap {
+			position: relative;
+			border: 1px solid var(--border);
+			border-radius: 12px;
+			padding: 10px;
+			background: var(--bg-elevated);
+			margin-bottom: 12px;
+		}
+		.score-chart-svg {
+			width: 100%;
+			height: 250px;
+			display: block;
+			border-radius: 10px;
+			background: rgba(255,255,255,0.02);
+			border: 1px solid rgba(148,163,184,0.2);
+		}
+		.score-chart-y-label {
+			fill: rgba(148,163,184,0.95);
+			font-size: 7px;
+			font-weight: 800;
+		}
+		.score-chart-grid {
+			stroke: rgba(148,163,184,0.28);
+			stroke-width: 0.4;
+			stroke-dasharray: 2 2;
+		}
+		.score-chart-base {
+			stroke: rgba(148,163,184,0.4);
+			stroke-width: 0.5;
+		}
+		.score-chart-line {
+			fill: none;
+			stroke: #60a5fa;
+			stroke-width: 1.2;
+			stroke-linecap: round;
+			stroke-linejoin: round;
+		}
+		.score-chart-dot {
+			fill: #c7d2fe;
+			stroke: #818cf8;
+			stroke-width: 0.8;
+			cursor: pointer;
+		}
+		.score-chart-tooltip {
+			position: absolute;
+			pointer-events: none;
+			z-index: 20;
+			min-width: 170px;
+			max-width: 240px;
+			padding: 10px 12px;
+			border-radius: 10px;
+			border: 1px solid rgba(129,140,248,0.45);
+			background: linear-gradient(180deg, rgba(15,23,42,0.98), rgba(30,41,59,0.98));
+			box-shadow: 0 8px 26px rgba(0,0,0,0.38);
+			color: #e2e8f0;
+			font-size: 12px;
+			line-height: 1.45;
+			opacity: 0;
+			transform: translateY(6px);
+			transition: opacity .08s ease, transform .08s ease;
+			white-space: nowrap;
+		}
+		.score-chart-tooltip.show {
+			opacity: 1;
+			transform: translateY(0);
+		}
+		.score-chart-tooltip .k {
+			color: #94a3b8;
+			font-weight: 700;
+			margin-right: 6px;
+		}
+		.score-chart-x {
+			margin-top: 10px;
+			display: flex;
+			gap: 8px;
+			justify-content: space-between;
+			flex-wrap: nowrap;
+			overflow-x: auto;
+			padding: 0 2px;
+		}
+		.score-chart-x-item {
+			font-size: 11px;
+			color: var(--gray);
+			font-weight: 700;
+			flex: 0 0 auto;
+			white-space: nowrap;
+		}
 		@keyframes emptyPulse {
 			0%, 100% { opacity: 0.3; }
 			50% { opacity: 0.5; }
@@ -262,38 +395,8 @@
 		@keyframes ppModalFadeIn { from { opacity: 0; } to { opacity: 1; } }
 		@keyframes ppModalSlideUp { from { opacity: 0; transform: translateY(20px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
 
-		/* Evaluation panel */
-		.eval-lock {
-			text-align: center;
-			padding: 32px 20px;
-			background: rgba(139,92,246,0.06);
-			border: 1.5px dashed rgba(139,92,246,0.2);
-			border-radius: var(--radius);
-		}
-		.eval-lock-icon {
-			width: 56px; height: 56px;
-			background: rgba(139,92,246,0.12);
-			border-radius: 50%;
-			display: flex; align-items: center; justify-content: center;
-			margin: 0 auto 14px;
-			font-size: 22px; color: var(--accent);
-		}
-		.eval-lock p { font-size: 13px; color: var(--text-sec); margin-bottom: 16px; line-height: 1.6; }
-
-		.btn-auth {
-			padding: 12px 24px;
-			background: var(--primary-light);
-			color: var(--primary);
-			border: 1.5px solid rgba(129,140,248,0.25);
-			border-radius: var(--radius);
-			font-size: 14px; font-weight: 700; font-family: inherit;
-			cursor: pointer;
-			transition: all var(--transition);
-		}
-		.btn-auth:hover { background: rgba(129,140,248,0.2); border-color: var(--primary); }
-
-		.eval-content { display: none; }
-		.eval-content.visible { display: block; }
+		/* Evaluation panel — 랜딩에서 인증코드 조회 시 추가 학부모 인증 없음 */
+		.eval-content { display: block; }
 
 		.eval-textarea {
 			width: 100%;
@@ -798,8 +901,8 @@
 			<button class="dash-tab" onclick="switchTab('homework')">
 				<i class="fas fa-book"></i> 숙제
 			</button>
-			<button class="dash-tab" onclick="switchTab('grading')">
-				<i class="fas fa-pen-to-square"></i> 채점
+			<button class="dash-tab" onclick="switchTab('score')">
+				<i class="fas fa-chart-line"></i> 점수
 			</button>
 			<button class="dash-tab" onclick="switchTab('eval')">
 				<i class="fas fa-star"></i> 종합평가
@@ -905,17 +1008,20 @@
 			</div>
 		</div>
 
-		<!-- TAB: Grading Results -->
-		<div id="tab-grading" class="tab-panel">
+		<!-- TAB: Score Trend -->
+		<div id="tab-score" class="tab-panel">
 			<div class="section-card">
-				<div class="section-title">
-					<i class="fas fa-pen-to-square"></i>
-					<span>채점 결과</span>
+				<div class="score-query-row">
+					<span class="score-query-label">조회</span>
+					<input id="score-range-start-month" class="score-query-month" type="month" onchange="loadStudentScoreTrend()">
+					<span class="score-query-sep">~</span>
+					<input id="score-range-end-month" class="score-query-month" type="month" onchange="loadStudentScoreTrend()">
+					<span class="score-query-hint">좌우 드래그로 기간 이동</span>
 				</div>
-				<div id="grading-results-list" style="padding:4px 0;">
+				<div id="score-results-list" style="padding:4px 0;">
 					<div style="text-align:center;padding:30px 0;color:var(--gray);font-size:13px;">
 						<i class="fas fa-inbox" style="font-size:28px;margin-bottom:8px;opacity:0.4;display:block;"></i>
-						채점 결과가 없습니다
+						등록된 점수가 없습니다
 					</div>
 				</div>
 			</div>
@@ -935,20 +1041,10 @@
 					<button class="month-arrow" onclick="handleNextMonthEval()"><i class="fas fa-chevron-right"></i></button>
 				</div>
 
-				<!-- Lock -->
-				<div id="eval-lock" class="eval-lock">
-					<div class="eval-lock-icon"><i class="fas fa-key"></i></div>
-					<p>선생님이 발급한 인증코드로<br>종합 평가를 확인할 수 있습니다</p>
-					<button class="btn-auth" onclick="openParentAuthModal()">
-						<i class="fas fa-user-check"></i> 학부모 인증
-					</button>
-				</div>
-
-				<!-- Content (hidden until auth) -->
-				<div id="eval-content" class="eval-content">
-					<textarea id="eval-textarea" class="eval-textarea" placeholder="이번 달 종합 평가가 아직 작성되지 않았습니다." maxlength="500" readonly></textarea>
+				<div id="eval-content" class="eval-content visible">
+					<textarea id="eval-textarea" class="eval-textarea" placeholder="이번 달 종합 평가가 아직 작성되지 않았습니다." maxlength="2000" readonly></textarea>
 					<div class="eval-footer">
-						<span class="eval-char"><span id="eval-char-count">0</span>/500</span>
+						<span class="eval-char"><span id="eval-char-count">0</span>/2000</span>
 						<span class="eval-hint">읽기 전용</span>
 					</div>
 					<div class="eval-save-row" id="eval-save-row" style="display:none;">
@@ -962,26 +1058,6 @@
 	</div>
 </div>
 
-
-<!-- ===== Parent Auth Modal ===== -->
-<div id="parent-auth-modal" class="pp-modal">
-	<div class="pp-modal-box">
-		<div class="pp-modal-header">
-			<h2><i class="fas fa-key" style="margin-right:8px;color:var(--accent);"></i>학부모 인증</h2>
-			<button class="pp-modal-close" onclick="closeParentAuthModal()"><i class="fas fa-times"></i></button>
-		</div>
-		<p style="font-size:13px;color:var(--text-sec);line-height:1.6;">선생님에게 받은 인증코드 6자리를 입력하세요.</p>
-		<input id="parent-auth-password" class="pp-modal-input" type="text" placeholder="인증코드 6자리" maxlength="6" inputmode="numeric" style="font-size:20px;letter-spacing:6px;text-align:center;font-weight:800;">
-		<div class="pp-modal-hint" id="parent-auth-hint">
-			<i class="fas fa-info-circle" style="color:var(--primary);margin-right:4px;"></i>
-			인증코드는 선생님이 발급한 6자리 숫자입니다
-		</div>
-		<div id="parent-auth-fail-msg" style="display:none;margin-top:8px;padding:8px 12px;border-radius:8px;background:var(--red-bg);color:var(--red);font-size:12px;font-weight:500;"></div>
-		<button class="pp-modal-btn" id="parent-auth-btn" onclick="handleParentAuth()">
-			<i class="fas fa-check"></i> 인증하기
-		</button>
-	</div>
-</div>
 
 <!-- ===== Teacher Auth Modal ===== -->
 <div id="admin-auth-modal" class="pp-modal">

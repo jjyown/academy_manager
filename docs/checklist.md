@@ -1,7 +1,24 @@
 # 출석관리앱 체크리스트
 
-- 문서 기준일: 2026-03-25
+- 문서 기준일: 2026-03-29
 ## 공통 품질 체크
+- [x] 종합평가 본문 2000자·번호 항목 줄바꿈(2026-03-29): Edge `EVAL_MAX_CHARS`·`postProcessEvalText`·프롬프트 1~4항목 새 줄·`maxOutputTokens` 4096 · UI `maxlength`/카운터 2000 · `script.js` `STUDENT_EVAL_COMMENT_MAX_CHARS`·SQL 파일 운영 체크리스트 주석 · **Edge 함수 재배포** 필수 · `node --check script.js` `parent-portal/report.js` PASS
+- [x] 종합평가 AI Edge 401 대응(2026-03-29): `config.toml` `generate-student-eval-report` verify_jwt=false + `script.js` 세션 갱신·Bearer 명시 · 함수 **재배포** 필요 · `node --check script.js` PASS
+- [x] 학부모 포털 종합평가 추가 인증 제거(2026-03-29): 인증코드 조회 성공 시 종합평가 즉시 표시·잠금 UI·`parent-auth-modal` 제거 · `node --check parent-portal/report.js` PASS
+- [x] 학생 평가 AI·학부모 공개(2026-03-29): `script.js` 전역 핸들러 보강(ReferenceError 해소)·`parent_portal_visible` 저장·학부모 포털 placeholder·`node --check script.js` `report.js` PASS · SQL·Edge 배포는 운영에서 확인
+- [x] 채점 숙제 세션 JWT(2026-03-29): `POST /api/grading-auth/session`(Edge PIN)·시크릿 설정 시 `homework-submissions` Bearer 필수·auth 미들웨어 해당 경로 스킵·`grading/index.html` 세션 저장·401 처리 · `python -m compileall grading-server` PASS · Railway에 `GRADING_SESSION_SECRET`·`SUPABASE_ANON_KEY` 설정 후 스모크 권장
+- [x] 채점관리 숙제 제출+API(2026-03-29): `GET /api/homework-submissions`(소속 검증+Service Role)·프론트 API 우선·로컬 무URL 시 Supabase 폴백 · `python -m compileall grading-server` PASS · 배포 후 Network 스모크 권장
+- [x] 관리자 Supabase 비밀번호 변경 422 완화(2026-03-29): `confirmAdminPasswordChange` — 8자·문자군 사전검증(`getMissingPasswordCharacterClasses`)·신규≠기존·`setSession` 후 `updateUser`·`AuthWeakPasswordError` 전용 토스트·모달 네 조건 안내·특수문자 정규식 `/` 이스케이프 · `node --check auth.js` PASS · `ReadLints` PASS
+- [x] 학생관리 그래프 탭 라인차트/툴팁 통일(2026-03-28): 하단 막대 박스 제거, 라인차트 단일화, 점 hover 시 `시험명/시험일/점수` 커스텀 툴팁 즉시 표시(커서 근처) · `node --check script.js` PASS · `ReadLints(script.js, style.css, index.html)` PASS
+- [x] 학생관리 그래프 탭 조회방식 통일(2026-03-28): `시작월~종료월` 조회 입력으로 전환, 최대 12개월 보정, 그래프 영역 좌우 드래그 월 이동 적용 · `node --check script.js` PASS · `ReadLints(index.html, style.css, script.js)` PASS
+- [x] 학생 평가 점수 저장 월 제한 해제(2026-03-28): 시험일이 현재 월이 아니어도 저장 허용, 저장 후 시험일 월로 목록 재렌더, 월 전환 안내 토스트 추가 · `node --check script.js` PASS · `ReadLints(script.js)` PASS
+- [x] 학부모 포털 점수 조회 연/월 + 드래그 이동(2026-03-28): `시작월~종료월` 조회, 최대 12개월 제한, 그래프 좌우 드래그(월 단위 이동), x축 규칙(1개월=날짜/초과=월) 반영 · `node --check parent-portal/report.js` PASS · `ReadLints(parent-portal/index.html, parent-portal/report.js)` PASS
+- [x] 점수 그래프 툴팁 좌표 보정(2026-03-28): `.score-chart-wrap` relative 기준 + 상/하 동적 배치로 커서 근처 표시 · `node --check parent-portal/report.js` PASS · `ReadLints` PASS
+- [x] 학부모 포털 점수툴팁 즉시 표시(2026-03-28): SVG `<title>` 대신 커스텀 툴팁으로 점 hover 즉시 `시험명/시험일/점수` 표시, 카드형 스타일 적용 · `node --check parent-portal/report.js` PASS · `ReadLints` PASS
+- [x] 학부모 포털 점수 그래프 툴팁/라벨 정리(2026-03-27): 하단 날짜 라벨 제거, 점 hover 시 `시험명·시험일·점수` SVG `<title>` 툴팁 표시 · `node --check parent-portal/report.js` PASS · `ReadLints` PASS
+- [x] 학부모 포털 점수 그래프 레이아웃 정렬(2026-03-27): 레퍼런스와 동일하게 조회 N개월 입력 + 라인차트 단일 구성(막대/목록 제거), Y축 100/50/0 라벨 · `node --check parent-portal/report.js` PASS · `ReadLints` PASS
+- [x] 학부모 포털 점수 탭 전환(2026-03-27): `채점`→`점수` 탭명 변경, `student_test_scores` 기반 점수 추이 그래프(선+막대)+최근 점수 목록 렌더 · `node --check parent-portal/report.js` PASS · `ReadLints(parent-portal/index.html, report.js)` PASS
+- [x] 출석기록 미처리 고정 보정(2026-03-27): 출석기록 대표 레코드 선택을 상태우선순위+최신시각으로 보정(`pickBetterRecord`), 상태 재저장 시 타 teacher_id stale `none/absent` 정리(`cleanupLegacyAbsentShadowRecord`) · `node --check script.js` `qr-attendance.js` PASS · `ReadLints` PASS
 - [x] 점수 저장·QR 전화인증 입력 초기화(2026-03-25): `saveTestScoreFromHistory` 시험명 비움 · `submitPhoneAttendanceAuth` 4자리 제출 직후 `#qr-phone-last4-input` 비움 · `node --check script.js` `qr-attendance.js` PASS
 - [x] 그래프 탭 조회 입력·영역 확대(2026-03-25): 드롭다운→숫자 입력·안내·메타·빈상태 문구 제거·`silentEmpty`/`suppressVizHead`/`test-score-viz--chart-tab` · `node --check script.js` PASS · 실기기: 1~12개월 입력·그래프 크기 확인 권장
 - [x] 학생 평가 모달 점수 Supabase·그래프 탭(2026-03-25): `saveStudentTestScore` → `_resolveOwnerUserId` · 그래프 탭 1~12개월·`getStudentTestScoresByDateRange` · 점수 탭 차트 제거 · `node --check script.js` `database.js` PASS · 실기기: 점수 저장 후 Supabase 반영·그래프 탭 조회 권장
@@ -114,6 +131,7 @@
 ## 테스트/검증 결과 기록
 | 날짜 | 작업 | 검증 방법 | 결과 | 비고 |
 |---|---|---|---|---|
+| 2026-03-29 | AUTO-20260329(staged 30개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-03-25 | AUTO-20260325(staged 15개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-03-23 | AUTO-20260323(staged 5개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-03-23 | AUTO-20260323(staged 6개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |

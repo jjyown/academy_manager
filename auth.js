@@ -14,6 +14,49 @@ function removeTabValue(key) {
     localStorage.removeItem(key);
 }
 
+/** Supabase 대시보드「각 문자군 1자 이상」류 정책 — API 호출 전 사전 검사 */
+function getMissingPasswordCharacterClasses(pw) {
+    const hasLower = /[a-z]/.test(pw);
+    const hasUpper = /[A-Z]/.test(pw);
+    const hasDigit = /[0-9]/.test(pw);
+    const hasSymbol = /[!@#$%^&*()_+\-=[\]{}|;':",.\/<>?`~]/.test(pw);
+    const missing = [];
+    if (!hasLower) missing.push('영어 소문자(a~z)');
+    if (!hasUpper) missing.push('영어 대문자(A~Z)');
+    if (!hasDigit) missing.push('숫자(0~9)');
+    if (!hasSymbol) missing.push('특수문자(!@#… 등)');
+    return missing;
+}
+
+/** Supabase Auth 비밀번호 변경 실패 → 사용자 안내 (422/weak_password/재인증 등) */
+function mapAuthPasswordUpdateFailure(error) {
+    if (!error) return '비밀번호를 변경할 수 없습니다.';
+    const code = String(error.code || '');
+    const name = String(error.name || '');
+    const msg = String(error.message || '');
+    const lower = msg.toLowerCase();
+    const isCharEachRule = lower.includes('at least one character of each') || lower.includes('one character of each:');
+    if (name === 'AuthWeakPasswordError' || isCharEachRule) {
+        return 'Supabase 프로젝트에「비밀번호 복잡도」가 켜져 있어, 새 비밀번호에 아래 네 가지를 각각 1글자 이상 포함해야 합니다.\n'
+            + '• 영어 소문자(a~z)\n• 영어 대문자(A~Z)\n• 숫자(0~9)\n• 허용 특수문자(콘솔 메시지에 나온 !@#$%… 중 하나)\n\n'
+            + '지금 입력하신 비밀번호는 이 중 일부만 만족해 서버가 거절한 것입니다(422).';
+    }
+    if (code === 'weak_password' || (lower.includes('weak') && lower.includes('password'))) {
+        return '새 비밀번호가 보안 정책에 맞지 않습니다. 8자 이상이며, Supabase 대시보드에서 요구하는 문자 종류(대·소문자·숫자·기호)를 충족하는지 확인해 주세요. 유출된 비밀번호 목록에 있는 값은 사용할 수 없습니다.';
+    }
+    if (lower.includes('same') || lower.includes('identical') || lower.includes('current password') || msg.includes('동일')) {
+        return '새 비밀번호는 기존 비밀번호와 달라야 합니다.';
+    }
+    const status = error.status;
+    if (status === 401 || lower.includes('reauthentication') || lower.includes('reauth')) {
+        return '프로젝트에「보안 비밀번호 변경」이 켜져 있으면 이메일 재인증(nonce)이 필요할 수 있습니다. Supabase Authentication 설정을 확인하거나 비밀번호 초기화(이메일)로 진행해 주세요.';
+    }
+    if (status === 422 || lower.includes('unprocessable') || lower.includes('validation')) {
+        return '새 비밀번호가 서버 정책에 맞지 않습니다. 길이·복잡도·유출 비밀번호 차단 등을 확인해 주세요. (' + msg + ')';
+    }
+    return msg || '비밀번호를 변경할 수 없습니다.';
+}
+
 window.signUp = async function() {
     const email = (document.getElementById('signup-email')?.value || '').trim();
     const password = document.getElementById('signup-password').value;
@@ -281,14 +324,20 @@ function getPasswordResetRedirectUrl() {
     return undefined;
 }
 
-window.openAdminPasswordResetModal = function() {
+window.openAdminPasswordResetModal = async function() {
     const modal = document.getElementById('admin-password-reset-modal');
     if (modal) modal.style.display = 'flex';
     const emailInput = document.getElementById('admin-reset-email');
-    const loginEmail = document.getElementById('login-email');
-    if (emailInput && loginEmail && loginEmail.value) {
-        emailInput.value = loginEmail.value.trim();
+    if (!emailInput) return;
+    let pre = (document.getElementById('login-email')?.value || '').trim();
+    if (!pre) pre = (document.getElementById('admin-login-email')?.value || '').trim();
+    if (!pre) {
+        try {
+            const { data: { session } } = await supabase.auth.getSession();
+            pre = (session?.user?.email || '').trim();
+        } catch (e) { /* ignore */ }
     }
+    if (pre) emailInput.value = pre;
 }
 
 window.closeAdminPasswordResetModal = function() {
@@ -302,25 +351,59 @@ window.confirmAdminPasswordChange = async function() {
     const currentPassword = (document.getElementById('admin-current-password')?.value || '').trim();
     const newPassword = (document.getElementById('admin-reset-new-password')?.value || '').trim();
     const confirmPassword = (document.getElementById('admin-reset-new-password-confirm')?.value || '').trim();
+    const MIN_PASSWORD_LEN = 8;
 
     if (!email) { showToast('이메일을 입력해주세요.', 'warning'); return; }
     if (!currentPassword) { showToast('기존 비밀번호를 입력해주세요.', 'warning'); return; }
     if (!newPassword || !confirmPassword) { showToast('새 비밀번호를 입력해주세요.', 'warning'); return; }
-    if (newPassword.length < 6) { showToast('비밀번호는 6자 이상으로 설정해주세요.', 'warning'); return; }
+    if (newPassword.length < MIN_PASSWORD_LEN) {
+        showToast(`비밀번호는 ${MIN_PASSWORD_LEN}자 이상으로 설정해 주세요. (Supabase 권장·대시보드 정책과 맞춤)`, 'warning');
+        return;
+    }
     if (newPassword !== confirmPassword) { showToast('새 비밀번호가 일치하지 않습니다.', 'warning'); return; }
+    if (newPassword === currentPassword) {
+        showToast('새 비밀번호는 기존 비밀번호와 달라야 합니다.', 'warning');
+        return;
+    }
+    const missingClasses = getMissingPasswordCharacterClasses(newPassword);
+    if (missingClasses.length) {
+        showToast('비밀번호에 다음이 각각 필요합니다: ' + missingClasses.join(', ') + '.', 'warning');
+        return;
+    }
 
     try {
         // 1. 기존 비밀번호 확인 (재로그인으로 검증)
-        const { error: signInError } = await supabase.auth.signInWithPassword({ email, password: currentPassword });
+        const { data: signData, error: signInError } = await supabase.auth.signInWithPassword({ email, password: currentPassword });
         if (signInError) {
             showToast('기존 비밀번호가 올바르지 않습니다.', 'error');
             return;
         }
 
-        // 2. 새 비밀번호로 변경
+        // 2. signIn 직후 클라이언트 세션을 확정해 updateUser(Authorization) 레이스 완화
+        const s = signData?.session;
+        if (s?.access_token && s?.refresh_token) {
+            const { error: setErr } = await supabase.auth.setSession({
+                access_token: s.access_token,
+                refresh_token: s.refresh_token
+            });
+            if (setErr) {
+                console.error('[confirmAdminPasswordChange] setSession 실패:', setErr);
+                showToast('로그인 세션을 동기화하지 못했습니다. 잠시 후 다시 시도해 주세요.', 'error');
+                return;
+            }
+        } else {
+            const { data: { session: cur }, error: gErr } = await supabase.auth.getSession();
+            if (gErr || !cur) {
+                showToast('로그인 세션을 확인할 수 없습니다. 잠시 후 다시 시도해 주세요.', 'error');
+                return;
+            }
+        }
+
+        // 3. 새 비밀번호로 변경
         const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
         if (updateError) {
-            showToast('비밀번호 변경 실패: ' + updateError.message, 'error');
+            console.error('[confirmAdminPasswordChange] updateUser:', updateError);
+            showToast(mapAuthPasswordUpdateFailure(updateError), 'error');
             return;
         }
 
@@ -376,8 +459,8 @@ window.confirmAdminPasswordReset = async function() {
         return;
     }
 
-    if (newPassword.length < 6) {
-        showToast('비밀번호는 6자 이상으로 설정해주세요', 'warning');
+    if (newPassword.length < 8) {
+        showToast('비밀번호는 8자 이상으로 설정해 주세요. (Supabase 권장)', 'warning');
         return;
     }
 
@@ -385,11 +468,17 @@ window.confirmAdminPasswordReset = async function() {
         showToast('비밀번호가 일치하지 않습니다', 'warning');
         return;
     }
+    const missingReset = getMissingPasswordCharacterClasses(newPassword);
+    if (missingReset.length) {
+        showToast('비밀번호에 다음이 각각 필요합니다: ' + missingReset.join(', ') + '.', 'warning');
+        return;
+    }
 
     try {
         const { error } = await supabase.auth.updateUser({ password: newPassword });
         if (error) {
-            showToast('비밀번호 변경 실패: ' + error.message, 'error');
+            console.error('[confirmAdminPasswordReset] updateUser:', error);
+            showToast(mapAuthPasswordUpdateFailure(error), 'error');
             return;
         }
 

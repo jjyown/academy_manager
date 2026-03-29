@@ -4388,7 +4388,9 @@ window.loadStudentAttendanceHistory = async function() {
             const otherRecords = (mainData.records || []).filter((r) => normalizeTeacherKey(r?.teacher_id) !== dayPrimaryTeacherId);
             const otherSchedules = (mainData.schedules || []).filter((s) => normalizeTeacherKey(s?.teacher_id) !== dayPrimaryTeacherId);
 
-            const effectiveRecord = primaryRecords[0] || otherRecords[0] || null;
+            // 주담당 레코드가 있어도 stale `none`이 남아 있으면 화면이 미처리로 보일 수 있어,
+            // 동일 슬롯에서는 상태 우선순위(출석/지각/보강 > 결석 > 미처리) + 최신시각으로 대표 레코드를 고른다.
+            const effectiveRecord = [...primaryRecords, ...otherRecords].reduce((best, row) => pickBetterRecord(best, row), null);
             const effectiveSchedule = primarySchedules[0] || otherSchedules[0] || null;
             const isFallback = !primaryRecords.length && !primarySchedules.length && (otherRecords.length > 0 || otherSchedules.length > 0);
             const rowTeacherIdRaw = String(effectiveRecord?.teacher_id || effectiveSchedule?.teacher_id || primaryTeacherId || '').trim();

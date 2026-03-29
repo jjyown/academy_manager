@@ -11,3 +11,8 @@ verify_jwt = false
 
 [functions.exchange-google-token]
 verify_jwt = false
+
+# 종합평가 AI: 게이트웨이 JWT 검증이 켜져 있으면 세션 타이밍에 401만 나오고 본문이 비는 경우가 많음.
+# 실제 권한은 함수 내부에서 getUser() + students.owner_user_id 일치로 검증.
+[functions.generate-student-eval-report]
+verify_jwt = false

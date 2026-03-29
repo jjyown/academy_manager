@@ -31,7 +31,10 @@ let timetableScope = 'all';
 let allScopeScheduleHydrated = false;
 let allScopeScheduleLoading = false;
 let historyActionContext = { studentId: '', monthPrefix: '' };
+let studentEvalChartDragBound = false;
 let testScoreSyncState = { mode: 'unknown', message: '동기화 상태 확인 전' };
+/** 종합평가 본문 글자 상한 — `index.html` textarea·Edge `EVAL_MAX_CHARS`와 동일 유지 */
+const STUDENT_EVAL_COMMENT_MAX_CHARS = 2000;
 const TEST_SCORE_STORAGE_PREFIX = 'student_test_scores__';
 const ADMIN_CROSS_TEACHER_EDIT_TTL_MS = 30 * 60 * 1000; // 30분
 let adminCrossTeacherEditUntil = 0;
@@ -4906,7 +4909,7 @@ async function cleanupLegacyAbsentShadowRecord(studentId, dateStr, ownerTeacherI
             const rowTeacherId = String(row?.teacher_id || '').trim();
             const statusValue = String(row?.status || '').toLowerCase();
             if (!rowTeacherId || rowTeacherId === normalizedOwnerTeacherId) return false;
-            if (statusValue !== 'absent') return false;
+            if (statusValue !== 'absent' && statusValue !== 'none') return false;
             if (hasTeacherScheduleAtSlot(rowTeacherId, studentId, dateStr, normalizedStart)) return false;
             return true;
         });
@@ -4917,9 +4920,9 @@ async function cleanupLegacyAbsentShadowRecord(studentId, dateStr, ownerTeacherI
             .delete()
             .in('id', shadowIds);
         if (deleteError) {
-            console.warn('[cleanupLegacyAbsentShadowRecord] stale absent 정리 실패:', deleteError);
+            console.warn('[cleanupLegacyAbsentShadowRecord] stale absent/none 정리 실패:', deleteError);
         } else {
-            console.log('[cleanupLegacyAbsentShadowRecord] stale absent 정리 완료:', shadowIds.length);
+            console.log('[cleanupLegacyAbsentShadowRecord] stale absent/none 정리 완료:', shadowIds.length);
         }
     } catch (cleanupError) {
         console.warn('[cleanupLegacyAbsentShadowRecord] 예외:', cleanupError);
@@ -6483,28 +6486,94 @@ window.runTestScoreSyncCheck = async function() {
     }
 };
 
-/**
- * 모달 기준월(monthPrefix)을 끝으로 하는 최근 numMonths개월의 [startDate, endDate] (YYYY-MM-DD).
- * 예: 2026-03, 3 → 2026-01-01 ~ 2026-03-31
- */
-function monthAnchorRangeMonths(monthPrefix, numMonths) {
-    const n = Math.max(1, Math.min(12, parseInt(numMonths, 10) || 1));
-    const parts = String(monthPrefix || '').split('-');
-    const y = parseInt(parts[0], 10);
-    const m = parseInt(parts[1], 10);
-    if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) {
-        return { startDate: '', endDate: '' };
+function formatEvalChartMonth(year, month) {
+    return `${year}-${String(month).padStart(2, '0')}`;
+}
+
+function parseEvalChartMonth(monthStr) {
+    const m = String(monthStr || '').match(/^(\d{4})-(\d{2})$/);
+    if (!m) return null;
+    const y = parseInt(m[1], 10);
+    const mo = parseInt(m[2], 10);
+    if (!Number.isFinite(y) || !Number.isFinite(mo) || mo < 1 || mo > 12) return null;
+    return { year: y, month: mo };
+}
+
+function evalChartMonthToIndex(monthStr) {
+    const parsed = parseEvalChartMonth(monthStr);
+    if (!parsed) return null;
+    return parsed.year * 12 + (parsed.month - 1);
+}
+
+function evalChartIndexToMonth(idx) {
+    const year = Math.floor(idx / 12);
+    const month = (idx % 12) + 1;
+    return formatEvalChartMonth(year, month);
+}
+
+function getStudentEvalChartRangeFromInputs() {
+    const startEl = document.getElementById('student-eval-chart-start-month');
+    const endEl = document.getElementById('student-eval-chart-end-month');
+    const today = new Date();
+    const currentMonth = formatEvalChartMonth(today.getFullYear(), today.getMonth() + 1);
+    const anchorMonth = parseEvalChartMonth(historyActionContext.monthPrefix) ? historyActionContext.monthPrefix : currentMonth;
+    const defaultEndMonth = evalChartMonthToIndex(anchorMonth) > evalChartMonthToIndex(currentMonth) ? currentMonth : anchorMonth;
+
+    let startMonth = String(startEl?.value || '');
+    let endMonth = String(endEl?.value || '');
+    if (!parseEvalChartMonth(endMonth)) endMonth = defaultEndMonth;
+    if (!parseEvalChartMonth(startMonth)) startMonth = endMonth;
+
+    let startIdx = evalChartMonthToIndex(startMonth);
+    let endIdx = evalChartMonthToIndex(endMonth);
+    const currentIdx = evalChartMonthToIndex(currentMonth);
+    if (startIdx == null || endIdx == null || currentIdx == null) {
+        startIdx = currentIdx;
+        endIdx = currentIdx;
     }
-    const endLast = new Date(y, m, 0).getDate();
-    const endDate = `${y}-${String(m).padStart(2, '0')}-${String(endLast).padStart(2, '0')}`;
-    let sm = m - (n - 1);
-    let sy = y;
-    while (sm < 1) {
-        sm += 12;
-        sy -= 1;
+    if (startIdx > endIdx) {
+        const t = startIdx;
+        startIdx = endIdx;
+        endIdx = t;
     }
-    const startDate = `${sy}-${String(sm).padStart(2, '0')}-01`;
-    return { startDate, endDate };
+    if (endIdx > currentIdx) endIdx = currentIdx;
+    if (endIdx - startIdx > 11) startIdx = endIdx - 11;
+
+    startMonth = evalChartIndexToMonth(startIdx);
+    endMonth = evalChartIndexToMonth(endIdx);
+    if (startEl) startEl.value = startMonth;
+    if (endEl) endEl.value = endMonth;
+
+    const startDate = `${startMonth}-01`;
+    const endParts = parseEvalChartMonth(endMonth);
+    const endLastDay = endParts ? new Date(endParts.year, endParts.month, 0).getDate() : 31;
+    const endDate = `${endMonth}-${String(endLastDay).padStart(2, '0')}`;
+    return { startMonth, endMonth, startDate, endDate };
+}
+
+function shiftStudentEvalChartRangeByMonths(delta) {
+    const range = getStudentEvalChartRangeFromInputs();
+    const startIdx = evalChartMonthToIndex(range.startMonth);
+    const endIdx = evalChartMonthToIndex(range.endMonth);
+    const today = new Date();
+    const currentIdx = evalChartMonthToIndex(formatEvalChartMonth(today.getFullYear(), today.getMonth() + 1));
+    if (startIdx == null || endIdx == null || currentIdx == null) return;
+
+    const span = endIdx - startIdx;
+    let nextStart = startIdx + delta;
+    let nextEnd = endIdx + delta;
+    if (nextEnd > currentIdx) {
+        nextEnd = currentIdx;
+        nextStart = currentIdx - span;
+    }
+    if (nextStart < 0) {
+        nextStart = 0;
+        nextEnd = span;
+    }
+    const startEl = document.getElementById('student-eval-chart-start-month');
+    const endEl = document.getElementById('student-eval-chart-end-month');
+    if (startEl) startEl.value = evalChartIndexToMonth(nextStart);
+    if (endEl) endEl.value = evalChartIndexToMonth(nextEnd);
 }
 
 function scheduleStudentEvalChartRefresh() {
@@ -6751,19 +6820,13 @@ async function renderTestScoreSection(studentId, monthPrefix, monthLabel, preloa
  */
 window.renderStudentEvalChartPanel = async function() {
     const host = document.getElementById('student-eval-chart-wide');
-    const rangeIn = document.getElementById('student-eval-chart-range');
     if (!host) return;
     const sid = String(historyActionContext.studentId || '');
-    const monthPrefix = String(historyActionContext.monthPrefix || '');
-    if (!sid || !monthPrefix) {
+    if (!sid) {
         host.innerHTML = '<div class="test-score-viz-empty test-score-viz-empty--silent" aria-hidden="true"></div>';
         return;
     }
-    let months = parseInt(rangeIn && rangeIn.value !== '' ? rangeIn.value : '3', 10);
-    if (!Number.isFinite(months)) months = 3;
-    months = Math.max(1, Math.min(12, months));
-    if (rangeIn && String(rangeIn.value) !== String(months)) rangeIn.value = String(months);
-    const { startDate, endDate } = monthAnchorRangeMonths(monthPrefix, months);
+    const { startDate, endDate } = getStudentEvalChartRangeFromInputs();
     if (!startDate || !endDate) {
         host.innerHTML = '<div class="test-score-viz-empty test-score-viz-empty--silent" aria-hidden="true"></div>';
         return;
@@ -6774,18 +6837,191 @@ window.renderStudentEvalChartPanel = async function() {
         if (typeof window.getStudentTestScoresByDateRange === 'function') {
             scores = await window.getStudentTestScoresByDateRange(sid, startDate, endDate);
         }
-        host.innerHTML = buildTestScoreVisualizationHtml(scores, {
-            wide: true,
-            rangeMode: true,
-            silentEmpty: true,
-            suppressVizHead: true,
-            rangeTitle: ''
-        });
+        host.innerHTML = renderStudentEvalScoreTrendChart(scores, { startDate, endDate });
+        bindStudentEvalScoreTooltip();
     } catch (e) {
         console.error('[renderStudentEvalChartPanel]', e);
         host.innerHTML = '<div class="test-score-viz-empty test-score-viz-empty--silent" aria-hidden="true"></div>';
     }
+    bindStudentEvalChartDrag();
 };
+
+function renderStudentEvalScoreTrendChart(scores, rangeInfo) {
+    const sorted = sortScoresByExamDate(scores || []);
+    if (!sorted.length) {
+        return '<div class="test-score-viz-empty test-score-viz-empty--silent" aria-hidden="true"></div>';
+    }
+    return `
+        <div class="student-eval-score-chart-wrap">
+            ${buildStudentEvalScoreTrendSvg(sorted, rangeInfo)}
+        </div>
+        <div class="student-eval-score-chart-x">${buildStudentEvalScoreTrendXAxis(sorted, rangeInfo)}</div>
+    `;
+}
+
+function buildStudentEvalScoreTrendSvg(rows, rangeInfo) {
+    const n = rows.length;
+    const padL = 24;
+    const padR = 8;
+    const padT = 10;
+    const chartH = 74;
+    const chartW = 100 - padL - padR;
+    const svgH = 96;
+    if (n <= 0) return '';
+
+    const startTs = new Date(`${rangeInfo.startDate}T00:00:00`).getTime();
+    const endTs = new Date(`${rangeInfo.endDate}T23:59:59`).getTime();
+    const span = Math.max(1, endTs - startTs);
+    const getX = (item) => {
+        if (n === 1) return padL + chartW / 2;
+        const ts = new Date(`${item.examDate}T12:00:00`).getTime();
+        const ratio = Math.max(0, Math.min(1, (ts - startTs) / span));
+        return padL + ratio * chartW;
+    };
+
+    const points = rows.map((item) => {
+        const maxScore = Number(item.maxScore || 0);
+        const score = Number(item.score || 0);
+        const percent = maxScore > 0 ? Math.max(0, Math.min(100, Math.round((score / maxScore) * 100))) : 0;
+        const x = getX(item);
+        const y = padT + (100 - percent) / 100 * chartH;
+        return `${x.toFixed(2)},${y.toFixed(2)}`;
+    }).join(' ');
+
+    const dots = rows.map((item) => {
+        const maxScore = Number(item.maxScore || 0);
+        const score = Number(item.score || 0);
+        const percent = maxScore > 0 ? Math.max(0, Math.min(100, Math.round((score / maxScore) * 100))) : 0;
+        const x = getX(item);
+        const y = padT + (100 - percent) / 100 * chartH;
+        return `<circle class="student-eval-score-dot"
+            cx="${x.toFixed(2)}"
+            cy="${y.toFixed(2)}"
+            r="${n === 1 ? 2.8 : 2.2}"
+            data-exam-name="${escapeHtml(String(item.examName || '테스트'))}"
+            data-exam-date="${escapeHtml(String(item.examDate || '-'))}"
+            data-score="${escapeHtml(`${score}/${maxScore}`)}"
+        />`;
+    }).join('');
+
+    return `
+        <svg class="student-eval-score-chart-svg" viewBox="0 0 100 ${svgH}" preserveAspectRatio="xMidYMid meet" aria-label="점수 변화 선 그래프">
+            <text class="student-eval-score-y-label" x="4" y="10">100</text>
+            <text class="student-eval-score-y-label" x="8" y="${padT + chartH / 2 + 2}">50</text>
+            <text class="student-eval-score-y-label" x="10" y="${padT + chartH + 2}">0</text>
+            <line class="student-eval-score-grid" x1="${padL}" y1="${padT + chartH / 2}" x2="100" y2="${padT + chartH / 2}" />
+            <line class="student-eval-score-base" x1="${padL}" y1="${padT + chartH}" x2="100" y2="${padT + chartH}" />
+            ${n >= 2 ? `<polyline class="student-eval-score-line" points="${points}" />` : ''}
+            ${dots}
+        </svg>`;
+}
+
+function buildStudentEvalScoreTrendXAxis(rows, rangeInfo) {
+    const unique = (arr) => [...new Set(arr)];
+    const startIdx = evalChartMonthToIndex(rangeInfo.startDate.slice(0, 7));
+    const endIdx = evalChartMonthToIndex(rangeInfo.endDate.slice(0, 7));
+    if (startIdx != null && endIdx != null && (endIdx - startIdx) <= 0) {
+        const labels = unique(rows.map((r) => String(r.examDate || '').slice(8, 10)).filter(Boolean));
+        return labels.map((d) => `<span class="student-eval-score-chart-x-item">${parseInt(d, 10)}일</span>`).join('');
+    }
+    if (startIdx == null || endIdx == null) return '';
+    const labels = [];
+    for (let idx = startIdx; idx <= endIdx; idx += 1) {
+        const m = evalChartIndexToMonth(idx);
+        labels.push(`<span class="student-eval-score-chart-x-item">${m.slice(5, 7)}월</span>`);
+    }
+    return labels.join('');
+}
+
+function bindStudentEvalScoreTooltip() {
+    const wrap = document.querySelector('#student-eval-chart-wide .student-eval-score-chart-wrap');
+    if (!wrap) return;
+    const dots = wrap.querySelectorAll('.student-eval-score-dot');
+    if (!dots.length) return;
+
+    let tip = wrap.querySelector('.student-eval-score-tooltip');
+    if (!tip) {
+        tip = document.createElement('div');
+        tip.className = 'student-eval-score-tooltip';
+        wrap.appendChild(tip);
+    }
+
+    const positionTip = (evt) => {
+        const rect = wrap.getBoundingClientRect();
+        const x = evt.clientX - rect.left + 12;
+        const y = evt.clientY - rect.top;
+        const maxX = rect.width - tip.offsetWidth - 8;
+        const clampedX = Math.max(8, Math.min(maxX, x));
+        const aboveTop = y - tip.offsetHeight - 12;
+        const belowTop = y + 14;
+        const top = aboveTop >= 8 ? aboveTop : Math.min(rect.height - tip.offsetHeight - 8, belowTop);
+        tip.style.left = `${clampedX}px`;
+        tip.style.top = `${Math.max(8, top)}px`;
+    };
+
+    const showTip = (evt, dot) => {
+        const examName = dot.getAttribute('data-exam-name') || '테스트';
+        const examDate = dot.getAttribute('data-exam-date') || '-';
+        const score = dot.getAttribute('data-score') || '-';
+        tip.innerHTML = `<div><span class="k">시험명</span>${examName}</div>
+            <div><span class="k">시험일</span>${examDate}</div>
+            <div><span class="k">점수</span>${score}</div>`;
+        positionTip(evt);
+        tip.classList.add('show');
+    };
+
+    const hideTip = () => {
+        tip.classList.remove('show');
+    };
+
+    dots.forEach((dot) => {
+        dot.addEventListener('mouseenter', (evt) => showTip(evt, dot));
+        dot.addEventListener('mousemove', (evt) => positionTip(evt));
+        dot.addEventListener('mouseleave', hideTip);
+    });
+}
+
+function bindStudentEvalChartDrag() {
+    if (studentEvalChartDragBound) return;
+    const host = document.getElementById('student-eval-chart-wide');
+    if (!host) return;
+    studentEvalChartDragBound = true;
+
+    let startX = 0;
+    let dragging = false;
+    const onDown = (x) => {
+        startX = x;
+        dragging = true;
+    };
+    const onUp = (x) => {
+        if (!dragging) return;
+        dragging = false;
+        const diff = x - startX;
+        if (Math.abs(diff) < 42) return;
+        shiftStudentEvalChartRangeByMonths(diff > 0 ? -1 : 1);
+        window.renderStudentEvalChartPanel();
+    };
+
+    host.addEventListener('mousedown', (e) => {
+        const wrap = e.target.closest('.student-eval-score-chart-wrap');
+        if (!wrap) return;
+        onDown(e.clientX);
+    });
+    window.addEventListener('mouseup', (e) => onUp(e.clientX));
+
+    host.addEventListener('touchstart', (e) => {
+        const wrap = e.target.closest('.student-eval-score-chart-wrap');
+        if (!wrap) return;
+        const t = e.touches && e.touches[0];
+        if (!t) return;
+        onDown(t.clientX);
+    }, { passive: true });
+    window.addEventListener('touchend', (e) => {
+        const t = e.changedTouches && e.changedTouches[0];
+        if (!t) return;
+        onUp(t.clientX);
+    }, { passive: true });
+}
 
 function toSafeNumber(value) {
     if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
@@ -7054,10 +7290,7 @@ window.saveTestScoreFromHistory = async function() {
         showToast('점수/만점 값을 확인해주세요. (0 <= 점수 <= 만점)', 'warning');
         return;
     }
-    if (!examDate.startsWith(monthPrefix)) {
-        showToast('현재 월의 시험일만 저장할 수 있습니다.', 'warning');
-        return;
-    }
+    const examMonthPrefix = /^\d{4}-\d{2}-\d{2}$/.test(examDate) ? examDate.slice(0, 7) : monthPrefix;
 
     const localRow = {
         id: `ts_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
@@ -7099,7 +7332,11 @@ window.saveTestScoreFromHistory = async function() {
     valueInput.value = '';
     nameInput.value = '';
     nameInput.focus();
-    await renderTestScoreSection(studentId, monthPrefix, `${monthPrefix.slice(0, 4)}년 ${monthPrefix.slice(5)}월`);
+    await renderTestScoreSection(
+        studentId,
+        examMonthPrefix,
+        `${examMonthPrefix.slice(0, 4)}년 ${examMonthPrefix.slice(5)}월`
+    );
 
     if (saveBtn) {
         saveBtn.disabled = false;
@@ -7113,6 +7350,9 @@ window.saveTestScoreFromHistory = async function() {
         showToast('로컬에만 저장되었습니다. 동기화 점검 또는 로그인 상태를 확인하세요.', 'warning');
     } else {
         showToast('테스트 점수가 저장되었습니다. (로컬 전용)', 'warning');
+    }
+    if (examMonthPrefix !== monthPrefix) {
+        showToast(`입력한 시험일 기준으로 ${examMonthPrefix.slice(0, 4)}년 ${examMonthPrefix.slice(5)}월 목록을 표시합니다.`, 'info');
     }
 };
 
@@ -7494,10 +7734,16 @@ window.openStudentEvalModal = async function(studentId, options) {
     const evalCharCount = document.getElementById('student-eval-char');
     const evalSaveBtn = document.getElementById('student-eval-save-btn');
     if (evalMonthLabel) evalMonthLabel.textContent = `${curYear}년 ${curMonth}월`;
+    const refineWrap = document.getElementById('student-eval-refine-wrap');
+    if (refineWrap) refineWrap.style.display = 'none';
+    const refineIn = document.getElementById('student-eval-refine-input');
+    if (refineIn) refineIn.value = '';
+
     if (evalTextarea) {
         evalTextarea.value = '';
         evalTextarea.dataset.studentId = sid;
         evalTextarea.dataset.evalMonth = monthPrefix;
+        evalTextarea.dataset.parentVisible = '0';
         evalTextarea.oninput = function() {
             if (evalCharCount) evalCharCount.textContent = this.value.length;
         };
@@ -7511,17 +7757,35 @@ window.openStudentEvalModal = async function(studentId, options) {
     try {
         if (typeof window.getStudentEvaluation === 'function') {
             const evalData = await window.getStudentEvaluation(sid, monthPrefix);
-            if (evalData && evalData.comment && evalTextarea) {
-                evalTextarea.value = evalData.comment;
-                if (evalCharCount) evalCharCount.textContent = String(evalData.comment || '').length;
+            if (evalTextarea && evalData) {
+                if (evalData.comment) {
+                    evalTextarea.value = evalData.comment;
+                    if (evalCharCount) evalCharCount.textContent = String(evalData.comment || '').length;
+                }
+                evalTextarea.dataset.parentVisible = evalData.parent_portal_visible ? '1' : '0';
             }
         }
     } catch (e) {
         console.error('[openStudentEvalModal] 종합평가 로드 실패:', e);
     }
 
+    if (typeof window.updateStudentEvalParentToggleUi === 'function') {
+        window.updateStudentEvalParentToggleUi();
+    }
+
     const monthLabel = `${monthPrefix.slice(0, 4)}년 ${monthPrefix.slice(5)}월`;
     await renderTestScoreSection(sid, monthPrefix, monthLabel);
+
+    const chartStartEl = document.getElementById('student-eval-chart-start-month');
+    const chartEndEl = document.getElementById('student-eval-chart-end-month');
+    if (chartStartEl && chartEndEl) {
+        const anchorIdx = evalChartMonthToIndex(monthPrefix);
+        if (anchorIdx != null) {
+            const startIdx = Math.max(0, anchorIdx - 2);
+            chartStartEl.value = evalChartIndexToMonth(startIdx);
+            chartEndEl.value = evalChartIndexToMonth(anchorIdx);
+        }
+    }
 
     window.switchStudentEvalTab(initialTab);
 };
@@ -7545,8 +7809,12 @@ window.saveStudentEvalFromModal = async function() {
         evalSaveBtn.disabled = true;
     }
 
+    const vis = evalTextarea.dataset.parentVisible === '1';
+
     try {
-        await window.saveStudentEvaluation(studentId, evalMonth, comment, currentTeacherId);
+        await window.saveStudentEvaluation(studentId, evalMonth, comment, currentTeacherId, {
+            parentPortalVisible: vis
+        });
 
         if (evalSaveBtn) {
             evalSaveBtn.innerHTML = '<i class="fas fa-check"></i> 저장 완료';
@@ -7564,7 +7832,171 @@ window.saveStudentEvalFromModal = async function() {
             evalSaveBtn.innerHTML = '<i class="fas fa-save"></i> 저장';
             evalSaveBtn.disabled = false;
         }
-        showToast('종합평가 저장에 실패했습니다.', 'error');
+        const msg = (e && e.message) || '';
+        if (msg.includes('parent_portal_visible') || (e && String(e).includes('column'))) {
+            showToast('DB에 parent_portal_visible 컬럼이 없습니다. SUPABASE_EVAL_PARENT_VISIBLE_AI_20260329.sql을 적용해주세요.', 'error');
+        } else {
+            showToast('종합평가 저장에 실패했습니다.', 'error');
+        }
+    }
+};
+
+window.updateStudentEvalParentToggleUi = function() {
+    const ta = document.getElementById('student-eval-textarea');
+    const btn = document.getElementById('student-eval-parent-toggle-btn');
+    const icon = document.getElementById('student-eval-parent-toggle-icon');
+    const label = document.getElementById('student-eval-parent-toggle-label');
+    if (!ta || !btn || !label) return;
+    const on = ta.dataset.parentVisible === '1';
+    btn.classList.toggle('is-on', on);
+    if (icon) icon.className = on ? 'fas fa-eye' : 'fas fa-eye-slash';
+    label.textContent = on ? '학부모 공개 중' : '학부모 비공개';
+};
+
+window.toggleStudentEvalRefinePanel = function() {
+    const wrap = document.getElementById('student-eval-refine-wrap');
+    if (!wrap) return;
+    const hidden = wrap.style.display === 'none' || wrap.style.display === '';
+    wrap.style.display = hidden ? 'block' : 'none';
+};
+
+window.toggleStudentEvalParentVisible = async function() {
+    const ta = document.getElementById('student-eval-textarea');
+    if (!ta) return;
+    const sid = ta.dataset.studentId;
+    const month = ta.dataset.evalMonth;
+    if (!sid || !month) {
+        showToast('학생·월 정보가 없습니다.', 'warning');
+        return;
+    }
+    const next = ta.dataset.parentVisible !== '1';
+    try {
+        await window.saveStudentEvaluation(sid, month, ta.value.trim(), currentTeacherId, {
+            parentPortalVisible: next
+        });
+        ta.dataset.parentVisible = next ? '1' : '0';
+        window.updateStudentEvalParentToggleUi();
+        showToast(next ? '학부모 포털에 공개되었습니다.' : '학부모 포털에서 숨겼습니다.', 'success');
+    } catch (e) {
+        console.error('[toggleStudentEvalParentVisible]', e);
+        const msg = (e && e.message) || '';
+        if (msg.includes('parent_portal_visible') || (e && String(e).includes('column'))) {
+            showToast('DB 마이그레이션(SUPABASE_EVAL_PARENT_VISIBLE_AI_20260329.sql)을 먼저 적용해주세요.', 'error');
+        } else {
+            showToast('설정 저장에 실패했습니다.', 'error');
+        }
+    }
+};
+
+window.runStudentEvalAiGenerate = async function(mode) {
+    const genBtn = document.getElementById('student-eval-ai-generate-btn');
+    const refBtn = document.getElementById('student-eval-refine-run-btn');
+    const ta = document.getElementById('student-eval-textarea');
+    if (!ta) return;
+    if (typeof supabase === 'undefined') {
+        showToast('Supabase에 연결되지 않았습니다.', 'error');
+        return;
+    }
+
+    const sid = ta.dataset.studentId;
+    const month = ta.dataset.evalMonth;
+    if (!sid || !month) {
+        showToast('학생 정보를 찾을 수 없습니다.', 'warning');
+        return;
+    }
+
+    if (mode === 'refine') {
+        const instr = (document.getElementById('student-eval-refine-input')?.value || '').trim();
+        if (!instr) {
+            showToast('추가 요청사항을 입력해주세요.', 'warning');
+            return;
+        }
+        if (!ta.value.trim()) {
+            showToast('먼저 종합 평가를 작성하거나 AI 생성을 실행해주세요.', 'warning');
+            return;
+        }
+    }
+
+    await supabase.auth.refreshSession().catch(() => {});
+    let accessToken = null;
+    try {
+        const { data: sess } = await supabase.auth.getSession();
+        accessToken = sess && sess.session && sess.session.access_token ? sess.session.access_token : null;
+        if (!accessToken) {
+            const { data: ref } = await supabase.auth.refreshSession();
+            accessToken = ref && ref.session && ref.session.access_token ? ref.session.access_token : null;
+        }
+    } catch (e) {
+        console.warn('[runStudentEvalAiGenerate] 세션 조회:', e);
+    }
+    if (!accessToken) {
+        showToast('로그인 세션이 없거나 만료되었습니다. 다시 로그인해주세요.', 'error');
+        return;
+    }
+
+    const body = {
+        studentId: parseInt(sid, 10),
+        evalMonth: month,
+        mode: mode === 'refine' ? 'refine' : 'generate'
+    };
+    if (mode === 'refine') {
+        body.currentComment = ta.value.trim();
+        body.refinementInstruction = (document.getElementById('student-eval-refine-input')?.value || '').trim();
+    }
+
+    const busy = mode === 'refine' ? refBtn : genBtn;
+    const prevHtml = busy ? busy.innerHTML : '';
+    if (busy) {
+        busy.disabled = true;
+        busy.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 생성 중...';
+    }
+    if (genBtn && mode === 'refine') genBtn.disabled = true;
+
+    try {
+        const { data, error } = await supabase.functions.invoke('generate-student-eval-report', {
+            body,
+            headers: { Authorization: 'Bearer ' + accessToken }
+        });
+        if (error) {
+            console.error('[runStudentEvalAiGenerate]', error);
+            showToast('AI 요청에 실패했습니다. Edge 함수 재배포(supabase/config.toml의 verify_jwt)와 네트워크를 확인해주세요.', 'error');
+            return;
+        }
+        if (!data || !data.ok) {
+            const map = {
+                unauthorized: '다시 로그인해주세요.',
+                forbidden: '이 학생에 대한 권한이 없습니다.',
+                gemini_not_configured: 'Supabase에 GEMINI_API_KEY 시크릿을 설정해주세요.',
+                refine_missing: '수정 요청 내용을 확인해주세요.',
+                invalid_input: '입력값이 올바르지 않습니다.',
+                empty_output: 'AI 응답이 비었습니다. 다시 시도해주세요.',
+                gemini_http: 'AI 서버 오류입니다. 잠시 후 다시 시도해주세요.'
+            };
+            showToast(map[data.error] || '생성에 실패했습니다.', 'error');
+            return;
+        }
+        const text = String(data.text || '').slice(0, STUDENT_EVAL_COMMENT_MAX_CHARS);
+        ta.value = text;
+        const cc = document.getElementById('student-eval-char');
+        if (cc) cc.textContent = String(text.length);
+        ta.dataset.parentVisible = '0';
+        window.updateStudentEvalParentToggleUi();
+        await window.saveStudentEvaluation(sid, month, text, currentTeacherId, { parentPortalVisible: false });
+        showToast(
+            mode === 'refine'
+                ? '다시 작성되어 저장했습니다.'
+                : 'AI 초안을 저장했습니다. 학부모 공개는 별도로 켜주세요.',
+            'success'
+        );
+    } catch (e) {
+        console.error('[runStudentEvalAiGenerate]', e);
+        showToast('오류가 발생했습니다.', 'error');
+    } finally {
+        if (busy) {
+            busy.disabled = false;
+            busy.innerHTML = prevHtml;
+        }
+        if (genBtn) genBtn.disabled = false;
     }
 };
 

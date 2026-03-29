@@ -1,6 +1,6 @@
 # 출석관리앱 작업 계획서
 
-- 문서 기준일: 2026-03-25
+- 문서 기준일: 2026-03-29
 ## 프로젝트 목표
 - 학생/수업 기준으로 출석 상태를 정확히 기록하고 조회한다.
 - 교사 권한으로만 수정 가능하도록 접근 제어를 적용한다.
@@ -77,6 +77,117 @@
   - 이후 작업 사이클 종료 시 `append_enterprise_log.py`를 표준 명령으로 포함해 자동 기록 누락을 방지
 
 ## 현재 스프린트 목표
+### 채점관리 숙제 제출 탭 + 서버 API(Service Role) — 2026-03-29
+- 상태: [x] 완료
+- 구현 파일: `grading/index.html`, `grading-server/main.py`, `grading-server/auth.py`, `grading-server/grading_session.py`, `grading-server/routers/homework_submissions.py`, `grading-server/routers/grading_auth.py`, `grading-server/integrations/supabase_client.py`, `grading-server/integrations/edge_verify_pin.py`, `grading-server/.env.example`, `grading-server/README.md`
+- 구현 요약:
+  - 기존「통계」탭·`loadStats` 제거 후「📎 숙제 제출」탭(학생 검색·월 달력·일별 파일)
+  - **`GET /api/homework-submissions`**: 쿼리 `teacher_id`(= owner_user_id), `student_id`, `date_from`, `date_to` — 서버에서 학생이 해당 원장 학원 소속인지 검증 후 **Service Role**로 `homework_submissions` 조회(RLS·학생 코드 제한 없음)
+  - **`POST /api/grading-auth/session`**: Edge `verify-teacher-pin`으로 PIN 재검증 후 단기 JWT(`access_token`) 발급 — `GRADING_SESSION_SECRET`·`SUPABASE_ANON_KEY` 필요
+  - **`GRADING_SESSION_SECRET` 설정 시**: 숙제 API는 **`Authorization: Bearer` 채점 세션 JWT 필수**, owner는 JWT `sub`만 신뢰(쿼리 `teacher_id`가 있으면 `sub`와 불일치 시 403). 미설정 시 기존처럼 `teacher_id` 쿼리만으로 조회(로컬 개발 폴백)
+  - **Supabase JWT 미들웨어**: `/api/grading-auth`, `/api/homework-submissions`는 `SUPABASE_JWT_SECRET`이 있어도 검증 생략(별도 채점 세션으로 보호)
+  - 프론트: 로그인 성공 후 세션 발급·`sessionStorage.grading_session_token` 저장, 숙제 월 조회 fetch에 Bearer 부착·401 시 토큰 제거 및 재로그인 안내
+  - 레이트 리밋: `/api/grading-auth`, `/api/homework-submissions` 포함(분당 `RATE_LIMIT_PER_MINUTE`)
+  - 프론트: `GRADING_SERVER_URL`이 있으면 API 우선, 없으면 기존 Supabase anon 직접 조회(로컬 RLS 폴백)
+  - 조회 기간 상한 400일, 세션 `stats`→`homework` 이월 유지
+- 검증:
+  - `python -m compileall grading-server` PASS
+- 다음 단계:
+  - Railway에 `GRADING_SESSION_SECRET`(16자+), `SUPABASE_ANON_KEY` 설정 후 로그인→Network에서 `/api/grading-auth/session` 200·`/api/homework-submissions`에 Bearer 확인
+  - 기존 채점 API(`/api/results` 등)는 여전히 Supabase JWT 정책과 별도로 동작하는지 운영 설정에 맞게 점검
+
+### 학생관리 평가·종합평가 AI + 학부모 공개(2026-03-29)
+- 상태: [x] 완료(오류 수정 + 학부모 포털 UX 보강)
+- 후속(동일일): 학부모 포털 종합평가 **추가 인증 모달 제거** — 랜딩 `parent_code` 조회 성공 시 `setParentVerified()`·세션 복원 시 동일·`isAdminMode`는 잠금 면제. 공개 여부는 여전히 `parent_portal_visible`+RLS
+- 원인분류(버그): **코드** — `index.html`만 AI 버튼·토글을 추가하고 `script.js`에 `runStudentEvalAiGenerate` 등 전역 함수가 없어 **ReferenceError** 발생
+- 구현 파일: `script.js`, `index.html`, `style.css`, `database.js`, `parent-portal/report.js`, `SUPABASE_EVAL_PARENT_VISIBLE_AI_20260329.sql`, `supabase/functions/generate-student-eval-report/index.ts`
+- 구현 요약:
+  - 평가 모달: AI 생성·수정(재생성)·학부모 공개 토글·`parent_portal_visible` 저장 연동
+  - 학부모 포털: 비공개 시 RLS로 미조회 → placeholder 안내; 선생님 저장 시 `parent_portal_visible` 유지
+- 검증: `node --check script.js` `parent-portal/report.js` PASS
+- 다음 단계: SQL 마이그레이션 적용·Edge `generate-student-eval-report` **재배포**(아래 본문 길이 패치 반영)·Supabase 시크릿 `GEMINI_API_KEY`
+
+### 종합평가 AI 본문 2000자·번호 항목 줄바꿈 — 2026-03-29
+- 상태: [x] 완료
+- 원인분류: **코드** — Edge에서 `\s+`를 단일 공백으로 합치며 줄바꿈이 사라지고, 서버·클라이언트·UI가 **500자**로 잘라 AI 출력이 중간에서 끊김
+- 구현 파일: `supabase/functions/generate-student-eval-report/index.ts`, `index.html`, `parent-portal/index.html`, `parent-portal/report.js`, `script.js`
+- 구현 요약:
+  - `EVAL_MAX_CHARS = 2000`, `postProcessEvalText`: 줄바꿈 유지·가로 공백만 정규화·`1. 2.` 등 번호 앞 개행 보강
+  - 시스템 프롬프트: 항목 1~4를 **각각 새 줄**에서 시작하도록 명시
+  - `maxOutputTokens` 상향(4096), 클라이언트 `STUDENT_EVAL_COMMENT_MAX_CHARS`로 `slice`·textarea `maxlength`·카운터 `/2000` 정렬
+  - `SUPABASE_EVAL_PARENT_VISIBLE_AI_20260329.sql` 상단에 SQL·시크릿·Edge 배포·정적 배포 순 운영 체크리스트 주석
+- 검증: `node --check script.js` `parent-portal/report.js` PASS
+- 다음 단계: 운영에서 `npx supabase functions deploy generate-student-eval-report` 실행 후 AI 생성·저장·학부모 조회 스모크
+
+### 관리자 Supabase 비밀번호 변경(422) 완화 — 2026-03-29
+- 상태: [x] 완료
+- 구현 파일: `auth.js`, `index.html`
+- 원인분류(요약): **코드+외부플랫폼(정책)** — `PUT /auth/v1/user` 422는 클라이언트 최소 길이(6)·검증 메시지 부족과 Supabase 대시보드 비밀번호 정책 불일치 가능성이 큼; `signInWithPassword` 직후 `updateUser` 시 세션 반영 레이스 가능성 보조
+- 구현 요약:
+  - 새 비밀번호 최소 **8자**로 상향·기존과 동일 비밀번호 거부·`mapAuthPasswordUpdateFailure`로 `weak_password`/422/재인증 안내
+  - 재로그인 성공 후 `setSession`으로 액세스 토큰 확정 후 `updateUser` 호출
+  - `openAdminPasswordResetModal`: `login-email` / `admin-login-email` / 현재 세션 이메일 순으로 프리필
+  - 복구 모달 `confirmAdminPasswordReset`도 8자·동일 오류 매핑 적용
+  - 관리자 변경 모달에 Supabase 정책 안내 문구 추가
+  - **후속(동일일)**: 콘솔 `AuthWeakPasswordError`(각 문자군 1자 이상) — `mapAuthPasswordUpdateFailure` 전용 안내·`getMissingPasswordCharacterClasses` 사전 검증·모달에 네 조건 명시·특수문자 검사 정규식 내 `/` 이스케이프
+- 검증:
+  - `node --check auth.js` PASS
+  - `ReadLints(auth.js, index.html)` PASS
+- 다음 단계:
+  - 대시보드에서 복잡도 규칙을 완화하면 클라이언트 사전 검증과 불일치할 수 있으므로, 정책 변경 시 `getMissingPasswordCharacterClasses` 조건을 맞출 것
+
+### 학생관리 그래프 탭 라인차트/툴팁 통일(학부모 포털형) — 2026-03-28
+- 상태: [x] 완료
+- 구현 파일: `script.js`, `style.css`
+- 구현 요약:
+  - 학생관리 그래프 탭 렌더를 `라인차트 단일 + 점 hover 툴팁(시험명/시험일/점수)`로 교체해 하단 막대 박스 영역 제거
+  - 툴팁은 학부모 포털과 동일하게 커서 근처에 즉시 노출되도록 커스텀 HTML 툴팁으로 구현
+  - 드래그 조회 이동은 기존처럼 유지하되, 차트 래퍼 기준으로 이벤트를 연결해 조회 기능 연속성 유지
+- 검증:
+  - `node --check script.js` PASS
+  - `ReadLints(script.js, style.css, index.html)` PASS
+- 다음 단계:
+  - 실기기에서 점 hover/드래그 동작이 충돌 없이 동작하는지(PC 마우스 + 태블릿 터치) 확인
+
+### 학생관리 그래프 탭 조회방식 통일(학부모 포털 방식) — 2026-03-28
+- 상태: [x] 완료
+- 구현 파일: `index.html`, `style.css`, `script.js`
+- 구현 요약:
+  - 학생 평가 모달 `그래프` 탭 조회 입력을 `N개월`에서 `시작월~종료월`(type=`month`)로 전환
+  - 조회 구간은 자동 보정(역전 정렬/미래월 차단/최대 12개월 제한)하고, 그래프 영역 좌우 드래그로 월 단위 이동 지원
+  - 모달 오픈 시 기본 조회 구간을 기준월 포함 최근 3개월로 초기화해 기존 UX와 연속성 유지
+- 검증:
+  - `node --check script.js` PASS
+  - `ReadLints(index.html, style.css, script.js)` PASS
+- 다음 단계:
+  - 실기기에서 학생관리 그래프 탭의 월 입력 변경 + 드래그 이동이 학부모 포털과 동일 체감인지 확인
+
+### 학생 평가 모달 점수 입력 월 제한 해제 — 2026-03-28
+- 상태: [x] 완료
+- 구현 파일: `script.js`
+- 구현 요약:
+  - 점수 저장 시 `examDate.startsWith(monthPrefix)` 강제 검증을 제거해 과거/임의 날짜도 저장 가능하도록 변경
+  - 저장 후에는 입력한 시험일의 월(`YYYY-MM`) 기준으로 점수 목록을 다시 렌더링해, 지난 시험 점수도 저장 직후 화면에서 바로 확인 가능하도록 보강
+  - 현재 모달 기준월과 저장월이 다를 때 안내 토스트를 추가해 월 전환 동작을 명확히 안내
+- 검증:
+  - `node --check script.js` PASS
+  - `ReadLints(script.js)` PASS
+- 다음 단계:
+  - 실기기에서 과거 날짜 연속 입력(2~3건) 시 저장/조회 흐름과 안내 토스트 체감 확인
+
+### 학부모 포털 점수 조회기간(연/월) + 드래그 이동 — 2026-03-28
+- 상태: [x] 완료
+- 구현 파일: `parent-portal/index.html`, `parent-portal/report.js`
+- 구현 요약:
+  - 점수 조회를 `시작월~종료월`(type=`month`) 기준으로 변경하고, 잘못된 입력은 자동 보정(시작/종료 역전 정렬, 미래월 차단, 최대 12개월 제한)
+  - 그래프 카드에서 좌우 드래그(마우스/터치)를 지원해 조회 구간을 1개월 단위로 이동
+  - x축 표시 규칙을 기간 길이에 따라 분기(1개월 이하면 날짜, 1개월 초과면 월 라벨)
+- 검증:
+  - `node --check parent-portal/report.js` PASS
+  - `ReadLints(parent-portal/index.html, parent-portal/report.js)` PASS
+- 다음 단계:
+  - 실기기에서 점 hover 툴팁 + 드래그 동작이 동시에 자연스럽게 동작하는지 최종 체감 검증
+
 ### 학습기록 UX 분리(1단계) — 수업관리「이번달 기록」에서 종합평가 제외 — 2026-03-25
 - **상태**: [x] 완료(1/3 단계) — 3단계: 점수 그래프·UX 고도화는 후속.
 - **전문가 합의(교육운영/UI)**: 수업관리 중「이번달 기록」은 **당월 메모·일지 확인**에 집중하고, 종합평가는 **별도 평가 맥락**으로 두는 편이 인지 부담이 적다. 학생목록에서 열 기존 이력 모달은 당분간 종합평가 하단을 유지해 동선 단절을 막는다.
@@ -101,6 +212,58 @@
   - **후속(UX)**: 점수 저장 후 **시험명** 초기화, QR **전화 뒷자리 4자리** 제출 직후 입력창 초기화(`qr-attendance.js`).
   - `saveTestScoreFromHistory`: 원격 실패 시 명확한 오류 토스트, 저장 후 `scheduleStudentEvalChartRefresh`.
 - **검증**: `node --check script.js` · `node --check database.js` PASS · `ReadLints(style.css)` 권장.
+
+### 출석기록 상태 역전(미처리 고정) 보정 — 2026-03-27
+- **상태**: [x] 완료
+- **원인분류**: `코드` — 출석기록 리스트에서 슬롯 대표 레코드를 `primaryRecords[0]` 우선으로 고정해, stale `none`이 남아 있으면 재처리 후에도 카드가 미처리로 보일 수 있음. 또한 상태 재저장 시 타 `teacher_id`의 stale `none` 레코드가 남아 UI 선택과 충돌.
+- **전문가 합의(프론트/운영QA)**: 출석기록 카드의 대표 상태는 교사 우선보다 **상태 유효성(출석/지각/보강 > 결석 > 미처리) + 최신 시각**을 우선해야 현장 인지와 일치.
+- **구현 요약**:
+  - `qr-attendance.js`: `effectiveRecord`를 `primaryRecords[0] || otherRecords[0]`에서 `pickBetterRecord` 기반 전체 후보 선택으로 변경.
+  - `script.js`: `cleanupLegacyAbsentShadowRecord`에서 stale 정리 대상을 `absent`뿐 아니라 `none`까지 확장.
+- **검증**: `node --check script.js` · `node --check qr-attendance.js` PASS, `ReadLints` PASS.
+
+### 학부모 포털 점수 탭 전환(채점→점수) — 2026-03-27
+- **상태**: [x] 완료
+- **원인분류**: `코드` — 학부모 포털의 탭이 `grading_results` 중심으로 고정되어 있어, 학생 평가 모달에서 저장한 점수(`student_test_scores`) 추이를 부모가 직접 확인하기 어려움.
+- **전문가 합의(프론트/UI)**: 학부모는 문항 채점 상세보다 성적 변화 흐름(시험별 % 변화)을 빠르게 파악하는 니즈가 큼. 탭명·콘텐츠를 `점수`로 일치시키고 선+막대 조합으로 추이를 보여주는 것이 적합.
+- **구현 요약**:
+  - `parent-portal/index.html`: 탭 텍스트/아이콘을 `채점`→`점수` 변경, `tab-grading`/`grading-results-list`를 `tab-score`/`score-results-list`로 교체.
+  - `parent-portal/report.js`: `loadStudentScoreTrend` 신규 구현(`student_test_scores` 조회, `owner_user_id` 보조 필터), 점수 % 정규화(`normalizeTestScoreRows`), 선 그래프+막대+최근 리스트 렌더(`renderStudentScoreTrend`).
+  - `switchTab`에서 `score` 탭 진입 시 로드 트리거 연결.
+- **검증**: `node --check parent-portal/report.js` PASS, `ReadLints(parent-portal/index.html, parent-portal/report.js)` PASS.
+
+### 학부모 포털 점수 그래프 레이아웃 정렬(레퍼런스 1안) — 2026-03-27
+- **상태**: [x] 완료
+- **원인분류**: `코드` — 초기 구현이 선+막대+목록 복합 구성이라, 사용자가 기대한 “조회 N개월 + 라인 그래프 단일” 화면과 차이가 있었음.
+- **전문가 합의(UI/프론트)**: 부모용 점수 탭은 정보량보다 추이 가독성이 우선이므로, 레퍼런스와 동일한 단순 구성(라인차트 중심)이 적합.
+- **구현 요약**:
+  - `parent-portal/index.html`: 점수 탭 상단에 `조회 / N개월` 입력 추가, 하단 보조 리스트 UI 제거.
+  - `parent-portal/report.js`: 최근 N개월 범위 필터(`clampScoreRangeMonths`, `getRecentMonthRange`) 적용, 렌더를 라인차트+날짜축만 남기고 단순화, Y축 100/50/0 라벨 표시.
+- **검증**: `node --check parent-portal/report.js` PASS, `ReadLints` PASS.
+
+### 학부모 포털 점수 그래프 툴팁/라벨 정리 — 2026-03-27
+- **상태**: [x] 완료
+- **원인분류**: `코드` — 그래프 하단 날짜 라벨이 중복되어 보이고, 점 단위 시험 상세 정보가 즉시 확인되지 않음.
+- **구현 요약**:
+  - `parent-portal/report.js`: `renderStudentScoreTrend`에서 하단 날짜축 HTML 제거.
+  - `buildScoreTrendSvg`의 점(`circle`)에 SVG `<title>` 추가: `시험명`, `시험일`, `점수`.
+- **검증**: `node --check parent-portal/report.js` PASS, `ReadLints` PASS.
+
+### 학부모 포털 점수툴팁 즉시 표시 + 디자인 개선 — 2026-03-28
+- **상태**: [x] 완료
+- **원인분류**: `코드` — SVG 기본 `<title>` 툴팁은 브라우저 지연으로 즉시 노출되지 않으며 스타일 커스터마이즈가 제한됨.
+- **구현 요약**:
+  - `parent-portal/report.js`: 점(`.score-chart-dot`)에 `data-*` 속성(시험명/시험일/점수) 부여, `bindScoreChartTooltip()`로 `mouseenter/mousemove/mouseleave` 즉시 툴팁 표시.
+  - `parent-portal/index.html`: `.score-chart-tooltip` 카드형 스타일(배경/보더/그림자/타이포) 추가.
+- **검증**: `node --check parent-portal/report.js` PASS, `ReadLints(parent-portal/index.html, parent-portal/report.js)` PASS.
+
+### 학부모 포털 점수툴팁 좌표 보정 — 2026-03-28
+- **상태**: [x] 완료
+- **원인분류**: `코드` — 툴팁 절대 위치 기준 컨테이너가 명확하지 않아 화면 상단 쪽으로 멀리 뜨는 케이스 발생.
+- **구현 요약**:
+  - `parent-portal/index.html`: `.score-chart-wrap { position: relative; }` 추가.
+  - `parent-portal/report.js`: 툴팁 위치 계산을 커서 기준으로 상단 우선 배치, 상단 공간 부족 시 하단으로 자동 전환.
+- **검증**: `node --check parent-portal/report.js` PASS, `ReadLints` PASS.
 
 ### 수납 원장 모달 단순화(결제경로 제거) — 2026-03-24
 - **상태**: [x] 완료 — `결제경로` 입력 제거, `결제수단`을 `카드/계좌이체/QR코드`로 운영 기준에 맞게 조정.
@@ -1143,6 +1306,7 @@
 - [ ] 다음 작업자가 바로 이어서 할 수 있게 문서가 갱신되었다.
 
 ## 변경 이력
+- 2026-03-29 - AUTO-20260329(staged 30개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-25 - AUTO-20260325(staged 15개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-23 - AUTO-20260323(staged 5개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-23 - AUTO-20260323(staged 6개 파일 기준 문서 연동 자동기록): 연동 자동 기록

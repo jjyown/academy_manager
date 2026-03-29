@@ -475,6 +475,26 @@
 			.stu-layout { grid-template-columns:1fr; }
 			.stu-sidebar { border-right:none; border-bottom:1px solid var(--border); max-height:200px; }
 		}
+
+		/* 숙제 제출 탭 */
+		.hw-stu-list { flex:1; display:flex; flex-direction:column; gap:4px; min-height:0; overflow-y:auto; }
+		.hw-stu-item { display:flex; align-items:center; gap:10px; padding:10px 11px; border-radius:10px; cursor:pointer; border:1px solid transparent; background:var(--bg-elevated); transition:all 0.15s; }
+		.hw-stu-item:hover { border-color:rgba(129,140,248,0.35); }
+		.hw-stu-item.active { border-color:var(--primary); background:rgba(129,140,248,0.12); }
+		.hw-stu-av { width:32px; height:32px; border-radius:50%; background:rgba(129,140,248,0.15); display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:700; color:var(--primary); flex-shrink:0; }
+		.hw-stu-name { font-size:13px; font-weight:700; }
+		.hw-stu-meta { font-size:11px; color:var(--text-sec); margin-top:2px; }
+		.hw-cal-panel { background:var(--bg-card); border-radius:var(--radius); padding:16px; border:1px solid var(--border); }
+		.hw-day-detail { margin-top:14px; padding-top:12px; border-top:1px solid var(--border); font-size:12px; }
+		.hw-day-detail-title { font-weight:700; margin-bottom:8px; color:var(--text-sec); }
+		.hw-file-row { padding:8px 10px; background:var(--bg-elevated); border-radius:8px; margin-bottom:6px; display:flex; align-items:center; justify-content:space-between; gap:8px; }
+		.hw-file-name { font-size:12px; word-break:break-all; }
+		.hw-file-badge { font-size:10px; font-weight:700; padding:2px 8px; border-radius:8px; flex-shrink:0; }
+		.hw-badge-ok { background:rgba(34,197,94,0.15); color:var(--green); }
+		.hw-badge-fail { background:rgba(239,68,68,0.15); color:var(--red); }
+		.cal-dot.dot-hw-ok { background:#22c55e; }
+		.cal-dot.dot-hw-fail { background:#ef4444; }
+		.cal-dot.dot-hw-mix { background:linear-gradient(135deg,#22c55e 50%,#ef4444 50%); }
 	</style>
 </head>
 <body>
@@ -518,7 +538,7 @@
 		<button class="tab-btn active" onclick="switchMainTab('results', event)">📅 달력</button>
 		<button class="tab-btn" onclick="switchMainTab('students', event)">👨‍🎓 학생</button>
 		<button class="tab-btn" onclick="switchMainTab('keys', event)">📚 교재 관리</button>
-		<button class="tab-btn" onclick="switchMainTab('stats', event)">📈 통계</button>
+		<button class="tab-btn" onclick="switchMainTab('homework', event)">📎 숙제 제출</button>
 	</div>
 
 	<!-- 채점 결과 탭 (달력 뷰) -->
@@ -579,9 +599,46 @@
 		<div id="keys-list"></div>
 	</div>
 
-	<!-- 통계 탭 -->
-	<div id="tab-stats" class="tab-content" style="display:none;">
-		<div id="stats-content"></div>
+	<!-- 숙제 제출 현황 탭 -->
+	<div id="tab-homework" class="tab-content" style="display:none;">
+		<div class="stu-layout">
+			<div class="stu-sidebar" id="hw-sidebar">
+				<div class="stu-sidebar-title"><i class="fas fa-users"></i> 전체 학생</div>
+				<div class="stu-search-bar">
+					<i class="fas fa-search" style="color:var(--text-sec);font-size:13px;"></i>
+					<input class="input" id="hw-student-search" placeholder="이름·학교·학년 검색..." oninput="filterHomeworkStudentList()" style="flex:1;background:transparent;border:none;padding:6px 0;">
+				</div>
+				<div class="hw-stu-list" id="hw-student-list"></div>
+			</div>
+			<div class="stu-main">
+				<div id="hw-cal-placeholder" class="empty-state" style="padding:48px 16px;">
+					<i class="fas fa-calendar-check"></i>
+					<p>왼쪽에서 학생을 선택하면<br>해당 학생의 숙제 제출 현황이 달력에 표시됩니다.</p>
+					<p style="font-size:11px;color:var(--gray);margin-top:12px;max-width:360px;margin-left:auto;margin-right:auto;line-height:1.5;">※ 제출 내역은 <strong>채점 서버</strong>를 통해 학원 소속이 검증된 뒤 조회됩니다(학생 코드와 무관). 로컬에서 채점 서버 URL이 비어 있으면 Supabase 직접 조회로 동작해 일부만 보일 수 있습니다.</p>
+				</div>
+				<div id="hw-cal-wrap" style="display:none;">
+					<div style="font-size:14px;font-weight:700;margin-bottom:10px;color:var(--text-sec);" id="hw-cal-header-name"></div>
+					<div class="hw-cal-panel">
+						<div class="cal-header" style="margin-bottom:10px;">
+							<button class="cal-nav-btn" type="button" onclick="navigateHwMonth(-1)"><i class="fas fa-chevron-left"></i></button>
+							<span class="cal-title" id="hw-cal-title"></span>
+							<button class="cal-nav-btn" type="button" onclick="navigateHwMonth(1)"><i class="fas fa-chevron-right"></i></button>
+							<button class="btn btn-sm btn-outline" type="button" onclick="goHwToday()" style="margin-left:auto;font-size:11px;">오늘</button>
+						</div>
+						<div class="cal-weekdays">
+							<span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span class="cal-sat">토</span><span class="cal-sun">일</span>
+						</div>
+						<div class="cal-grid" id="hw-cal-grid"></div>
+						<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:10px;font-size:11px;color:var(--text-sec);">
+							<span><span class="cal-dot dot-hw-ok" style="vertical-align:middle;"></span> 제출</span>
+							<span><span class="cal-dot dot-hw-fail" style="vertical-align:middle;"></span> 업로드 실패</span>
+							<span><span class="cal-dot dot-hw-mix" style="vertical-align:middle;"></span> 혼합</span>
+						</div>
+						<div class="hw-day-detail" id="hw-day-detail"></div>
+					</div>
+				</div>
+			</div>
+		</div>
 	</div>
 </div>
 
@@ -1088,6 +1145,13 @@ let calMonth = _now.getMonth();
 let calSelectedDate = '';
 let calSideTab = 'assign';
 
+// 숙제 제출 탭
+let hwCalYear = _now.getFullYear();
+let hwCalMonth = _now.getMonth();
+let hwSelectedStudentId = null;
+let hwSelectedDateStr = '';
+let hwSubmissionsByDate = {};
+
 // 캔버스 관련
 let canvasTool = 'pen';
 let canvasColor = '#ef4444';
@@ -1261,6 +1325,39 @@ async function handleLogin() {
 		return;
 	}
 
+	// 숙제 조회 API용 단기 세션(서버에 GRADING_SESSION_SECRET 설정 시 필수)
+	if (shouldTryRemoteGradingServer && GRADING_SERVER_URL) {
+		const base = GRADING_SERVER_URL.replace(/\/$/, '');
+		try {
+			const sessRes = await fetch(`${base}/api/grading-auth/session`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					teacher_id: String(teacher.id),
+					pin: password,
+					owner_user_id: teacher.owner_user_id || undefined,
+				}),
+			});
+			const sessBody = await sessRes.json().catch(() => ({}));
+			if (sessRes.status === 503) {
+				sessionStorage.removeItem('grading_session_token');
+			} else if (!sessRes.ok) {
+				const d = sessBody.detail;
+				const msg = typeof d === 'string' ? d : '채점 세션 발급에 실패했습니다.';
+				showToast(msg, 'error');
+				return;
+			} else if (sessBody.access_token) {
+				sessionStorage.setItem('grading_session_token', sessBody.access_token);
+			}
+		} catch (e) {
+			console.warn('[채점관리] 세션 발급 요청 실패:', e);
+			sessionStorage.removeItem('grading_session_token');
+			showToast('채점 서버에 연결하지 못했습니다. 숙제 탭 조회가 제한될 수 있습니다.', 'error');
+		}
+	} else {
+		sessionStorage.removeItem('grading_session_token');
+	}
+
 	currentTeacher = teacher;
 	sessionStorage.setItem('grading_teacher', JSON.stringify(teacher));
 	document.getElementById('login-error').style.display = 'none';
@@ -1271,7 +1368,11 @@ async function handleLogin() {
 
 function handleLogout() {
 	kdDirty = false;
+	hwSelectedStudentId = null;
+	hwSelectedDateStr = '';
+	hwSubmissionsByDate = {};
 	sessionStorage.removeItem('grading_teacher');
+	sessionStorage.removeItem('grading_session_token');
 	sessionStorage.removeItem('grading_nav');
 	currentTeacher = null;
 	currentResults = [];
@@ -1311,6 +1412,7 @@ window.addEventListener('beforeunload', (e) => {
 
 let currentMainTab = 'results';
 function switchMainTab(tab, e) {
+	if (tab === 'stats') tab = 'homework';
 	if (!document.getElementById('tab-' + tab)) tab = 'results';
 	currentMainTab = tab;
 	document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
@@ -1319,6 +1421,19 @@ function switchMainTab(tab, e) {
 	const btn = e ? (e.target.closest('.tab-btn') || e.target) : null;
 	if (btn) btn.classList.add('active');
 	saveNavState();
+	if (tab === 'homework') {
+		renderHomeworkStudentList();
+		if (hwSelectedStudentId) {
+			const ph = document.getElementById('hw-cal-placeholder');
+			const wrap = document.getElementById('hw-cal-wrap');
+			if (ph) ph.style.display = 'none';
+			if (wrap) wrap.style.display = 'block';
+			const stu = (stuAllStudents || []).find(x => String(x.id) === String(hwSelectedStudentId));
+			const hn = document.getElementById('hw-cal-header-name');
+			if (hn) hn.textContent = stu ? stu.name + ' — 숙제 제출' : '';
+			loadHomeworkMonthForSelected();
+		}
+	}
 }
 
 let kdDirty = false;
@@ -1337,9 +1452,11 @@ async function restoreNavState() {
 	try {
 		const state = JSON.parse(raw);
 		if (state.tab) {
-			currentMainTab = state.tab;
-			const tabBtn = document.querySelector(`.tab-btn[onclick*="'${state.tab}'"]`);
-			if (tabBtn) switchMainTab(state.tab, { target: tabBtn });
+			let t = state.tab;
+			if (t === 'stats') t = 'homework';
+			currentMainTab = t;
+			const tabBtn = document.querySelector(`.tab-btn[onclick*="'${t}'"]`);
+			if (tabBtn) switchMainTab(t, { target: tabBtn });
 		}
 		if (state.page === 'detail' && state.resultId) {
 			await openDetail(state.resultId);
@@ -1370,7 +1487,7 @@ let _serverAwake = false;
 let _dataLoadRetries = 0;
 
 async function loadAllData() {
-	const results = await Promise.allSettled([loadResults(), loadAssignments(), loadAnswerKeys(), loadStats(), loadStudentList()]);
+	const results = await Promise.allSettled([loadResults(), loadAssignments(), loadAnswerKeys(), loadStudentList()]);
 	results.forEach((r, i) => {
 		if (r.status === 'rejected') console.warn(`[loadAllData] task ${i} failed:`, r.reason);
 	});
@@ -1383,7 +1500,7 @@ async function loadAllData() {
 		console.log(`[채점관리] 데이터 비어있음 — ${delay/1000}초 후 자동 재시도 (${_dataLoadRetries}/2)`);
 		showToast(`서버 연결 대기 중... ${delay/1000}초 후 재시도합니다 (${_dataLoadRetries}/2)`, 'info', delay);
 		await new Promise(r => setTimeout(r, delay));
-		const retryResults = await Promise.allSettled([loadResults(), loadAssignments(), loadAnswerKeys(), loadStats(), loadStudentList()]);
+		const retryResults = await Promise.allSettled([loadResults(), loadAssignments(), loadAnswerKeys(), loadStudentList()]);
 		retryResults.forEach((r, i) => {
 			if (r.status === 'rejected') console.warn(`[loadAllData retry] task ${i} failed:`, r.reason);
 		});
@@ -2307,6 +2424,7 @@ async function loadStudentList() {
 
 	renderStuSidebar();
 	renderStudentList();
+	if (currentMainTab === 'homework') renderHomeworkStudentList();
 }
 
 function renderStuSidebar() {
@@ -3866,63 +3984,246 @@ async function saveKeyDetail() {
 }
 
 // ============================================================
-// 통계
+// 숙제 제출 현황 탭 (homework_submissions)
 // ============================================================
-async function loadStats() {
-	if (!currentTeacher) return;
-	const el = document.getElementById('stats-content');
-	let results = [];
-	try {
-		const controller = new AbortController();
-		const timeoutId = setTimeout(() => controller.abort(), 30000);
-		const res = await fetch(`${GRADING_SERVER_URL}/api/stats?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`, { signal: controller.signal });
-		clearTimeout(timeoutId);
-		const result = await res.json();
-		results = result.data || [];
-	} catch (e) {
-		console.warn('통계 로드 실패:', e);
+function renderHomeworkStudentList() {
+	const container = document.getElementById('hw-student-list');
+	if (!container) return;
+	const q = (document.getElementById('hw-student-search')?.value || '').trim().toLowerCase();
+	let list = stuAllStudents || [];
+	if (q) {
+		list = list.filter(s =>
+			(s.name || '').toLowerCase().includes(q) ||
+			(s.school || '').toLowerCase().includes(q) ||
+			String(s.grade || '').toLowerCase().includes(q)
+		);
 	}
-
-	if (!results?.length) {
-		el.innerHTML = '<div class="empty-state"><i class="fas fa-chart-bar"></i><p>확정된 채점 결과가 없습니다</p></div>';
+	if (!list.length) {
+		container.innerHTML = '<div class="empty-state" style="padding:20px 8px;"><p style="font-size:12px;">학생이 없습니다. 「학생」 탭에서 목록을 확인하세요.</p></div>';
 		return;
 	}
-
-	const avgScore = results.reduce((sum, r) => sum + (r.total_score || 0), 0) / results.length;
-	const totalGraded = results.length;
-
-	// 학생별 평균
-	const studentMap = {};
-	results.forEach(r => {
-		const name = r.students?.name || '?';
-		if (!studentMap[name]) studentMap[name] = [];
-		studentMap[name].push(r.total_score || 0);
-	});
-
-	const studentStats = Object.entries(studentMap).map(([name, scores]) => ({
-		name, avg: Math.round(scores.reduce((a, b) => a + b, 0) / scores.length * 10) / 10, count: scores.length
-	})).sort((a, b) => b.avg - a.avg);
-
-	el.innerHTML = `
-		<div class="card">
-			<div class="card-title"><i class="fas fa-chart-pie"></i> 전체 통계</div>
-			<div class="stat-row">
-				<div class="stat-item"><div class="stat-num" style="color:var(--primary);">${avgScore.toFixed(1)}</div><div class="stat-label">평균 점수</div></div>
-				<div class="stat-item"><div class="stat-num" style="color:var(--green);">${totalGraded}</div><div class="stat-label">채점 완료</div></div>
+	container.innerHTML = list.map(s => {
+		const active = String(hwSelectedStudentId) === String(s.id);
+		const ini = escapeHtml((s.name || '?')[0]);
+		return `<div class="hw-stu-item${active ? ' active' : ''}" data-sid="${String(s.id)}">
+			<div class="hw-stu-av">${ini}</div>
+			<div style="flex:1;min-width:0;">
+				<div class="hw-stu-name">${escapeHtml(s.name || '-')}</div>
+				<div class="hw-stu-meta">${escapeHtml(s.grade || '')}${s.school ? ' · ' + escapeHtml(s.school) : ''}</div>
 			</div>
-		</div>
-		<div class="card">
-			<div class="card-title"><i class="fas fa-ranking-star"></i> 학생별 평균</div>
-			${studentStats.map((s, i) => `<div class="list-item">
-				<div class="list-item-icon" style="background:rgba(129,140,248,0.15);font-size:14px;font-weight:700;">${i + 1}</div>
-				<div class="list-item-info">
-					<div class="list-item-title">${escapeHtml(s.name)}</div>
-					<div class="list-item-sub">${s.count}회 채점</div>
-				</div>
-				<span style="font-size:16px;font-weight:700;color:var(--primary);">${s.avg}점</span>
-			</div>`).join('')}
-		</div>
-	`;
+		</div>`;
+	}).join('');
+	container.querySelectorAll('.hw-stu-item').forEach(el => {
+		el.addEventListener('click', () => selectHomeworkStudent(el.getAttribute('data-sid')));
+	});
+}
+
+function filterHomeworkStudentList() {
+	renderHomeworkStudentList();
+}
+
+async function selectHomeworkStudent(sid) {
+	hwSelectedStudentId = sid;
+	hwSelectedDateStr = '';
+	renderHomeworkStudentList();
+	const ph = document.getElementById('hw-cal-placeholder');
+	const wrap = document.getElementById('hw-cal-wrap');
+	if (ph) ph.style.display = 'none';
+	if (wrap) wrap.style.display = 'block';
+	const stu = (stuAllStudents || []).find(x => String(x.id) === String(sid));
+	const hn = document.getElementById('hw-cal-header-name');
+	if (hn) hn.textContent = stu ? `${stu.name} — 숙제 제출` : '';
+	await loadHomeworkMonthForSelected();
+}
+
+function _mergeHomeworkRowsIntoMap(rows) {
+	hwSubmissionsByDate = {};
+	(rows || []).forEach(row => {
+		if (row.status === 'deleted') return;
+		let ds = row.submission_date;
+		if (!ds) return;
+		const key = typeof ds === 'string' && ds.length >= 10 ? ds.slice(0, 10) : String(ds);
+		if (!hwSubmissionsByDate[key]) hwSubmissionsByDate[key] = [];
+		hwSubmissionsByDate[key].push(row);
+	});
+}
+
+async function loadHomeworkMonthForSelected() {
+	if (!hwSelectedStudentId || !currentTeacher) return;
+	const y = hwCalYear;
+	const m = hwCalMonth;
+	const start = `${y}-${String(m + 1).padStart(2, '0')}-01`;
+	const lastD = new Date(y, m + 1, 0).getDate();
+	const end = `${y}-${String(m + 1).padStart(2, '0')}-${String(lastD).padStart(2, '0')}`;
+	hwSubmissionsByDate = {};
+	try {
+		let rows = null;
+		if (shouldTryRemoteGradingServer && GRADING_SERVER_URL) {
+			const base = GRADING_SERVER_URL.replace(/\/$/, '');
+			const url = new URL(`${base}/api/homework-submissions`);
+			url.searchParams.set('teacher_id', currentTeacher.owner_user_id);
+			url.searchParams.set('student_id', String(hwSelectedStudentId));
+			url.searchParams.set('date_from', start);
+			url.searchParams.set('date_to', end);
+			const controller = new AbortController();
+			const to = setTimeout(() => controller.abort(), 30000);
+			const gst = sessionStorage.getItem('grading_session_token');
+			const headers = {};
+			if (gst) headers['Authorization'] = `Bearer ${gst}`;
+			const res = await fetch(url.toString(), { signal: controller.signal, headers });
+			clearTimeout(to);
+			const body = await res.json().catch(() => ({}));
+			if (!res.ok) {
+				if (res.status === 401 && gst) sessionStorage.removeItem('grading_session_token');
+				const d = body.detail;
+				let msg = '조회 실패';
+				if (typeof d === 'string') msg = d;
+				else if (Array.isArray(d)) msg = d.map(x => (x.msg || x)).join(', ');
+				if (res.status === 401) msg = (msg && msg !== '조회 실패') ? msg : '세션이 만료되었습니다. 다시 로그인해주세요.';
+				throw new Error(msg);
+			}
+			rows = body.data;
+		} else {
+			const { data, error } = await db
+				.from('homework_submissions')
+				.select('id, submission_date, file_name, status, created_at')
+				.eq('owner_user_id', currentTeacher.owner_user_id)
+				.eq('student_id', hwSelectedStudentId)
+				.gte('submission_date', start)
+				.lte('submission_date', end)
+				.order('submission_date', { ascending: true });
+			if (error) throw error;
+			rows = data;
+		}
+		_mergeHomeworkRowsIntoMap(rows);
+	} catch (e) {
+		console.warn('[숙제 제출 탭]', e);
+		const localHint = (!shouldTryRemoteGradingServer || !GRADING_SERVER_URL)
+			? ' (채점 서버 미연결 시 Supabase RLS로 일부만 보일 수 있음)'
+			: '';
+		showToast('숙제 제출 내역을 불러오지 못했습니다. ' + (e.message || '') + localHint, 'error');
+	}
+	renderHomeworkCalendar();
+	renderHomeworkDayDetail();
+}
+
+function navigateHwMonth(delta) {
+	hwCalMonth += delta;
+	if (hwCalMonth > 11) { hwCalMonth = 0; hwCalYear++; }
+	else if (hwCalMonth < 0) { hwCalMonth = 11; hwCalYear--; }
+	hwSelectedDateStr = '';
+	loadHomeworkMonthForSelected();
+}
+
+function goHwToday() {
+	const t = new Date();
+	hwCalYear = t.getFullYear();
+	hwCalMonth = t.getMonth();
+	hwSelectedDateStr = _dateStr(t.getFullYear(), t.getMonth(), t.getDate());
+	loadHomeworkMonthForSelected();
+}
+
+function selectHwCalDate(ds) {
+	hwSelectedDateStr = ds;
+	renderHomeworkCalendar();
+	renderHomeworkDayDetail();
+}
+
+function _hwDayStatus(ds) {
+	const rows = hwSubmissionsByDate[ds];
+	if (!rows || !rows.length) return null;
+	let ok = false;
+	let fail = false;
+	for (const r of rows) {
+		if (r.status === 'failed') fail = true;
+		else if (r.status === 'uploaded' || r.status === 'manual') ok = true;
+	}
+	if (ok && fail) return 'mix';
+	if (fail) return 'fail';
+	if (ok) return 'ok';
+	return null;
+}
+
+function _renderHwCell(d, ds, extraCls, todayStr) {
+	const isToday = ds === todayStr;
+	const isSel = ds === hwSelectedDateStr;
+	const dow = new Date(ds + 'T00:00:00').getDay();
+	const dowCls = dow === 0 ? 'cal-sun' : dow === 6 ? 'cal-sat' : '';
+	let cls = `cal-cell ${dowCls}`;
+	if (isToday) cls += ' cal-today';
+	if (isSel) cls += ' cal-selected';
+	if (extraCls) cls += ` cal-${extraCls}`;
+	const st = _hwDayStatus(ds);
+	let dots = '';
+	if (st) {
+		const dotCls = st === 'ok' ? 'dot-hw-ok' : st === 'fail' ? 'dot-hw-fail' : 'dot-hw-mix';
+		const rows = hwSubmissionsByDate[ds] || [];
+		dots = `<div class="cal-dots"><span class="cal-dot ${dotCls}"></span></div>`;
+		if (rows.length > 1) dots += `<span class="cal-count">${rows.length}건</span>`;
+	}
+	return `<div class="${cls}" onclick="selectHwCalDate('${ds}')"><span class="cal-date">${d}</span>${dots}</div>`;
+}
+
+function renderHomeworkCalendar() {
+	const grid = document.getElementById('hw-cal-grid');
+	const titleEl = document.getElementById('hw-cal-title');
+	if (!grid || !titleEl) return;
+	titleEl.textContent = `${hwCalYear}년 ${hwCalMonth + 1}월`;
+	const firstDay = new Date(hwCalYear, hwCalMonth, 1);
+	const lastDay = new Date(hwCalYear, hwCalMonth + 1, 0);
+	let startDow = firstDay.getDay();
+	if (startDow === 0) startDow = 7;
+	startDow--;
+	const today = new Date();
+	const todayStr = _dateStr(today.getFullYear(), today.getMonth(), today.getDate());
+	let html = '';
+	const prevLast = new Date(hwCalYear, hwCalMonth, 0);
+	for (let i = startDow - 1; i >= 0; i--) {
+		const day = prevLast.getDate() - i;
+		const ds = _dateStr(prevLast.getFullYear(), prevLast.getMonth(), day);
+		html += _renderHwCell(day, ds, 'other', todayStr);
+	}
+	for (let day = 1; day <= lastDay.getDate(); day++) {
+		const ds = _dateStr(hwCalYear, hwCalMonth, day);
+		html += _renderHwCell(day, ds, '', todayStr);
+	}
+	const totalCells = startDow + lastDay.getDate();
+	const remaining = (7 - (totalCells % 7)) % 7;
+	for (let day = 1; day <= remaining; day++) {
+		const nextMonth = hwCalMonth + 1;
+		const ny = nextMonth > 11 ? hwCalYear + 1 : hwCalYear;
+		const nm = nextMonth > 11 ? 0 : nextMonth;
+		const ds = _dateStr(ny, nm, day);
+		html += _renderHwCell(day, ds, 'other', todayStr);
+	}
+	grid.innerHTML = html;
+}
+
+function renderHomeworkDayDetail() {
+	const el = document.getElementById('hw-day-detail');
+	if (!el) return;
+	if (!hwSelectedStudentId) {
+		el.innerHTML = '';
+		return;
+	}
+	if (!hwSelectedDateStr) {
+		el.innerHTML = '<div class="hw-day-detail-title">날짜를 누르면 해당 일의 제출 파일을 볼 수 있습니다.</div>';
+		return;
+	}
+	const rows = hwSubmissionsByDate[hwSelectedDateStr] || [];
+	const dh = _formatDateHeader(hwSelectedDateStr);
+	let html = `<div class="hw-day-detail-title">${dh}</div>`;
+	if (!rows.length) {
+		html += '<p style="color:var(--text-sec);font-size:12px;">이 날짜에 표시된 제출이 없습니다.</p>';
+	} else {
+		html += rows.map(r => {
+			const badge = r.status === 'failed'
+				? '<span class="hw-file-badge hw-badge-fail">실패</span>'
+				: '<span class="hw-file-badge hw-badge-ok">제출</span>';
+			return `<div class="hw-file-row"><span class="hw-file-name">${escapeHtml(r.file_name || '파일')}</span>${badge}</div>`;
+		}).join('');
+	}
+	el.innerHTML = html;
 }
 
 // ============================================================

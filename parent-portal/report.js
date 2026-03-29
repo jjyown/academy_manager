@@ -56,6 +56,7 @@ let hwSchedules = [];
 let hwDateStatus = {};
 let hwSelectedDate = null;
 let hwLoaded = false;
+let scoreDragBound = false;
 
 // ========== Utilities ==========
 
@@ -277,6 +278,11 @@ function goBackToLanding() {
 			requestAnimationFrame(() => { landing.style.opacity = '1'; });
 		}
 
+		if (currentStudent && currentStudent.id != null) {
+			try {
+				sessionStorage.removeItem(`parent_verified__${currentStudent.id}`);
+			} catch (e) { /* 무시 */ }
+		}
 		currentStudent = null;
 		sessionStorage.removeItem('pp_current_student');
 		window.scrollTo(0, 0);
@@ -304,9 +310,15 @@ function switchTab(tab) {
 		hwLoaded = true;
 	}
 
-	// 채점 탭 진입 시 데이터 로드
-	if (tab === 'grading' && currentStudent) {
-		loadGradingResults();
+	// 점수 탭 진입 시 데이터 로드
+	if (tab === 'score' && currentStudent) {
+		loadStudentScoreTrend();
+	}
+
+	// 종합평가 탭: 인증코드로 이미 조회한 학부모는 추가 인증 없이 표시
+	if (tab === 'eval' && currentStudent && isParentVerified()) {
+		const v = document.getElementById('eval-month-selector')?.value;
+		if (v) loadEvaluation(v);
 	}
 }
 window.switchTab = switchTab;
@@ -499,6 +511,7 @@ async function handleSearch() {
 		}
 
 		currentStudent = data;
+		setParentVerified();
 		await initDashboard();
 	} catch (err) {
 		console.error('검색 오류:', err);
@@ -869,6 +882,9 @@ window.handleNextMonth = handleNextMonth;
 // ========== Evaluation ==========
 function isParentVerified() {
 	if (!currentStudent) return false;
+	// 원장/선생님이 관리자 경로로 조회 시 종합평가 잠금 없음
+	if (isAdminMode) return true;
+	// 랜딩에서 학부모 인증코드로 학생 조회에 성공한 경우 = 동일 세션에서 이미 검증됨
 	return sessionStorage.getItem(`parent_verified__${currentStudent.id}`) === 'true';
 }
 
@@ -877,143 +893,328 @@ function setParentVerified() {
 	sessionStorage.setItem(`parent_verified__${currentStudent.id}`, 'true');
 }
 
-// ========== 채점 결과 (학부모 조회) ==========
-async function loadGradingResults() {
-	if (!currentStudent) return;
-	const el = document.getElementById('grading-results-list');
+// ========== 점수 변화 그래프 (평가 점수탭 연동) ==========
+function normalizeTestScoreRows(rows) {
+	return (rows || []).map((row) => {
+		const score = Number(row.score || 0);
+		const maxScore = Number(row.max_score || 0);
+		const percent = maxScore > 0 ? Math.max(0, Math.min(100, Math.round((score / maxScore) * 100))) : 0;
+		return {
+			id: row.id,
+			examName: String(row.exam_name || '테스트'),
+			examDate: String(row.exam_date || ''),
+			score,
+			maxScore,
+			percent,
+			createdAt: row.created_at || ''
+		};
+	}).filter((r) => r.examDate).sort((a, b) => {
+		if (a.examDate !== b.examDate) return a.examDate.localeCompare(b.examDate);
+		return String(a.examName || '').localeCompare(String(b.examName || ''), 'ko-KR');
+	});
+}
+
+function formatMonthValue(year, month) {
+	return `${year}-${String(month).padStart(2, '0')}`;
+}
+
+function parseMonthValue(monthStr) {
+	const m = String(monthStr || '').match(/^(\d{4})-(\d{2})$/);
+	if (!m) return null;
+	const y = parseInt(m[1], 10);
+	const mo = parseInt(m[2], 10);
+	if (!Number.isFinite(y) || !Number.isFinite(mo) || mo < 1 || mo > 12) return null;
+	return { year: y, month: mo };
+}
+
+function monthToIndex(monthStr) {
+	const p = parseMonthValue(monthStr);
+	if (!p) return null;
+	return p.year * 12 + (p.month - 1);
+}
+
+function indexToMonth(idx) {
+	const year = Math.floor(idx / 12);
+	const month = (idx % 12) + 1;
+	return formatMonthValue(year, month);
+}
+
+function getScoreRangeFromInputs() {
+	const now = new Date();
+	const curMonth = formatMonthValue(now.getFullYear(), now.getMonth() + 1);
+	const startEl = document.getElementById('score-range-start-month');
+	const endEl = document.getElementById('score-range-end-month');
+	let startM = String(startEl?.value || '');
+	let endM = String(endEl?.value || '');
+	if (!parseMonthValue(endM)) endM = curMonth;
+	if (!parseMonthValue(startM)) startM = endM;
+
+	let sIdx = monthToIndex(startM);
+	let eIdx = monthToIndex(endM);
+	const curIdx = monthToIndex(curMonth);
+	if (sIdx == null || eIdx == null || curIdx == null) {
+		sIdx = curIdx;
+		eIdx = curIdx;
+	}
+	if (sIdx > eIdx) {
+		const t = sIdx;
+		sIdx = eIdx;
+		eIdx = t;
+	}
+	if (eIdx > curIdx) eIdx = curIdx;
+	if (eIdx - sIdx > 11) sIdx = eIdx - 11; // 최대 12개월(1년)
+	startM = indexToMonth(sIdx);
+	endM = indexToMonth(eIdx);
+	if (startEl) startEl.value = startM;
+	if (endEl) endEl.value = endM;
+
+	const startDate = `${startM}-01`;
+	const endParts = parseMonthValue(endM);
+	const endLast = endParts ? new Date(endParts.year, endParts.month, 0).getDate() : 31;
+	const endDate = `${endM}-${String(endLast).padStart(2, '0')}`;
+	return { startMonth: startM, endMonth: endM, startDate, endDate, monthSpan: (eIdx - sIdx + 1) };
+}
+
+function shiftScoreRangeByMonths(delta) {
+	const range = getScoreRangeFromInputs();
+	const sIdx = monthToIndex(range.startMonth);
+	const eIdx = monthToIndex(range.endMonth);
+	const curIdx = monthToIndex(formatMonthValue((new Date()).getFullYear(), (new Date()).getMonth() + 1));
+	if (sIdx == null || eIdx == null || curIdx == null) return;
+	const span = eIdx - sIdx;
+	let nextS = sIdx + delta;
+	let nextE = eIdx + delta;
+	if (nextE > curIdx) {
+		nextE = curIdx;
+		nextS = curIdx - span;
+	}
+	if (nextS < 0) {
+		nextS = 0;
+		nextE = span;
+	}
+	const startEl = document.getElementById('score-range-start-month');
+	const endEl = document.getElementById('score-range-end-month');
+	if (startEl) startEl.value = indexToMonth(nextS);
+	if (endEl) endEl.value = indexToMonth(nextE);
+}
+
+function buildScoreTrendSvg(rows, rangeInfo) {
+	const n = rows.length;
+	const padL = 24;
+	const padR = 8;
+	const padT = 10;
+	const chartH = 74;
+	const chartW = 100 - padL - padR;
+	const svgH = 96;
+	if (n <= 0) return '';
+	const startTs = new Date(`${rangeInfo.startDate}T00:00:00`).getTime();
+	const endTs = new Date(`${rangeInfo.endDate}T23:59:59`).getTime();
+	const span = Math.max(1, endTs - startTs);
+	const getX = (item, i) => {
+		if (n === 1) return padL + chartW / 2;
+		const ts = new Date(`${item.examDate}T12:00:00`).getTime();
+		const ratio = Math.max(0, Math.min(1, (ts - startTs) / span));
+		return padL + ratio * chartW;
+	};
+
+	const points = rows.map((item, i) => {
+		const x = getX(item, i);
+		const y = padT + (100 - item.percent) / 100 * chartH;
+		return `${x.toFixed(2)},${y.toFixed(2)}`;
+	}).join(' ');
+	const dots = rows.map((item, i) => {
+		const x = getX(item, i);
+		const y = padT + (100 - item.percent) / 100 * chartH;
+		return `<circle class="score-chart-dot"
+			cx="${x.toFixed(2)}"
+			cy="${y.toFixed(2)}"
+			r="${n === 1 ? 2.8 : 2.2}"
+			data-exam-name="${escapeHtml(item.examName || '테스트')}"
+			data-exam-date="${escapeHtml(item.examDate || '-')}"
+			data-score="${escapeHtml(`${item.score || 0}/${item.maxScore || 0}`)}"
+		/>`;
+	}).join('');
+	return `
+		<svg class="score-chart-svg" viewBox="0 0 100 ${svgH}" preserveAspectRatio="xMidYMid meet" aria-label="점수 변화 선 그래프">
+			<text class="score-chart-y-label" x="4" y="10">100</text>
+			<text class="score-chart-y-label" x="8" y="${padT + chartH / 2 + 2}">50</text>
+			<text class="score-chart-y-label" x="10" y="${padT + chartH + 2}">0</text>
+			<line class="score-chart-grid" x1="${padL}" y1="${padT + chartH / 2}" x2="100" y2="${padT + chartH / 2}" />
+			<line class="score-chart-base" x1="${padL}" y1="${padT + chartH}" x2="100" y2="${padT + chartH}" />
+			${n >= 2 ? `<polyline class="score-chart-line" points="${points}" />` : ''}
+			${dots}
+		</svg>`;
+}
+
+function buildScoreTrendXAxis(rows, rangeInfo) {
+	if (!rows.length) return '';
+	const uniq = (arr) => [...new Set(arr)];
+	if (rangeInfo.monthSpan <= 1) {
+		const labels = uniq(rows.map((r) => String(r.examDate || '').slice(8, 10)).filter(Boolean));
+		return labels.map((d) => `<span class="score-chart-x-item">${parseInt(d, 10)}일</span>`).join('');
+	}
+	const labels = [];
+	const sIdx = monthToIndex(rangeInfo.startMonth);
+	const eIdx = monthToIndex(rangeInfo.endMonth);
+	if (sIdx == null || eIdx == null) return '';
+	for (let idx = sIdx; idx <= eIdx; idx += 1) {
+		const m = indexToMonth(idx);
+		labels.push(`<span class="score-chart-x-item">${m.slice(5, 7)}월</span>`);
+	}
+	return labels.join('');
+}
+
+function renderStudentScoreTrend(rows) {
+	const el = document.getElementById('score-results-list');
+	const rangeInfo = getScoreRangeFromInputs();
 	if (!el) return;
+	if (!rows.length) {
+		el.innerHTML = `<div class="score-empty"><i class="fas fa-chart-line"></i>평가에 등록된 점수가 없습니다</div>`;
+		return;
+	}
 
+	el.innerHTML = `
+		<div class="score-chart-wrap">
+			${buildScoreTrendSvg(rows, rangeInfo)}
+		</div>
+		<div class="score-chart-x">${buildScoreTrendXAxis(rows, rangeInfo)}</div>
+	`;
+	bindScoreChartTooltip();
+	bindScoreChartDrag();
+}
+
+function bindScoreChartTooltip() {
+	const wrap = document.querySelector('#score-results-list .score-chart-wrap');
+	if (!wrap) return;
+	const dots = wrap.querySelectorAll('.score-chart-dot');
+	if (!dots.length) return;
+
+	let tip = wrap.querySelector('.score-chart-tooltip');
+	if (!tip) {
+		tip = document.createElement('div');
+		tip.className = 'score-chart-tooltip';
+		wrap.appendChild(tip);
+	}
+
+	const positionTip = (evt) => {
+		const rect = wrap.getBoundingClientRect();
+		const x = evt.clientX - rect.left + 12;
+		const y = evt.clientY - rect.top;
+		const maxX = rect.width - tip.offsetWidth - 8;
+		const clampedX = Math.max(8, Math.min(maxX, x));
+		const aboveTop = y - tip.offsetHeight - 12;
+		const belowTop = y + 14;
+		const top = aboveTop >= 8 ? aboveTop : Math.min(rect.height - tip.offsetHeight - 8, belowTop);
+		tip.style.left = `${clampedX}px`;
+		tip.style.top = `${Math.max(8, top)}px`;
+	};
+
+	const showTip = (evt, dot) => {
+		const examName = dot.getAttribute('data-exam-name') || '테스트';
+		const examDate = dot.getAttribute('data-exam-date') || '-';
+		const score = dot.getAttribute('data-score') || '-';
+		tip.innerHTML = `<div><span class="k">시험명</span>${examName}</div>
+			<div><span class="k">시험일</span>${examDate}</div>
+			<div><span class="k">점수</span>${score}</div>`;
+		positionTip(evt);
+		tip.classList.add('show');
+	};
+
+	const hideTip = () => {
+		tip.classList.remove('show');
+	};
+
+	dots.forEach((dot) => {
+		dot.addEventListener('mouseenter', (evt) => showTip(evt, dot));
+		dot.addEventListener('mousemove', (evt) => positionTip(evt));
+		dot.addEventListener('mouseleave', hideTip);
+	});
+}
+
+function bindScoreChartDrag() {
+	if (scoreDragBound) return;
+	const listEl = document.getElementById('score-results-list');
+	if (!listEl) return;
+	scoreDragBound = true;
+
+	let startX = 0;
+	let dragging = false;
+	const onDown = (x) => {
+		startX = x;
+		dragging = true;
+	};
+	const onUp = (x) => {
+		if (!dragging) return;
+		dragging = false;
+		const diff = x - startX;
+		if (Math.abs(diff) < 42) return;
+		shiftScoreRangeByMonths(diff > 0 ? -1 : 1);
+		loadStudentScoreTrend();
+	};
+
+	listEl.addEventListener('mousedown', (e) => {
+		const wrap = e.target.closest('.score-chart-wrap');
+		if (!wrap) return;
+		onDown(e.clientX);
+	});
+	window.addEventListener('mouseup', (e) => onUp(e.clientX));
+
+	listEl.addEventListener('touchstart', (e) => {
+		const wrap = e.target.closest('.score-chart-wrap');
+		if (!wrap) return;
+		const t = e.touches && e.touches[0];
+		if (!t) return;
+		onDown(t.clientX);
+	}, { passive: true });
+	window.addEventListener('touchend', (e) => {
+		const t = e.changedTouches && e.changedTouches[0];
+		if (!t) return;
+		onUp(t.clientX);
+	}, { passive: true });
+}
+
+async function loadStudentScoreTrend() {
+	if (!currentStudent) return;
+	const el = document.getElementById('score-results-list');
+	if (!el) return;
 	el.innerHTML = '<div style="text-align:center;padding:20px;"><div class="spinner" style="width:20px;height:20px;border:2px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto;"></div></div>';
-
 	try {
-		const { data, error } = await supabaseClient.from('grading_results')
-			.select('*, answer_keys(title, subject)')
+		const { startDate, endDate } = getScoreRangeFromInputs();
+		let query = supabaseClient
+			.from('student_test_scores')
+			.select('id, exam_name, exam_date, score, max_score, created_at')
 			.eq('student_id', currentStudent.id)
-			.eq('status', 'confirmed')
-			.order('created_at', { ascending: false });
-
-		if (error || !data?.length) {
-			el.innerHTML = `<div style="text-align:center;padding:30px 0;color:var(--gray);font-size:13px;">
-				<i class="fas fa-inbox" style="font-size:28px;margin-bottom:8px;opacity:0.4;display:block;"></i>
-				채점 결과가 없습니다
-			</div>`;
-			return;
-		}
-
-		el.innerHTML = data.map(r => {
-			const key = r.answer_keys;
-			const date = new Date(r.created_at).toLocaleDateString('ko-KR');
-			const scorePercent = r.max_score > 0 ? Math.round(r.total_score / r.max_score * 100) : 0;
-			const scoreColor = scorePercent >= 80 ? 'var(--green)' : scorePercent >= 60 ? 'var(--yellow)' : 'var(--red)';
-			const imgUrl = (r.central_graded_image_urls || r.teacher_graded_image_urls || [])[0] || '';
-
-			return `<div style="background:var(--bg-elevated);border-radius:12px;padding:14px;margin-bottom:8px;cursor:pointer;" onclick="showGradingDetail(${r.id})">
-				<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
-					<span style="font-size:14px;font-weight:700;">${escapeHtml(key?.title || '채점')}</span>
-					<span style="font-size:18px;font-weight:800;color:${scoreColor};">${r.total_score}점</span>
-				</div>
-				<div style="font-size:12px;color:var(--gray);">
-					${key?.subject ? key.subject + ' · ' : ''}${date} · 
-					<span style="color:var(--green);">⭕${r.correct_count}</span> 
-					<span style="color:var(--red);">✘${r.wrong_count}</span> 
-					<span style="color:var(--yellow);">❓${r.uncertain_count}</span>
-					${r.teacher_memo ? ' · <span style="color:var(--text-sec);"><i class="fas fa-comment"></i></span>' : ''}
-				</div>
-			</div>`;
-		}).join('');
+			.gte('exam_date', startDate)
+			.lte('exam_date', endDate)
+			.order('exam_date', { ascending: true })
+			.order('created_at', { ascending: true });
+		if (currentStudent.owner_user_id) query = query.eq('owner_user_id', currentStudent.owner_user_id);
+		const { data, error } = await query;
+		if (error) throw error;
+		renderStudentScoreTrend(normalizeTestScoreRows(data || []));
 	} catch (err) {
-		el.innerHTML = '<div style="text-align:center;padding:20px;color:var(--red);font-size:13px;">로드 실패</div>';
+		console.error('[loadStudentScoreTrend] 오류:', err);
+		el.innerHTML = '<div class="score-empty"><i class="fas fa-triangle-exclamation"></i>점수 정보를 불러오지 못했습니다</div>';
 	}
 }
-window.loadGradingResults = loadGradingResults;
-
-async function showGradingDetail(resultId) {
-	try {
-		const { data: result } = await supabaseClient.from('grading_results').select('*, answer_keys(title, subject)').eq('id', resultId).maybeSingle();
-		if (!result) return;
-
-		const { data: items } = await supabaseClient.from('grading_items').select('*').eq('result_id', resultId).order('question_number');
-
-		const imgUrl = (result.central_graded_image_urls || result.teacher_graded_image_urls || [])[0] || '';
-		const key = result.answer_keys;
-
-		let html = `<div style="position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:300;display:flex;align-items:center;justify-content:center;padding:16px;" onclick="if(event.target===this)this.remove()">
-			<div style="background:var(--bg-card);border-radius:16px;max-width:500px;width:100%;max-height:85vh;overflow-y:auto;padding:20px;" onclick="event.stopPropagation()">
-				<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
-					<div style="font-size:16px;font-weight:700;">${escapeHtml(key?.title || '채점 상세')}</div>
-					<button onclick="this.closest('[style*=fixed]').remove()" style="border:none;background:none;font-size:22px;color:var(--gray);cursor:pointer;">&times;</button>
-				</div>
-
-				<div style="display:flex;gap:8px;margin-bottom:16px;">
-					<div style="flex:1;text-align:center;padding:14px;background:var(--bg-elevated);border-radius:12px;">
-						<div style="font-size:28px;font-weight:800;color:var(--primary);">${result.total_score}/${result.max_score}</div>
-						<div style="font-size:11px;color:var(--gray);margin-top:4px;">총점</div>
-					</div>
-					<div style="flex:1;display:grid;grid-template-columns:1fr 1fr;gap:6px;">
-						<div style="text-align:center;padding:10px;background:var(--bg-elevated);border-radius:10px;"><div style="font-size:16px;font-weight:700;color:var(--green);">${result.correct_count}</div><div style="font-size:10px;color:var(--gray);">정답</div></div>
-						<div style="text-align:center;padding:10px;background:var(--bg-elevated);border-radius:10px;"><div style="font-size:16px;font-weight:700;color:var(--red);">${result.wrong_count}</div><div style="font-size:10px;color:var(--gray);">오답</div></div>
-					</div>
-				</div>`;
-
-		// 문항별 그리드
-		if (items?.length) {
-			html += `<div style="margin-bottom:12px;"><div style="font-size:13px;font-weight:700;margin-bottom:8px;color:var(--text-sec);">문항별 결과</div>
-				<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(36px,1fr));gap:4px;">
-				${items.map(item => {
-					const bg = item.is_correct === true ? 'rgba(34,197,94,0.2)' : item.is_correct === false ? 'rgba(239,68,68,0.2)' : 'rgba(234,179,8,0.2)';
-					const color = item.is_correct === true ? 'var(--green)' : item.is_correct === false ? 'var(--red)' : 'var(--yellow)';
-					const border = item.is_correct === true ? 'var(--green)' : item.is_correct === false ? 'var(--red)' : 'var(--yellow)';
-					return `<div style="aspect-ratio:1;background:${bg};border:2px solid ${border};border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:${color};">${item.question_number}</div>`;
-				}).join('')}</div></div>`;
-		}
-
-		// 채점 이미지
-		if (imgUrl) {
-			html += `<div style="margin-bottom:12px;"><div style="font-size:13px;font-weight:700;margin-bottom:8px;color:var(--text-sec);">채점 이미지</div>
-				<img src="${imgUrl}" style="width:100%;border-radius:12px;border:1px solid var(--border);" alt="채점 결과">
-			</div>`;
-		}
-
-		// 선생님 메모
-		if (result.teacher_memo) {
-			html += `<div style="padding:12px;background:var(--bg-elevated);border-radius:12px;margin-bottom:8px;">
-				<div style="font-size:12px;color:var(--gray);margin-bottom:4px;"><i class="fas fa-comment"></i> 선생님 메모</div>
-				<div style="font-size:14px;">${escapeHtml(result.teacher_memo)}</div>
-			</div>`;
-		}
-
-		html += `</div></div>`;
-
-		const overlay = document.createElement('div');
-		overlay.innerHTML = html;
-		document.body.appendChild(overlay.firstElementChild);
-	} catch (err) {
-		console.error('[채점상세]', err);
-	}
-}
-window.showGradingDetail = showGradingDetail;
+window.loadStudentScoreTrend = loadStudentScoreTrend;
 
 async function loadEvaluationState(monthStr) {
 	updateEvalLockUI();
-	if (isParentVerified()) {
+	if (currentStudent && isParentVerified()) {
 		await loadEvaluation(monthStr);
 	}
 }
 
+/** @deprecated 추가 학부모 인증 UI 제거 후 호환용(콘텐츠 영역 표시) */
 function updateEvalLockUI() {
-	const lock = document.getElementById('eval-lock');
 	const content = document.getElementById('eval-content');
-	if (isParentVerified()) {
-		lock.style.display = 'none';
-		content.classList.add('visible');
-	} else {
-		lock.style.display = '';
-		content.classList.remove('visible');
-	}
+	if (content) content.classList.add('visible');
 }
 
 async function loadEvaluation(monthStr) {
-	if (!currentStudent || !isParentVerified()) return;
+	if (!currentStudent) return;
+	if (!isParentVerified()) return;
 	const target = monthStr || document.getElementById('eval-month-selector')?.value;
 	if (!target) return;
 
@@ -1030,19 +1231,25 @@ async function loadEvaluation(monthStr) {
 		if (error && error.code !== 'PGRST116') throw error;
 
 		const textarea = document.getElementById('eval-textarea');
-		textarea.value = data?.comment || '';
+		// RLS: parent_portal_visible=false 이면 행이 조회되지 않음 → 학부모에게 비공개로 간주
+		textarea.value = data && typeof data.comment === 'string' ? data.comment : '';
 		updateEvalCharCount();
 
 		// 선생님 인증 여부에 따라 수정 가능 여부 결정
 		const teacher = getAuthorizedTeacher();
 		if (teacher) {
 			textarea.readOnly = false;
-			textarea.placeholder = '학생에 대한 종합 평가를 작성하세요 (최대 500자)';
+			textarea.placeholder = '학생에 대한 종합 평가를 작성하세요 (최대 2000자)';
 			document.getElementById('eval-save-row').style.display = 'flex';
 			document.querySelector('.eval-hint').textContent = `${teacher.name} 선생님으로 수정 가능`;
 		} else {
 			textarea.readOnly = true;
-			textarea.placeholder = '이번 달 종합 평가가 아직 작성되지 않았습니다.';
+			if (!data) {
+				textarea.placeholder =
+					'아직 공개된 종합 평가가 없습니다. 선생님이 작성 후 「학부모 공개」를 켜면 여기에 표시됩니다.';
+			} else {
+				textarea.placeholder = '이번 달 종합 평가가 아직 작성되지 않았습니다.';
+			}
 			document.getElementById('eval-save-row').style.display = 'none';
 			document.querySelector('.eval-hint').textContent = '읽기 전용';
 		}
@@ -1082,79 +1289,6 @@ function handleNextMonthEval() {
 	handleEvalMonthChange();
 }
 window.handleNextMonthEval = handleNextMonthEval;
-
-// ========== Parent Auth ==========
-function openParentAuthModal() {
-	// 인증코드 미발급 체크
-	if (currentStudent && !currentStudent.parent_code) {
-		ppShowToast('인증코드가 발급되지 않았습니다. 선생님에게 요청하세요.', 'warning');
-		return;
-	}
-	document.getElementById('parent-auth-modal').classList.add('active');
-	const input = document.getElementById('parent-auth-password');
-	if (input) { input.value = ''; setTimeout(() => input.focus(), 200); }
-	// 실패 메시지 초기화
-	const failMsg = document.getElementById('parent-auth-fail-msg');
-	if (failMsg) failMsg.style.display = 'none';
-	// 버튼 활성화
-	const btn = document.getElementById('parent-auth-btn');
-	if (btn) { btn.disabled = false; btn.style.opacity = ''; }
-}
-window.openParentAuthModal = openParentAuthModal;
-
-function closeParentAuthModal() {
-	document.getElementById('parent-auth-modal').classList.remove('active');
-}
-window.closeParentAuthModal = closeParentAuthModal;
-
-async function handleParentAuth() {
-	if (!currentStudent) return;
-	const code = document.getElementById('parent-auth-password')?.value.trim();
-	if (!code) { ppShowToast('인증코드를 입력해주세요', 'info'); return; }
-
-	const expected = currentStudent.parent_code;
-	if (!expected) {
-		ppShowToast('인증코드가 발급되지 않았습니다. 선생님에게 요청하세요.', 'warning');
-		return;
-	}
-
-	// 실패 횟수 체크
-	const failKey = `parent_auth_fail__${currentStudent.id}`;
-	const failCount = parseInt(sessionStorage.getItem(failKey) || '0');
-	if (failCount >= 5) {
-		const failMsg = document.getElementById('parent-auth-fail-msg');
-		if (failMsg) { failMsg.textContent = '인증 시도 횟수를 초과했습니다. 잠시 후 다시 시도하세요.'; failMsg.style.display = 'block'; }
-		return;
-	}
-
-	if (normalizeParentPortalCode(code) !== normalizeParentPortalCode(expected)) {
-		const newFail = failCount + 1;
-		sessionStorage.setItem(failKey, String(newFail));
-		const remaining = 5 - newFail;
-		const failMsg = document.getElementById('parent-auth-fail-msg');
-		if (remaining <= 0) {
-			if (failMsg) { failMsg.textContent = '인증 시도 횟수를 초과했습니다. 잠시 후 다시 시도하세요.'; failMsg.style.display = 'block'; }
-			const btn = document.getElementById('parent-auth-btn');
-			if (btn) { btn.disabled = true; btn.style.opacity = '0.5'; }
-			// 3분 후 자동 해제
-			setTimeout(() => { sessionStorage.removeItem(failKey); if (btn) { btn.disabled = false; btn.style.opacity = ''; } if (failMsg) failMsg.style.display = 'none'; }, 180000);
-		} else {
-			if (failMsg) { failMsg.textContent = `인증코드가 일치하지 않습니다. (${remaining}회 남음)`; failMsg.style.display = 'block'; }
-		}
-		ppShowToast('인증코드가 일치하지 않습니다', 'error');
-		return;
-	}
-
-	// 성공 - 실패 횟수 초기화
-	sessionStorage.removeItem(failKey);
-	setParentVerified();
-	closeParentAuthModal();
-	updateEvalLockUI();
-	const monthStr = document.getElementById('eval-month-selector')?.value;
-	if (monthStr) await loadEvaluation(monthStr);
-	ppShowToast('학부모 인증 완료', 'success');
-}
-window.handleParentAuth = handleParentAuth;
 
 // ========== Teacher Auth ==========
 function mapVerifyTeacherPinFailureToMessage(verifyResult) {
@@ -1293,16 +1427,32 @@ async function saveEvaluation() {
 	}
 
 	try {
+		let parentVisible = false;
+		const { data: existing } = await supabaseClient
+			.from('student_evaluations')
+			.select('parent_portal_visible')
+			.eq('student_id', currentStudent.id)
+			.eq('eval_month', monthStr)
+			.maybeSingle();
+		if (existing && typeof existing.parent_portal_visible === 'boolean') {
+			parentVisible = existing.parent_portal_visible;
+		}
+
+		const row = {
+			student_id: currentStudent.id,
+			eval_month: monthStr,
+			owner_user_id: teacher.owner_user_id || null,
+			teacher_id: teacher.id,
+			comment: comment,
+			updated_at: new Date().toISOString()
+		};
+		if (typeof existing?.parent_portal_visible === 'boolean') {
+			row.parent_portal_visible = parentVisible;
+		}
+
 		const { error } = await supabaseClient
 			.from('student_evaluations')
-			.upsert({
-				student_id: currentStudent.id,
-				eval_month: monthStr,
-				owner_user_id: teacher.owner_user_id || null,
-				teacher_id: teacher.id,
-				comment: comment,
-				updated_at: new Date().toISOString()
-			}, { onConflict: 'student_id,eval_month' });
+			.upsert(row, { onConflict: 'student_id,eval_month' });
 		if (error) throw error;
 		ppShowToast('평가가 저장되었습니다', 'success');
 	} catch(e) {
@@ -1657,6 +1807,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			const parsed = JSON.parse(saved);
 			if (parsed && parsed.id) {
 				currentStudent = parsed;
+				setParentVerified();
 				// 출결/숙제 상태 초기화
 				attYear = new Date().getFullYear();
 				attMonth = new Date().getMonth();
@@ -1696,16 +1847,12 @@ document.addEventListener('DOMContentLoaded', () => {
 	const evalTa = document.getElementById('eval-textarea');
 	if (evalTa) evalTa.addEventListener('input', updateEvalCharCount);
 
-	// Parent auth Enter key
-	const parentPw = document.getElementById('parent-auth-password');
-	if (parentPw) parentPw.addEventListener('keypress', e => { if (e.key === 'Enter') handleParentAuth(); });
-
 	// Teacher auth Enter key
 	const teacherPw = document.getElementById('teacher-auth-password');
 	if (teacherPw) teacherPw.addEventListener('keypress', e => { if (e.key === 'Enter') handleTeacherAuth(); });
 
 	// Modal outside click
-	['parent-auth-modal', 'admin-auth-modal'].forEach(id => {
+	['admin-auth-modal'].forEach(id => {
 		const el = document.getElementById(id);
 		if (el) el.addEventListener('click', e => {
 			if (e.target === el) {
@@ -1723,7 +1870,6 @@ document.addEventListener('DOMContentLoaded', () => {
 	// ESC key
 	document.addEventListener('keydown', e => {
 		if (e.key === 'Escape') {
-			closeParentAuthModal();
 			closeTeacherAuthModal();
 			closeAdminLoginModal();
 		}
@@ -1731,4 +1877,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
 	// Pre-load teacher list
 	loadTeacherAuthList();
+
+	// 점수 조회 기본값: 최근 3개월(최대 1년 제한 로직은 load 시 재보정)
+	const startEl = document.getElementById('score-range-start-month');
+	const endEl = document.getElementById('score-range-end-month');
+	const now = new Date();
+	const endMonth = formatMonthValue(now.getFullYear(), now.getMonth() + 1);
+	const startMonth = formatMonthValue(new Date(now.getFullYear(), now.getMonth() - 2, 1).getFullYear(), new Date(now.getFullYear(), now.getMonth() - 2, 1).getMonth() + 1);
+	if (startEl && !startEl.value) startEl.value = startMonth;
+	if (endEl && !endEl.value) endEl.value = endMonth;
 });

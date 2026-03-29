@@ -50,6 +50,8 @@ python main.py
 | POST | /api/answer-keys/parse | 정답 PDF 파싱 |
 | POST | /api/assignments | 과제 배정 |
 | POST | /api/evaluations/generate | 종합평가 생성 |
+| POST | /api/grading-auth/session | 채점 관리 로그인 후 단기 JWT 발급(PIN·Edge 검증) |
+| GET | /api/homework-submissions | 숙제 제출 목록(세션 JWT 또는 개발 폴백) |
 
 ## 환경변수
 
@@ -57,6 +59,9 @@ python main.py
 |------|------|
 | SUPABASE_URL | Supabase 프로젝트 URL |
 | SUPABASE_SERVICE_KEY | Supabase Service Role Key |
+| SUPABASE_ANON_KEY | Edge `verify-teacher-pin` 호출용(anon). `POST /api/grading-auth/session`에 필요 |
+| GRADING_SESSION_SECRET | 숙제 조회 등 채점 브라우저용 단기 JWT 서명 키(16자 이상 권장). 없으면 `homework-submissions`는 `teacher_id` 쿼리 폴백 |
+| GRADING_SESSION_TTL_HOURS | 채점 세션 만료(시간). 기본 12 |
 | GOOGLE_CLIENT_ID | Google OAuth Client ID |
 | GOOGLE_CLIENT_SECRET | Google OAuth Client Secret |
 | GEMINI_API_KEY | Google Gemini API Key |

@@ -19,6 +19,13 @@ _bearer_scheme = HTTPBearer(auto_error=False)
 # /health와 같이 인증이 불필요한 경로
 PUBLIC_PATHS = {"/health", "/docs", "/openapi.json", "/redoc"}
 
+# Supabase 사용자 JWT 대신 별도 인증(채점 세션 JWT·쿼리 폴백)을 쓰는 API — 미들웨어에서 Bearer 요구 제외
+SKIP_SUPABASE_JWT_PATH_PREFIXES = ("/api/grading-auth", "/api/homework-submissions")
+
+
+def path_skips_supabase_jwt(path: str) -> bool:
+    return any(path == p or path.startswith(p + "/") for p in SKIP_SUPABASE_JWT_PATH_PREFIXES)
+
 
 def decode_supabase_jwt(token: str) -> dict:
     """Supabase JWT를 검증하고 payload를 반환합니다."""
@@ -43,6 +50,9 @@ async def get_current_user(request: Request) -> Optional[dict]:
     인증 실패 시 HTTPException(401)을 발생시킵니다.
     """
     if request.url.path in PUBLIC_PATHS:
+        return None
+
+    if path_skips_supabase_jwt(request.url.path):
         return None
 
     if not SUPABASE_JWT_SECRET:

@@ -1063,7 +1063,7 @@ window.getStudentEvaluation = async function(studentId, evalMonth) {
     try {
         const { data, error } = await supabase
             .from('student_evaluations')
-            .select('id, student_id, eval_month, teacher_id, comment, updated_at')
+            .select('id, student_id, eval_month, teacher_id, comment, parent_portal_visible, updated_at')
             .eq('student_id', parseInt(studentId))
             .eq('eval_month', evalMonth)
             .maybeSingle();
@@ -1076,11 +1076,12 @@ window.getStudentEvaluation = async function(studentId, evalMonth) {
     }
 }
 
-window.saveStudentEvaluation = async function(studentId, evalMonth, comment, teacherId) {
+window.saveStudentEvaluation = async function(studentId, evalMonth, comment, teacherId, options) {
     try {
         const ownerId = _getOwnerId();
         if (!ownerId) throw new Error('로그인이 필요합니다');
 
+        const opt = options && typeof options === 'object' ? options : {};
         const payload = {
             student_id: parseInt(studentId),
             eval_month: evalMonth,
@@ -1089,6 +1090,9 @@ window.saveStudentEvaluation = async function(studentId, evalMonth, comment, tea
             comment: comment || '',
             updated_at: new Date().toISOString()
         };
+        if (Object.prototype.hasOwnProperty.call(opt, 'parentPortalVisible')) {
+            payload.parent_portal_visible = !!opt.parentPortalVisible;
+        }
 
         const { data, error } = await supabase
             .from('student_evaluations')

@@ -263,7 +263,8 @@
                 </div>
                 <div class="form-group">
                     <label>새 비밀번호</label>
-                    <input type="password" id="admin-reset-new-password" class="auth-input" placeholder="새 비밀번호">
+                    <input type="password" id="admin-reset-new-password" class="auth-input" placeholder="예: Abcdef1! (소문자·대문자·숫자·특수문자 포함)">
+                    <p style="font-size: 12px; color: var(--gray); margin: 6px 0 0; line-height: 1.45;"><strong>필수(현재 프로젝트 설정):</strong> 8자 이상, 그리고 <strong>영어 소문자·대문자·숫자·특수문자</strong>를 각각 1글자 이상 포함해야 합니다. 하나라도 빠지면 422 오류(<code style="font-size:11px;">AuthWeakPasswordError</code>)가 납니다.</p>
                 </div>
                 <div class="form-group">
                     <label>새 비밀번호 확인</label>
@@ -994,9 +995,9 @@
                         <div class="eval-section-title"><i class="fas fa-star"></i> 종합 평가</div>
                         <span class="eval-month-label" id="eval-current-month"></span>
                     </div>
-                    <textarea id="eval-textarea-main" class="eval-textarea-main" placeholder="이번 달 학생에 대한 종합 평가를 작성하세요..." maxlength="500"></textarea>
+                    <textarea id="eval-textarea-main" class="eval-textarea-main" placeholder="이번 달 학생에 대한 종합 평가를 작성하세요..." maxlength="2000"></textarea>
                     <div class="eval-bottom-row">
-                        <span class="eval-char-info"><span id="eval-char-main">0</span>/500</span>
+                        <span class="eval-char-info"><span id="eval-char-main">0</span>/2000</span>
                         <button class="eval-save-btn" id="eval-save-btn" onclick="window.saveEvalFromHistory()">
                             <i class="fas fa-save"></i> 저장
                         </button>
@@ -1062,9 +1063,11 @@
                     </div>
                     <div id="student-eval-panel-chart" class="student-eval-panel student-eval-panel--chart" style="display:none;">
                         <div class="student-eval-chart-toolbar">
-                            <label for="student-eval-chart-range" class="student-eval-chart-label">조회</label>
-                            <input type="number" id="student-eval-chart-range" class="m-input student-eval-chart-input" min="1" max="12" step="1" value="3" inputmode="numeric" autocomplete="off" title="1~12개월" onchange="renderStudentEvalChartPanel()" onkeydown="if(event.key==='Enter'){ event.preventDefault(); renderStudentEvalChartPanel(); }">
-                            <span class="student-eval-chart-unit" aria-hidden="true">개월</span>
+                            <label for="student-eval-chart-start-month" class="student-eval-chart-label">조회</label>
+                            <input type="month" id="student-eval-chart-start-month" class="m-input student-eval-chart-month" onchange="renderStudentEvalChartPanel()">
+                            <span class="student-eval-chart-sep" aria-hidden="true">~</span>
+                            <input type="month" id="student-eval-chart-end-month" class="m-input student-eval-chart-month" onchange="renderStudentEvalChartPanel()">
+                            <span class="student-eval-chart-hint">좌우 드래그로 기간 이동</span>
                         </div>
                         <div id="student-eval-chart-wide" class="student-eval-chart-host custom-scroll"></div>
                     </div>
@@ -1074,9 +1077,29 @@
                         <div class="eval-section-title"><i class="fas fa-star"></i> 종합 평가</div>
                         <span class="eval-month-label" id="student-eval-month-label"></span>
                     </div>
-                    <textarea id="student-eval-textarea" class="eval-textarea-main" placeholder="이번 달 학생에 대한 종합 평가를 작성하세요..." maxlength="500"></textarea>
+                    <p class="student-eval-ai-hint">이번 달 수업 메모·시험 점수를 바탕으로 AI가 초안을 씁니다. 생성 후 내용을 다듬고, 학부모에게 보일지 여부를 선택하세요.</p>
+                    <div class="student-eval-ai-toolbar">
+                        <button type="button" class="eval-ai-btn" id="student-eval-ai-generate-btn" onclick="runStudentEvalAiGenerate('generate')">
+                            <i class="fas fa-wand-magic-sparkles"></i> AI 생성
+                        </button>
+                        <button type="button" class="eval-ai-btn eval-ai-btn--secondary" id="student-eval-refine-toggle-btn" onclick="toggleStudentEvalRefinePanel()">
+                            <i class="fas fa-pen-to-square"></i> 수정·재생성
+                        </button>
+                        <button type="button" class="eval-parent-toggle" id="student-eval-parent-toggle-btn" onclick="toggleStudentEvalParentVisible()" title="학부모 포털에서 이 달 평가 문구 공개 여부">
+                            <i class="fas fa-eye-slash" id="student-eval-parent-toggle-icon"></i>
+                            <span id="student-eval-parent-toggle-label">학부모 비공개</span>
+                        </button>
+                    </div>
+                    <div id="student-eval-refine-wrap" class="student-eval-refine-wrap" style="display:none;">
+                        <label class="student-eval-refine-label" for="student-eval-refine-input">추가 요청사항</label>
+                        <textarea id="student-eval-refine-input" class="student-eval-refine-input" maxlength="400" placeholder="예: 톤을 더 부드럽게, 칭찬을 앞에 두고, 약점은 한 문장만…"></textarea>
+                        <button type="button" class="eval-ai-btn eval-ai-btn--narrow" id="student-eval-refine-run-btn" onclick="runStudentEvalAiGenerate('refine')">
+                            <i class="fas fa-rotate"></i> 요청 반영해 재생성
+                        </button>
+                    </div>
+                    <textarea id="student-eval-textarea" class="eval-textarea-main" placeholder="이번 달 학생에 대한 종합 평가를 작성하세요..." maxlength="2000"></textarea>
                     <div class="eval-bottom-row">
-                        <span class="eval-char-info"><span id="student-eval-char">0</span>/500</span>
+                        <span class="eval-char-info"><span id="student-eval-char">0</span>/2000</span>
                         <button type="button" class="eval-save-btn" id="student-eval-save-btn" onclick="saveStudentEvalFromModal()">
                             <i class="fas fa-save"></i> 저장
                         </button>

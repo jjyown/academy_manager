@@ -39,7 +39,17 @@ from config import (
 from auth import get_current_user
 from scheduler.monthly_eval import run_monthly_evaluation
 
-from routers import answer_keys, assignments, student_books, results, stats, grading, misc
+from routers import (
+    answer_keys,
+    assignments,
+    student_books,
+    results,
+    stats,
+    grading,
+    misc,
+    homework_submissions,
+    grading_auth,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -169,7 +179,13 @@ _rate_limit_store: dict[str, list[float]] = defaultdict(list)
 
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
-    if request.url.path.startswith("/api/grade") or request.url.path.startswith("/api/auto-grade"):
+    p = request.url.path
+    if (
+        p.startswith("/api/grade")
+        or p.startswith("/api/auto-grade")
+        or p.startswith("/api/grading-auth")
+        or p.startswith("/api/homework-submissions")
+    ):
         client_ip = request.client.host if request.client else "unknown"
         now = time.time()
         window = 60.0
@@ -257,6 +273,8 @@ app.include_router(results.router)
 app.include_router(stats.router)
 app.include_router(grading.router)
 app.include_router(misc.router)
+app.include_router(homework_submissions.router)
+app.include_router(grading_auth.router)
 
 
 # ============================================================

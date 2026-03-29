@@ -3,8 +3,14 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
+# Edge Function verify-teacher-pin 호출용 (서버 → Supabase)
+SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")
+
+# 채점 브라우저 세션 JWT 서명용 (숙제 조회 API 등). 16자 이상 난수 권장. 미설정 시 숙제 API는 teacher_id 쿼리 폴백(개발용).
+GRADING_SESSION_SECRET = os.getenv("GRADING_SESSION_SECRET", "")
+GRADING_SESSION_TTL_HOURS = int(os.getenv("GRADING_SESSION_TTL_HOURS", "12"))
 
 # JWT 검증용 시크릿 (Supabase Dashboard → Settings → API → JWT Secret)
 # 설정하지 않으면 인증이 비활성화됩니다 (개발 모드)

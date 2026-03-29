@@ -1,6 +1,6 @@
 # 출석관리앱 컨텍스트 노트
 
-- 문서 기준일: 2026-03-25
+- 문서 기준일: 2026-03-29
 ## 제품/운영 컨텍스트
 - 대상 사용자: 교사(관리), 학생(조회)
 - 핵심 데이터: 학생, 반, 수업, 날짜, 출석상태, 수정자, 수정시각
@@ -14,6 +14,27 @@
 ## 최근 의사결정 로그
 | 날짜 | 결정 | 이유 | 영향 범위 |
 |---|---|---|---|
+| 2026-03-29 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | SUPABASE_EVAL_PARENT_VISIBLE_AI_20260329.sql, auth.js, database.js, docs/checklist.md, docs/context.md 외 25개 |
+| 2026-03-29 | **종합평가 본문 2000자·항목 줄바꿈**: Edge `postProcessEvalText`로 줄바꿈 보존 및 `1.` `2.` 패턴 앞 개행 보강, 프롬프트로 4개 항목을 각각 새 줄에서 시작하도록 고정. 상한 **500→2000**을 Edge·`script.js`(`STUDENT_EVAL_COMMENT_MAX_CHARS`)·`index.html`·학부모 포털 textarea에 맞춤. `maxOutputTokens` 4096. SQL 파일에 운영 체크리스트 주석 | 재생성만으로는 500자·공백 압축 한계를 넘지 못함 | `generate-student-eval-report/index.ts`, `index.html`, `parent-portal/index.html`, `parent-portal/report.js`, `script.js`, `SUPABASE_EVAL_PARENT_VISIBLE_AI_20260329.sql` |
+| 2026-03-29 | **종합평가 AI Edge 401**: `generate-student-eval-report`만 `verify_jwt` 기본 true라 게이트웨이가 JWT를 먼저 거부하면 함수 본문 전에 401·`FunctionsHttpError` 발생. `supabase/config.toml`에 `verify_jwt = false` 추가(다른 함수와 동일, 권한은 함수 내부 `getUser`+owner 검증). 클라이언트는 `refreshSession` 후 `Authorization` 명시 | verify-teacher-pin과 동일 패턴 | `supabase/config.toml`, `script.js` |
+| 2026-03-29 | **학부모 포털 종합평가 이중 인증 제거**: 랜딩에서 `parent_code`로 학생 조회에 성공한 경우 동일 세션에서 `setParentVerified()`로 간주·종합평가 탭 잠금·추가 모달 삭제. 관리자(원장) 학생 선택 경로는 `isAdminMode`로 잠금 없음. 실제 노출은 DB `parent_portal_visible`+RLS 유지 | 첫 화면 인증코드만으로 충분하고 UX 혼선을 줄이기 위해 | `parent-portal/report.js`, `parent-portal/index.html` |
+| 2026-03-29 | **종합평가 AI UI 누락 버그 수정**: HTML만 추가된 상태에서 JS 핸들러 미구현으로 런타임 오류 → `runStudentEvalAiGenerate`·`toggleStudentEvalRefinePanel`·`toggleStudentEvalParentVisible`·`updateStudentEvalParentToggleUi` 및 저장 시 `parent_portal_visible` 반영 보강 | 원인은 UI-스크립트 불일치(코드) | `script.js`, `parent-portal/report.js` |
+| 2026-03-29 | **숙제 조회 API = PIN 이후 채점 세션 JWT**: `POST /api/grading-auth/session`으로 Edge PIN 검증 후 단기 JWT 발급. `GRADING_SESSION_SECRET`이 있으면 `GET /api/homework-submissions`는 Bearer 채점 세션만 신뢰(owner=`sub`). Supabase 사용자 JWT 미들웨어는 해당 경로 제외 | `owner_user_id`만 알면 목록이 열리던 구조를 막고, 우리 학원 PIN 검증 이후에만 조회 가능하게 하기 위해 | `grading-server/auth.py`, `grading-server/grading_session.py`, `grading-server/routers/grading_auth.py`, `grading-server/routers/homework_submissions.py`, `grading-server/integrations/edge_verify_pin.py`, `grading-server/main.py`, `grading/index.html`, `grading-server/README.md`, `grading-server/.env.example` |
+| 2026-03-29 | **채점관리 숙제 조회 = 서버 API + Service Role**: `GET /api/homework-submissions`에서 owner UUID·기간·학생 소속 검증 후 `homework_submissions` 전량 조회(학생 코드 RLS 무관). 프론트는 채점 서버 URL 있을 때 API 우선 | 원장·선생님이 채점 UI에서 제한 없이 제출 이력을 보기 위해 | `grading-server/routers/homework_submissions.py`, `grading-server/integrations/supabase_client.py`, `grading/index.html` |
+| 2026-03-29 | **채점관리: 통계 탭 → 숙제 제출 현황 탭**: 통계 API UI 제거, 학생 검색+월 달력·일별 파일(초기 anon 조회 → 서버 API로 확장) | 원장이 채점 화면에서 숙제 제출 흐름을 한눈에 보기 위해 | `grading/index.html` |
+| 2026-03-29 | **WeakPasswordError(문자군) 사용자 안내**: `AuthWeakPasswordError`·`at least one character of each` 를 한글로 풀어 토스트·모달에「소문자·대문자·숫자·특수문자 각 1자 이상」명시, `getMissingPasswordCharacterClasses`로 제출 전 검사(특수문자 클래스 정규식에서 `/` 리터럼 종료 버그 수정) | 운영자가 422 원인을 콘솔 영문 메시지 없이 이해하도록 | `auth.js`, `index.html` |
+| 2026-03-29 | **관리자 비밀번호 변경 422 대응**: 최소 길이 8자·기존과 동일 비밀번호 차단·`signInWithPassword` 후 `setSession`으로 `updateUser` 전 토큰 확정·오류 코드별 한글 안내(`weak_password`/422/재인증). 모달 이메일은 로그인 필드·세션 순 프리필 | 콘솔 `PUT .../auth/v1/user` 422는 Supabase 비밀번호 정책(길이·복잡도·pwned)·동일 비밀번호·세션 타이밍과 연관되는 경우가 많아, 클라이언트 검증·세션 동기화·메시지로 현장 대응력을 높이기 위해 | `auth.js`, `index.html` |
+| 2026-03-28 | **학생관리 그래프 탭 시각/툴팁 통일**: 하단 막대 박스를 제거하고 라인차트 단일 구성으로 정리, 점 hover 시 `시험명/시험일/점수` 커스텀 툴팁을 커서 근처에 즉시 표시하도록 변경 | 학부모 포털과 학생관리 그래프의 시각/상호작용이 달라 같은 데이터에서도 사용자 인지가 달라지는 문제를 해소하기 위해 | `script.js`, `style.css` |
+| 2026-03-28 | **학생관리 그래프 탭 조회방식 통일**: 학생 평가 모달 `그래프` 탭도 학부모 포털과 동일하게 `시작월~종료월` 조회 + 좌우 드래그 기간 이동(월 단위)으로 변경 | 화면마다 조회 방식이 다르면 사용자 학습 비용이 커지고, 동일 데이터의 탐색 동선이 불일치해 혼선이 생기기 때문 | `index.html`, `style.css`, `script.js` |
+| 2026-03-28 | **학생 평가 점수 저장의 월 제한 제거**: 점수 저장에서 `현재 월만 허용` 검증을 제거하고, 입력한 `시험일` 기준 월로 저장/재렌더링하도록 변경 | 신규 학생의 과거 시험 점수(이전 달/임의 날짜)를 누락 없이 이관 입력할 수 있어야 운영에 맞기 때문 | `script.js` |
+| 2026-03-28 | **점수 조회를 연/월 구간 조회 + 드래그 이동으로 전환**: `시작월~종료월` 입력으로 조회 구간을 정하고, 그래프 카드 좌우 드래그로 기간을 월 단위 이동하도록 구현. 기간은 자동 보정으로 최대 12개월로 제한 | 사용자가 특정 연/월을 직접 조회하고, 화면에서 좌우 제스처로 빠르게 기간을 이동하려는 요구를 충족하기 위해 | `parent-portal/index.html`, `parent-portal/report.js` |
+| 2026-03-28 | **점수 그래프 x축 라벨 규칙 분기**: 조회가 1개월(또는 이하)이면 날짜(`n일`)를, 1개월을 초과하면 월(`n월`)만 표시하도록 분기 | 좁은 구간은 일자 상세, 넓은 구간은 월 단위 요약이 가독성이 높기 때문 | `parent-portal/report.js`, `parent-portal/index.html` |
+| 2026-03-28 | **점수 그래프 툴팁 좌표 보정**: `.score-chart-wrap`를 `position: relative`로 고정하고, 툴팁 Y 좌표를 상단 우선/부족 시 하단 배치로 보정해 커서 근처에 표시 | 툴팁이 화면 상단 멀리 뜨는 좌표 기준 오류 해소 | `parent-portal/index.html`, `parent-portal/report.js` |
+| 2026-03-28 | **학부모 포털 점수툴팁 즉시 표시 + 디자인 개선**: SVG 기본 `<title>` 툴팁(지연 표시)을 제거하고, 점 hover 즉시 보이는 커스텀 툴팁(시험명/시험일/점수)로 교체 | 마우스 오버 직후 정보를 확인하고 툴팁 가독성을 높이기 위해 | `parent-portal/index.html`, `parent-portal/report.js` |
+| 2026-03-27 | **학부모 포털 점수탭 툴팁/라벨 정리**: 그래프 하단 날짜 라벨을 제거하고, 점(`circle`) hover 시 SVG `<title>`로 `시험명 / 시험일 / 점수` 표시 | 하단 중복 날짜를 없애고 점 단위 상세 정보만 확인하려는 UX 요청 반영 | `parent-portal/report.js` |
+| 2026-03-27 | **학부모 포털 점수탭 레이아웃 정렬**: 점수 탭을 첫 번째 레퍼런스와 동일하게 **조회 N개월 입력 + 라인 그래프 단일 구성**으로 단순화(막대/리스트 제거), Y축 100/50/0 라벨 포함 | 사용자가 기대한 그래프 구성(모달 그래프 탭과 동일)을 맞추기 위해 | `parent-portal/index.html`, `parent-portal/report.js` |
+| 2026-03-27 | **학부모 포털 탭 전환(채점→점수)**: `grading_results` 카드형 목록을 제거하고, `student_test_scores` 기반 **점수 변화 그래프(선+막대)**와 최근 점수 리스트로 교체. 점수 데이터는 학생 「평가」의 점수 탭에 저장한 데이터를 그대로 사용 | 학부모 화면에서 채점 결과보다 월별/누적 점수 추이를 직관적으로 보여달라는 요구 반영 | `parent-portal/index.html`, `parent-portal/report.js` |
+| 2026-03-27 | **출석기록 미처리 고정 보정**: 수업관리에서 다시 출결 처리했는데 출석기록 카드가 미처리로 남는 케이스를 수정. 카드 대표 레코드를 `primaryRecords[0]` 고정이 아닌 **상태 우선순위+최신시각**(`pickBetterRecord`)으로 선택하고, 상태 저장 시 타 teacher_id에 남은 stale `none/absent` 그림자 레코드를 정리 | 시간표 UI는 갱신되지만 출석기록 카드가 stale `none`을 대표로 고르는 불일치 해소 | `qr-attendance.js`, `script.js` |
 | 2026-03-25 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | SUPABASE_ATTENDANCE_MEMO_SPLIT_20260323.sql, SUPABASE_CLASS_MEMO_TO_STUDENT_EVALUATIONS_20260323.sql, SUPABASE_COMPLETE_SETUP.sql, SUPABASE_PAYMENTS_LEDGER_JSON_20260324.sql, SUPABASE_TABLE_HEALTH_CHECK.sql 외 10개 |
 | 2026-03-25 | **입력창 즉시 초기화**: 테스트 점수 저장 후 **시험명** 필드 비움·포커스. QR 전화 뒷자리 4자리 제출 시 **`submitPhoneAttendanceAuth` 시작 직후** 입력 비움·포커스로 연속 오입력 방지 | 저장·인증 직후 이전 값이 남는 UX 제거 | `script.js`, `qr-attendance.js` |
 | 2026-03-25 | **그래프 탭 UI 압축**: 상단 안내·조회 메타·빈 상태 카피 제거, 구간은 **숫자 입력(1~12)**·차트 헤더 생략(`suppressVizHead`)·`test-score-viz--chart-tab`로 선·막대 영역 확대 | 화면을 그래프에 최대한 할당 | `index.html`, `script.js`, `style.css` |

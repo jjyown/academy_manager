@@ -1,6 +1,6 @@
 # 엔터프라이즈 개발 운영 플레이북
 
-- 문서 기준일: 2026-03-25
+- 문서 기준일: 2026-03-29
 - 적용 범위: 메인 페이지, 숙제 제출, 채점 페이지, 학부모 포털, Supabase 연동 전 구간
 
 ## 1) 작업 단위 정의 (Work Item)
@@ -91,6 +91,13 @@
   - 작업 단위 1건 완료 시 자동 로그를 본 문서 상단에 추가한다.
 
 ## 9) 자동 업데이트 로그
+- 2026-03-29 | AUTO-20260329 | staged 30개 파일 기준 문서 연동 자동기록 | gates: A:PASS,B:PASS,C:PASS,D:PASS,E:PASS | note: 연동 자동 기록
+- 2026-03-29 | 종합평가-본문2000-20260329 | AI 종합평가 2000자·줄바꿈 보존·번호항목 개행·UI maxlength 정렬·script 상수 통일 | gates: A:PASS,B:PASS,C:부분,E:PASS | note: Edge generate-student-eval-report 재배포·SQL SUPABASE_EVAL_PARENT_VISIBLE_AI 적용
+- 2026-03-29 | 채점관리-숙제세션JWT-20260329 | PIN 후 단기 JWT 발급 및 homework-submissions Bearer 보호 | gates: A:PASS,B:PASS,C:스모크권장,D:RAILWAY_ENV,E:PASS | note: GRADING_SESSION_SECRET SUPABASE_ANON_KEY
+- 2026-03-29 | 채점관리 2026-03-29c | 숙제 제출 GET /api/homework-submissions Service Role | gates: A:PASS,B:PASS,C:부분,E:PASS | note: 소속 검증+grading/index fetch
+- 2026-03-29 | 채점관리 2026-03-29 | 통계 탭 제거·숙제 제출 달력 탭(homework_submissions) | gates: A:PASS,B:PASS,C:부분,E:PASS | note: grading/index.html
+- 2026-03-29 | 관리자Auth 2026-03-29b | WeakPasswordError 안내·문자군 사전검증·모달 문구 | gates: A:PASS,B:PASS,C:부분,E:PASS | note: AuthWeakPasswordError 문자군 4종
+- 2026-03-29 | 관리자Auth 2026-03-29 | 관리자 비밀번호 변경: 8자·setSession·422 매핑·이메일 프리필 | gates: A:PASS,B:PASS,C:부분,D:부분,E:PASS | note: Supabase 정책 불일치·세션 레이스 완화
 - 2026-03-25 | AUTO-20260325 | staged 15개 파일 기준 문서 연동 자동기록 | gates: A:PASS,B:PASS,C:PASS,D:PASS,E:PASS | note: 연동 자동 기록
 - 2026-03-23 | AUTO-20260323 | staged 5개 파일 기준 문서 연동 자동기록 | gates: A:PASS,B:PASS,C:PASS,D:PASS,E:PASS | note: 연동 자동 기록
 - 2026-03-23 | AUTO-20260323 | staged 6개 파일 기준 문서 연동 자동기록 | gates: A:PASS,B:PASS,C:PASS,D:PASS,E:PASS | note: 연동 자동 기록
