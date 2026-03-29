@@ -1,6 +1,6 @@
 # 출석관리앱 컨텍스트 노트
 
-- 문서 기준일: 2026-03-29
+- 문서 기준일: 2026-03-30
 ## 제품/운영 컨텍스트
 - 대상 사용자: 교사(관리), 학생(조회)
 - 핵심 데이터: 학생, 반, 수업, 날짜, 출석상태, 수정자, 수정시각
@@ -14,7 +14,19 @@
 ## 최근 의사결정 로그
 | 날짜 | 결정 | 이유 | 영향 범위 |
 |---|---|---|---|
+| 2026-03-30 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | SUPABASE_STUDENT_EVAL_AI_STYLE_ENTRIES_20260329.sql, SUPABASE_USERS_RLS_STUDENT_EVAL_STYLE_NOTE_20260329.sql, SUPABASE_USER_EVAL_AI_STYLE_NOTE_20260329.sql, database.js, docs/checklist.md 외 8개 |
+| 2026-03-30 | **채점관리 숙제 탭 기능 분리(UI/UX 절충)**: 동일 레이아웃 유지하되 **배정**=`currentAssignments` 마감일·학생 필터, **제출**=`homework_submissions` API, **채점**=`currentResults` 일자·학생 필터. 제출 탭에서만 숙제 API 호출·나머지는 서버 목록 재구성 | 한 화면에서 역할 구분·학습 비용 최소화 | `grading/index.html` |
+| 2026-03-29 | **학생 「평가」모달 평가 월 선택**: 헤더에 `input type="month"`로 `YYYY-MM` 지정·`loadStudentEvalModalContent`로 기록·종합평가·점수·차트를 동일 월로 재로드. `openStudentEvalModal(id, { evalMonth })` 옵션 추가. 미저장 평가 문구가 있을 때 월 변경 전 `showConfirm` | 과거 월 기록·종합평가를 덮어쓰지 않고 조회·편집하려는 운영 요구 | `index.html`, `script.js`, `style.css` |
+| 2026-03-29 | **종합평가 선행 0 줄**: 고정 지침 문구만으로는 모델이 `0` 단독 줄을 재발시킬 수 있어, Edge `stripLeadingArtifactLines`+프롬프트 금지·`script.js` `stripLeadingEvalArtifact`로 이중 방어 | 사용자 지침 반영 한계 vs 코드 보정 | `generate-student-eval-report/index.ts`, `script.js` |
+| 2026-03-29 | **고정 지침 UI**: 「저장된 지침 전체」목록·항목별 삭제 UI 제거, 「이번에 추가할 문구」만 노출. DB 누적·Edge 합산은 유지, 삭제는 DB·`deleteOwnerStudentEvalAiStyleEntry`로 처리 | 원장 요청(목록 미표시) | `index.html`, `script.js`, `style.css` |
+| 2026-03-29 | **고정 지침 항목 삭제 API + AI 선행 0 제거**: `deleteOwnerStudentEvalAiStyleEntry` 유지·`postProcessEvalText`에서 선두 줄이 `0`만인 반복 제거 | 모델이 붙이는 단독 0 줄 대응 | `database.js`, `generate-student-eval-report/index.ts` |
+| 2026-03-29 | **고정 지침 별도 테이블**: `student_eval_ai_style_entries`(행당 content≤1200·created_at)에 누적, Edge·`getOwnerStudentEvalAiStyleNote`는 시간순 합산(프롬프트 8000자 cap). `users.student_eval_ai_style_note`는 레거시 폴백. Edge에서 `admin`을 사용자 검증 직후 생성하도록 수정(기존 미정의 참조 제거) | 항목별 이력·감사 가능, 단일 컬럼 병합 대비 운영 명확 | `SUPABASE_STUDENT_EVAL_AI_STYLE_ENTRIES_20260329.sql`, `database.js`, `generate-student-eval-report/index.ts` |
+| 2026-03-29 | **고정 지침 누적 저장**: `appendOwnerStudentEvalAiStyleNote`로 기존 `student_eval_ai_style_note` 뒤에 이어붙임(`\n\n` 구분). 추가 입력 1200자·전체 8000자 상한(초과 시 최신 우선 잘림). UI는 저장 전체 표시 + 「이번에 추가할 문구」 | 수정 시마다 이전 문구가 덮어써지던 운영 불만 | `database.js`, `index.html`, `script.js`, `style.css` |
+| 2026-03-29 | **고정 지침 저장 0행·성공 토스트**: `saveOwnerStudentEvalAiStyleNote`에 `.select().maybeSingle()`로 실제 갱신 행 검증. RLS로 0행이어도 `error`가 비어 있을 수 있어 이전에는 성공처럼 보였음. 운영은 `SUPABASE_USERS_RLS_STUDENT_EVAL_STYLE_NOTE_20260329.sql`로 `public.users` 본인 SELECT/UPDATE 허용 | 컬럼 `student_eval_ai_style_note` 매핑은 기존대로 정확; 원인은 정책·행 존재 가능성 | `database.js`, `SUPABASE_USERS_RLS_STUDENT_EVAL_STYLE_NOTE_20260329.sql` |
 | 2026-03-29 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | SUPABASE_EVAL_PARENT_VISIBLE_AI_20260329.sql, auth.js, database.js, docs/checklist.md, docs/context.md 외 25개 |
+| 2026-03-29 | **종합평가 AI 고정 지침·말투**: Gemini/Supabase는 요청 간 문맥을 저장하지 않음. 원장별 상시 지침은 `users.student_eval_ai_style_note`에 두고 Edge가 매 호출 시 시스템 프롬프트에 합침. 학부모 대상 메타·한계 고백 투는 시스템 지시로 금지 | 반복 주의사항 자동화·AI 티 감소 | `SUPABASE_USER_EVAL_AI_STYLE_NOTE_20260329.sql`, `database.js`, `index.html`, `script.js`, `style.css`, `generate-student-eval-report/index.ts` |
+| 2026-03-29 | **종합평가 AI 프롬프트(전문 리포트)**: Edge `generate-student-eval-report` 시스템 지시에 15년 경력 교육 컨설턴트 역할·학부모용 월간 학업 성취 리포트·01~04 섹션(학습 총평·데이터 분석·역량 진단·솔루션)·데이터 우선·나열 금지 등 반영. 해당 월 `attendance_records`·`homework_submissions` 요약을 user 프롬프트에 포함(서비스 롤 조회) | 학부모에게 전문 관리 인상·근거 있는 서술 | `supabase/functions/generate-student-eval-report/index.ts` |
+| 2026-03-29 | **채점관리 숙제 관리 탭 통합**: 상단「달력」「숙제 제출」→ **숙제 관리** 단일 탭, 서브 **배정·채점** / **제출 현황**. `grading_nav`에 `hwSub` 저장, 구 `results`/`homework`/`stats` 탭 키 복원 호환 | 숙제 IA 절충(전문가 합의) | `grading/index.html` |
 | 2026-03-29 | **종합평가 본문 2000자·항목 줄바꿈**: Edge `postProcessEvalText`로 줄바꿈 보존 및 `1.` `2.` 패턴 앞 개행 보강, 프롬프트로 4개 항목을 각각 새 줄에서 시작하도록 고정. 상한 **500→2000**을 Edge·`script.js`(`STUDENT_EVAL_COMMENT_MAX_CHARS`)·`index.html`·학부모 포털 textarea에 맞춤. `maxOutputTokens` 4096. SQL 파일에 운영 체크리스트 주석 | 재생성만으로는 500자·공백 압축 한계를 넘지 못함 | `generate-student-eval-report/index.ts`, `index.html`, `parent-portal/index.html`, `parent-portal/report.js`, `script.js`, `SUPABASE_EVAL_PARENT_VISIBLE_AI_20260329.sql` |
 | 2026-03-29 | **종합평가 AI Edge 401**: `generate-student-eval-report`만 `verify_jwt` 기본 true라 게이트웨이가 JWT를 먼저 거부하면 함수 본문 전에 401·`FunctionsHttpError` 발생. `supabase/config.toml`에 `verify_jwt = false` 추가(다른 함수와 동일, 권한은 함수 내부 `getUser`+owner 검증). 클라이언트는 `refreshSession` 후 `Authorization` 명시 | verify-teacher-pin과 동일 패턴 | `supabase/config.toml`, `script.js` |
 | 2026-03-29 | **학부모 포털 종합평가 이중 인증 제거**: 랜딩에서 `parent_code`로 학생 조회에 성공한 경우 동일 세션에서 `setParentVerified()`로 간주·종합평가 탭 잠금·추가 모달 삭제. 관리자(원장) 학생 선택 경로는 `isAdminMode`로 잠금 없음. 실제 노출은 DB `parent_portal_visible`+RLS 유지 | 첫 화면 인증코드만으로 충분하고 UX 혼선을 줄이기 위해 | `parent-portal/report.js`, `parent-portal/index.html` |

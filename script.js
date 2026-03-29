@@ -35,6 +35,20 @@ let studentEvalChartDragBound = false;
 let testScoreSyncState = { mode: 'unknown', message: '동기화 상태 확인 전' };
 /** 종합평가 본문 글자 상한 — `index.html` textarea·Edge `EVAL_MAX_CHARS`와 동일 유지 */
 const STUDENT_EVAL_COMMENT_MAX_CHARS = 2000;
+
+/** AI 응답 맨 위 단독 "0"·전각 0·선행 빈 줄 제거(Edge와 이중 방어, 고정 지침 문구만으로는 모델이 재발시킬 수 있음) */
+function stripLeadingEvalArtifact(s) {
+    var lines = String(s || '').split(/\r?\n/);
+    while (lines.length > 0) {
+        var t = lines[0].trim();
+        if (t === '' || t === '0' || t === '０') {
+            lines.shift();
+            continue;
+        }
+        break;
+    }
+    return lines.join('\n');
+}
 const TEST_SCORE_STORAGE_PREFIX = 'student_test_scores__';
 const ADMIN_CROSS_TEACHER_EDIT_TTL_MS = 30 * 60 * 1000; // 30분
 let adminCrossTeacherEditUntil = 0;
@@ -7665,63 +7679,27 @@ window.saveEvalFromHistory = async function() {
 }
 
 /** 학생 목록 「평가」모달: 기록 / 점수 / 그래프 탭 전환 */
-window.switchStudentEvalTab = function(tab) {
-    const t = tab === 'score' ? 'score' : (tab === 'chart' ? 'chart' : 'record');
-    const isRecord = t === 'record';
-    const isScore = t === 'score';
-    const isChart = t === 'chart';
-    const panelR = document.getElementById('student-eval-panel-record');
-    const panelS = document.getElementById('student-eval-panel-score');
-    const panelC = document.getElementById('student-eval-panel-chart');
-    const tabR = document.getElementById('student-eval-tab-record');
-    const tabS = document.getElementById('student-eval-tab-score');
-    const tabC = document.getElementById('student-eval-tab-chart');
-    if (panelR) panelR.style.display = isRecord ? 'block' : 'none';
-    if (panelS) panelS.style.display = isScore ? 'block' : 'none';
-    if (panelC) panelC.style.display = isChart ? 'block' : 'none';
-    if (tabR) tabR.classList.toggle('active', isRecord);
-    if (tabS) tabS.classList.toggle('active', isScore);
-    if (tabC) tabC.classList.toggle('active', isChart);
-    if (isChart && typeof window.renderStudentEvalChartPanel === 'function') {
-        window.renderStudentEvalChartPanel();
-    }
-};
-
 /**
- * 학생 목록 전용 「평가」모달 — 기록 탭(수업관리 월별 메모), 점수 탭(테스트 점수), 하단 종합평가 고정
- * @param {string} studentId
+ * 학생 「평가」모달: 선택한 월 기준으로 기록·점수·종합평가·차트 범위를 다시 로드한다.
+ * @param {string} sid
+ * @param {string} monthPrefix YYYY-MM
  * @param {{ initialTab?: 'record'|'score'|'chart' }} [options]
  */
-window.openStudentEvalModal = async function(studentId, options) {
-    let initialTab = 'record';
-    if (options && options.initialTab === 'score') initialTab = 'score';
-    else if (options && options.initialTab === 'chart') initialTab = 'chart';
-    const sid = String(studentId || '');
-    if (!sid) return;
+async function loadStudentEvalModalContent(sid, monthPrefix, options) {
+    const initialTab = (options && options.initialTab) || 'record';
     const s = students.find((x) => String(x.id) === String(sid));
-    if (!s) {
-        showToast('학생 정보를 찾을 수 없습니다.', 'warning');
-        return;
-    }
+    if (!s) return;
 
-    closeModal('history-modal');
-
-    const curYear = currentDate.getFullYear();
-    const curMonth = currentDate.getMonth() + 1;
-    const monthPrefix = `${curYear}-${String(curMonth).padStart(2, '0')}`;
-    historyActionContext = { studentId: sid, monthPrefix };
+    historyActionContext = { studentId: String(sid), monthPrefix };
 
     const modal = document.getElementById('student-eval-modal');
-    if (!modal) {
-        showToast('평가 화면을 찾을 수 없습니다.', 'warning');
-        return;
-    }
-    modal.style.display = 'flex';
+    if (modal) modal.dataset.studentEvalStudentId = String(sid);
 
-    const titleEl = document.getElementById('student-eval-title');
+    const picker = document.getElementById('student-eval-month-picker');
+    if (picker) picker.value = monthPrefix;
+
     const subEl = document.getElementById('student-eval-subtitle');
-    if (titleEl) titleEl.textContent = `${s.name} (${s.grade})${s.school ? ' · ' + s.school : ''}`;
-    if (subEl) subEl.textContent = `${curYear}년 ${curMonth}월 학습 · 평가`;
+    if (subEl) subEl.textContent = '학습 · 평가';
 
     const timelineEl = document.getElementById('student-eval-timeline');
     if (timelineEl) timelineEl.innerHTML = '<div style="text-align:center;padding:20px;color:var(--gray);">로딩 중...</div>';
@@ -7733,7 +7711,9 @@ window.openStudentEvalModal = async function(studentId, options) {
     const evalTextarea = document.getElementById('student-eval-textarea');
     const evalCharCount = document.getElementById('student-eval-char');
     const evalSaveBtn = document.getElementById('student-eval-save-btn');
-    if (evalMonthLabel) evalMonthLabel.textContent = `${curYear}년 ${curMonth}월`;
+    const y = parseInt(monthPrefix.slice(0, 4), 10);
+    const m = parseInt(monthPrefix.slice(5, 7), 10);
+    if (evalMonthLabel) evalMonthLabel.textContent = `${y}년 ${m}월`;
     const refineWrap = document.getElementById('student-eval-refine-wrap');
     if (refineWrap) refineWrap.style.display = 'none';
     const refineIn = document.getElementById('student-eval-refine-input');
@@ -7766,11 +7746,18 @@ window.openStudentEvalModal = async function(studentId, options) {
             }
         }
     } catch (e) {
-        console.error('[openStudentEvalModal] 종합평가 로드 실패:', e);
+        console.error('[loadStudentEvalModalContent] 종합평가 로드 실패:', e);
     }
 
     if (typeof window.updateStudentEvalParentToggleUi === 'function') {
         window.updateStudentEvalParentToggleUi();
+    }
+
+    try {
+        const styleAppend = document.getElementById('student-eval-ai-style-append');
+        if (styleAppend) styleAppend.value = '';
+    } catch (e) {
+        console.warn('[loadStudentEvalModalContent] AI 고정 지침 입력 초기화:', e);
     }
 
     const monthLabel = `${monthPrefix.slice(0, 4)}년 ${monthPrefix.slice(5)}월`;
@@ -7788,6 +7775,96 @@ window.openStudentEvalModal = async function(studentId, options) {
     }
 
     window.switchStudentEvalTab(initialTab);
+}
+
+/** 평가 모달에서 `input type="month"` 변경 시 */
+window.onStudentEvalModalMonthChange = async function() {
+    const picker = document.getElementById('student-eval-month-picker');
+    const modal = document.getElementById('student-eval-modal');
+    const ta = document.getElementById('student-eval-textarea');
+    const sid = modal && modal.dataset.studentEvalStudentId;
+    if (!picker || !picker.value || !sid) return;
+    const newMonth = picker.value;
+    const prevMonth = ta && ta.dataset.evalMonth ? String(ta.dataset.evalMonth) : '';
+    if (newMonth === prevMonth) return;
+
+    if (ta && ta.value.trim() && typeof showConfirm === 'function') {
+        const ok = await showConfirm('입력한 평가 문구가 저장되지 않았을 수 있습니다. 월을 바꿀까요?', { okText: '바꾸기', cancelText: '취소' });
+        if (!ok) {
+            picker.value = prevMonth || '';
+            return;
+        }
+    }
+
+    let tab = 'record';
+    const tabR = document.getElementById('student-eval-tab-record');
+    const tabS = document.getElementById('student-eval-tab-score');
+    const tabC = document.getElementById('student-eval-tab-chart');
+    if (tabC && tabC.classList.contains('active')) tab = 'chart';
+    else if (tabS && tabS.classList.contains('active')) tab = 'score';
+
+    await loadStudentEvalModalContent(sid, newMonth, { initialTab: tab });
+};
+
+window.switchStudentEvalTab = function(tab) {
+    const t = tab === 'score' ? 'score' : (tab === 'chart' ? 'chart' : 'record');
+    const isRecord = t === 'record';
+    const isScore = t === 'score';
+    const isChart = t === 'chart';
+    const panelR = document.getElementById('student-eval-panel-record');
+    const panelS = document.getElementById('student-eval-panel-score');
+    const panelC = document.getElementById('student-eval-panel-chart');
+    const tabR = document.getElementById('student-eval-tab-record');
+    const tabS = document.getElementById('student-eval-tab-score');
+    const tabC = document.getElementById('student-eval-tab-chart');
+    if (panelR) panelR.style.display = isRecord ? 'block' : 'none';
+    if (panelS) panelS.style.display = isScore ? 'block' : 'none';
+    if (panelC) panelC.style.display = isChart ? 'block' : 'none';
+    if (tabR) tabR.classList.toggle('active', isRecord);
+    if (tabS) tabS.classList.toggle('active', isScore);
+    if (tabC) tabC.classList.toggle('active', isChart);
+    if (isChart && typeof window.renderStudentEvalChartPanel === 'function') {
+        window.renderStudentEvalChartPanel();
+    }
+};
+
+/**
+ * 학생 목록 전용 「평가」모달 — 기록 탭(수업관리 월별 메모), 점수 탭(테스트 점수), 하단 종합평가 고정
+ * @param {string} studentId
+ * @param {{ initialTab?: 'record'|'score'|'chart', evalMonth?: string }} [options] evalMonth: YYYY-MM (과거 월 조회)
+ */
+window.openStudentEvalModal = async function(studentId, options) {
+    let initialTab = 'record';
+    if (options && options.initialTab === 'score') initialTab = 'score';
+    else if (options && options.initialTab === 'chart') initialTab = 'chart';
+    const sid = String(studentId || '');
+    if (!sid) return;
+    const s = students.find((x) => String(x.id) === String(sid));
+    if (!s) {
+        showToast('학생 정보를 찾을 수 없습니다.', 'warning');
+        return;
+    }
+
+    closeModal('history-modal');
+
+    const curYear = currentDate.getFullYear();
+    const curMonth = currentDate.getMonth() + 1;
+    let monthPrefix = `${curYear}-${String(curMonth).padStart(2, '0')}`;
+    if (options && options.evalMonth && /^\d{4}-\d{2}$/.test(String(options.evalMonth))) {
+        monthPrefix = String(options.evalMonth);
+    }
+
+    const modal = document.getElementById('student-eval-modal');
+    if (!modal) {
+        showToast('평가 화면을 찾을 수 없습니다.', 'warning');
+        return;
+    }
+    modal.style.display = 'flex';
+
+    const titleEl = document.getElementById('student-eval-title');
+    if (titleEl) titleEl.textContent = `${s.name} (${s.grade})${s.school ? ' · ' + s.school : ''}`;
+
+    await loadStudentEvalModalContent(sid, monthPrefix, { initialTab });
 };
 
 window.saveStudentEvalFromModal = async function() {
@@ -7975,7 +8052,7 @@ window.runStudentEvalAiGenerate = async function(mode) {
             showToast(map[data.error] || '생성에 실패했습니다.', 'error');
             return;
         }
-        const text = String(data.text || '').slice(0, STUDENT_EVAL_COMMENT_MAX_CHARS);
+        const text = stripLeadingEvalArtifact(String(data.text || '')).slice(0, STUDENT_EVAL_COMMENT_MAX_CHARS);
         ta.value = text;
         const cc = document.getElementById('student-eval-char');
         if (cc) cc.textContent = String(text.length);
@@ -7998,6 +8075,14 @@ window.runStudentEvalAiGenerate = async function(mode) {
         }
         if (genBtn) genBtn.disabled = false;
     }
+};
+
+/** 종합평가: 원장 AI 고정 지침 누적 저장 */
+window.saveOwnerEvalAiStyleNoteFromModal = async function() {
+    const ta = document.getElementById('student-eval-ai-style-append');
+    if (!ta || typeof window.appendOwnerStudentEvalAiStyleNote !== 'function') return;
+    const ok = await window.appendOwnerStudentEvalAiStyleNote(ta.value);
+    if (ok) ta.value = '';
 };
 
 window.onScheduleFontSizeInput = function (val) {

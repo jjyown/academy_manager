@@ -136,6 +136,256 @@ window.clearUserCache = function() {
     _sessionCacheTime = 0;
 }
 
+/** 레거시: users.student_eval_ai_style_note (항목 테이블 도입 전·폴백) */
+async function _getLegacyStudentEvalAiStyleNote(session) {
+    if (!session) return '';
+    try {
+        const { data, error } = await supabase
+            .from('users')
+            .select('student_eval_ai_style_note')
+            .eq('id', session.user.id)
+            .maybeSingle();
+        if (error) return '';
+        return String(data && data.student_eval_ai_style_note ? data.student_eval_ai_style_note : '').trim();
+    } catch (e) {
+        return '';
+    }
+}
+
+/** 한 번에 추가 가능한 최대 글자수 */
+var STUDENT_EVAL_AI_STYLE_NOTE_MAX_APPEND = 1200;
+/** AI 시스템 프롬프트에 넣는 합산 문자열 상한(항목 테이블은 행 수 제한 없음) */
+var STUDENT_EVAL_AI_STYLE_NOTE_MAX_TOTAL = 8000;
+
+function _isMissingTableError(err) {
+    const m = String(err && (err.message || err.details || err.hint) || '');
+    return /relation|does not exist|schema cache|Could not find the table/i.test(m);
+}
+
+/**
+ * 저장된 고정 지침 행 목록 (student_eval_ai_style_entries).
+ * 항목이 없고 users 컬럼만 있으면 폴백 1행(날짜 없음).
+ */
+window.getOwnerStudentEvalAiStyleNoteRows = async function() {
+    try {
+        const session = await _getSession();
+        if (!session) return [];
+        const { data: rows, error } = await supabase
+            .from('student_eval_ai_style_entries')
+            .select('id, content, created_at')
+            .eq('owner_user_id', session.user.id)
+            .order('created_at', { ascending: true });
+        if (error) {
+            if (_isMissingTableError(error)) {
+                const leg = await _getLegacyStudentEvalAiStyleNote(session);
+                return leg ? [{ id: null, content: leg, created_at: null }] : [];
+            }
+            console.warn('[getOwnerStudentEvalAiStyleNoteRows]', error);
+            return [];
+        }
+        if (rows && rows.length) return rows;
+        const leg = await _getLegacyStudentEvalAiStyleNote(session);
+        return leg ? [{ id: null, content: leg, created_at: null }] : [];
+    } catch (e) {
+        console.warn('[getOwnerStudentEvalAiStyleNoteRows]', e);
+        return [];
+    }
+};
+
+/** 종합평가 AI에 매번 붙는 원장 고정 지침 (항목 합산 + 레거시 폴백) */
+window.getOwnerStudentEvalAiStyleNote = async function() {
+    try {
+        const rows = await window.getOwnerStudentEvalAiStyleNoteRows();
+        if (!rows.length) return '';
+        let s = rows.map(function (r) { return r.content; }).join('\n\n');
+        if (s.length > STUDENT_EVAL_AI_STYLE_NOTE_MAX_TOTAL) {
+            s = s.slice(-STUDENT_EVAL_AI_STYLE_NOTE_MAX_TOTAL);
+        }
+        return s;
+    } catch (e) {
+        console.warn('[getOwnerStudentEvalAiStyleNote]', e);
+        return '';
+    }
+};
+
+/** 전체 덮어쓰기: 항목 전부 삭제 후 1행 삽입, 레거시 컬럼 비움 */
+window.saveOwnerStudentEvalAiStyleNote = async function(text) {
+    try {
+        const session = await _getSession();
+        if (!session) {
+            if (typeof showToast === 'function') showToast('로그인이 필요합니다.', 'warning');
+            return false;
+        }
+        const t = String(text || '').trim().slice(0, STUDENT_EVAL_AI_STYLE_NOTE_MAX_APPEND);
+        const uid = session.user.id;
+        const { error: delErr } = await supabase
+            .from('student_eval_ai_style_entries')
+            .delete()
+            .eq('owner_user_id', uid);
+        if (delErr && _isMissingTableError(delErr)) {
+            if (typeof showToast === 'function') {
+                showToast('고정 지침 테이블이 없습니다. SUPABASE_STUDENT_EVAL_AI_STYLE_ENTRIES_20260329.sql 을 적용하세요.', 'error');
+            }
+            return false;
+        }
+        if (delErr) {
+            console.error('[saveOwnerStudentEvalAiStyleNote] delete', delErr);
+            if (typeof showToast === 'function') showToast('저장에 실패했습니다.', 'error');
+            return false;
+        }
+        if (t.length) {
+            const { error: insErr } = await supabase
+                .from('student_eval_ai_style_entries')
+                .insert({ owner_user_id: uid, content: t });
+            if (insErr) {
+                console.error('[saveOwnerStudentEvalAiStyleNote] insert', insErr);
+                if (typeof showToast === 'function') {
+                    const hint = String(insErr.message || '').includes('policy') || String(insErr.code || '') === '42501'
+                        ? ' RLS·테이블 정책을 확인하세요.'
+                        : '';
+                    showToast('저장에 실패했습니다.' + hint, 'error');
+                }
+                return false;
+            }
+        }
+        await supabase
+            .from('users')
+            .update({ student_eval_ai_style_note: null })
+            .eq('id', uid);
+        clearUserCache();
+        if (typeof showToast === 'function') showToast('AI 고정 지침을 저장했습니다.', 'success');
+        return true;
+    } catch (e) {
+        console.error('[saveOwnerStudentEvalAiStyleNote]', e);
+        if (typeof showToast === 'function') showToast('저장 중 오류가 발생했습니다.', 'error');
+        return false;
+    }
+};
+
+/** 항목 테이블에 INSERT (평가 모달「고정 지침」기본). 최초 저장 시 레거시 컬럼을 먼저 1행으로 옮김 */
+window.appendOwnerStudentEvalAiStyleNote = async function(chunk) {
+    try {
+        const session = await _getSession();
+        if (!session) {
+            if (typeof showToast === 'function') showToast('로그인이 필요합니다.', 'warning');
+            return false;
+        }
+        const piece = String(chunk || '').trim().slice(0, STUDENT_EVAL_AI_STYLE_NOTE_MAX_APPEND);
+        if (!piece.length) {
+            if (typeof showToast === 'function') showToast('추가할 내용을 입력하세요.', 'warning');
+            return false;
+        }
+        const uid = session.user.id;
+        const { count, error: cntErr } = await supabase
+            .from('student_eval_ai_style_entries')
+            .select('*', { count: 'exact', head: true })
+            .eq('owner_user_id', uid);
+        if (cntErr) {
+            if (_isMissingTableError(cntErr)) {
+                if (typeof showToast === 'function') {
+                    showToast('고정 지침 테이블이 없습니다. SUPABASE_STUDENT_EVAL_AI_STYLE_ENTRIES_20260329.sql 을 Supabase에 적용하세요.', 'error');
+                }
+                return false;
+            }
+            console.error('[appendOwnerStudentEvalAiStyleNote] count', cntErr);
+            if (typeof showToast === 'function') showToast('저장에 실패했습니다.', 'error');
+            return false;
+        }
+        if (!count) {
+            const leg = await _getLegacyStudentEvalAiStyleNote(session);
+            if (leg) {
+                const seed = leg.slice(0, STUDENT_EVAL_AI_STYLE_NOTE_MAX_APPEND);
+                const { error: seedErr } = await supabase
+                    .from('student_eval_ai_style_entries')
+                    .insert({ owner_user_id: uid, content: seed });
+                if (seedErr) {
+                    console.error('[appendOwnerStudentEvalAiStyleNote] seed', seedErr);
+                    if (typeof showToast === 'function') showToast('이전 지침을 옮기지 못했습니다. SQL 적용 여부를 확인하세요.', 'error');
+                    return false;
+                }
+                await supabase.from('users').update({ student_eval_ai_style_note: null }).eq('id', uid);
+            }
+        }
+        const { data: insData, error } = await supabase
+            .from('student_eval_ai_style_entries')
+            .insert({ owner_user_id: uid, content: piece })
+            .select('id, content, created_at')
+            .maybeSingle();
+        if (error) {
+            console.error('[appendOwnerStudentEvalAiStyleNote]', error);
+            if (typeof showToast === 'function') {
+                const hint = String(error.message || '').includes('policy') || String(error.code || '') === '42501'
+                    ? ' RLS 정책을 확인하세요.'
+                    : '';
+                showToast('저장에 실패했습니다.' + hint, 'error');
+            }
+            return false;
+        }
+        if (!insData) {
+            if (typeof showToast === 'function') showToast('저장되지 않았습니다.', 'error');
+            return false;
+        }
+        clearUserCache();
+        var rowsCheck = await window.getOwnerStudentEvalAiStyleNoteRows();
+        var rawJoin = rowsCheck.map(function (r) { return r.content; }).join('\n\n');
+        if (typeof showToast === 'function') {
+            if (rawJoin.length > STUDENT_EVAL_AI_STYLE_NOTE_MAX_TOTAL) {
+                showToast('항목은 저장되었습니다. AI에 붙는 합산 문구는 ' + STUDENT_EVAL_AI_STYLE_NOTE_MAX_TOTAL + '자로 잘립니다(뒤쪽 우선).', 'warning');
+            } else {
+                showToast('AI 고정 지침을 누적 저장했습니다.', 'success');
+            }
+        }
+        return true;
+    } catch (e) {
+        console.error('[appendOwnerStudentEvalAiStyleNote]', e);
+        if (typeof showToast === 'function') showToast('저장 중 오류가 발생했습니다.', 'error');
+        return false;
+    }
+};
+
+/** 고정 지침 한 건 삭제(UUID 행). id가 없으면 레거시 users 컬럼만 비움 */
+window.deleteOwnerStudentEvalAiStyleEntry = async function(entryId) {
+    try {
+        const session = await _getSession();
+        if (!session) {
+            if (typeof showToast === 'function') showToast('로그인이 필요합니다.', 'warning');
+            return false;
+        }
+        const uid = session.user.id;
+        if (!entryId) {
+            const { error } = await supabase
+                .from('users')
+                .update({ student_eval_ai_style_note: null })
+                .eq('id', uid);
+            if (error) {
+                console.error('[deleteOwnerStudentEvalAiStyleEntry] legacy', error);
+                if (typeof showToast === 'function') showToast('삭제에 실패했습니다.', 'error');
+                return false;
+            }
+            clearUserCache();
+            if (typeof showToast === 'function') showToast('저장된 지침을 삭제했습니다.', 'success');
+            return true;
+        }
+        const { error } = await supabase
+            .from('student_eval_ai_style_entries')
+            .delete()
+            .eq('id', entryId)
+            .eq('owner_user_id', uid);
+        if (error) {
+            console.error('[deleteOwnerStudentEvalAiStyleEntry]', error);
+            if (typeof showToast === 'function') showToast('삭제에 실패했습니다.', 'error');
+            return false;
+        }
+        clearUserCache();
+        if (typeof showToast === 'function') showToast('지침을 삭제했습니다.', 'success');
+        return true;
+    } catch (e) {
+        console.error('[deleteOwnerStudentEvalAiStyleEntry]', e);
+        if (typeof showToast === 'function') showToast('삭제 중 오류가 발생했습니다.', 'error');
+        return false;
+    }
+};
+
 
 // ========== 학생 관련 함수 ==========
 

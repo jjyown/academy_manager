@@ -1,6 +1,6 @@
 # 출석관리앱 작업 계획서
 
-- 문서 기준일: 2026-03-29
+- 문서 기준일: 2026-03-30
 ## 프로젝트 목표
 - 학생/수업 기준으로 출석 상태를 정확히 기록하고 조회한다.
 - 교사 권한으로만 수정 가능하도록 접근 제어를 적용한다.
@@ -77,6 +77,29 @@
   - 이후 작업 사이클 종료 시 `append_enterprise_log.py`를 표준 명령으로 포함해 자동 기록 누락을 방지
 
 ## 현재 스프린트 목표
+### 학생 「평가」모달 평가 월 선택 — 2026-03-29
+- 상태: [x] 완료
+- 구현 파일: `index.html`, `script.js`, `style.css`
+- 구현 요약:
+  - 모달 헤더에 **평가 월** `input type="month"` (`#student-eval-month-picker`) 추가, 기본값은 캘린더 `currentDate` 기준 `YYYY-MM`(옵션 `evalMonth`로 덮어쓰기 가능)
+  - `loadStudentEvalModalContent`에서 `historyActionContext`, 수업관리 월별 메모 타임라인, 종합평가 로드·저장 키(`evalMonth`), 점수 탭, 그래프 탭 기준월 범위를 **선택 월**로 일괄 갱신
+  - 월 변경 시 미저장 평가 문구가 있으면 `showConfirm` 후 진행
+- 검증: `node --check script.js` PASS
+- 다음 단계: 실기기에서 과거 월 전환·종합평가 저장·AI 생성·점수 탭 동선 스모크
+
+### 채점관리 숙제 관리 서브탭 3분할(배정/제출/채점) — 2026-03-30
+- 상태: [x] 완료(탭별 기능 분리 반영)
+- 구현 파일: `grading/index.html`
+- 구현 요약:
+  - **배정**: 학생 선택 후 `currentAssignments` 중 해당 학생 `assigned_students`·`due_date`로 월 달력·일별 배정 목록(배정/수정/삭제·날짜별 신규 배정)
+  - **제출**: 기존과 동일 `homework_submissions` API·월 조회(제출 탭에서만 fetch)
+  - **채점**: `currentResults` 중 `student_id` 일치·`created_at` 일자로 월 달력·일별 결과 카드(`openDetail`·필터·삭제)
+  - `loadResults`/`loadAssignments` 후 `refreshHomeworkMgmtFromServerLists()`로 숙제 관리 패널 갱신
+  - `sessionStorage.grading_nav.hwSub`: `assign` | `submit` | `grade`(구 `submissions`→`submit`)
+  - 날짜 달력 레거시는 `#hw-legacy-cal` 숨김 유지(`renderCalendar`·폴링)
+- 검증: 브라우저에서 3탭 전환·학생·월·일 선택 스모크 권장
+- 다음 단계: 배포 후 세션 복원·실데이터로 배정/제출/채점 동선 확인
+
 ### 채점관리 숙제 제출 탭 + 서버 API(Service Role) — 2026-03-29
 - 상태: [x] 완료
 - 구현 파일: `grading/index.html`, `grading-server/main.py`, `grading-server/auth.py`, `grading-server/grading_session.py`, `grading-server/routers/homework_submissions.py`, `grading-server/routers/grading_auth.py`, `grading-server/integrations/supabase_client.py`, `grading-server/integrations/edge_verify_pin.py`, `grading-server/.env.example`, `grading-server/README.md`
@@ -96,6 +119,16 @@
   - Railway에 `GRADING_SESSION_SECRET`(16자+), `SUPABASE_ANON_KEY` 설정 후 로그인→Network에서 `/api/grading-auth/session` 200·`/api/homework-submissions`에 Bearer 확인
   - 기존 채점 API(`/api/results` 등)는 여전히 Supabase JWT 정책과 별도로 동작하는지 운영 설정에 맞게 점검
 
+### 채점관리 숙제 관리 탭 통합(달력+제출) — 2026-03-29
+- 상태: [x] 완료
+- 구현 파일: `grading/index.html`
+- 구현 요약:
+  - 상단 탭을 **숙제 관리·학생·교재 관리** 3개로 정리(기존 달력+숙제 제출 통합)
+  - **숙제 관리** 내부 서브탭: **배정·채점**(날짜 달력+배정/결과)·**제출 현황**(학생별 달력·기존 숙제 제출 UI)
+  - `sessionStorage.grading_nav`에 `hwSub`(assign|submissions) 저장, 구 탭 키 `results`/`homework`/`stats` 복원 호환
+- 검증: 브라우저에서 탭·서브탭 전환·새로고침 후 상태 복원 수동 확인 권장
+- 다음 단계: 배포 후 원장 실기기에서 과제 배정·제출 조회 동선 스모크
+
 ### 학생관리 평가·종합평가 AI + 학부모 공개(2026-03-29)
 - 상태: [x] 완료(오류 수정 + 학부모 포털 UX 보강)
 - 후속(동일일): 학부모 포털 종합평가 **추가 인증 모달 제거** — 랜딩 `parent_code` 조회 성공 시 `setParentVerified()`·세션 복원 시 동일·`isAdminMode`는 잠금 면제. 공개 여부는 여전히 `parent_portal_visible`+RLS
@@ -112,12 +145,64 @@
 - 원인분류: **코드** — Edge에서 `\s+`를 단일 공백으로 합치며 줄바꿈이 사라지고, 서버·클라이언트·UI가 **500자**로 잘라 AI 출력이 중간에서 끊김
 - 구현 파일: `supabase/functions/generate-student-eval-report/index.ts`, `index.html`, `parent-portal/index.html`, `parent-portal/report.js`, `script.js`
 - 구현 요약:
-  - `EVAL_MAX_CHARS = 2000`, `postProcessEvalText`: 줄바꿈 유지·가로 공백만 정규화·`1. 2.` 등 번호 앞 개행 보강
-  - 시스템 프롬프트: 항목 1~4를 **각각 새 줄**에서 시작하도록 명시
+  - `EVAL_MAX_CHARS = 2000`, `postProcessEvalText`: 줄바꿈 유지·가로 공백만 정규화·번호 항목 앞 개행 보강
+  - 시스템 프롬프트: **15년 경력 교육 컨설턴트** 역할·학부모용 **월간 학업 성취 리포트**·**01~04** 섹션(학습 총평·데이터 분석·역량 진단·솔루션)·객관 데이터 우선·기계적 나열 지양
+  - user 프롬프트: 해당 월 `attendance_records`·`homework_submissions` 집계 + 기존 메모·시험 점수
+  - 원장 고정 지침: `users.student_eval_ai_style_note` → Edge가 시스템 지시에 합침(평가 모달에서 저장)
   - `maxOutputTokens` 상향(4096), 클라이언트 `STUDENT_EVAL_COMMENT_MAX_CHARS`로 `slice`·textarea `maxlength`·카운터 `/2000` 정렬
   - `SUPABASE_EVAL_PARENT_VISIBLE_AI_20260329.sql` 상단에 SQL·시크릿·Edge 배포·정적 배포 순 운영 체크리스트 주석
 - 검증: `node --check script.js` `parent-portal/report.js` PASS
-- 다음 단계: 운영에서 `npx supabase functions deploy generate-student-eval-report` 실행 후 AI 생성·저장·학부모 조회 스모크
+- 다음 단계: `SUPABASE_USER_EVAL_AI_STYLE_NOTE_20260329.sql` 적용·`npx supabase functions deploy generate-student-eval-report` 재실행 후 AI 생성·고정 지침·학부모 공개 스모크
+- 구현(동일일 추가): 원장 **AI 고정 지침** `users.student_eval_ai_style_note`·평가 모달 접기 패널·Edge 매 요청 시스템 프롬프트 합침·학부모 대상 메타·한계 고백 투 지시
+
+### 종합평가 AI 본문 선행 「0」줄 재발 방지 — 2026-03-29
+- 상태: [x] 완료
+- 원인: 시스템은 `01.` 형식인데 모델이 잘못 맨 위에 단독 `0` 줄을 출력하는 경우가 있음. 원장 고정 지침 문구만으로는 재발 가능.
+- 구현 파일: `supabase/functions/generate-student-eval-report/index.ts`, `script.js`
+- 구현 요약: `stripLeadingArtifactLines`(빈 줄·`0`·`０`)를 전처리·후처리에 적용·시스템 프롬프트에 금지 명시 · 클라이언트 `stripLeadingEvalArtifact`로 이중 방어
+- 검증: `node --check script.js` PASS · **`npx supabase functions deploy generate-student-eval-report` 필수**
+
+### 종합평가 AI 고정 지침 UI — 「저장된 지침 전체」숨김 — 2026-03-29
+- 상태: [x] 완료
+- 구현 파일: `index.html`, `script.js`, `style.css`
+- 구현 요약: 평가 모달에서 **누적 목록·삭제 UI 제거**, 「이번에 추가할 문구」+「고정 지침 저장」만 표시. DB·Edge 동작은 동일 · 항목 삭제는 Supabase Table Editor 또는 `deleteOwnerStudentEvalAiStyleEntry`로 가능
+- 검증: `node --check script.js` PASS
+
+### 종합평가 AI 고정 지침 항목 삭제 + 본문 선행 0 제거 — 2026-03-29
+- 상태: [x] 완료(UI 목록은 이후 「저장된 지침 전체」숨김으로 대체)
+- 구현 파일: `database.js`(`deleteOwnerStudentEvalAiStyleEntry`), `style.css`, `supabase/functions/generate-student-eval-report/index.ts`
+- 구현 요약: `deleteOwnerStudentEvalAiStyleEntry` API 유지 · Edge `postProcessEvalText`에서 본문 **맨 위 줄이 `0`만**인 경우 반복 제거(`01.` 유지)
+- 검증: `node --check database.js` `script.js` PASS · Edge 재배포 후 AI 생성 스모크
+
+### 종합평가 AI 고정 지침 별도 테이블 누적 — 2026-03-29
+- 상태: [x] 완료
+- 구현 파일: `SUPABASE_STUDENT_EVAL_AI_STYLE_ENTRIES_20260329.sql`, `database.js`, `index.html`, `script.js`, `SUPABASE_USER_EVAL_AI_STYLE_NOTE_20260329.sql`(주석), `supabase/functions/generate-student-eval-report/index.ts`
+- 구현 요약:
+  - 테이블 `public.student_eval_ai_style_entries`(owner_user_id, content≤1200자, created_at)에 **항목별 INSERT**·RLS(본인 SELECT/INSERT/DELETE)
+  - SQL: 레거시 `users.student_eval_ai_style_note` 1회 이관 + 이관된 계정은 컬럼 NULL로 중복 방지
+  - 앱: `getOwnerStudentEvalAiStyleNoteRows`·`appendOwnerStudentEvalAiStyleNote`(최초 저장 시 레거시 컬럼을 시드 행으로 이동 후 NULL)
+  - Edge: 항목 시간순 합산 → 없으면 users 컬럼 폴백·합산 **8000자** 뒤쪽 우선. **`admin` 클라이언트를 인증 직후 생성**해 기존 참조 순서 버그 수정
+- 검증: `node --check database.js` `script.js` PASS · Supabase에 SQL 적용 · `generate-student-eval-report` 재배포
+
+### 종합평가 AI 고정 지침 누적 저장 — 2026-03-29
+- 상태: [x] 완료(이후 **별도 테이블** 방식으로 대체)
+- 구현 파일: `database.js`(`appendOwnerStudentEvalAiStyleNote`), `index.html`, `script.js`, `style.css`
+- 구현 요약:
+  - DB 컬럼은 그대로 `users.student_eval_ai_style_note`(단일 TEXT). 저장 시 **기존 문자열 + `\\n\\n` + 이번 입력**으로 합침(덮어쓰기 아님)
+  - UI: **저장된 지침 전체** 읽기 영역 + **이번에 추가할 문구** 입력란(최대 1200자)·저장 후 입력란 비움
+  - 전체 상한 **8000자** 초과 시 **뒤쪽(최신) 우선**으로 잘림 + 경고 토스트
+- 검증: `node --check database.js` `script.js` PASS
+- 다음 단계: 실기기에서 기존 지침 유지·추가 저장·Edge 프롬프트 길이 감각 확인
+
+### 종합평가 AI 고정 지침 저장 미반영(토스트만 성공) — 2026-03-29
+- 상태: [x] 완료(클라이언트 검증 + 운영 SQL 안내)
+- 원인분류: **Supabase(데이터·정책)** — `public.users`에 RLS가 켜져 있으나 본인 `UPDATE` 또는 갱신 후 `.select()` 반환을 허용하는 정책이 없거나, `public.users`에 `auth.users.id`와 일치하는 행이 없으면 클라이언트는 **오류 없이 0행**만 갱신되는 경로가 생길 수 있음. 기존 `saveOwnerStudentEvalAiStyleNote`는 `error`만 검사해 성공 토스트가 뜸.
+- 구현 파일: `database.js`, `SUPABASE_USERS_RLS_STUDENT_EVAL_STYLE_NOTE_20260329.sql`
+- 구현 요약:
+  - `saveOwnerStudentEvalAiStyleNote`: `.update(...).eq('id', uid).select('id, student_eval_ai_style_note').maybeSingle()` 후 `data` 없음·`id` 불일치 시 실패 토스트·콘솔 경고
+  - SQL: `public.users`에 본인 행 `SELECT`·`UPDATE` RLS 정책(`id = auth.uid()`)
+- 검증: `node --check database.js` PASS
+- 다음 단계: Supabase SQL Editor에서 해당 SQL 실행 후 고정 지침 저장 재시도·Table Editor에서 `student_eval_ai_style_note` 갱신 확인
 
 ### 관리자 Supabase 비밀번호 변경(422) 완화 — 2026-03-29
 - 상태: [x] 완료
@@ -1306,6 +1391,7 @@
 - [ ] 다음 작업자가 바로 이어서 할 수 있게 문서가 갱신되었다.
 
 ## 변경 이력
+- 2026-03-30 - AUTO-20260330(staged 13개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-29 - AUTO-20260329(staged 30개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-25 - AUTO-20260325(staged 15개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-23 - AUTO-20260323(staged 5개 파일 기준 문서 연동 자동기록): 연동 자동 기록

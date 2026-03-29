@@ -1010,10 +1010,14 @@
     <!-- 학생 목록 「평가」: 기록(수업관리 월별 메모) / 점수 탭 + 하단 종합평가 고정 -->
     <div id="student-eval-modal" class="modal" style="display: none;">
         <div class="modal-card student-eval-card">
-            <div class="modal-header">
-                <div>
+            <div class="modal-header student-eval-modal-header">
+                <div class="student-eval-header-block">
                     <h2 id="student-eval-title">학생 이름</h2>
-                    <span id="student-eval-subtitle" class="hist-subtitle"></span>
+                    <div class="student-eval-header-meta">
+                        <span id="student-eval-subtitle" class="hist-subtitle">학습 · 평가</span>
+                        <label for="student-eval-month-picker" class="student-eval-month-picker-label">평가 월</label>
+                        <input type="month" id="student-eval-month-picker" class="m-input student-eval-modal-month" onchange="onStudentEvalModalMonthChange()">
+                    </div>
                 </div>
                 <button type="button" class="btn-close-x" onclick="closeModal('student-eval-modal')"><i class="fas fa-times"></i></button>
             </div>
@@ -1090,6 +1094,13 @@
                             <span id="student-eval-parent-toggle-label">학부모 비공개</span>
                         </button>
                     </div>
+                    <details class="student-eval-ai-persist" id="student-eval-ai-persist">
+                        <summary>AI에 항상 적용할 문구 <span class="student-eval-ai-persist-tag">원장 계정·DB 저장</span></summary>
+                        <p class="student-eval-ai-persist-hint">Gemini나 Supabase가 스스로 &quot;기억&quot;하지는 않습니다. 아래에 적어 저장하면 DB에 <strong>항목으로 누적</strong>되며, AI 생성·재생성 시 기존 지침과 함께 시스템 지시에 붙습니다. 「추가 요청사항」은 그때그때 한 번만 반영됩니다.</p>
+                        <label class="student-eval-ai-style-append-label" for="student-eval-ai-style-append">이번에 추가할 문구</label>
+                        <textarea id="student-eval-ai-style-append" class="student-eval-ai-style-note" maxlength="1200" rows="3" placeholder="예: 학부모에게 데이터 부족·메모 미확보를 언급하지 말 것. 짧고 담담한 교육 기관 안내 문체로 쓸 것."></textarea>
+                        <button type="button" class="eval-ai-btn eval-ai-btn--narrow" id="student-eval-ai-style-save-btn" onclick="saveOwnerEvalAiStyleNoteFromModal()">고정 지침 저장</button>
+                    </details>
                     <div id="student-eval-refine-wrap" class="student-eval-refine-wrap" style="display:none;">
                         <label class="student-eval-refine-label" for="student-eval-refine-input">추가 요청사항</label>
                         <textarea id="student-eval-refine-input" class="student-eval-refine-input" maxlength="400" placeholder="예: 톤을 더 부드럽게, 칭찬을 앞에 두고, 약점은 한 문장만…"></textarea>

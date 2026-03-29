@@ -1,7 +1,18 @@
 # 출석관리앱 체크리스트
 
-- 문서 기준일: 2026-03-29
+- 문서 기준일: 2026-03-30
 ## 공통 품질 체크
+- [x] 채점관리 숙제 탭 기능 분리(2026-03-30): 배정=`assignments`/제출=`homework_submissions`/채점=`results`·`refreshHomeworkMgmtFromServerLists`·안내·범례 · 브라우저 3탭 스모크 권장
+- [x] 학생 「평가」모달 평가 월 선택(2026-03-29): `#student-eval-month-picker`·`loadStudentEvalModalContent`·`onStudentEvalModalMonthChange`·`openStudentEvalModal(..., { evalMonth })` · `node --check script.js` PASS · 실기기: 과거 월 전환·저장·AI 생성 스모크 권장
+- [x] 종합평가 본문 선행 0·０·빈줄 제거 이중 방어(2026-03-29): Edge `stripLeadingArtifactLines`+프롬프트·`script.js` `stripLeadingEvalArtifact` · `node --check script.js` PASS · **Edge 재배포**
+- [x] 종합평가 고정 지침 UI — 저장 목록 숨김(2026-03-29): 「저장된 지침 전체」·`refreshStudentEvalAiStyleHistoryUi` 제거 · `node --check script.js` PASS
+- [x] 종합평가 고정 지침 항목 삭제(API)·AI 선행 0 제거(2026-03-29): `deleteOwnerStudentEvalAiStyleEntry`·Edge `postProcessEvalText` · `node --check` PASS · **Edge 재배포**
+- [x] 종합평가 AI 고정 지침 `student_eval_ai_style_entries` 테이블(2026-03-29): SQL `SUPABASE_STUDENT_EVAL_AI_STYLE_ENTRIES_20260329.sql` 적용·RLS·레거시 이관 · `database.js`·Edge 합산·`admin` 생성 순서 수정 · `npx supabase functions deploy generate-student-eval-report` · `node --check database.js` `script.js` PASS
+- [x] 종합평가 AI 고정 지침 누적 저장(2026-03-29): `appendOwnerStudentEvalAiStyleNote`·UI 분리(저장 전체 표시+추가란)·전체 8000자 상한 · `node --check database.js` `script.js` PASS
+- [x] 종합평가 AI 고정 지침 저장 검증+`users` RLS(2026-03-29): `database.js` — 갱신 후 `.select`로 행 검증·0행 시 실패 토스트 · Supabase에 `SUPABASE_USERS_RLS_STUDENT_EVAL_STYLE_NOTE_20260329.sql` 적용(본인 SELECT/UPDATE) · `node --check database.js` PASS · 적용 후 Table Editor에서 `student_eval_ai_style_note` 스모크
+- [x] 종합평가 AI 고정 지침 DB+메타말투 금지(2026-03-29): `users.student_eval_ai_style_note`·평가 모달 UI·Edge 주입·시스템 지시 보강 · SQL `SUPABASE_USER_EVAL_AI_STYLE_NOTE_20260329.sql` 적용 · Edge 재배포 · `node --check script.js` `database.js` 권장
+- [x] 종합평가 AI 전문 리포트 프롬프트+출결·숙제 요약(2026-03-29): Edge `generate-student-eval-report` — 01~04 섹션·15년 컨설턴트 톤·월별 출결·숙제 집계 → user 프롬프트 · **함수 재배포** 필요
+- [x] 채점관리 숙제 관리 탭 통합(2026-03-29): `grading/index.html` — 상단 3탭·숙제 관리 내 배정·채점/제출 현황·`grading_nav.hwSub`·구 탭 복원 호환 · 브라우저 탭/서브탭·새로고침 스모크 권장
 - [x] 종합평가 본문 2000자·번호 항목 줄바꿈(2026-03-29): Edge `EVAL_MAX_CHARS`·`postProcessEvalText`·프롬프트 1~4항목 새 줄·`maxOutputTokens` 4096 · UI `maxlength`/카운터 2000 · `script.js` `STUDENT_EVAL_COMMENT_MAX_CHARS`·SQL 파일 운영 체크리스트 주석 · **Edge 함수 재배포** 필수 · `node --check script.js` `parent-portal/report.js` PASS
 - [x] 종합평가 AI Edge 401 대응(2026-03-29): `config.toml` `generate-student-eval-report` verify_jwt=false + `script.js` 세션 갱신·Bearer 명시 · 함수 **재배포** 필요 · `node --check script.js` PASS
 - [x] 학부모 포털 종합평가 추가 인증 제거(2026-03-29): 인증코드 조회 성공 시 종합평가 즉시 표시·잠금 UI·`parent-auth-modal` 제거 · `node --check parent-portal/report.js` PASS
@@ -131,6 +142,7 @@
 ## 테스트/검증 결과 기록
 | 날짜 | 작업 | 검증 방법 | 결과 | 비고 |
 |---|---|---|---|---|
+| 2026-03-30 | AUTO-20260330(staged 13개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-03-29 | AUTO-20260329(staged 30개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-03-25 | AUTO-20260325(staged 15개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-03-23 | AUTO-20260323(staged 5개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
