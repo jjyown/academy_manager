@@ -15,7 +15,7 @@ from integrations.drive import (
     search_answer_pdfs_central, delete_page_images_folder,
 )
 from grading.pdf_parser import extract_answers_from_pdf
-from grading.hml_parser import extract_answers_from_hml
+from grading.hml_parser import extract_answers_from_hml, build_hml_answer_preview_images
 from file_utils import parse_page_range
 
 logger = logging.getLogger(__name__)
@@ -128,7 +128,10 @@ async def parse_answer_key(
     if pdf_file:
         file_bytes = await pdf_file.read()
         fname = (pdf_file.filename or "").lower()
-        file_ext = "hml" if fname.endswith(".hml") else "pdf"
+        # HML(HWPML) 계열은 파일 확장자만 다르게 올라오는 경우가 있어 유연하게 판별
+        # - 일반: .hml
+        # - 운영/사용자 편의: .hwp 로도 올라오는 케이스 대응
+        file_ext = "hml" if (fname.endswith(".hml") or fname.endswith(".hwp")) else "pdf"
     elif drive_file_id and central_token:
         file_bytes = download_file_central(central_token, drive_file_id)
         file_ext = "pdf"
@@ -139,6 +142,11 @@ async def parse_answer_key(
     if file_ext == "hml":
         logger.info(f"[Parse] HML 파일 파싱: '{title}'")
         result = await extract_answers_from_hml(file_bytes)
+        raw_page_images = build_hml_answer_preview_images(title, result)
+        logger.info(
+            f"[Parse] HML '{title}' raw_page_images 생성: {len(raw_page_images)} "
+            f"(answers={len((result.get('answers') or {}))}, types={len((result.get('types') or {}))})"
+        )
     else:
         page_range = None
         if answer_page_range.strip():

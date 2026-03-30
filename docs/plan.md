@@ -77,6 +77,67 @@
   - 이후 작업 사이클 종료 시 `append_enterprise_log.py`를 표준 명령으로 포함해 자동 기록 누락을 방지
 
 ## 현재 스프린트 목표
+### 과제 배정 마감 시간(`due_time`) — 2026-03-30
+- 상태: [x] 완료(백엔드·DB + 프론트 저장값 확정 보강)
+- 구현 파일: `SUPABASE_GRADING_ASSIGNMENTS_DUE_TIME_20260330.sql`, `GRADING_SETUP.sql`, `grading-server/routers/assignments.py`, `grading/index.html`
+- 구현 요약:
+  - Supabase `grading_assignments.due_time` **TIME** (NULL 허용), 기존 `due_date`와 함께 사용
+  - 채점 관리 과제 배정·수정 모달: **`input type="time"`** + 저장 시 `POST`/`PUT` FormData `due_time`
+  - **프론트(2026-03-30)**: 일부 브라우저에서 시간 필드 포커스 중 `.value`가 비어 나가는 경우 대비 — `commitAssignDuePickers`(blur + `requestAnimationFrame` 이중), `dataset.committedDate`/`committedTime` 백업, `formatDueTimeForInput`에서 `14:30:00` 등 임의 문자열에서 HH:MM 추출
+  - 일별 배정 목록에 **마감 HH:MM** 표시(시각이 있을 때만)
+- 검증: `python -m compileall grading-server` PASS · Supabase에 SQL 적용 후 **시간 선택 → 저장 → 새로고침** 스모크 권장
+- 운영(증상: Table Editor에서 `due_time`이 항상 NULL): **Railway `grading-server` 최신 커밋 재배포** — 구버전은 multipart의 `due_time`을 읽지 않아 컬럼만 있고 값은 NULL로 남을 수 있음. 배포 후 Railway 로그에 `grading_assignments POST due_time(raw)=...`가 찍히는지 확인
+- 다음 단계: 숙제 O/X/△·학부모 표시 시 `due_date`+`due_time` 합산 시각과 `created_at` 비교로 통일
+
+### 채점관리 「과제 배정」클릭 무반응(점검·완화) — 2026-03-30
+- 상태: [x] 완료(프론트)
+- 원인분류: **코드(UX)** — `showAssignModal` / `editAssignment`가 **`/api/answer-keys` 응답을 기다린 뒤에만** 모달을 열었고, 해당 `fetch`에 **타임아웃이 없음**. Railway(채점 서버)가 바쁠 때 응답이 길어지면 **모달이 안 뜨는 것처럼** 보임. **채점 진행 중이라 배정 버튼을 비활성화하는 코드는 없음**(`pollGradingProgress`는 진행 중일 때 **숨겨진 레거시** 우측 패널 탭을 `results`로 바꿀 뿐, 숙제 관리 `hw-mgmt` 배정 버튼과 무관).
+- 구현: 모달 **즉시 표시** → 교재 셀렉트는 「불러오는 중…」+ **25초 Abort**·토스트; `createAssignment`는 **60초 Abort**·중복 클릭 방지(`assign-modal-btn` busy).
+- 파일: `grading/index.html`
+- 검증: 브라우저에서 배정 버튼 클릭 시 모달 즉시 노출·교재 목록 지연 시 경고 토스트 확인 권장
+
+### Google Drive 숙제 폴더 자동 생성(고정 트리) — 2026-03-30
+- 상태: [x] 완료
+- 구현 파일: `supabase/functions/upload-homework/index.ts`, `grading-server/config.py`, `grading-server/integrations/drive.py`, `grading-server/.env.example`
+- 구현 요약:
+  - 루트 **`숙제 관리`**: **`교재` / 중1·중2·중3·고1·고2·고3**, **`제출 과제 원본`**, **`채점 결과`** 를 제출·채점·Drive 업로드 시 멱등 생성
+  - 제출 ZIP: `숙제 관리/제출 과제 원본/{N년}/{N월}/{N일}/{학생이름}/`
+  - 채점 이미지: `숙제 관리/채점 결과/{N년}/{N월}/{N일}/{학생이름}/` (기존과 동일, 폴더명만 정렬)
+  - 교재 페이지 이미지: `숙제 관리/교재/교재 페이지 이미지/{교재제목}/` — `CENTRAL_PAGE_IMAGES_FOLDER` 로 설정 가능
+- 검증: `python -m compileall grading-server` PASS · Edge 함수 재배포 후 제출 1건으로 폴더 생성 스모크 권장
+- 운영: Railway **`CENTRAL_ROOT_FOLDER=숙제 관리`** 로 Edge(`upload-homework`)와 통일. 예전 **`과제 관리`**만 My Drive에 있으면 `resolve_central_root_folder_id`가 레거시 루트를 재사용(신규 `숙제 관리` 폴더 자동 생성 억제)·로그 경고. 최종 정리는 Drive에서 파일 합치기·폴더명 통일 권장
+- 다음 단계: 배포 환경변수·실제 Drive 트리 스모크
+
+### Drive 루트 해석(My Drive) + HML 파싱 미리보기 JPEG — 2026-03-30
+- 상태: [x] 완료(백엔드)
+- 원인: Edge는 루트 **`숙제 관리`** 고정인데, Railway `.env`에 `CENTRAL_ROOT_FOLDER=과제 관리`가 남아있으면 채점·교재 페이지 이미지가 다른 루트에 생성될 수 있음. (사용자 입장에선 루트가 2개로 보임)
+- 구현: `integrations/drive.py` — `resolve_central_root_folder_id`가 검색/생성 시 **`숙제 관리`를 최우선**으로 사용하며, 없으면 `과제 관리`(레거시/환경값) 재사용 없이 **`숙제 관리`를 새로 생성**. `delete_page_images_folder`도 같은 우선순위 기준으로 삭제 범위를 맞춤. `grading/hml_parser.build_hml_answer_preview_images` — HML 정답·해설 요약을 **JPEG 미리보기(다중 페이지)**로 생성하고 `answer_keys` parse 경로에서 업로드 흐름을 동일하게 적용(프론트/백엔드에서 `.hwp`도 HML 계열로 판별 보강). 또한 Pillow import 실패/미이미지 생성 시에도 **placeholder JPEG로 최소 1장**이 생성되도록 보강
+- 파일: `grading-server/config.py`, `grading-server/integrations/drive.py`, `grading-server/grading/hml_parser.py`, `grading-server/routers/answer_keys.py`, `grading-server/.env.example`, `grading-server/README.md`
+- 검증: `python -m compileall grading-server` · HML 파싱 1건 시 로그에 `raw_page_images 생성: N`(N>=1) 및 `페이지 이미지: N장`이 찍히는지 확인(Drive 업로드 성공 or base64 fallback) 스모크 권장
+
+### OCR 수식 답안 trailing 잡문자 정리 — 2026-03-30
+- 상태: [x] 완료(코드)
+- 원인: OCR 결과 `student_answer`가 그대로 UI에 노출되어 `{1}over{6}` $$, 256' 같은 수식 뒤 잡문자가 따라오는 케이스가 있었음
+- 구현: `grading/grader.py`에서 `student_answer` 저장 직전에 `$$`, backtick(`` ` ``), 끝 apostrophe(`'`) 등 아티팩트를 제거해 표시를 정리(정답 판정 로직은 기존 유지)
+- 검증: 동일 PDF/HML 재파싱→해당 문제 재채점 시 화면에 `, ', $$`가 사라지는지 확인
+
+### 숙제 제출 `upload-homework` 학생 포털 인증(401) — 2026-03-30
+- 상태: [x] 완료
+- 원인: Edge 함수가 **원장 Supabase JWT**만 허용했음. 학생 포털은 `student_code` 조회만 하고 로그인 세션이 없어 `functions.invoke` 시 401.
+- 구현: multipart에 `student_code` 전달·서버에서 `homework/index.html`과 동일 규칙으로 정규화 후 DB `students.student_code`와 일치하면 허용. **원장 JWT + `owner_user_id` 일치** 경로(관리자 모드)는 유지.
+- 구현 파일: `supabase/functions/upload-homework/index.ts`, `homework/index.html`
+- 검증: **`npx supabase functions deploy upload-homework`**(또는 대시보드 배포) 후 학생 인증코드 동선에서 제출 스모크
+
+### 숙제 배정 연결 + O/X/△ (단계 분리) — 2026-03-30
+- 상태: [x] 1단계 완료(스키마·문서), [ ] 2단계 이후(제출 UI·학부모 표시)
+- 구현 파일(1단계): `SUPABASE_HOMEWORK_SUBMISSION_GRADING_ASSIGNMENT_20260330.sql`, `docs/context.md`, `docs/checklist.md`
+- 구현 요약(1단계):
+  - **전문가 절충**: 배정과 제출을 **FK `grading_assignment_id`**로 연결. **마감 시각**은 `due_date` 당일 23:59가 아니라 **학생 `schedules`의 다음 수업 시작 시각을 정각(시 단위)**으로 둠(원장 확정, `docs/context.md` 참고).
+  - **O** = 위 마감 시각 이전 제출, **△** = 마감 후 제출, **X** = 해당 배정 미제출.
+- 검증: Supabase SQL Editor에서 스크립트 실행·`grading_assignments` 선행 확인
+- 다음 단계(2): `homework/index.html`·`upload-homework`에 배정 선택·insert 시 `grading_assignment_id` 전달
+- 다음 단계(3): 학부모 포털 `report.js`에서 배정·제출 조인 또는 동일 규칙으로 O/X/△·제출 시각 표시
+
 ### 학생 「평가」모달 평가 월 선택 — 2026-03-29
 - 상태: [x] 완료
 - 구현 파일: `index.html`, `script.js`, `style.css`
@@ -1391,6 +1452,7 @@
 - [ ] 다음 작업자가 바로 이어서 할 수 있게 문서가 갱신되었다.
 
 ## 변경 이력
+- 2026-03-30 - AUTO-20260330(staged 5개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-30 - AUTO-20260330(staged 13개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-29 - AUTO-20260329(staged 30개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-25 - AUTO-20260325(staged 15개 파일 기준 문서 연동 자동기록): 연동 자동 기록

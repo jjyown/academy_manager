@@ -8,12 +8,25 @@
 
 AI 호출 없이 XML 직접 파싱 → 100% 정확
 """
+import io
+import os
 import re
 import logging
+import base64
 
 logger = logging.getLogger(__name__)
 
 CIRCLE_NUMS = {"①", "②", "③", "④", "⑤"}
+
+# Pillow 없는 환경에서도 Drive 업로드 파이프라인이 "페이지 이미지 0장"으로 끝나지 않도록
+# 최소 JPEG(1x1 white) 바이트를 fallback으로 사용한다.
+_HML_FALLBACK_JPEG_B64 = (
+    "/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////"
+    "2wBDAf//////////////////////////////////////////////////////////////////////////////////////wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAP/"
+    "xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFAEBAAAAAAAAAAAAAAAAAAAAAP/EABQRAQAAAAAAAAAAAAAAAAAAAAD/"
+    "2gAMAwEAAhEDEQA/AKAA/9k="
+)
+_HML_FALLBACK_JPEG_BYTES = base64.b64decode(_HML_FALLBACK_JPEG_B64)
 
 
 async def extract_answers_from_hml(hml_bytes: bytes) -> dict:
@@ -223,3 +236,106 @@ def _determine_type(answer: str) -> str:
         return "mc"
 
     return "short"
+
+
+def _preview_font(size: int):
+    """교재 미리보기용 폰트(한글 우선, 없으면 기본)."""
+    try:
+        from PIL import ImageFont
+    except ImportError:
+        return None
+    candidates = [
+        os.environ.get("GRADING_PREVIEW_FONT_PATH", "").strip(),
+        "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "C:/Windows/Fonts/malgun.ttf",
+        "C:/Windows/Fonts/malgunbd.ttf",
+    ]
+    for path in candidates:
+        if not path or not os.path.isfile(path):
+            continue
+        try:
+            return ImageFont.truetype(path, size)
+        except OSError:
+            continue
+    try:
+        return ImageFont.load_default()
+    except OSError:
+        return None
+
+
+def build_hml_answer_preview_images(title: str, result: dict) -> list[dict]:
+    """HML은 PDF처럼 페이지 래스터가 없으므로 정답·해설 요약을 JPEG 미리보기로 만든다.
+
+    Returns:
+        [{"page": 1, "image_bytes": bytes}, ...] — PDF 파서 page_images와 동일 형태
+    """
+    answers = result.get("answers") or {}
+    if not answers:
+        return []
+
+    explanations = result.get("explanations") or {}
+    lines: list[str] = [
+        f"[HML] {title}",
+        "",
+        "정답 미리보기 (원문 페이지 이미지 아님)",
+        "",
+    ]
+    for k in sorted(answers.keys(), key=lambda x: int(x) if str(x).isdigit() else 0):
+        a = str(answers.get(k, ""))
+        ex = explanations.get(k)
+        chunk = f"{k}. {a}"
+        if ex:
+            ex_one = str(ex).replace("\n", " ").strip()
+            if len(ex_one) > 220:
+                ex_one = ex_one[:220] + "…"
+            chunk += f"  | 해설: {ex_one}"
+        lines.append(chunk)
+
+    line_h = 26
+    margin = 36
+    img_w, img_h = 1200, 1700
+    max_lines = max(1, (img_h - margin * 2) // line_h - 2)
+
+    pages: list[list[str]] = []
+    buf: list[str] = []
+    for ln in lines:
+        if len(buf) >= max_lines:
+            pages.append(buf)
+            buf = [ln]
+        else:
+            buf.append(ln)
+    if buf:
+        pages.append(buf)
+
+    try:
+        # 이미지 생성 단계는 Pillow가 필요하지만,
+        # 페이지 수 자체는 answers 기반으로 계산 가능하므로 Pillow가 없으면 placeholder로 대체한다.
+        from PIL import Image, ImageDraw
+    except ImportError:
+        page_count = max(1, len(pages))
+        logger.warning(f"[HML] Pillow 미설치 → 미리보기 placeholder {page_count}장 생성")
+        return [{"page": idx, "image_bytes": _HML_FALLBACK_JPEG_BYTES} for idx in range(1, page_count + 1)]
+
+    font = _preview_font(20) or _preview_font(14)
+    out: list[dict] = []
+    for idx, page_lines in enumerate(pages, start=1):
+        im = Image.new("RGB", (img_w, img_h), (255, 255, 255))
+        draw = ImageDraw.Draw(im)
+        y = margin
+        for pl in page_lines:
+            tkw = {"fill": (20, 20, 20)}
+            if font is not None:
+                tkw["font"] = font
+            draw.text((margin, y), pl, **tkw)
+            y += line_h
+            if y > img_h - margin:
+                break
+        bio = io.BytesIO()
+        im.save(bio, format="JPEG", quality=88, optimize=True)
+        out.append({"page": idx, "image_bytes": bio.getvalue()})
+
+    logger.info(f"[HML] 미리보기 이미지 {len(out)}장 생성 (문항 {len(answers)}개)")
+    return out

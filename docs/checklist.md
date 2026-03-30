@@ -2,6 +2,15 @@
 
 - 문서 기준일: 2026-03-30
 ## 공통 품질 체크
+- [x] 숙제 제출 `upload-homework` 학생 인증(2026-03-30): Edge에 `student_code` 검증 경로 추가·`homework/index.html` Form 전달 · **`supabase functions deploy upload-homework`** 후 학생 경로 제출 스모크 필수
+- [x] 과제 배정 모달 즉시 오픈·타임아웃(2026-03-30): `showAssignModal`/`editAssignment` — `answer-keys` 대기로 모달이 늦게 뜨던 UX 완화(25s Abort·토스트), `createAssignment` 60s Abort·busy — 브라우저 배정 버튼·저장 스모크 권장
+- [x] 과제 배정 마감 시간 `due_time`(2026-03-30): SQL `SUPABASE_GRADING_ASSIGNMENTS_DUE_TIME_20260330.sql`·`assignments.py`·`grading/index.html` — **프론트**: `commitAssignDuePickers`·`dataset.committedTime`·**기본 `GRADING_SERVER_URL`=Railway** · `python -m compileall grading-server` PASS · **Railway 최신 배포**(구버전은 `due_time` 미수신)·Supabase SQL 적용 후 **시간 저장→Table Editor** 스모크 권장
+- [x] Drive 루트 해석·HML 미리보기 JPEG(2026-03-30): `resolve_central_root_folder_id`(검색/생성 시 `숙제 관리` 우선)·`CENTRAL_ROOT_FOLDER_LEGACY_ALIASES`·`build_hml_answer_preview_images` — Railway/환경값 불일치가 있어도 신규 업로드 폴더는 `숙제 관리`로 통일, 프론트/백엔드에서 `.hwp`도 HML 계열로 판별. 또한 Pillow 미설치/미리보기 생성 실패 시에도 placeholder JPEG로 최소 1장 생성해 “페이지 이미지 0장” 케이스를 방지 · `python -m compileall grading-server` PASS · HML/HWP 파싱 후 `교재 페이지 이미지` 스모크 권장
+- [x] OCR 수식 답안 표시 아티팩트 제거(2026-03-30): `grading/grader.py` — `student_answer` 저장 직전 `$$`, backtick(`` ` ``), 끝 apostrophe(`'`) 등 잡문자 정리로 `{1}over{6}` $$, 256' 같은 케이스 UI 표시 개선. `ast.parse` 문법 파싱 OK. 실데이터 재채점 스모크 권장
+- [x] Google Drive 숙제 폴더 자동 생성(2026-03-30): `숙제 관리`·`교재/{중1~고3}`·`제출 과제 원본`·`채점 결과` — `upload-homework/index.ts`·`grading-server/integrations/drive.py` · `python -m compileall grading-server` PASS · **Edge·Railway 재배포** 후 실제 업로드 스모크 권장
+- [x] 숙제 제출–배정 FK 스키마(2026-03-30): `SUPABASE_HOMEWORK_SUBMISSION_GRADING_ASSIGNMENT_20260330.sql` — `grading_assignments` 선행·SQL Editor 적용 후 제출 UI 연동
+- [ ] 숙제 제출 시 배정 선택 + Edge `upload-homework`·`homework/index.html` insert 연동(2026-03-30 계획, 마감=학생 다음 일정 정각)
+- [ ] 학부모 포털 숙제 O/X/△·제출 시각(배정 단위, 동일 마감 규칙)(2026-03-30 계획)
 - [x] 채점관리 숙제 탭 기능 분리(2026-03-30): 배정=`assignments`/제출=`homework_submissions`/채점=`results`·`refreshHomeworkMgmtFromServerLists`·안내·범례 · 브라우저 3탭 스모크 권장
 - [x] 학생 「평가」모달 평가 월 선택(2026-03-29): `#student-eval-month-picker`·`loadStudentEvalModalContent`·`onStudentEvalModalMonthChange`·`openStudentEvalModal(..., { evalMonth })` · `node --check script.js` PASS · 실기기: 과거 월 전환·저장·AI 생성 스모크 권장
 - [x] 종합평가 본문 선행 0·０·빈줄 제거 이중 방어(2026-03-29): Edge `stripLeadingArtifactLines`+프롬프트·`script.js` `stripLeadingEvalArtifact` · `node --check script.js` PASS · **Edge 재배포**
@@ -142,6 +151,7 @@
 ## 테스트/검증 결과 기록
 | 날짜 | 작업 | 검증 방법 | 결과 | 비고 |
 |---|---|---|---|---|
+| 2026-03-30 | AUTO-20260330(staged 5개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-03-30 | AUTO-20260330(staged 13개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-03-29 | AUTO-20260329(staged 30개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-03-25 | AUTO-20260325(staged 15개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
