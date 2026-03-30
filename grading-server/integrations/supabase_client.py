@@ -106,14 +106,28 @@ async def get_assignments_by_teacher(teacher_id: str) -> list[dict]:
 
 async def create_assignment(data: dict) -> dict:
     sb = get_supabase()
-    res = await run_query(sb.table("grading_assignments").insert(data).execute)
-    return res.data[0] if res.data else {}
+    # Prefer: return=representation — insert 직후 행 전체(due_time 등) 반환
+    res = await run_query(sb.table("grading_assignments").insert(data).select("*").execute)
+    if getattr(res, "error", None) and res.error:
+        logger.error("grading_assignments insert 실패: %s data=%s", res.error, data)
+        raise RuntimeError(str(res.error))
+    if not res.data:
+        logger.error("grading_assignments insert 응답 data 비어 있음 data=%s", data)
+        raise RuntimeError("과제 배정 저장 응답이 비어 있습니다. Supabase에 due_time 컬럼이 있는지 확인하세요.")
+    return res.data[0]
 
 
 async def update_assignment(assignment_id: int, data: dict) -> dict:
     sb = get_supabase()
-    res = await run_query(sb.table("grading_assignments").update(data).eq("id", assignment_id).execute)
-    return res.data[0] if res.data else {}
+    res = await run_query(
+        sb.table("grading_assignments").update(data).eq("id", assignment_id).select("*").execute
+    )
+    if getattr(res, "error", None) and res.error:
+        logger.error("grading_assignments update 실패: %s id=%s data=%s", res.error, assignment_id, data)
+        raise RuntimeError(str(res.error))
+    if not res.data:
+        return {}
+    return res.data[0]
 
 
 async def delete_assignment(assignment_id: int) -> bool:

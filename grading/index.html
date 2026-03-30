@@ -1107,8 +1107,14 @@
 			<input class="input" id="assign-pages" placeholder="예: 42-45">
 		</div>
 		<div class="form-group">
-			<label class="form-label">마감일</label>
-			<input class="input" id="assign-due" type="date">
+			<label class="form-label">마감일·마감 시간</label>
+			<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+				<input class="input" id="assign-due" type="date" style="flex:1;min-width:140px;" title="마감일"
+					onchange="this.dataset.committedDate=this.value">
+				<input class="input" id="assign-due-time" type="time" step="60" style="flex:1;min-width:120px;" title="마감 시간"
+					oninput="this.dataset.committedTime=this.value" onchange="this.dataset.committedTime=this.value">
+			</div>
+			<p style="font-size:11px;color:var(--text-sec);margin:6px 0 0;">마감 시간을 비우면 날짜만 저장됩니다(시각은 DB에서 NULL).</p>
 		</div>
 		<div style="display:flex;gap:8px;margin-top:16px;">
 			<button class="btn btn-primary" style="flex:1;" onclick="createAssignment()" id="assign-modal-btn">배정</button>
@@ -1224,9 +1230,11 @@
 const SUPABASE_URL = 'https://jzcrpdeomjmytfekcgqu.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_6X3mtsIpdMkLWgo9aUbZTg_ihtAA3cu';
 const _isLocal = ['localhost','127.0.0.1'].includes(location.hostname);
-const userConfiguredServerUrl = localStorage.getItem('grading_server_url');
-const GRADING_SERVER_URL = userConfiguredServerUrl || (_isLocal ? 'https://academymanager-production.up.railway.app' : '');
-const shouldTryRemoteGradingServer = !_isLocal || !!userConfiguredServerUrl;
+/** 비어 있으면 상대 경로 `/api/...`로 가서 정적 호스팅에서 과제 API가 빠지거나 잘못된 응답이 나올 수 있음 → 기본은 Railway 프로덕션 */
+const DEFAULT_GRADING_SERVER_URL = 'https://academymanager-production.up.railway.app';
+const _gradingServerUrlRaw = (localStorage.getItem('grading_server_url') || '').trim();
+const GRADING_SERVER_URL = _gradingServerUrlRaw || DEFAULT_GRADING_SERVER_URL;
+const shouldTryRemoteGradingServer = !_isLocal || !!_gradingServerUrlRaw;
 
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 	realtime: { params: { eventsPerSecond: 0 } },
@@ -2835,7 +2843,11 @@ async function loadAssignments() {
 		const result = await res.json();
 		currentAssignments = result.data || [];
 	} catch (e) {
-		console.warn('과제 목록 로드 실패:', e);
+		if (e && e.name === 'AbortError') {
+			console.warn('과제 목록 로드 취소됨(타임아웃 또는 페이지 전환). 새로고침하거나 잠시 후 다시 열어보세요.');
+		} else {
+			console.warn('과제 목록 로드 실패:', e);
+		}
 		currentAssignments = [];
 	}
 	renderCalendar();
@@ -2846,17 +2858,92 @@ let assignStudentList = [];
 let assignSelectedStudents = [];
 let editingAssignmentId = null;
 
-async function showAssignModal(prefillDate) {
-	editingAssignmentId = null;
-	let keys = [];
-	assignSelectedStudents = [];
+/** Supabase TIME / 문자열 → input[type=time] (HH:MM) */
+function formatDueTimeForInput(t) {
+	if (t == null || t === '') return '';
+	const s = String(t).trim();
+	const m = s.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+	if (!m) return '';
+	const h = String(parseInt(m[1], 10)).padStart(2, '0');
+	return `${h}:${m[2]}`;
+}
+
+/** type=date/time 값이 저장 직전에 .value에 안 붙는 브라우저 대비: blur + rAF로 확정 */
+async function commitAssignDuePickers() {
+	const de = document.getElementById('assign-due');
+	const te = document.getElementById('assign-due-time');
 	try {
-		const keysRes = await fetch(`${GRADING_SERVER_URL}/api/answer-keys?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`);
-		keys = (await keysRes.json()).data || [];
-	} catch (e) {}
+		if (te && document.activeElement === te) te.blur();
+		if (de && document.activeElement === de) de.blur();
+	} catch (_) {}
+	await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+}
+
+function formatDueTimeLabel(t) {
+	if (t == null || t === '') return '';
+	const s = String(t);
+	const m = s.match(/^(\d{1,2}):(\d{2})/);
+	return m ? `${parseInt(m[1], 10)}:${m[2]}` : '';
+}
+
+const ASSIGN_KEYS_FETCH_MS = 25000;
+
+async function showAssignModal(prefillDate) {
+	if (!currentTeacher) {
+		showToast('선생님을 먼저 선택해주세요', 'error');
+		return;
+	}
+	editingAssignmentId = null;
+	assignSelectedStudents = [];
+
+	const sel = document.getElementById('assign-key');
+	if (!sel) return;
+
+	// 모달을 네트워크 완료 후가 아니라 즉시 열어야 함. 채점 서버가 바쁠 때 answer-keys가 지연되면
+	// 이전 코드는 아무 반응이 없는 것처럼 보였음(채점 중과 무관한 UX 이슈).
+	sel.innerHTML = '<option value="">교재 목록을 불러오는 중...</option>';
+	sel.disabled = true;
+	document.getElementById('assign-student-search').value = '';
+	document.getElementById('assign-title').value = '';
+	document.getElementById('assign-pages').value = '';
+	renderSelectedStudents();
+	document.getElementById('assign-student-dropdown').style.display = 'none';
+
+	const dueInput = document.getElementById('assign-due');
+	dueInput.value = prefillDate || '';
+	dueInput.dataset.committedDate = dueInput.value || '';
+	const teClear = document.getElementById('assign-due-time');
+	if (teClear) {
+		teClear.value = '';
+		delete teClear.dataset.committedTime;
+	}
+
+	document.getElementById('assign-modal-title').textContent = '과제 배정';
+	document.getElementById('assign-modal-btn').textContent = '배정';
+	document.getElementById('assign-modal').classList.add('show');
+
+	let keys = [];
+	try {
+		const controller = new AbortController();
+		const timeoutId = setTimeout(() => controller.abort(), ASSIGN_KEYS_FETCH_MS);
+		const keysRes = await fetch(`${GRADING_SERVER_URL}/api/answer-keys?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`, { signal: controller.signal });
+		clearTimeout(timeoutId);
+		if (keysRes.ok) {
+			const j = await keysRes.json();
+			keys = j.data || [];
+		} else {
+			showToast(`교재 목록을 불러오지 못했습니다 (${keysRes.status})`, 'error');
+		}
+	} catch (e) {
+		if (e && e.name === 'AbortError') {
+			showToast('교재 목록 요청이 지연되고 있습니다. 서버가 바쁠 때는 잠시 후 다시 시도하세요.', 'warning');
+		} else {
+			console.warn('answer-keys 로드 실패:', e);
+			showToast('교재 목록을 불러오지 못했습니다.', 'error');
+		}
+	}
 
 	try {
-		// owner_user_id 또는 teacher_id로 연결된 학생 모두 조회
 		const { data: d1 } = await db.from('students').select('id, name, grade, school').eq('owner_user_id', currentTeacher.owner_user_id).order('name');
 		const { data: d2 } = await db.from('students').select('id, name, grade, school').eq('teacher_id', currentTeacher.id).order('name');
 		const merged = new Map();
@@ -2866,20 +2953,8 @@ async function showAssignModal(prefillDate) {
 		console.warn('학생 목록 로드 실패:', e);
 	}
 
-	const sel = document.getElementById('assign-key');
+	sel.disabled = false;
 	sel.innerHTML = '<option value="">교재를 선택해주세요</option>' + keys.map(k => `<option value="${k.id}">${k.title} (${k.subject || ''})</option>`).join('');
-	document.getElementById('assign-student-search').value = '';
-	document.getElementById('assign-title').value = '';
-	document.getElementById('assign-pages').value = '';
-	renderSelectedStudents();
-	document.getElementById('assign-student-dropdown').style.display = 'none';
-
-	const dueInput = document.getElementById('assign-due');
-	dueInput.value = prefillDate || '';
-
-	document.getElementById('assign-modal-title').textContent = editingAssignmentId ? '과제 수정' : '과제 배정';
-	document.getElementById('assign-modal-btn').textContent = editingAssignmentId ? '수정' : '배정';
-	document.getElementById('assign-modal').classList.add('show');
 }
 
 function showStudentDropdown() {
@@ -2935,29 +3010,41 @@ function renderSelectedStudents() {
 async function editAssignment(assignId) {
 	const a = currentAssignments.find(x => x.id === assignId);
 	if (!a) return;
+	if (!currentTeacher) {
+		showToast('선생님을 먼저 선택해주세요', 'error');
+		return;
+	}
 	editingAssignmentId = assignId;
-
-	let keys = [];
 	assignSelectedStudents = [];
-	try {
-		const keysRes = await fetch(`${GRADING_SERVER_URL}/api/answer-keys?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`);
-		keys = (await keysRes.json()).data || [];
-	} catch (e) {}
+
+	const sel = document.getElementById('assign-key');
+	if (!sel) return;
+
 	try {
 		const { data: d1 } = await db.from('students').select('id, name, grade, school').eq('owner_user_id', currentTeacher.owner_user_id).order('name');
 		const { data: d2 } = await db.from('students').select('id, name, grade, school').eq('teacher_id', currentTeacher.id).order('name');
 		const merged = new Map();
 		[...(d1 || []), ...(d2 || [])].forEach(s => merged.set(s.id, s));
 		assignStudentList = [...merged.values()].sort((x, y) => (x.name || '').localeCompare(y.name || ''));
-	} catch (e) {}
+	} catch (e) {
+		console.warn('학생 목록 로드 실패:', e);
+		assignStudentList = [];
+	}
 
-	const sel = document.getElementById('assign-key');
-	sel.innerHTML = '<option value="">교재를 선택해주세요</option>' + keys.map(k => `<option value="${k.id}">${k.title} (${k.subject || ''})</option>`).join('');
+	sel.innerHTML = '<option value="">교재 목록을 불러오는 중...</option>';
+	sel.disabled = true;
 
 	document.getElementById('assign-title').value = a.title || '';
-	sel.value = a.answer_key_id || '';
 	document.getElementById('assign-pages').value = a.page_range || '';
-	document.getElementById('assign-due').value = a.due_date || '';
+	const dueEl = document.getElementById('assign-due');
+	const dueTimeEl = document.getElementById('assign-due-time');
+	const dueTimeStr = formatDueTimeForInput(a.due_time);
+	dueEl.value = a.due_date || '';
+	dueEl.dataset.committedDate = dueEl.value || '';
+	if (dueTimeEl) {
+		dueTimeEl.value = dueTimeStr;
+		dueTimeEl.dataset.committedTime = dueTimeStr;
+	}
 
 	const stuIds = a.assigned_students || [];
 	assignSelectedStudents = stuIds.map(sid => assignStudentList.find(s => s.id === sid)).filter(Boolean);
@@ -2968,9 +3055,39 @@ async function editAssignment(assignId) {
 	document.getElementById('assign-modal-title').textContent = '과제 수정';
 	document.getElementById('assign-modal-btn').textContent = '수정';
 	document.getElementById('assign-modal').classList.add('show');
+
+	let keys = [];
+	try {
+		const controller = new AbortController();
+		const timeoutId = setTimeout(() => controller.abort(), ASSIGN_KEYS_FETCH_MS);
+		const keysRes = await fetch(`${GRADING_SERVER_URL}/api/answer-keys?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`, { signal: controller.signal });
+		clearTimeout(timeoutId);
+		if (keysRes.ok) {
+			const j = await keysRes.json();
+			keys = j.data || [];
+		} else {
+			showToast(`교재 목록을 불러오지 못했습니다 (${keysRes.status})`, 'error');
+		}
+	} catch (e) {
+		if (e && e.name === 'AbortError') {
+			showToast('교재 목록 요청이 지연되고 있습니다. 잠시 후 다시 시도하세요.', 'warning');
+		} else {
+			console.warn('answer-keys 로드 실패:', e);
+		}
+	}
+
+	sel.disabled = false;
+	const prevKey = a.answer_key_id != null ? String(a.answer_key_id) : '';
+	sel.innerHTML = '<option value="">교재를 선택해주세요</option>' + keys.map(k => `<option value="${k.id}">${k.title} (${k.subject || ''})</option>`).join('');
+	if (prevKey && keys.some(k => String(k.id) === prevKey)) sel.value = prevKey;
 }
 
+const ASSIGN_SAVE_FETCH_MS = 60000;
+
 async function createAssignment() {
+	const btn = document.getElementById('assign-modal-btn');
+	if (btn && btn.dataset.busy === '1') return;
+
 	const title = document.getElementById('assign-title').value.trim();
 	if (!title) return showToast('과제 제목을 입력하세요', 'error');
 
@@ -2979,27 +3096,75 @@ async function createAssignment() {
 
 	const selectedStudents = assignSelectedStudents.map(s => s.id);
 	if (!selectedStudents.length) return showToast('학생을 1명 이상 선택해주세요', 'error');
+	if (!currentTeacher || !currentTeacher.owner_user_id) {
+		showToast('선생님을 먼저 선택해주세요', 'error');
+		return;
+	}
 
+	if (btn) {
+		btn.dataset.busy = '1';
+		btn.disabled = true;
+	}
 	try {
+		await commitAssignDuePickers();
+
 		const formData = new FormData();
 		formData.append('title', title);
 		formData.append('answer_key_id', keyId);
 		formData.append('page_range', document.getElementById('assign-pages').value);
 		formData.append('assigned_students', JSON.stringify(selectedStudents));
-		const due = document.getElementById('assign-due').value;
-		if (due) formData.append('due_date', due);
 
-		let res;
-		if (editingAssignmentId) {
-			res = await fetch(`${GRADING_SERVER_URL}/api/assignments/${editingAssignmentId}`, { method: 'PUT', body: formData });
-		} else {
-			formData.append('teacher_id', currentTeacher.owner_user_id);
-			formData.append('mode', 'assigned');
-			res = await fetch(`${GRADING_SERVER_URL}/api/assignments`, { method: 'POST', body: formData });
+		const dueEl = document.getElementById('assign-due');
+		const dueTimeEl = document.getElementById('assign-due-time');
+		let due = (dueEl && dueEl.value) ? dueEl.value : '';
+		if (!due && dueEl && dueEl.dataset.committedDate) due = dueEl.dataset.committedDate;
+		let dueTime = dueTimeEl ? dueTimeEl.value : '';
+		if (!dueTime && dueTimeEl && dueTimeEl.dataset.committedTime) dueTime = dueTimeEl.dataset.committedTime;
+
+		if (dueTime && !due) {
+			showToast('마감 시간을 쓰려면 마감일을 먼저 선택하세요', 'error');
+			return;
 		}
-		if (!res.ok) return showToast(editingAssignmentId ? '수정 실패' : '배정 실패', 'error');
+		if (due) {
+			formData.set('due_date', due);
+			formData.set('due_time', dueTime || '');
+		}
+
+		const controller = new AbortController();
+		const timeoutId = setTimeout(() => controller.abort(), ASSIGN_SAVE_FETCH_MS);
+		let res;
+		try {
+			if (editingAssignmentId) {
+				res = await fetch(`${GRADING_SERVER_URL}/api/assignments/${editingAssignmentId}`, { method: 'PUT', body: formData, signal: controller.signal });
+			} else {
+				formData.append('teacher_id', currentTeacher.owner_user_id);
+				formData.append('mode', 'assigned');
+				res = await fetch(`${GRADING_SERVER_URL}/api/assignments`, { method: 'POST', body: formData, signal: controller.signal });
+			}
+		} finally {
+			clearTimeout(timeoutId);
+		}
+		if (!res.ok) {
+			let msg = editingAssignmentId ? '수정 실패' : '배정 실패';
+			try {
+				const err = await res.json();
+				if (err.detail) msg = Array.isArray(err.detail) ? err.detail.map(d => d.msg || d).join(', ') : String(err.detail);
+			} catch (_) {}
+			showToast(msg, 'error');
+			return;
+		}
 	} catch (e) {
-		return showToast('서버 연결 실패', 'error');
+		if (e && e.name === 'AbortError') {
+			showToast('저장 요청 시간이 초과되었습니다. 서버 부하 시 잠시 후 다시 시도하세요.', 'error');
+		} else {
+			showToast('서버 연결 실패', 'error');
+		}
+		return;
+	} finally {
+		if (btn) {
+			btn.dataset.busy = '0';
+			btn.disabled = false;
+		}
 	}
 	showToast(editingAssignmentId ? '과제가 수정되었습니다' : '과제가 배정되었습니다', 'success');
 	editingAssignmentId = null;
@@ -3110,7 +3275,11 @@ async function loadAnswerKeys() {
 		const result = await res.json();
 		data = result.data || [];
 	} catch (e) {
-		console.warn('교재 목록 로드 실패:', e);
+		if (e && e.name === 'AbortError') {
+			console.warn('교재 목록 로드 취소됨(타임아웃 또는 페이지 전환). 새로고침하거나 잠시 후 다시 시도하세요.');
+		} else {
+			console.warn('교재 목록 로드 실패:', e);
+		}
 	}
 	allAnswerKeys = data;
 
@@ -3244,8 +3413,8 @@ function resetFileDropZone() {
 			if (!files.length) return;
 			const file = files[0];
 			const ext = file.name.split('.').pop().toLowerCase();
-			if (ext !== 'pdf' && ext !== 'hml') {
-				showToast('PDF 또는 HML 파일만 업로드 가능합니다', 'error');
+			if (ext !== 'pdf' && ext !== 'hml' && ext !== 'hwp') {
+				showToast('PDF 또는 HML/HWP(HWPML) 파일만 업로드 가능합니다', 'error');
 				return;
 			}
 			const input = document.getElementById('key-pdf');
@@ -3292,7 +3461,8 @@ async function registerAnswerKey() {
 
 		isRegistering = true;
 		const isHml = pdfInput.files[0].name.toLowerCase().endsWith('.hml');
-		showToast(isHml ? '한글 파일에서 정답 추출 중...' : '정답 추출 중... (최대 30초 소요)', 'info');
+		const isHmlOrHwp = pdfInput.files[0].name.toLowerCase().endsWith('.hml') || pdfInput.files[0].name.toLowerCase().endsWith('.hwp');
+		showToast(isHmlOrHwp ? '한글 파일에서 정답 추출 중...' : '정답 추출 중... (최대 30초 소요)', 'info');
 
 		try {
 			const res = await fetch(GRADING_SERVER_URL + '/api/answer-keys/parse', {
@@ -3303,8 +3473,8 @@ async function registerAnswerKey() {
 
 			if (result.data) {
 				const cnt = result.parsed_result?.total || 0;
-				if (isHml) {
-					showToast(`교재 등록 완료! ${cnt}문제 추출 (HML은 페이지 미리보기 미지원)`, 'success');
+				if (isHmlOrHwp) {
+					showToast(`교재 등록 완료! ${cnt}문제 추출 (HML 페이지 미리보기 이미지 생성/업로드)`, 'success');
 				} else {
 					showToast(`교재 등록 완료! ${cnt}문제 추출 — 페이지 이미지 백그라운드 업로드 중`, 'success');
 				}
@@ -4542,9 +4712,11 @@ function buildHomeworkDayDetailHtml(mode) {
 		} else {
 			html += rows.map(a => {
 				const key = a.answer_keys;
+				const dueT = formatDueTimeLabel(a.due_time);
+				const duePart = dueT ? ` · 마감 ${dueT}` : '';
 				return `<div class="cal-assign-item" style="cursor:pointer;margin-bottom:6px;" onclick="editAssignment(${a.id})">
 					<div class="cal-assign-title">${escapeHtml(a.title || '')}</div>
-					<div class="cal-assign-sub">${key ? escapeHtml(key.title) + (key.subject ? ' · ' + escapeHtml(key.subject) : '') : '자동 검색'}${a.page_range ? ' · p.' + escapeHtml(a.page_range) : ''}</div>
+					<div class="cal-assign-sub">${key ? escapeHtml(key.title) + (key.subject ? ' · ' + escapeHtml(key.subject) : '') : '자동 검색'}${a.page_range ? ' · p.' + escapeHtml(a.page_range) : ''}${duePart}</div>
 					<button type="button" class="cal-assign-del" onclick="event.stopPropagation();deleteAssignment(${a.id})" title="삭제"><i class="fas fa-trash-alt"></i></button>
 				</div>`;
 			}).join('');
@@ -5264,7 +5436,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 			goToday();
 			await restoreNavState();
 
-			await Promise.allSettled([loadTeacherList(), loadAllData()]);
+			// 병렬 시 Railway cold start에 results/assignments/answer-keys가 동시에 타임아웃·취소(AbortError) 나는 경우가 있어 순차 로드
+			await loadTeacherList();
+			await loadAllData();
 
 			if (teacherList.length > 0) {
 				const match = teacherList.find(t => t.id === teacher.id);

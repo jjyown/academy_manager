@@ -31,11 +31,29 @@ PORT = int(os.getenv("PORT", "8000"))
 # 예: "https://your-app.vercel.app,https://your-domain.com"
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "")
 
-# 중앙 드라이브 폴더 구조: 과제 관리 / {교재, 제출 과제, 채점 결과}
-CENTRAL_ROOT_FOLDER = os.getenv("CENTRAL_ROOT_FOLDER", "과제 관리")
+# 중앙 드라이브 폴더 구조:
+#   숙제 관리 / 교재 / {중1,중2,중3,고1,고2,고3}
+#   숙제 관리 / 제출 과제 원본 / {N년}/{N월}/{N일}/{학생이름}
+#   숙제 관리 / 채점 결과 / {N년}/{N월}/{N일}/{학생이름}
+# (기존 배포는 .env로 이전 이름 유지 가능)
+CENTRAL_ROOT_FOLDER = os.getenv("CENTRAL_ROOT_FOLDER", "숙제 관리")
+# Edge upload-homework는 "숙제 관리" 고정. Railway에 과거 루트만 있으면 drive.resolve_central_root_folder_id가 여기서 대체 검색.
+CENTRAL_ROOT_FOLDER_LEGACY_ALIASES = tuple(
+    x.strip()
+    for x in os.getenv("CENTRAL_ROOT_FOLDER_LEGACY_ALIASES", "과제 관리").split(",")
+    if x.strip()
+)
 CENTRAL_GRADING_MATERIAL_FOLDER = os.getenv("CENTRAL_GRADING_MATERIAL_FOLDER", "교재")
 CENTRAL_GRADED_RESULT_FOLDER = os.getenv("CENTRAL_GRADED_RESULT_FOLDER", "채점 결과")
-CENTRAL_SUBMIT_FOLDER = os.getenv("CENTRAL_SUBMIT_FOLDER", "제출 과제")
+CENTRAL_SUBMIT_FOLDER = os.getenv("CENTRAL_SUBMIT_FOLDER", "제출 과제 원본")
+# 교재 파싱 시 페이지 이미지 저장 위치: 숙제 관리 / 교재 / 이 이름 / {교재제목}
+CENTRAL_PAGE_IMAGES_FOLDER = os.getenv("CENTRAL_PAGE_IMAGES_FOLDER", "교재 페이지 이미지")
+# 교재 하위 학년 구분 폴더(자동 생성)
+CENTRAL_GRADE_LEVEL_FOLDERS = tuple(
+    x.strip()
+    for x in os.getenv("CENTRAL_GRADE_LEVEL_FOLDERS", "중1,중2,중3,고1,고2,고3").split(",")
+    if x.strip()
+) or ("중1", "중2", "중3", "고1", "고2", "고3")
 
 # Rate Limiting (채점 API: 분당 최대 요청 수)
 RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "30"))

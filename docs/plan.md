@@ -103,7 +103,7 @@
   - 루트 **`숙제 관리`**: **`교재` / 중1·중2·중3·고1·고2·고3**, **`제출 과제 원본`**, **`채점 결과`** 를 제출·채점·Drive 업로드 시 멱등 생성
   - 제출 ZIP: `숙제 관리/제출 과제 원본/{N년}/{N월}/{N일}/{학생이름}/`
   - 채점 이미지: `숙제 관리/채점 결과/{N년}/{N월}/{N일}/{학생이름}/` (기존과 동일, 폴더명만 정렬)
-  - 교재 페이지 이미지: `숙제 관리/교재/교재 페이지 이미지/{교재제목}/` — `CENTRAL_PAGE_IMAGES_FOLDER` 로 설정 가능
+  - 교재 페이지 이미지: `숙제 관리/교재/{학년(고3 등)}/{교재제목}/` (학년이 있으면 grade 폴더 우선) — 없으면 레거시로 `숙제 관리/교재/{교재 페이지 이미지}/{교재제목}/` (`CENTRAL_PAGE_IMAGES_FOLDER`)
 - 검증: `python -m compileall grading-server` PASS · Edge 함수 재배포 후 제출 1건으로 폴더 생성 스모크 권장
 - 운영: Railway **`CENTRAL_ROOT_FOLDER=숙제 관리`** 로 Edge(`upload-homework`)와 통일. 예전 **`과제 관리`**만 My Drive에 있으면 `resolve_central_root_folder_id`가 레거시 루트를 재사용(신규 `숙제 관리` 폴더 자동 생성 억제)·로그 경고. 최종 정리는 Drive에서 파일 합치기·폴더명 통일 권장
 - 다음 단계: 배포 환경변수·실제 Drive 트리 스모크
@@ -115,6 +115,14 @@
 - 파일: `grading-server/config.py`, `grading-server/integrations/drive.py`, `grading-server/grading/hml_parser.py`, `grading-server/routers/answer_keys.py`, `grading-server/.env.example`, `grading-server/README.md`
 - 검증: `python -m compileall grading-server` · HML 파싱 1건 시 로그에 `raw_page_images 생성: N`(N>=1) 및 `페이지 이미지: N장`이 찍히는지 확인(Drive 업로드 성공 or base64 fallback) 스모크 권장
 
+### Drive 레거시 루트(`과제 관리`) 통합 정리 — 2026-03-30
+- 상태: [ ] 진행(운영 절차 확정 필요)
+- 목표: My Drive에서 `숙제 관리` 1개 루트만 남기고, 기존 `과제 관리` 하위의 `교재/제출 과제 원본/채점 결과`를 `숙제 관리`로 병합(또는 이관)해 사용자 탐색 혼선을 제거
+- 구현/대응 방향:
+  - (1) 우선 코드 레벨에선 신규 생성/업로드가 `숙제 관리`로만 들어가게 고정(이미 반영)
+  - (2) 기존에 남아있는 `과제 관리`는 “파일 ID 유지(부모 폴더만 변경)” 방식으로 병합하거나, 가장 안전하게는 Drive UI 수동 병합 후 공용 참조(페이지 이미지 URL)는 유지 여부를 스모크
+- 검증: 병합 후에도 Supabase의 `answer_keys.page_images_json` 및 숙제/채점 관련 URL이 깨지지 않는지(문서/조회 UI 스모크)
+
 ### OCR 수식 답안 trailing 잡문자 정리 — 2026-03-30
 - 상태: [x] 완료(코드)
 - 원인: OCR 결과 `student_answer`가 그대로 UI에 노출되어 `{1}over{6}` $$, 256' 같은 수식 뒤 잡문자가 따라오는 케이스가 있었음
@@ -122,11 +130,11 @@
 - 검증: 동일 PDF/HML 재파싱→해당 문제 재채점 시 화면에 `, ', $$`가 사라지는지 확인
 
 ### 숙제 제출 `upload-homework` 학생 포털 인증(401) — 2026-03-30
-- 상태: [x] 완료
-- 원인: Edge 함수가 **원장 Supabase JWT**만 허용했음. 학생 포털은 `student_code` 조회만 하고 로그인 세션이 없어 `functions.invoke` 시 401.
-- 구현: multipart에 `student_code` 전달·서버에서 `homework/index.html`과 동일 규칙으로 정규화 후 DB `students.student_code`와 일치하면 허용. **원장 JWT + `owner_user_id` 일치** 경로(관리자 모드)는 유지.
+- 상태: [x] 완료(프론트 fallback 보강까지)
+- 원인: Edge가 Bearer(owner JWT) 인증에 실패하면 `student_code` 폼 필드로만 본인 검증을 수행하는데, 현재 운영에서 일부 케이스에 `student_code`가 누락/비어있는 상황이 관측됨.
+- 구현: 기존 `homework/index.html`의 `student_code` 전송을 유지하되, `currentStudent.student_code`가 비어있으면 학생 포털에서 입력했던 인증코드(정규화값)를 fallback으로 다시 `student_code`에 넣도록 보강. Edge 단의 정규화/검증 로직은 유지.
 - 구현 파일: `supabase/functions/upload-homework/index.ts`, `homework/index.html`
-- 검증: **`npx supabase functions deploy upload-homework`**(또는 대시보드 배포) 후 학생 인증코드 동선에서 제출 스모크
+- 검증: 브라우저에서 `upload-homework` 재시도 시 401 해결 + Drive 업로드/DB 저장 스모크. (필요 시 Edge 함수도 재배포)
 
 ### 숙제 배정 연결 + O/X/△ (단계 분리) — 2026-03-30
 - 상태: [x] 1단계 완료(스키마·문서), [ ] 2단계 이후(제출 UI·학부모 표시)
@@ -1452,6 +1460,7 @@
 - [ ] 다음 작업자가 바로 이어서 할 수 있게 문서가 갱신되었다.
 
 ## 변경 이력
+- 2026-03-30 - AUTO-20260330(staged 17개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-30 - AUTO-20260330(staged 5개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-30 - AUTO-20260330(staged 13개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-29 - AUTO-20260329(staged 30개 파일 기준 문서 연동 자동기록): 연동 자동 기록

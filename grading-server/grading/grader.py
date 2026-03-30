@@ -135,6 +135,7 @@ async def grade_submission(
 
         student_data = student_answers.get(q_num, {})
         raw_answer = student_data.get("answer", "") if isinstance(student_data, dict) else str(student_data) if student_data else ""
+        cleaned_answer = _cleanup_student_answer_for_display(raw_answer)
 
         main_num = int(re.match(r"(\d+)", q_num).group(1)) if re.match(r"(\d+)", q_num) else 0
 
@@ -143,7 +144,7 @@ async def grade_submission(
             "question_label": q_num,
             "question_type": _map_type(q_type),
             "correct_answer": correct_answer or "",
-            "student_answer": raw_answer if raw_answer != "unanswered" else "",
+            "student_answer": cleaned_answer if raw_answer != "unanswered" else "",
             "ocr1_answer": student_data.get("ocr1", "") if isinstance(student_data, dict) else "",
             "ocr2_answer": student_data.get("ocr2", "") if isinstance(student_data, dict) else "",
             "confidence": student_data.get("confidence", 0) if isinstance(student_data, dict) else 0,
@@ -287,6 +288,28 @@ async def grade_submission(
             "full_text_2": ocr_result.get("full_text_2", ""),
         },
     }
+
+
+def _cleanup_student_answer_for_display(s: str) -> str:
+    """OCR 결과 답안을 화면에 표시할 때만 완화 처리.
+
+    예시(사용자 제보): `{1}over{6}` $$, 256' 형태처럼
+    수식 뒤에 OCR 아티팩트(`, ', $$ 등)가 같이 따라오는 케이스를 정리한다.
+    """
+    if s is None:
+        return ""
+    out = str(s).strip()
+
+    # LaTeX 수식 구분자로 인식되는 토큰이 OCR 결과에 같이 따라오는 경우가 있음
+    out = out.replace("$$", "").replace("$", "")
+
+    # backtick은 대부분 OCR 아티팩트(표시용)로 취급
+    out = out.replace("`", "")
+
+    # 끝에 달라붙는 prime/apostrophe 제거 (예: 256')
+    out = re.sub(r"[’']\s*$", "", out)
+
+    return out
 
 
 # ============================================================

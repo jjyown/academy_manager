@@ -7,7 +7,9 @@
 - **OCR 더블체크**: Gemini Vision 2회 독립 호출로 객관식 답안 인식
 - **AI 서술형 채점**: Google Gemini로 서술형 답안 평가
 - **채점 이미지 생성**: 원본 위에 ⭕/✘/❓ 표시
-- **Google Drive 연동**: 정답 PDF 검색, 채점 결과 저장
+- **Google Drive 연동**: 정답 PDF 검색, 채점 결과 저장  
+  - 중앙 드라이브 기본 트리(자동 생성): `숙제 관리` → `교재`(하위 `중1`~`고3`), `제출 과제 원본`, `채점 결과` — 환경변수 `CENTRAL_*`로 이름 변경 가능(`.env.example` 참고)
+  - **Railway `CENTRAL_ROOT_FOLDER`는 Edge와 동일하게 `숙제 관리` 권장**. 예전 `과제 관리`만 있으면 `integrations/drive.resolve_central_root_folder_id`가 레거시 루트를 재사용(중복 루트 완화). Drive에서 폴더명·파일은 한쪽으로 통합하는 것이 최종 정리.
 - **자동 정리**: 원본 사진 1개월 후 삭제
 - **종합평가 자동 생성**: 매월 28일 AI로 생성 (선생님 승인 후 공개)
 

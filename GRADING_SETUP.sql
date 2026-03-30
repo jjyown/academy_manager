@@ -49,9 +49,12 @@ CREATE TABLE IF NOT EXISTS grading_assignments (
     page_range TEXT DEFAULT '',                   -- "42-45"
     assigned_students JSONB DEFAULT '[]',         -- [student_id, ...]
     due_date DATE,
+    due_time TIME,
     mode TEXT DEFAULT 'assigned' CHECK (mode IN ('assigned', 'auto_search')),
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+ALTER TABLE grading_assignments ADD COLUMN IF NOT EXISTS due_time TIME;
 
 -- 3) 채점 결과 (학생별)
 CREATE TABLE IF NOT EXISTS grading_results (

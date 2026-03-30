@@ -13,14 +13,43 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-const DRIVE_ROOT_FOLDER = "과제 관리";
-const DRIVE_SUBMIT_FOLDER = "제출 과제";
+/** Drive 루트(중앙 관리 계정). grading-server `CENTRAL_*` 와 동일한 기본값 유지 */
+const DRIVE_ROOT_FOLDER = "숙제 관리";
+const DRIVE_MATERIAL_FOLDER = "교재";
+const DRIVE_GRADE_LEVEL_FOLDERS = ["중1", "중2", "중3", "고1", "고2", "고3"] as const;
+const DRIVE_SUBMIT_FOLDER = "제출 과제 원본";
+const DRIVE_GRADED_FOLDER = "채점 결과";
 
 function extractBearerToken(req: Request): string | null {
   const authHeader = req.headers.get("Authorization") || req.headers.get("authorization");
   if (!authHeader) return null;
   const match = authHeader.match(/^Bearer\s+(.+)$/i);
   return match ? match[1] : null;
+}
+
+/** homework/index.html `normalizeHomeworkPortalCode` 와 동일 (학생 포털 인증코드 비교용) */
+function normalizeHomeworkPortalCode(value: string): string {
+  let out = "";
+  for (const ch of String(value || "")) {
+    const code = ch.charCodeAt(0);
+    if (code >= 0xff10 && code <= 0xff19) {
+      out += String.fromCharCode(code - 0xff10 + 0x30);
+      continue;
+    }
+    if (code >= 0xff21 && code <= 0xff3a) {
+      out += String.fromCharCode(code - 0xff21 + 0x41);
+      continue;
+    }
+    if (code >= 0xff41 && code <= 0xff5a) {
+      out += String.fromCharCode(code - 0xff41 + 0x61);
+      continue;
+    }
+    out += ch;
+  }
+  return out
+    .toUpperCase()
+    .replace(/[\s\-_]/g, "")
+    .replace(/[^A-Z0-9]/g, "");
 }
 
 async function getAccessToken(refreshToken: string): Promise<string> {
@@ -100,6 +129,22 @@ async function getOrCreateSubFolder(
   return createData.id;
 }
 
+/** 숙제 관리 / 교재/{중1~고3} / 제출 과제 원본 / 채점 결과 고정 트리 생성(멱등) */
+async function ensureHomeworkDriveLayout(accessToken: string): Promise<string> {
+  const centralRoot = await getOrCreateSubFolder(accessToken, DRIVE_ROOT_FOLDER, null);
+  const materialRoot = await getOrCreateSubFolder(
+    accessToken,
+    DRIVE_MATERIAL_FOLDER,
+    centralRoot
+  );
+  for (const grade of DRIVE_GRADE_LEVEL_FOLDERS) {
+    await getOrCreateSubFolder(accessToken, grade, materialRoot);
+  }
+  await getOrCreateSubFolder(accessToken, DRIVE_SUBMIT_FOLDER, centralRoot);
+  await getOrCreateSubFolder(accessToken, DRIVE_GRADED_FOLDER, centralRoot);
+  return centralRoot;
+}
+
 async function getOrCreateFolderPath(
   accessToken: string,
   year: string,
@@ -107,7 +152,7 @@ async function getOrCreateFolderPath(
   day: string,
   studentName: string
 ): Promise<string> {
-  const centralRoot = await getOrCreateSubFolder(accessToken, DRIVE_ROOT_FOLDER, null);
+  const centralRoot = await ensureHomeworkDriveLayout(accessToken);
   const submitRoot = await getOrCreateSubFolder(accessToken, DRIVE_SUBMIT_FOLDER, centralRoot);
   const yearId = await getOrCreateSubFolder(accessToken, `${year}년`, submitRoot);
   const monthId = await getOrCreateSubFolder(accessToken, `${month}월`, yearId);
@@ -228,6 +273,7 @@ serve(async (req: Request) => {
     const ownerUserId = formData.get("owner_user_id") as string | null; // legacy input (검증용)
     const submissionDate = formData.get("submission_date") as string | null;
     const answerKeyId = formData.get("answer_key_id") as string | null;
+    const portalStudentCode = formData.get("student_code") as string | null;
 
     if (!file || !teacherId || !studentId || !studentName || !submissionDate) {
       return new Response(
@@ -243,31 +289,6 @@ serve(async (req: Request) => {
     }
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-    const bearer = extractBearerToken(req);
-    if (!bearer) {
-      return new Response(
-        JSON.stringify({ error: "Unauthorized: missing bearer token" }),
-        {
-          status: 401,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
-    }
-
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser(bearer);
-
-    if (authError || !user) {
-      return new Response(
-        JSON.stringify({ error: "Unauthorized: invalid token" }),
-        {
-          status: 401,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
-    }
 
     const parsedStudentId = Number.parseInt(String(studentId), 10);
     if (!Number.isFinite(parsedStudentId) || parsedStudentId <= 0) {
@@ -296,29 +317,9 @@ serve(async (req: Request) => {
       );
     }
 
-    if (String(teacherRow.owner_user_id || "") !== String(user.id)) {
-      return new Response(
-        JSON.stringify({ error: "Forbidden: teacher ownership mismatch" }),
-        {
-          status: 403,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
-    }
-
-    if (ownerUserId && String(ownerUserId) !== String(teacherRow.owner_user_id)) {
-      return new Response(
-        JSON.stringify({ error: "Forbidden: owner_user_id mismatch" }),
-        {
-          status: 403,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
-    }
-
     const { data: studentRow, error: studentError } = await supabase
       .from("students")
-      .select("id, owner_user_id, name, status")
+      .select("id, owner_user_id, name, status, student_code")
       .eq("id", parsedStudentId)
       .single();
 
@@ -347,6 +348,56 @@ serve(async (req: Request) => {
         JSON.stringify({ error: "Student is not active" }),
         {
           status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    // 원장 Supabase 로그인 JWT 또는 숙제 포털 학생 인증코드(본인 일치) 중 하나로 인증
+    const bearer = extractBearerToken(req);
+    let jwtOwnerId: string | null = null;
+    if (bearer) {
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser(bearer);
+      if (!authError && user?.id) {
+        jwtOwnerId = user.id;
+      }
+    }
+
+    let authorized =
+      !!jwtOwnerId &&
+      String(teacherRow.owner_user_id || "") === String(jwtOwnerId);
+
+    if (!authorized) {
+      const codeOk =
+        !!portalStudentCode &&
+        normalizeHomeworkPortalCode(String(portalStudentCode)) ===
+          normalizeHomeworkPortalCode(String(studentRow.student_code || ""));
+      if (codeOk) {
+        authorized = true;
+      }
+    }
+
+    if (!authorized) {
+      return new Response(
+        JSON.stringify({
+          error:
+            "Unauthorized: 원장 계정 로그인 또는 학생 인증코드(student_code)가 필요합니다.",
+        }),
+        {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    if (ownerUserId && String(ownerUserId) !== String(teacherRow.owner_user_id)) {
+      return new Response(
+        JSON.stringify({ error: "Forbidden: owner_user_id mismatch" }),
+        {
+          status: 403,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         }
       );
@@ -454,7 +505,7 @@ serve(async (req: Request) => {
 
         const submissionId = submissionRow?.id;
 
-        const teacherUid = String(teacherRow.owner_user_id || user.id);
+        const teacherUid = String(teacherRow.owner_user_id || "");
 
         const gradeForm = new FormData();
         gradeForm.append("student_id", studentId);

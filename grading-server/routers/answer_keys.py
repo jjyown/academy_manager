@@ -121,6 +121,7 @@ async def parse_answer_key(
     answer_page_range: str = Form(""),
     total_hint: int = Form(None),
 ):
+    grade_level = (grade_level or "").strip()
     file_bytes = None
     file_ext = ""
     central_token = await get_central_admin_token()
@@ -158,7 +159,12 @@ async def parse_answer_key(
     if raw_page_images:
         if central_token:
             try:
-                page_images_json = upload_page_images_to_central(central_token, title, raw_page_images)
+                page_images_json = upload_page_images_to_central(
+                    central_token,
+                    title,
+                    raw_page_images,
+                    grade_level=grade_level or None,
+                )
                 logger.info(f"[Parse] '{title}' 페이지 이미지 {len(page_images_json)}장 Drive 업로드 완료")
             except Exception as e:
                 logger.warning(f"[Parse] Drive 업로드 실패, base64 fallback: {e}")

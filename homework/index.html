@@ -1028,6 +1028,9 @@ let currentStudent = null;
 let currentTeacher = null;
 let selectedFiles = [];
 let availableTextbooks = [];
+// 학생 포털(인증코드)에서 입력된 값을 저장해, currentStudent에 student_code가
+// 비어있는 상태에서도 Edge upload-homework에 student_code를 반드시 전달한다.
+let lastPortalStudentCodeNormalized = sessionStorage.getItem('hw_portal_student_code') || '';
 const _isLocal = ['localhost','127.0.0.1'].includes(location.hostname);
 const GRADING_SERVER_URL_HW = localStorage.getItem('grading_server_url') || (_isLocal ? 'https://academymanager-production.up.railway.app' : '');
 
@@ -1206,6 +1209,12 @@ async function handleSearch() {
 		return;
 	}
 
+	// 업로드 시 currentStudent에 student_code가 비어있어도 fallback이 가능하도록 저장
+	try {
+		lastPortalStudentCodeNormalized = normalizeHomeworkPortalCode(code);
+		sessionStorage.setItem('hw_portal_student_code', lastPortalStudentCodeNormalized);
+	} catch (_) {}
+
 	hideAlert();
 	const btn = document.getElementById('search-btn');
 	btn.disabled = true;
@@ -1382,6 +1391,11 @@ function restorePageState() {
 			if (student) {
 				currentStudent = student;
 				currentTeacher = teacher;
+				// session 복원 후 currentStudent에 student_code가 없으면 fallback 코드도 동기화
+				if (currentStudent && currentStudent.student_code) {
+					lastPortalStudentCodeNormalized = normalizeHomeworkPortalCode(String(currentStudent.student_code));
+					sessionStorage.setItem('hw_portal_student_code', lastPortalStudentCodeNormalized);
+				}
 				if (page === 'status') {
 					showStatusPage(true);
 				} else {
@@ -2405,6 +2419,17 @@ async function handleSubmit() {
 		formData.append('student_name', currentStudent.name);
 		formData.append('owner_user_id', currentStudent.owner_user_id);
 		formData.append('submission_date', getTodayString());
+		// Edge upload-homework: 학생 포털은 Supabase 세션이 없으므로 DB student_code와 일치 검증
+		let portalCodeToSend = '';
+		if (currentStudent.student_code != null && currentStudent.student_code !== '') {
+			portalCodeToSend = String(currentStudent.student_code);
+		} else if (lastPortalStudentCodeNormalized) {
+			portalCodeToSend = lastPortalStudentCodeNormalized;
+			console.warn('[handleSubmit] currentStudent.student_code 비어있음 → fallback student_code 사용');
+		}
+		if (portalCodeToSend) {
+			formData.append('student_code', portalCodeToSend);
+		}
 
 		// 교재 선택 정보 포함 (선택사항 - 미선택 시 자동 감지)
 		const selectedTextbook = document.getElementById('textbook-select')?.value;
