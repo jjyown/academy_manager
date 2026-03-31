@@ -343,7 +343,7 @@
 	}
 
 	/* 이미지 네비게이션 */
-	.image-nav { display:flex; align-items:center; justify-content:center; gap:10px; margin-top:8px; }
+	.image-nav { position:relative; z-index:5; display:flex; align-items:center; justify-content:center; gap:10px; margin-top:8px; }
 	.image-nav button { width:32px; height:32px; border-radius:8px; border:1px solid var(--border); background:var(--bg-elevated); color:var(--text-sec); cursor:pointer; font-size:13px; display:flex; align-items:center; justify-content:center; transition:all 0.15s; }
 	.image-nav button:hover:not(:disabled) { border-color:var(--primary); color:var(--primary); }
 	.image-nav button:disabled { opacity:0.3; cursor:default; }
@@ -3633,38 +3633,35 @@ function applyKdZoom() {
 		}, { passive: false });
 
 		let drag = null;
-		let dragMoved = false;
 		wrap.addEventListener('mousedown', (e) => {
 			if (e.button !== 0) return;
-			if (kdRegionMode && !e.target.closest('.kd-region-marker')) {
-				// 영역 모드에서는 panning 대신 마커 배치
-				dragMoved = false;
-				drag = { sx: e.clientX, sy: e.clientY, regionMode: true };
-				e.preventDefault();
-				return;
-			}
-			drag = { sx: e.clientX - kdPanX, sy: e.clientY - kdPanY };
+			if (e.target.closest('.kd-region-marker')) return;
+			drag = {
+				sx: e.clientX,
+				sy: e.clientY,
+				basePanX: kdPanX,
+				basePanY: kdPanY,
+				moved: false,
+				regionCandidate: kdRegionMode
+			};
 			wrap.style.cursor = 'grabbing';
 			e.preventDefault();
 		});
 		window.addEventListener('mousemove', (e) => {
 			if (!drag) return;
-			if (drag.regionMode) {
-				if (Math.abs(e.clientX - drag.sx) > 3 || Math.abs(e.clientY - drag.sy) > 3) dragMoved = true;
-				return;
-			}
-			kdPanX = e.clientX - drag.sx;
-			kdPanY = e.clientY - drag.sy;
+			const dx = e.clientX - drag.sx;
+			const dy = e.clientY - drag.sy;
+			if (Math.abs(dx) > 3 || Math.abs(dy) > 3) drag.moved = true;
+			kdPanX = drag.basePanX + dx;
+			kdPanY = drag.basePanY + dy;
 			applyKdZoom();
 		});
 		window.addEventListener('mouseup', (e) => {
-			if (drag && drag.regionMode) {
-				if (!dragMoved) handleRegionClick(e);
-				drag = null;
-				dragMoved = false;
-				return;
-			}
-			if (drag) { drag = null; const w = document.getElementById('kd-pages-wrap'); if(w) w.style.cursor = 'grab'; }
+			if (!drag) return;
+			if (drag.regionCandidate && !drag.moved) handleRegionClick(e);
+			drag = null;
+			const w = document.getElementById('kd-pages-wrap');
+			if (w) w.style.cursor = kdRegionMode ? 'crosshair' : 'grab';
 		});
 
 		let lastTouchDist = 0;
