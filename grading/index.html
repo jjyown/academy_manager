@@ -1267,6 +1267,8 @@ let hwAssignByDate = {};
 /** 채점 탭: 학생별 채점일(created_at) → 결과 목록 */
 let hwGradeByDate = {};
 let hwGradeFilter = 'all';
+const HW_SUBMISSIONS_CACHE_TTL_MS = 15000;
+const hwSubmissionsCache = new Map();
 
 // 캔버스 관련
 let canvasTool = 'pen';
@@ -1487,6 +1489,15 @@ function handleLogout() {
 	hwSelectedStudentId = null;
 	hwSelectedDateStr = '';
 	hwSubmissionsByDate = {};
+	hwSubmissionsCache.clear();
+	if (_homeworkSubmitAbortController) {
+		try { _homeworkSubmitAbortController.abort(); } catch (_) {}
+		_homeworkSubmitAbortController = null;
+	}
+	if (_resultsAbortController) {
+		try { _resultsAbortController.abort(); } catch (_) {}
+		_resultsAbortController = null;
+	}
 	sessionStorage.removeItem('grading_teacher');
 	sessionStorage.removeItem('grading_session_token');
 	sessionStorage.removeItem('grading_nav');
@@ -1524,6 +1535,10 @@ window.addEventListener('beforeunload', (e) => {
 		e.preventDefault();
 		e.returnValue = '';
 	}
+});
+
+document.addEventListener('visibilitychange', () => {
+	startProgressPolling();
 });
 
 let currentMainTab = 'homework-mgmt';
@@ -1624,6 +1639,7 @@ function switchHomeworkMgmtSub(sub, e) {
 		bg.setAttribute('aria-selected', homeworkMgmtSub === 'grade' ? 'true' : 'false');
 	}
 	saveNavState();
+	startProgressPolling();
 	renderHomeworkStudentList();
 	if (hwSelectedStudentId) {
 		homeworkPanePrefixes().forEach(prefix => {
@@ -1656,6 +1672,7 @@ function switchMainTab(tab, e) {
 		if (qb) qb.classList.add('active');
 	}
 	saveNavState();
+	startProgressPolling();
 	if (tab === 'homework-mgmt') {
 		switchHomeworkMgmtSub(homeworkMgmtSub, null);
 	}
@@ -1756,6 +1773,10 @@ let progressPollTimer = null;
 let _progressPollFailCount = 0;
 let _detailPollFailCount = 0;
 
+function shouldRunProgressPolling() {
+	return currentPage === 'main' && currentMainTab === 'homework-mgmt' && !document.hidden;
+}
+
 async function _pollingFetchJson(url, timeoutMs = 8000) {
 	const controller = new AbortController();
 	const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -1770,8 +1791,9 @@ async function _pollingFetchJson(url, timeoutMs = 8000) {
 
 function startProgressPolling() {
 	stopProgressPolling();
+	if (!shouldRunProgressPolling()) return;
 	pollGradingProgress();
-	progressPollTimer = setInterval(pollGradingProgress, 3000);
+	progressPollTimer = setInterval(pollGradingProgress, 5000);
 }
 
 function stopProgressPolling() {
@@ -1784,6 +1806,7 @@ function stopProgressPolling() {
 async function pollGradingProgress() {
 	const container = document.getElementById('grading-progress-container');
 	if (!container || !currentTeacher) return;
+	if (!shouldRunProgressPolling()) return;
 
 	try {
 		const result = await _pollingFetchJson(
@@ -1859,24 +1882,36 @@ async function pollGradingProgress() {
 }
 
 let _loadingResults = false;
+let _resultsAbortController = null;
+let _resultsReqSeq = 0;
 async function loadResults() {
 	if (!currentTeacher) return;
-	if (_loadingResults) return;
+	if (_resultsAbortController) {
+		try { _resultsAbortController.abort(); } catch (_) {}
+	}
+	const reqSeq = ++_resultsReqSeq;
+	const controller = new AbortController();
+	_resultsAbortController = controller;
 	_loadingResults = true;
 	try {
-		const controller = new AbortController();
 		const timeoutId = setTimeout(() => controller.abort(), 30000);
 		const params = new URLSearchParams({ teacher_id: currentTeacher.owner_user_id });
 		const res = await fetch(`${GRADING_SERVER_URL}/api/results?${params}`, { signal: controller.signal });
 		clearTimeout(timeoutId);
 		if (!res.ok) throw new Error(`서버 응답 오류 (${res.status})`);
 		const result = await res.json();
+		if (reqSeq !== _resultsReqSeq) return;
 		currentResults = result.data || [];
 	} catch (e) {
+		if (e && e.name === 'AbortError') {
+			console.debug('[loadResults] 이전 요청 취소됨');
+			return;
+		}
 		console.warn('채점 결과 로드 실패:', e);
 		if (e.name !== 'AbortError') showToast('채점 결과 로드 실패: ' + e.message, 'error');
 		currentResults = [];
 	} finally {
+		if (_resultsAbortController === controller) _resultsAbortController = null;
 		_loadingResults = false;
 	}
 	renderCalendar();
@@ -4437,6 +4472,7 @@ function filterHomeworkStudentList() {
 async function selectHomeworkStudent(sid) {
 	hwSelectedStudentId = sid;
 	hwSelectedDateStr = '';
+	hwSubmissionsCache.clear();
 	renderHomeworkStudentList();
 	homeworkPanePrefixes().forEach(prefix => {
 		const ph = document.getElementById(`${prefix}-cal-placeholder`);
@@ -4461,6 +4497,27 @@ function _mergeHomeworkRowsIntoMap(rows) {
 	});
 }
 
+function getHwSubmissionCacheKey({ teacherId, studentId, year, month, subTab }) {
+	return [teacherId, studentId, `${year}-${String(month + 1).padStart(2, '0')}`, subTab].join('|');
+}
+
+function readHwSubmissionCache(cacheKey) {
+	const hit = hwSubmissionsCache.get(cacheKey);
+	if (!hit) return null;
+	if (Date.now() - hit.ts > HW_SUBMISSIONS_CACHE_TTL_MS) {
+		hwSubmissionsCache.delete(cacheKey);
+		return null;
+	}
+	return hit.rows || [];
+}
+
+function writeHwSubmissionCache(cacheKey, rows) {
+	hwSubmissionsCache.set(cacheKey, { ts: Date.now(), rows: rows || [] });
+}
+
+let _homeworkSubmitAbortController = null;
+let _homeworkSubmitReqSeq = 0;
+
 async function loadHomeworkMonthForSelected() {
 	if (!hwSelectedStudentId || !currentTeacher) {
 		renderHomeworkCalendar();
@@ -4475,23 +4532,44 @@ async function loadHomeworkMonthForSelected() {
 		const start = `${y}-${String(m + 1).padStart(2, '0')}-01`;
 		const lastD = new Date(y, m + 1, 0).getDate();
 		const end = `${y}-${String(m + 1).padStart(2, '0')}-${String(lastD).padStart(2, '0')}`;
+		const cacheKey = getHwSubmissionCacheKey({
+			teacherId: currentTeacher.owner_user_id,
+			studentId: hwSelectedStudentId,
+			year: y,
+			month: m,
+			subTab: homeworkMgmtSub
+		});
 		hwSubmissionsByDate = {};
 		try {
+			const cachedRows = readHwSubmissionCache(cacheKey);
+			if (cachedRows) {
+				_mergeHomeworkRowsIntoMap(cachedRows);
+				renderHomeworkCalendar();
+				renderHomeworkDayDetail();
+				return;
+			}
+			if (_homeworkSubmitAbortController) {
+				try { _homeworkSubmitAbortController.abort(); } catch (_) {}
+			}
+			const reqSeq = ++_homeworkSubmitReqSeq;
+			let controller = null;
 			let rows = null;
 			if (shouldTryRemoteGradingServer && GRADING_SERVER_URL) {
+				controller = new AbortController();
+				_homeworkSubmitAbortController = controller;
 				const base = GRADING_SERVER_URL.replace(/\/$/, '');
 				const url = new URL(`${base}/api/homework-submissions`);
 				url.searchParams.set('teacher_id', currentTeacher.owner_user_id);
 				url.searchParams.set('student_id', String(hwSelectedStudentId));
 				url.searchParams.set('date_from', start);
 				url.searchParams.set('date_to', end);
-				const controller = new AbortController();
 				const to = setTimeout(() => controller.abort(), 30000);
 				const gst = sessionStorage.getItem('grading_session_token');
 				const headers = {};
 				if (gst) headers['Authorization'] = `Bearer ${gst}`;
 				const res = await fetch(url.toString(), { signal: controller.signal, headers });
 				clearTimeout(to);
+				if (reqSeq !== _homeworkSubmitReqSeq) return;
 				const body = await res.json().catch(() => ({}));
 				if (!res.ok) {
 					if (res.status === 401 && gst) sessionStorage.removeItem('grading_session_token');
@@ -4515,8 +4593,16 @@ async function loadHomeworkMonthForSelected() {
 				if (error) throw error;
 				rows = data;
 			}
+			if (reqSeq !== _homeworkSubmitReqSeq) return;
+			writeHwSubmissionCache(cacheKey, rows || []);
 			_mergeHomeworkRowsIntoMap(rows);
+			if (_homeworkSubmitAbortController === controller) _homeworkSubmitAbortController = null;
 		} catch (e) {
+			if (e && e.name === 'AbortError') {
+				console.debug('[숙제 제출 탭] 이전 요청 취소됨');
+				return;
+			}
+			_homeworkSubmitAbortController = null;
 			console.warn('[숙제 제출 탭]', e);
 			const localHint = (!shouldTryRemoteGradingServer || !GRADING_SERVER_URL)
 				? ' (채점 서버 미연결 시 Supabase RLS로 일부만 보일 수 있음)'

@@ -85,6 +85,21 @@
   - 인증 흐름 중 입력칸 제어(`submitPhoneAttendanceAuth`)는 `focus()` 대신 `blur()`로 변경해 화면 키패드 노출을 방지
 - 검증: 태블릿에서 `예: 1234` 입력칸 터치 시 시스템 키패드 미노출, 화면 숫자 키패드(0~9/초기화/지우기)만으로 4자리 입력·자동 인증 동작 확인
 
+### 채점관리 탭 반응속도 1단계 개선 — 2026-03-31
+- 상태: [x] 완료(안전 1단계)
+- 구현 파일: `grading/index.html`
+- 구현 요약:
+  - `loadResults`, `loadHomeworkMonthForSelected`를 최신 요청 우선(이전 요청 abort)으로 정리해 탭 전환 시 요청 경합을 완화
+  - 제출 탭 월 조회에 `teacher_id + student_id + year-month + subTab` 키 기반 메모리 캐시(TTL 15초) 추가
+  - 진행률 폴링을 `main + homework-mgmt + visible` 조건에서만 실행하고 주기를 3초→5초로 완화
+  - 의도된 취소(`AbortError`)는 `console.debug`로 낮춰 콘솔 노이즈를 축소
+- 검증:
+  - `ReadLints(grading/index.html)` 오류 없음
+  - 정적 diff 점검으로 탭/학생 전환 시 중복 호출 억제 경로 확인
+- 리스크/후속:
+  - 캐시 TTL 동안 최신 반영이 최대 15초 지연될 수 있음(학생/월 변경 및 로그아웃 시 캐시 무효화 적용)
+  - 필요 시 2단계에서 백엔드 인덱스/쿼리 최적화 병행
+
 ### 과제 배정 마감 시간(`due_time`) — 2026-03-30
 - 상태: [x] 완료(백엔드·DB + 프론트 저장값 확정 보강)
 - 구현 파일: `SUPABASE_GRADING_ASSIGNMENTS_DUE_TIME_20260330.sql`, `GRADING_SETUP.sql`, `grading-server/routers/assignments.py`, `grading/index.html`
@@ -1468,6 +1483,7 @@
 - [ ] 다음 작업자가 바로 이어서 할 수 있게 문서가 갱신되었다.
 
 ## 변경 이력
+- 2026-03-31 - AUTO-20260331(staged 4개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-31 - AUTO-20260331(staged 5개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-30 - AUTO-20260330(staged 17개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-30 - AUTO-20260330(staged 5개 파일 기준 문서 연동 자동기록): 연동 자동 기록
