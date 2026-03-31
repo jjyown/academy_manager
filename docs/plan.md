@@ -114,6 +114,20 @@
 - 리스크/후속:
   - 결과 삭제는 복구 불가이며, 제출 자체(`homework_submissions` row)는 삭제하지 않고 채점 상태만 초기화함
 
+### 채점 삭제 버튼 터치 시 상세 이동 방지(모바일/버셀) — 2026-03-31
+- 상태: [x] 완료(이벤트 전파 차단 재보강)
+- 구현 파일: `grading/index.html`
+- 구현 요약:
+  - 결과 행 클릭을 `openDetail(...)` 직접 호출에서 `handleResultRowClick(event, id)` 게이트 함수로 전환
+  - 삭제 버튼은 `pointerdown/mousedown/touchstart` 단계에서 `preventDefault + stopPropagation + stopImmediatePropagation`를 먼저 수행
+  - 삭제 버튼 클릭은 `handleDeleteResultClick` 전용으로 유지해 행 클릭 이벤트와 분리
+  - 메인 사이드패널/숙제관리-채점 리스트 두 렌더 경로 모두 동일 적용
+- 검증:
+  - `ReadLints(grading/index.html)` 오류 없음
+  - 정적 diff 기준으로 `cal-result-item`의 상세 진입 경로와 삭제 버튼 이벤트 분리 확인
+- 리스크/후속:
+  - 오래된 번들이 남아 있으면 버셀 캐시로 구동될 수 있어 배포 후 하드 새로고침 필요
+
 ### 과제 배정 마감 시간(`due_time`) — 2026-03-30
 - 상태: [x] 완료(백엔드·DB + 프론트 저장값 확정 보강)
 - 구현 파일: `SUPABASE_GRADING_ASSIGNMENTS_DUE_TIME_20260330.sql`, `GRADING_SETUP.sql`, `grading-server/routers/assignments.py`, `grading/index.html`
@@ -1497,6 +1511,7 @@
 - [ ] 다음 작업자가 바로 이어서 할 수 있게 문서가 갱신되었다.
 
 ## 변경 이력
+- 2026-03-31 - AUTO-20260331(staged 4개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-31 - AUTO-20260331(staged 1개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-31 - AUTO-20260331(staged 5개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-31 - AUTO-20260331(staged 4개 파일 기준 문서 연동 자동기록): 연동 자동 기록

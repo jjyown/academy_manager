@@ -14,6 +14,7 @@
 ## 최근 의사결정 로그
 | 날짜 | 결정 | 이유 | 영향 범위 |
 |---|---|---|---|
+| 2026-03-31 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/checklist.md, docs/context.md, docs/plan.md, grading/index.html |
 | 2026-03-31 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | grading/index.html |
 | 2026-03-31 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/checklist.md, docs/context.md, docs/plan.md, grading-server/routers/results.py, grading/index.html |
 | 2026-03-31 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/checklist.md, docs/context.md, docs/plan.md, grading/index.html |
@@ -21,6 +22,7 @@
 | 2026-03-31 | **QR 전화번호 인증 입력은 화면 키패드만 사용**: `#qr-phone-last4-input`을 `readonly`/`inputmode=none`/`blur` 처리해 입력칸 터치 시 태블릿 OS 키패드가 뜨지 않게 함 | 현장에서 입력칸 터치 시 시스템 키패드가 겹쳐 올라와 화면 숫자패드 UX가 깨지는 문제 제거 | `index.html`, `qr-attendance.js` |
 | 2026-03-31 | **채점관리 탭 반응속도 1단계**: 탭 전환 시 요청 경합으로 `AbortError` 로그가 반복되던 구간을 최신 요청 우선(기존 요청 abort)으로 정리하고, 제출 월 조회 캐시(TTL 15초)·조건부 폴링(`main+homework-mgmt+visible`, 5초)을 적용 | 데이터량이 작아도 네트워크 지연 + 중복 요청 경합이 체감 지연을 키우는 문제를 기능 변경 없이 완화하기 위해 | `grading/index.html` |
 | 2026-03-31 | **채점 결과 삭제 동기화 보강**: `DELETE /api/results/{id}` 성공 판정이 `res.data` 존재 여부에 의존해 환경에 따라 실패처럼 보일 수 있어, 대상 존재 확인 후 삭제 완료 시 성공으로 일관화. 또한 연결된 `homework_submission_id`가 있으면 `homework_submissions.grading_status`를 `pending`으로 복구해 Supabase와 상태 동기화 | 삭제 버튼 클릭 후 UI/DB 반영 불일치 및 재채점 불가 상태를 방지하기 위해 | `grading-server/routers/results.py`, `grading/index.html` |
+| 2026-03-31 | **삭제 버튼 터치 이벤트 전파 재보강(버셀/모바일)**: 결과 행(`cal-result-item`)의 상세 이동과 휴지통 버튼의 삭제를 분리하기 위해 행 클릭을 게이트 함수(`handleResultRowClick`)로 전환하고, 삭제 버튼은 `pointerdown/mousedown/touchstart` 단계에서 전파를 즉시 차단 | 모바일 브라우저에서 클릭 타이밍 차이로 삭제 버튼 터치가 행 클릭으로 해석돼 상세로 이동하던 재발 이슈를 구조적으로 차단하기 위해 | `grading/index.html` |
 | 2026-03-30 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | GRADING_SETUP.sql, SUPABASE_GRADING_ASSIGNMENTS_DUE_TIME_20260330.sql, SUPABASE_HOMEWORK_SUBMISSION_GRADING_ASSIGNMENT_20260330.sql, docs/checklist.md, docs/context.md 외 12개 |
 | 2026-03-30 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/checklist.md, docs/context.md, docs/plan.md, grading-server/grading/hml_parser.py, grading-server/routers/answer_keys.py |
 | 2026-03-30 | **과제 배정 모달 지연 = 서버 응답 대기**: 기존 `showAssignModal`/`editAssignment`는 `answer-keys` fetch 끝난 뒤에만 모달을 열어, 부하 시 **무반응처럼** 보였음 → 모달 **선 오픈**·교재 목록은 비동기·**25초 Abort**·토스트; 저장 `fetch`도 **60초 Abort**+버튼 busy. **채점 중 전용 차단 아님** | 운영 혼선(채점 vs 버그) 구분 | `grading/index.html` |

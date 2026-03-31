@@ -2151,14 +2151,19 @@ function renderSidePanel() {
 				subText = `⭕${r.correct_count} ✘${r.wrong_count} ❓${r.uncertain_count}${unansweredTag}`;
 			}
 
-			return `<div class="cal-result-item" onclick="openDetail(${r.id})" ${isGrading ? 'style="opacity:0.8;"' : ''}>
+			return `<div class="cal-result-item" onclick="return handleResultRowClick(event, ${r.id})" ${isGrading ? 'style="opacity:0.8;"' : ''}>
 				<div class="cal-result-icon" style="background:${sm.bg};">${sm.icon}</div>
 				<div class="cal-result-info">
 					<div class="cal-result-title">${titleText}</div>
 					<div class="cal-result-sub">${subText}</div>
 				</div>
 				<span class="cal-result-badge ${sm.cls}">${sm.text}</span>
-				<button type="button" class="cal-result-del" onclick="return handleDeleteResultClick(event, ${r.id}, ${JSON.stringify(student.name || '?')})" title="삭제"><i class="fas fa-trash-alt"></i></button>
+				<button type="button" class="cal-result-del"
+					onpointerdown="event.preventDefault();event.stopPropagation();event.stopImmediatePropagation();"
+					onmousedown="event.preventDefault();event.stopPropagation();event.stopImmediatePropagation();"
+					ontouchstart="event.preventDefault();event.stopPropagation();event.stopImmediatePropagation();"
+					onclick="return handleDeleteResultClick(event, ${r.id}, ${JSON.stringify(student.name || '?')})"
+					title="삭제"><i class="fas fa-trash-alt"></i></button>
 			</div>`;
 		}).join('');
 	}
@@ -2658,6 +2663,14 @@ async function deleteResult(resultId, studentName) {
 	} catch (e) {
 		showToast('서버 연결 실패: ' + e.message, 'error');
 	}
+}
+
+function handleResultRowClick(event, resultId) {
+	if (event && event.target && event.target.closest('.cal-result-del')) {
+		return false;
+	}
+	openDetail(resultId);
+	return false;
 }
 
 function handleDeleteResultClick(event, resultId, studentName) {
@@ -4854,14 +4867,19 @@ function buildHomeworkDayDetailHtml(mode) {
 			subText = `⭕${r.correct_count} ✘${r.wrong_count} ❓${r.uncertain_count}${unansweredTag}`;
 		}
 		const nameJson = JSON.stringify(student.name || '?');
-		return `<div class="cal-result-item" onclick="openDetail(${r.id})" ${isGrading ? 'style="opacity:0.8;"' : ''}>
+		return `<div class="cal-result-item" onclick="return handleResultRowClick(event, ${r.id})" ${isGrading ? 'style="opacity:0.8;"' : ''}>
 			<div class="cal-result-icon" style="background:${sm.bg};">${sm.icon}</div>
 			<div class="cal-result-info">
 				<div class="cal-result-title">${titleText}</div>
 				<div class="cal-result-sub">${subText}</div>
 			</div>
 			<span class="cal-result-badge ${sm.cls}">${sm.text}</span>
-			<button type="button" class="cal-result-del" onclick="return handleDeleteResultClick(event, ${r.id}, ${nameJson})" title="삭제"><i class="fas fa-trash-alt"></i></button>
+			<button type="button" class="cal-result-del"
+				onpointerdown="event.preventDefault();event.stopPropagation();event.stopImmediatePropagation();"
+				onmousedown="event.preventDefault();event.stopPropagation();event.stopImmediatePropagation();"
+				ontouchstart="event.preventDefault();event.stopPropagation();event.stopImmediatePropagation();"
+				onclick="return handleDeleteResultClick(event, ${r.id}, ${nameJson})"
+				title="삭제"><i class="fas fa-trash-alt"></i></button>
 		</div>`;
 	}).join('');
 	return html;
