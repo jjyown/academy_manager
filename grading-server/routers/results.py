@@ -157,15 +157,20 @@ async def delete_result(result_id: int):
     try:
         sb = get_supabase()
         row = await run_query(sb.table("grading_results").select(
-            "central_graded_drive_ids, central_original_drive_ids"
+            "homework_submission_id, central_graded_drive_ids, central_original_drive_ids"
         ).eq("id", result_id).limit(1).execute)
 
-        if row.data:
+        if not row.data:
+            return {"success": False, "message": "삭제할 결과를 찾을 수 없습니다"}
+
+        result_row = row.data[0]
+
+        if result_row:
             central_token = await get_central_admin_token()
             if central_token:
                 drive_ids = []
-                drive_ids.extend(row.data[0].get("central_graded_drive_ids") or [])
-                drive_ids.extend(row.data[0].get("central_original_drive_ids") or [])
+                drive_ids.extend(result_row.get("central_graded_drive_ids") or [])
+                drive_ids.extend(result_row.get("central_original_drive_ids") or [])
                 deleted = 0
                 for fid in drive_ids:
                     if fid and delete_file(central_token, fid):
@@ -174,11 +179,19 @@ async def delete_result(result_id: int):
                     logger.info(f"[Delete] result #{result_id}: Drive 파일 {deleted}개 삭제")
 
         await run_query(sb.table("grading_items").delete().eq("result_id", result_id).execute)
-        res = await run_query(sb.table("grading_results").delete().eq("id", result_id).execute)
-        if res.data:
-            logger.info(f"채점 결과 #{result_id} 삭제 완료")
-            return {"success": True, "message": "채점 결과가 삭제되었습니다"}
-        return {"success": False, "message": "삭제할 결과를 찾을 수 없습니다"}
+        await run_query(sb.table("grading_results").delete().eq("id", result_id).execute)
+
+        # 채점 결과 삭제 후 숙제 제출 상태를 재채점 가능 상태로 되돌려 동기화
+        submission_id = result_row.get("homework_submission_id")
+        if submission_id:
+            try:
+                await update_submission_grading_status(int(submission_id), "pending")
+                logger.info(f"[Delete] submission #{submission_id}: grading_status -> pending")
+            except Exception as sub_e:
+                logger.warning(f"[Delete] submission 상태 동기화 실패 (id={submission_id}): {sub_e}")
+
+        logger.info(f"채점 결과 #{result_id} 삭제 완료")
+        return {"success": True, "message": "채점 결과가 삭제되었습니다"}
     except Exception as e:
         logger.error(f"채점 결과 삭제 실패 (id={result_id}): {e}")
         raise HTTPException(status_code=500, detail=f"채점 결과 삭제 실패: {str(e)[:200]}")

@@ -100,6 +100,20 @@
   - 캐시 TTL 동안 최신 반영이 최대 15초 지연될 수 있음(학생/월 변경 및 로그아웃 시 캐시 무효화 적용)
   - 필요 시 2단계에서 백엔드 인덱스/쿼리 최적화 병행
 
+### 채점 결과 삭제 시 Supabase 동기화 보강 — 2026-03-31
+- 상태: [x] 완료
+- 구현 파일: `grading-server/routers/results.py`, `grading/index.html`
+- 구현 요약:
+  - `DELETE /api/results/{result_id}`가 `res.data` 존재 여부에 의존하던 성공 판정을 제거하고, 대상 존재 확인 후 삭제 완료 시 성공 응답을 고정
+  - 삭제 대상 결과의 `homework_submission_id`를 함께 조회해 결과 삭제 후 `homework_submissions.grading_status`를 `pending`으로 되돌려 동기화
+  - 프론트 `deleteResult`에서 `res.ok + result.success` 기준으로 처리하고 실패 메시지(`message/detail/HTTP`)를 명확화
+  - 삭제 성공 후 `loadResults()`를 `await`하여 UI 목록/캘린더 반영 타이밍을 안정화
+- 검증:
+  - `python -m compileall grading-server/routers/results.py` PASS
+  - `ReadLints(grading/index.html, grading-server/routers/results.py)` 오류 없음
+- 리스크/후속:
+  - 결과 삭제는 복구 불가이며, 제출 자체(`homework_submissions` row)는 삭제하지 않고 채점 상태만 초기화함
+
 ### 과제 배정 마감 시간(`due_time`) — 2026-03-30
 - 상태: [x] 완료(백엔드·DB + 프론트 저장값 확정 보강)
 - 구현 파일: `SUPABASE_GRADING_ASSIGNMENTS_DUE_TIME_20260330.sql`, `GRADING_SETUP.sql`, `grading-server/routers/assignments.py`, `grading/index.html`
@@ -1483,6 +1497,7 @@
 - [ ] 다음 작업자가 바로 이어서 할 수 있게 문서가 갱신되었다.
 
 ## 변경 이력
+- 2026-03-31 - AUTO-20260331(staged 5개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-31 - AUTO-20260331(staged 4개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-31 - AUTO-20260331(staged 5개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-30 - AUTO-20260330(staged 17개 파일 기준 문서 연동 자동기록): 연동 자동 기록
