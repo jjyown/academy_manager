@@ -1,7 +1,8 @@
 # 출석관리앱 체크리스트
 
-- 문서 기준일: 2026-03-30
+- 문서 기준일: 2026-03-31
 ## 공통 품질 체크
+- [x] QR 전화번호 인증 입력창 소프트 키패드 차단(2026-03-31): `#qr-phone-last4-input`을 `readonly` + `inputmode=none` + `onfocus=blur`로 변경하고 `submitPhoneAttendanceAuth`의 입력 포커스 제어를 `blur`로 통일해, 태블릿에서 입력칸 터치 시 시스템 키패드가 뜨지 않고 화면 숫자 키패드만 사용되도록 조정
 - [x] 숙제 제출 `upload-homework` 학생 인증(2026-03-30): Edge에 `student_code` 검증 경로 추가·`homework/index.html` Form 전달 · **`supabase functions deploy upload-homework`** 후 학생 경로 제출 스모크 필수
 - [x] 숙제 업로드 `upload-homework` 401 원인 확인/대응(2026-03-30): DevTools Response에 “원장 계정 로그인 또는 학생 인증코드(student_code)가 필요”가 확인됨. Edge의 Bearer(owner JWT) 인증에 실패 시 `student_code`로만 본인 검증을 수행하므로, `homework/index.html`에서 `currentStudent.student_code`가 비어있으면 학생 포털에서 입력한 인증코드(정규화값)로 fallback하여 Edge에 `student_code`가 누락되지 않도록 보강(배포 후 스모크 필요)
 - [x] 과제 배정 모달 즉시 오픈·타임아웃(2026-03-30): `showAssignModal`/`editAssignment` — `answer-keys` 대기로 모달이 늦게 뜨던 UX 완화(25s Abort·토스트), `createAssignment` 60s Abort·busy — 브라우저 배정 버튼·저장 스모크 권장
@@ -153,6 +154,7 @@
 ## 테스트/검증 결과 기록
 | 날짜 | 작업 | 검증 방법 | 결과 | 비고 |
 |---|---|---|---|---|
+| 2026-03-31 | AUTO-20260331(staged 5개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-03-30 | AUTO-20260330(staged 17개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-03-30 | AUTO-20260330(staged 5개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-03-30 | AUTO-20260330(staged 13개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |

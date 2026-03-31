@@ -1,6 +1,6 @@
 # 출석관리앱 컨텍스트 노트
 
-- 문서 기준일: 2026-03-30
+- 문서 기준일: 2026-03-31
 ## 제품/운영 컨텍스트
 - 대상 사용자: 교사(관리), 학생(조회)
 - 핵심 데이터: 학생, 반, 수업, 날짜, 출석상태, 수정자, 수정시각
@@ -14,6 +14,8 @@
 ## 최근 의사결정 로그
 | 날짜 | 결정 | 이유 | 영향 범위 |
 |---|---|---|---|
+| 2026-03-31 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/checklist.md, docs/context.md, docs/plan.md, index.html, qr-attendance.js |
+| 2026-03-31 | **QR 전화번호 인증 입력은 화면 키패드만 사용**: `#qr-phone-last4-input`을 `readonly`/`inputmode=none`/`blur` 처리해 입력칸 터치 시 태블릿 OS 키패드가 뜨지 않게 함 | 현장에서 입력칸 터치 시 시스템 키패드가 겹쳐 올라와 화면 숫자패드 UX가 깨지는 문제 제거 | `index.html`, `qr-attendance.js` |
 | 2026-03-30 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | GRADING_SETUP.sql, SUPABASE_GRADING_ASSIGNMENTS_DUE_TIME_20260330.sql, SUPABASE_HOMEWORK_SUBMISSION_GRADING_ASSIGNMENT_20260330.sql, docs/checklist.md, docs/context.md 외 12개 |
 | 2026-03-30 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/checklist.md, docs/context.md, docs/plan.md, grading-server/grading/hml_parser.py, grading-server/routers/answer_keys.py |
 | 2026-03-30 | **과제 배정 모달 지연 = 서버 응답 대기**: 기존 `showAssignModal`/`editAssignment`는 `answer-keys` fetch 끝난 뒤에만 모달을 열어, 부하 시 **무반응처럼** 보였음 → 모달 **선 오픈**·교재 목록은 비동기·**25초 Abort**·토스트; 저장 `fetch`도 **60초 Abort**+버튼 busy. **채점 중 전용 차단 아님** | 운영 혼선(채점 vs 버그) 구분 | `grading/index.html` |

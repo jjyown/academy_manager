@@ -1896,7 +1896,7 @@
                         <div class="qr-phone-auth-title"><i class="fas fa-mobile-screen-button"></i> 전화번호 인증 출석</div>
                         <div class="qr-phone-auth-desc">학생 연락처의 뒷자리 4자리를 입력해 출석 인증합니다.</div>
                         <div class="qr-phone-auth-row">
-                            <input type="text" id="qr-phone-last4-input" class="m-input qr-phone-last4-input" placeholder="예: 1234" maxlength="4" inputmode="numeric" oninput="handlePhoneAuthInputChange(this)" onkeydown="if(event.key==='Enter') submitPhoneAttendanceAuth()">
+                            <input type="text" id="qr-phone-last4-input" class="m-input qr-phone-last4-input" placeholder="예: 1234" maxlength="4" inputmode="none" autocomplete="off" readonly onfocus="this.blur()" oninput="handlePhoneAuthInputChange(this)" onkeydown="if(event.key==='Enter') submitPhoneAttendanceAuth()">
                         </div>
                         <div class="qr-phone-keypad" aria-label="전화번호 입력 키패드">
                             <button type="button" class="qr-phone-key" onclick="handlePhoneAuthKeypadKey('1')">1</button>

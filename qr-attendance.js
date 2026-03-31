@@ -1373,7 +1373,7 @@ window.submitPhoneAttendanceAuth = async function() {
     const suffix = normalizePhoneDigits(input ? input.value : '').slice(-4);
     if (!suffix || suffix.length !== 4) {
         showToast('전화번호 뒷자리 4자리를 입력해주세요.', 'warning');
-        if (input) input.focus();
+        if (input) input.blur();
         return;
     }
     phoneAuthSubmitting = true;
@@ -1382,7 +1382,7 @@ window.submitPhoneAttendanceAuth = async function() {
         if (input) {
             input.value = '';
             try {
-                input.focus();
+                input.blur();
             } catch (_) {
                 /* noop */
             }
