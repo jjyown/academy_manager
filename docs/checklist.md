@@ -2,6 +2,7 @@
 
 - 문서 기준일: 2026-04-01
 ## 공통 품질 체크
+- [x] 교재 상세 페이지 화살표/북마크 가시성 보강(2026-04-01): `grading/index.html`에서 `.kd-pages-wrap` 높이(일반/영역모드)를 재조정하고 `ensureKdPreviewControlsVisible()`를 추가해 `toggleRegionMode`/`renderKdPageImages` 시 `#kd-page-nav`/`#kd-bookmarks` 표시를 재보정
 - [x] 교재 상세 영역 표시 UX(2026-04-01): `grading/index.html`에서 영역 표시 모드(`kdRegionMode`) 중에도 드래그 팬을 유지하고 클릭 임계값 기반으로만 마킹 처리, 하단 페이지 네비게이션 `.image-nav` z-index 보강으로 앞/뒤 이동 버튼 접근성 개선
 - [x] 채점 삭제 버튼 터치 전파 차단(2026-03-31): `grading/index.html` 결과 행 클릭을 `handleResultRowClick`으로 게이트하고, 삭제 버튼에 `pointerdown/mousedown/touchstart` 전파 차단을 추가해 모바일/버셀 환경에서 휴지통 터치 시 상세로 이동하지 않도록 보강
 - [x] 채점 결과 삭제 Supabase 동기화(2026-03-31): `grading-server/routers/results.py`에서 `DELETE /api/results/{id}` 성공 판정을 안정화하고, 연결된 `homework_submission_id`의 `homework_submissions.grading_status`를 `pending`으로 복구. `grading/index.html` `deleteResult`는 `res.ok + success` 기준 처리 및 삭제 후 `await loadResults()`로 UI 동기화
@@ -158,6 +159,7 @@
 ## 테스트/검증 결과 기록
 | 날짜 | 작업 | 검증 방법 | 결과 | 비고 |
 |---|---|---|---|---|
+| 2026-04-01 | AUTO-20260401(staged 4개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-04-01 | AUTO-20260401(staged 4개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-03-31 | AUTO-20260331(staged 1개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-03-31 | AUTO-20260331(staged 4개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |

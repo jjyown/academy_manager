@@ -140,6 +140,19 @@
 - 리스크/후속:
   - 터치 탭 기반 점찍기 UX가 필요하면 후속으로 `touchend` 클릭 판정 로직을 추가 고려
 
+### 교재 상세 영역 표시 시 페이지 화살표/북마크 가시성 보강 — 2026-04-01
+- 상태: [x] 완료
+- 구현 파일: `grading/index.html`
+- 구현 요약:
+  - 페이지 미리보기 래퍼 높이를 조정(`.kd-pages-wrap`, `.kd-pages-wrap.region-mode`)해 영역 표시 툴바 활성화 시 하단 컨트롤(앞/뒤 화살표, 페이지 인디케이터, 북마크 영역)이 화면 밖으로 밀리는 현상을 완화
+  - 북마크 컨테이너(`.kd-bookmarks`)에 `z-index`/최소 높이를 부여해 UI 겹침 시에도 클릭 가능 영역과 가시성을 유지
+  - `ensureKdPreviewControlsVisible()`를 추가해 영역 표시 토글·페이지 렌더 시 `kd-page-nav` 표시 상태를 재보정하고, 북마크 컨테이너가 비어있으면 즉시 재렌더
+- 검증:
+  - `ReadLints(grading/index.html)` 오류 없음
+  - 정적 diff 점검으로 `toggleRegionMode()`/`renderKdPageImages()` 경로에서 하단 컨트롤 재보정 호출 확인
+- 리스크/후속:
+  - 해상도/브라우저별 세로 높이 차이로 극소 화면에서 하단 컨트롤이 다시 밀릴 수 있어, 필요 시 추후 CSS `clamp()` 기반 동적 높이로 추가 보정
+
 ### 과제 배정 마감 시간(`due_time`) — 2026-03-30
 - 상태: [x] 완료(백엔드·DB + 프론트 저장값 확정 보강)
 - 구현 파일: `SUPABASE_GRADING_ASSIGNMENTS_DUE_TIME_20260330.sql`, `GRADING_SETUP.sql`, `grading-server/routers/assignments.py`, `grading/index.html`
@@ -1523,6 +1536,7 @@
 - [ ] 다음 작업자가 바로 이어서 할 수 있게 문서가 갱신되었다.
 
 ## 변경 이력
+- 2026-04-01 - AUTO-20260401(staged 4개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-04-01 - AUTO-20260401(staged 4개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-31 - AUTO-20260331(staged 1개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-31 - AUTO-20260331(staged 4개 파일 기준 문서 연동 자동기록): 연동 자동 기록

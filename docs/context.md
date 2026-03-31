@@ -15,6 +15,8 @@
 | 날짜 | 결정 | 이유 | 영향 범위 |
 |---|---|---|---|
 | 2026-04-01 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/checklist.md, docs/context.md, docs/plan.md, grading/index.html |
+| 2026-04-01 | **영역 표시 토글 시 페이지 화살표/북마크 가시성 보강**: `.kd-pages-wrap` 높이를 일반/영역모드 각각 재조정하고, `ensureKdPreviewControlsVisible()`로 토글·렌더 직후 `#kd-page-nav`/`#kd-bookmarks` 표시 상태를 재보정 | 영역 표시 활성화 시 하단 앞/뒤 이동 화살표 및 북마크 버튼이 보이지 않는 운영 이슈를 즉시 완화하기 위해 | `grading/index.html` |
+| 2026-04-01 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/checklist.md, docs/context.md, docs/plan.md, grading/index.html |
 | 2026-03-31 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | grading/index.html |
 | 2026-03-31 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/checklist.md, docs/context.md, docs/plan.md, grading/index.html |
 | 2026-03-31 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | grading/index.html |
