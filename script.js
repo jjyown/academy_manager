@@ -3406,7 +3406,7 @@ function buildCalendarSummaryMap(dateStrList) {
     const targetDates = new Set((dateStrList || []).map((value) => String(value || '')).filter(Boolean));
     const summaryMap = new Map();
     if (targetDates.size === 0) return summaryMap;
-    if (timetableScope === 'all' && !allScopeScheduleHydrated) return summaryMap;
+    // 전체 선생님 모드에서도 집계 완료 전에는 teacherScheduleData에 있는 만큼 표시(빈 맵 반환 금지 — 일정 누락 방지)
 
     const seen = new Set();
     const teacherIds = getTeacherIdsForTimetableScope();
@@ -8909,6 +8909,9 @@ async function reloadScheduleDataAfterOwnerMutation() {
 // ★ 모든 선생님의 일정 데이터 로드 (겹침 확인/알림 등에 필요)
 async function loadAllTeachersScheduleData() {
     allScopeScheduleLoading = true;
+    if (timetableScope === 'all') {
+        allScopeScheduleHydrated = false;
+    }
     try {
         if (typeof supabase === 'undefined') return;
         const ownerId = cachedLsGet('current_owner_id');
@@ -9009,11 +9012,11 @@ async function loadAllTeachersScheduleData() {
         console.log(`[loadAllTeachersScheduleData] 다른 선생님(알려진 ${otherCount}명) 동기화 · DB 총 ${(data || []).length}건`);
         normalizeLegacyTeacherScheduleOwnership();
         normalizeAllTeacherScheduleDataDateKeys();
-        allScopeScheduleHydrated = true;
     } catch (e) {
         console.error('[loadAllTeachersScheduleData] 예외:', e);
     } finally {
         allScopeScheduleLoading = false;
+        allScopeScheduleHydrated = true;
     }
 }
 

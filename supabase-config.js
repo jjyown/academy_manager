@@ -20,7 +20,8 @@ const supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
         detectSessionInUrl: true,
         persistSession: true,
         storageKey: 'supabase.auth.token',
-        flowType: 'implicit'
+        // implicit는 비밀번호 로그인(grant_type=password)과 맞지 않아 400이 날 수 있음 — PKCE가 기본 권장
+        flowType: 'pkce'
     },
     // DB 쿼리 글로벌 설정
     db: {

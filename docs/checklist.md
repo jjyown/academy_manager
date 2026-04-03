@@ -4,6 +4,7 @@
 ## 문의 답변 처리
 - [x] Supabase에서 숙제 배정/제출/채점 기록 확인 테이블 위치 정리(2026-04-03)
 - [x] 숙제 달력·상태: `schedules` 폴백 제거, 마감은 `grading_assignments`/`/api/homework-assignments`만 사용(2026-04-03, `parent-portal/report.js`, `homework/index.html`)
+- [x] Vercel 관리자 로그인 400·메인 캘린더 일정 누락(2026-04-03): `supabase-config.js` `flowType: pkce`, `script.js` 전체 선생님 요약 빈 맵 제거·`loadAllTeachersScheduleData` finally 정리, `index.html` `__envLoadPromise`
 ## 공통 품질 체크
 - [x] 교재 상세 페이지 화살표/북마크 가시성 보강(2026-04-01): `grading/index.html`에서 `.kd-pages-wrap` 높이(일반/영역모드)를 재조정하고 `ensureKdPreviewControlsVisible()`를 추가해 `toggleRegionMode`/`renderKdPageImages` 시 `#kd-page-nav`/`#kd-bookmarks` 표시를 재보정
 - [x] 교재 상세 영역 표시 UX(2026-04-01): `grading/index.html`에서 영역 표시 모드(`kdRegionMode`) 중에도 드래그 팬을 유지하고 클릭 임계값 기반으로만 마킹 처리, 하단 페이지 네비게이션 `.image-nav` z-index 보강으로 앞/뒤 이동 버튼 접근성 개선
@@ -164,6 +165,7 @@
 ## 테스트/검증 결과 기록
 | 날짜 | 작업 | 검증 방법 | 결과 | 비고 |
 |---|---|---|---|---|
+| 2026-04-03 | AUTO-20260403(staged 6개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-04-03 | AUTO-20260403(staged 5개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-04-03 | AUTO-20260403(staged 6개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-04-01 | AUTO-20260401(staged 4개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |

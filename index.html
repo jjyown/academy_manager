@@ -17,10 +17,9 @@
     <script src="https://unpkg.com/html5-qrcode@2.3.8"></script>
     <!-- Google Identity Services (OAuth 2.0) -->
     <script src="https://accounts.google.com/gsi/client" async defer></script>
-    <!-- 환경 변수 로더 (로컬 개발용) -->
+    <!-- 환경 변수 로더 (로컬 .env / Vercel은 파일 없음 → supabase-config.js 폴백) -->
     <script>
-        // 로컬 개발용 환경변수 로더
-        (async () => {
+        window.__envLoadPromise = (async () => {
             if (window.location.protocol === 'file:') {
                 console.warn('[env-loader] ⚠️ file:// 프로토콜 감지 - 로컬 서버를 실행하세요: python -m http.server 8000');
                 window.env = {};
@@ -38,7 +37,6 @@
                 return env;
             };
 
-            // Live Server가 dotfile(.env.local) 서빙을 막는 경우를 대비해 env.local도 시도
             const candidates = ['.env.local', 'env.local'];
             window.env = {};
             for (const fileName of candidates) {

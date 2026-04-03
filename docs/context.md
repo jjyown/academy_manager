@@ -14,8 +14,11 @@
 ## 최근 의사결정 로그
 | 날짜 | 결정 | 이유 | 영향 범위 |
 |---|---|---|---|
+| 2026-04-03 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/checklist.md, docs/context.md, docs/plan.md, index.html, script.js 외 1개 |
 | 2026-04-03 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | grading-server/main.py, grading-server/routers/homework_assignments.py, grading-server/routers/homework_submissions.py, grading/index.html, supabase/functions/upload-homework/index.ts |
 | 2026-04-03 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/checklist.md, docs/context.md, docs/plan.md, grading-server/integrations/supabase_client.py, homework/index.html 외 1개 |
+| 2026-04-03 | Supabase 클라이언트 `auth.flowType`은 `pkce`(implicit 금지) | `implicit`는 비밀번호 로그인 토큰 요청과 맞지 않아 Vercel 등에서 `/token?grant_type=password` 400이 날 수 있음 | `supabase-config.js` |
+| 2026-04-03 | 메인 월간 캘린더는 `allScopeScheduleHydrated`로 요약을 비우지 않음 | 전체 선생님 모드에서 집계 완료 전 `buildCalendarSummaryMap`이 빈 맵을 반환해 등록 일정이 대거 안 보이던 회귀 제거 | `script.js` |
 | 2026-04-03 | 숙제 달력 O/X/△는 배정(`grading_assignments`·`/api/homework-assignments`)만 사용 | 선생님 지정 마감이 단일 진실원천이어야 하며, 배정 API 실패 시 수업 `schedules`로 대체하면 마감과 무관한 날에 잘못된 표시가 남 | `parent-portal/report.js`, `homework/index.html` |
 | 2026-04-03 | 숙제 배정/제출/채점 기록 Supabase 확인 테이블 | 배정은 `grading_assignments`, 학생 제출은 `homework_submissions`(FK=`grading_assignment_id`), 채점 결과는 `grading_results`에서 확인 | `grading_assignments`, `homework_submissions`, `grading_results` |
 | 2026-04-01 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/checklist.md, docs/context.md, docs/plan.md, grading/index.html |

@@ -88,6 +88,16 @@
 - 검증: `node --check parent-portal/report.js` PASS
 - 다음 단계: `GRADING_SERVER_URL` 미설정 시 학부모/학생에 안내 토스트 여부는 운영 피드백 후
 
+### Vercel 관리자 로그인 400 + 메인 캘린더 일정 누락 — 2026-04-03
+- 상태: [x] 완료
+- 구현 파일: `supabase-config.js`, `script.js`, `index.html`(`__envLoadPromise`)
+- 구현 요약:
+  - Supabase JS `auth.flowType`을 `implicit`→`pkce`로 변경(비밀번호 로그인 `grant_type=password`와 호환, 400 완화)
+  - `buildCalendarSummaryMap`에서 `전체 선생님`일 때 `!allScopeScheduleHydrated`면 빈 맵 반환하던 로직 제거(집계 전에 일정이 통째로 사라지던 문제)
+  - `loadAllTeachersScheduleData`는 `finally`에서 항상 `allScopeScheduleHydrated=true`·로딩 종료로 정리(오류·조기 return 시에도 영구 빈 달 방지)
+- 검증: 정적 코드 점검; 배포 후 Vercel에서 로그인·월간 캘린더 뱃지 스모크 권장
+- 다음 단계: 400이 계속이면 Supabase 대시보드 anon 키와 `supabase-config.js` 폴백·Vercel env가 동일 프로젝트인지 확인
+
 ## 현재 스프린트 목표
 ### QR 전화번호 인증 입력창 소프트 키패드 차단 — 2026-03-31
 - 상태: [x] 완료
@@ -1549,6 +1559,7 @@
 - [ ] 다음 작업자가 바로 이어서 할 수 있게 문서가 갱신되었다.
 
 ## 변경 이력
+- 2026-04-03 - AUTO-20260403(staged 6개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-04-03 - AUTO-20260403(staged 5개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-04-03 - AUTO-20260403(staged 6개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-04-01 - AUTO-20260401(staged 4개 파일 기준 문서 연동 자동기록): 연동 자동 기록
