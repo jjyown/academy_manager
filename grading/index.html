@@ -495,6 +495,13 @@
 		.cal-dot.dot-hw-ok { background:#22c55e; }
 		.cal-dot.dot-hw-fail { background:#ef4444; }
 		.cal-dot.dot-hw-mix { background:linear-gradient(135deg,#22c55e 50%,#ef4444 50%); }
+		.cal-dot.dot-hw-ontime { background:#22c55e; }
+		.cal-dot.dot-hw-late { background:#f59e0b; }
+		.cal-dot.dot-hw-missed { background:#ef4444; }
+
+		.hw-badge-ontime { background:rgba(34,197,94,0.15); color:var(--green); }
+		.hw-badge-late { background:rgba(245,158,11,0.15); color:var(--yellow); }
+		.hw-badge-missed { background:rgba(239,68,68,0.15); color:var(--red); }
 
 		/* 숙제 관리: 배정 / 제출 / 채점 서브탭 */
 		#tab-homework-mgmt { display:flex; flex-direction:column; min-height:calc(100vh - 56px); }
@@ -635,9 +642,10 @@
 							</div>
 							<div class="cal-grid" id="hwmp-submit-cal-grid"></div>
 							<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:10px;font-size:11px;color:var(--text-sec);">
-								<span><span class="cal-dot dot-hw-ok" style="vertical-align:middle;"></span> 제출</span>
+								<span><span class="cal-dot dot-hw-ontime" style="vertical-align:middle;"></span> O(정각 제출)</span>
+								<span><span class="cal-dot dot-hw-late" style="vertical-align:middle;"></span> △(늦게 제출)</span>
+								<span><span class="cal-dot dot-hw-missed" style="vertical-align:middle;"></span> X(미제출)</span>
 								<span><span class="cal-dot dot-hw-fail" style="vertical-align:middle;"></span> 업로드 실패</span>
-								<span><span class="cal-dot dot-hw-mix" style="vertical-align:middle;"></span> 혼합</span>
 							</div>
 							<div class="hw-day-detail" id="hwmp-submit-day-detail"></div>
 						</div>
@@ -2665,6 +2673,35 @@ async function deleteResult(resultId, studentName) {
 	}
 }
 
+async function deleteHomeworkSubmission(submissionId) {
+	if (!submissionId) return;
+	if (!confirm('선택한 숙제 제출을 삭제하시겠습니까?\n\n이 작업은 되돌릴 수 없습니다.')) return;
+	try {
+		const teacherId = currentTeacher?.owner_user_id;
+		if (!teacherId) {
+			showToast('선생님 정보를 불러올 수 없습니다.', 'error');
+			return;
+		}
+		const gst = sessionStorage.getItem('grading_session_token');
+		const headers = {};
+		if (gst) headers['Authorization'] = `Bearer ${gst}`;
+
+		const url = `${GRADING_SERVER_URL}/api/homework-submissions/${submissionId}?teacher_id=${encodeURIComponent(teacherId)}`;
+		const res = await fetch(url, { method: 'DELETE', headers });
+		const body = await res.json().catch(() => ({}));
+		if (res.ok && body?.success) {
+			showToast('제출이 삭제되었습니다', 'success');
+			hwSubmissionsCache.clear();
+			await loadHomeworkMonthForSelected();
+		} else {
+			const msg = body?.message || body?.detail || `HTTP ${res.status}`;
+			showToast('삭제 실패: ' + msg, 'error');
+		}
+	} catch (e) {
+		showToast('서버 연결 실패: ' + (e?.message || e), 'error');
+	}
+}
+
 function handleResultRowClick(event, resultId) {
 	if (event && event.target && event.target.closest('.cal-result-del')) {
 		return false;
@@ -4672,17 +4709,51 @@ function selectHwCalDate(ds) {
 }
 
 function _hwDayStatus(ds) {
-	const rows = hwSubmissionsByDate[ds];
-	if (!rows || !rows.length) return null;
-	let ok = false;
-	let fail = false;
-	for (const r of rows) {
-		if (r.status === 'failed') fail = true;
-		else if (r.status === 'uploaded' || r.status === 'manual') ok = true;
+	// 달력 점표시는 O/△/X 기준 + 배정이 있는 날짜만(Q1)
+	const assigns = hwAssignByDate[ds] || [];
+	if (!assigns.length) return null;
+
+	const rows = hwSubmissionsByDate[ds] || [];
+
+	// 해당 날짜의 due_time 중 가장 이른 시간으로 마감 계산(단순화)
+	let dueTime = '23:59';
+	for (const a of assigns) {
+		const t = a?.due_time ? String(a.due_time).slice(0, 5) : '';
+		if (!t) continue;
+		if (!dueTime || dueTime === '23:59' || t < dueTime) dueTime = t;
 	}
-	if (ok && fail) return 'mix';
-	if (fail) return 'fail';
-	if (ok) return 'ok';
+	if (!dueTime) dueTime = '23:59';
+	const mt = String(dueTime).match(/^(\d{1,2}):(\d{2})$/);
+	if (!mt) {
+		dueTime = '23:59';
+	} else {
+		dueTime = `${String(Number(mt[1])).padStart(2, '0')}:${mt[2]}`;
+	}
+
+	const [dh, dm] = dueTime.split(':').map(Number);
+	const parts = ds.split('-').map(Number);
+	const deadline = new Date(parts[0], parts[1] - 1, parts[2], dh, dm);
+	const now = new Date();
+
+	const successRows = rows.filter(r => r.status === 'uploaded' || r.status === 'manual');
+	if (successRows.length > 0) {
+		const deadlineMinutes = dh * 60 + dm;
+		let anyLate = false;
+		for (const r of successRows) {
+			const ct = new Date(r.created_at);
+			const ctMinutes = ct.getHours() * 60 + ct.getMinutes();
+			const ctDateStr = `${ct.getFullYear()}-${String(ct.getMonth() + 1).padStart(2, '0')}-${String(ct.getDate()).padStart(2, '0')}`;
+			const onTime = ctDateStr < ds || (ctDateStr === ds && ctMinutes <= deadlineMinutes);
+			if (!onTime) {
+				anyLate = true;
+				break;
+			}
+		}
+		return anyLate ? 'late' : 'ontime';
+	}
+
+	// 업로드 성공 내역이 없으면: 마감 지났을 때만 X(=missed) 표시, 그 외 pending는 점 없음
+	if (deadline <= now) return 'missed';
 	return null;
 }
 
@@ -4698,7 +4769,13 @@ function _renderHwCell(d, ds, extraCls, todayStr) {
 	const st = _hwDayStatus(ds);
 	let dots = '';
 	if (st) {
-		const dotCls = st === 'ok' ? 'dot-hw-ok' : st === 'fail' ? 'dot-hw-fail' : 'dot-hw-mix';
+		const dotCls = st === 'ontime'
+			? 'dot-hw-ontime'
+			: st === 'late'
+				? 'dot-hw-late'
+				: st === 'missed'
+					? 'dot-hw-missed'
+					: 'dot-hw-ontime';
 		const rows = hwSubmissionsByDate[ds] || [];
 		dots = `<div class="cal-dots"><span class="cal-dot ${dotCls}"></span></div>`;
 		if (rows.length > 1) dots += `<span class="cal-count">${rows.length}건</span>`;
@@ -4811,17 +4888,75 @@ function buildHomeworkDayDetailHtml(mode) {
 	const dh = _formatDateHeader(hwSelectedDateStr);
 	if (mode === 'submit') {
 		const rows = hwSubmissionsByDate[hwSelectedDateStr] || [];
+		const assigns = hwAssignByDate[hwSelectedDateStr] || [];
+		let dueTime = '23:59';
+		for (const a of assigns) {
+			const t = a?.due_time ? String(a.due_time).slice(0, 5) : '';
+			if (!t) continue;
+			if (!dueTime || dueTime === '23:59' || t < dueTime) dueTime = t;
+		}
+		const parts = hwSelectedDateStr.split('-').map(Number);
+		const [dh, dm] = String(dueTime).match(/^(\d{1,2}):(\d{2})$/)
+			? [String(dueTime).match(/^(\d{1,2}):(\d{2})$/)[1], String(dueTime).match(/^(\d{1,2}):(\d{2})$/)[2]]
+			: ['23', '59'];
+		const deadline = new Date(parts[0], parts[1] - 1, parts[2], Number(dh), Number(dm));
+		const deadlineMinutes = Number(dh) * 60 + Number(dm);
+
 		let html = `<div class="hw-day-detail-title">${dh}</div>`;
 		if (!rows.length) {
-			html += '<p style="color:var(--text-sec);font-size:12px;">이 날짜에 표시된 제출이 없습니다.</p>';
-		} else {
-			html += rows.map(r => {
-				const badge = r.status === 'failed'
-					? '<span class="hw-file-badge hw-badge-fail">실패</span>'
-					: '<span class="hw-file-badge hw-badge-ok">제출</span>';
-				return `<div class="hw-file-row"><span class="hw-file-name">${escapeHtml(r.file_name || '파일')}</span>${badge}</div>`;
-			}).join('');
+			if (!assigns.length) {
+				html += '<p style="color:var(--text-sec);font-size:12px;">이 날짜에 배정된 과제가 없습니다.</p>';
+			} else if (deadline <= new Date()) {
+				html += '<p style="color:var(--red);font-size:12px;"><strong>X</strong> (미제출)</p>';
+			} else {
+				html += '<p style="color:var(--text-sec);font-size:12px;">아직 마감 전입니다. (미제출)</p>';
+			}
+			return html;
 		}
+
+		const fmtHHMM = (dt) => {
+			const ct = new Date(dt);
+			const hh = String(ct.getHours()).padStart(2, '0');
+			const mm = String(ct.getMinutes()).padStart(2, '0');
+			return `${hh}:${mm}`;
+		};
+
+		html += rows.map(r => {
+			// 업로드 실패는 O/△/X 판정 대상에서 제외하고 별도 배지로 표시
+			if (r.status === 'failed') {
+				const badge = '<span class="hw-file-badge hw-badge-fail">업로드 실패</span>';
+				return `<div class="hw-file-row">
+					<span class="hw-file-name">${escapeHtml(r.file_name || '파일')}</span>
+					<div style="display:flex;align-items:center;gap:10px;">
+						<span class="hw-file-badge hw-badge-fail">업로드 실패</span>
+						<span style="font-size:11px;color:var(--text-sec);white-space:nowrap;">${fmtHHMM(r.created_at)}</span>
+						<button type="button" class="cal-result-del"
+							onclick="event.stopPropagation();event.preventDefault();deleteHomeworkSubmission(${r.id})"
+							title="삭제"><i class="fas fa-trash-alt"></i></button>
+					</div>
+				</div>`;
+			}
+
+			const ct = new Date(r.created_at);
+			const ctDateStr = `${ct.getFullYear()}-${String(ct.getMonth() + 1).padStart(2, '0')}-${String(ct.getDate()).padStart(2, '0')}`;
+			const ctMinutes = ct.getHours() * 60 + ct.getMinutes();
+			const onTime = ctDateStr < hwSelectedDateStr || (ctDateStr === hwSelectedDateStr && ctMinutes <= deadlineMinutes);
+
+			const badge = onTime
+				? '<span class="hw-file-badge hw-badge-ontime">O</span>'
+				: '<span class="hw-file-badge hw-badge-late">△</span>';
+
+			return `<div class="hw-file-row">
+				<span class="hw-file-name">${escapeHtml(r.file_name || '파일')}</span>
+				<div style="display:flex;align-items:center;gap:10px;">
+					${badge}
+					<span style="font-size:11px;color:var(--text-sec);white-space:nowrap;">${fmtHHMM(r.created_at)}</span>
+					<button type="button" class="cal-result-del"
+						onclick="event.stopPropagation();event.preventDefault();deleteHomeworkSubmission(${r.id})"
+						title="삭제"><i class="fas fa-trash-alt"></i></button>
+				</div>
+			</div>`;
+		}).join('');
 		return html;
 	}
 	if (mode === 'assign') {

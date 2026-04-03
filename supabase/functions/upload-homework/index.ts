@@ -272,6 +272,7 @@ serve(async (req: Request) => {
     const studentName = formData.get("student_name") as string | null;
     const ownerUserId = formData.get("owner_user_id") as string | null; // legacy input (검증용)
     const submissionDate = formData.get("submission_date") as string | null;
+  const gradingAssignmentIdRaw = formData.get("grading_assignment_id") as string | null;
     const answerKeyId = formData.get("answer_key_id") as string | null;
     const portalStudentCode = formData.get("student_code") as string | null;
 
@@ -299,6 +300,44 @@ serve(async (req: Request) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         }
       );
+    }
+
+    let gradingAssignmentId: number | null = null;
+    if (gradingAssignmentIdRaw != null) {
+      const raw = String(gradingAssignmentIdRaw).trim();
+      if (raw) {
+        const iv = Number.parseInt(raw, 10);
+        if (!Number.isFinite(iv) || iv <= 0) {
+          return new Response(
+            JSON.stringify({ error: "Invalid grading_assignment_id" }),
+            {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            }
+          );
+        }
+        gradingAssignmentId = iv;
+      }
+    }
+
+    // 배정 과제 제출 중복 방지(가능하면 재업로드를 막는다)
+    // - failed만 있는 경우는 재시도 허용
+    if (gradingAssignmentId != null) {
+      const { data: existingRow } = await supabase
+        .from("homework_submissions")
+        .select("id,status")
+        .eq("owner_user_id", teacherRow.owner_user_id)
+        .eq("student_id", parsedStudentId)
+        .eq("grading_assignment_id", gradingAssignmentId)
+        .in("status", ["uploaded", "manual"])
+        .limit(1);
+
+      if (existingRow && existingRow.length > 0) {
+        return new Response(
+          JSON.stringify({ error: "This grading assignment has already been submitted" }),
+          { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
     }
 
     const { data: teacherRow, error: teacherError } = await supabase
@@ -439,6 +478,45 @@ serve(async (req: Request) => {
     const day = String(parseInt(dateParts[2]));
     const fileName = `과제-${year}년-${month}월-${day}일-${studentName}.zip`;
 
+    // gradingAssignmentId(배정 선택) 검증 (선택값)
+    if (gradingAssignmentId != null) {
+      const { data: gaRow, error: gaErr } = await supabase
+        .from("grading_assignments")
+        .select("id, teacher_id, assigned_students, due_date, answer_key_id")
+        .eq("id", gradingAssignmentId)
+        .single();
+
+      if (gaErr || !gaRow) {
+        return new Response(
+          JSON.stringify({ error: "Invalid grading_assignment_id" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      if (String(gaRow.teacher_id || "") !== String(teacherRow.owner_user_id || "")) {
+        return new Response(
+          JSON.stringify({ error: "Forbidden: grading assignment teacher mismatch" }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      const assigned = (gaRow.assigned_students || []) as unknown[];
+      const assignedHit = assigned.some((x) => String(x) === String(parsedStudentId));
+      if (!assignedHit) {
+        return new Response(
+          JSON.stringify({ error: "Forbidden: grading assignment not assigned to student" }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      if (String(gaRow.due_date || "") !== String(submissionDate)) {
+        return new Response(
+          JSON.stringify({ error: "Forbidden: grading assignment due_date mismatch" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
+
     const fileBuffer = new Uint8Array(await file.arrayBuffer());
 
     // ─── 2) 중앙 드라이브(jjyown@gmail.com)에 원본 업로드 ───
@@ -460,6 +538,7 @@ serve(async (req: Request) => {
         teacher_id: teacherId,
         student_id: parsedStudentId,
         submission_date: submissionDate,
+        grading_assignment_id: gradingAssignmentId,
         file_name: fileName,
         // 기존 호환: drive_file_id/url은 중앙 드라이브 기준
         drive_file_id: centralFileId,
@@ -512,6 +591,9 @@ serve(async (req: Request) => {
         gradeForm.append("teacher_id", teacherUid);
         gradeForm.append("mode", "assigned");
         gradeForm.append("zip_drive_id", centralFileId);
+        if (gradingAssignmentId != null) {
+          gradeForm.append("assignment_id", String(gradingAssignmentId));
+        }
         if (submissionId) {
           gradeForm.append("homework_submission_id", String(submissionId));
         }

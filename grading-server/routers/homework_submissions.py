@@ -126,3 +126,62 @@ async def list_homework_submissions(
         raise HTTPException(status_code=500, detail="숙제 제출 조회에 실패했습니다") from e
 
     return {"data": rows}
+
+
+@router.delete("/{submission_id}")
+async def delete_homework_submission(
+    request: Request,
+    submission_id: int,
+    teacher_id: str,
+):
+    """
+    숙제 제출 삭제 (채점 관리 UI용)
+
+    - teacher_id: owner_user_id (또는 grading_session token이 있으면 세션의 owner를 우선 검증)
+    - 삭제 대상:
+        1) grading_results.homework_submission_id == submission_id 제거
+        2) homework_submissions.id == submission_id 제거
+    """
+    owner = _resolve_owner_for_homework(request, teacher_id)
+    sb = get_supabase()
+
+    try:
+        sub_row = await run_query(
+            sb.table("homework_submissions")
+            .select("id, owner_user_id, student_id")
+            .eq("id", submission_id)
+            .limit(1)
+            .execute
+        )
+        if not sub_row.data:
+            return {"success": False, "message": "삭제할 제출을 찾을 수 없습니다"}
+
+        row = sub_row.data[0]
+        if str(row.get("owner_user_id") or "").strip() != str(owner).strip():
+            raise HTTPException(status_code=403, detail="이 제출을 삭제할 권한이 없습니다")
+
+        # 소속 검증(안전장치)
+        await _assert_student_in_academy(int(row.get("student_id")), owner)
+
+        # 1) 결과 삭제 (grading_items는 grading_results FK ON DELETE CASCADE)
+        await run_query(
+            sb.table("grading_results")
+            .delete()
+            .eq("homework_submission_id", submission_id)
+            .execute
+        )
+
+        # 2) 제출 삭제
+        await run_query(
+            sb.table("homework_submissions")
+            .delete()
+            .eq("id", submission_id)
+            .execute
+        )
+
+        return {"success": True, "message": "제출이 삭제되었습니다"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"제출 삭제 실패 submission_id={submission_id} owner={owner}: {e}")
+        raise HTTPException(status_code=500, detail="제출 삭제에 실패했습니다") from e
