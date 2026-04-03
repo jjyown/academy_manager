@@ -57,21 +57,45 @@ async function _resolveOwnerUserId() {
     return ls || null;
 }
 
+/** 로컬 타임존 기준 YYYY-MM-DD (수업일은 달력·캘린더 셀과 동일 기준) */
+function _formatLocalDateYmd(d) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+}
+
 /**
  * schedule_date / 범위 삭제용: 월·일 한 자리(2026-2-5) 등을 YYYY-MM-DD로 통일.
  * 문자열 비교(`2026-2-5` > `2026-02-28`)로 2월만 구간에서 빠지는 오류 방지.
+ * Supabase/PostgREST가 `date`를 `2026-03-15T00:00:00+00:00` 형태로 줄 때 캘린더 `YYYY-MM-DD`와
+ * 불일치해 뱃지가 빠지는 문제 → 앞 10자만 쓰지 않고 **로컬 달력 일자**로 정규화.
  */
 function _normalizeScheduleDateKey(input) {
     if (input == null || input === '') return '';
+    if (input instanceof Date) {
+        if (Number.isNaN(input.getTime())) return '';
+        return _formatLocalDateYmd(input);
+    }
     const s = String(input).trim();
+    if (!s) return '';
     if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    const head10 = s.slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(head10) && s.length > 10) {
+        const d = new Date(s);
+        if (!Number.isNaN(d.getTime())) return _formatLocalDateYmd(d);
+    }
     const m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
-    if (!m) return s;
-    const y = parseInt(m[1], 10);
-    const mo = parseInt(m[2], 10);
-    const d = parseInt(m[3], 10);
-    if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return s;
-    return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    if (m) {
+        const y = parseInt(m[1], 10);
+        const mo = parseInt(m[2], 10);
+        const d = parseInt(m[3], 10);
+        if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return s;
+        return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    }
+    const parsed = new Date(s);
+    if (!Number.isNaN(parsed.getTime())) return _formatLocalDateYmd(parsed);
+    return s;
 }
 window.normalizeScheduleDateKey = _normalizeScheduleDateKey;
 
@@ -711,15 +735,25 @@ window.getSchedulesByTeacher = async function(teacherId) {
         const ownerId = _getOwnerId();
         if (!ownerId) { console.warn('[getSchedulesByTeacher] ownerId 없음'); return []; }
 
-        const { data, error } = await supabase
-            .from('schedules')
-            .select('id, student_id, schedule_date, start_time, duration')
-            .eq('owner_user_id', ownerId)
-            .eq('teacher_id', teacherId)
-            .order('schedule_date', { ascending: true });
+        const pageSize = 1000;
+        let from = 0;
+        const all = [];
+        for (;;) {
+            const { data, error } = await supabase
+                .from('schedules')
+                .select('id, student_id, schedule_date, start_time, duration')
+                .eq('owner_user_id', ownerId)
+                .eq('teacher_id', teacherId)
+                .order('schedule_date', { ascending: true })
+                .range(from, from + pageSize - 1);
 
-        if (error) throw error;
-        return data || [];
+            if (error) throw error;
+            const chunk = data || [];
+            all.push(...chunk);
+            if (chunk.length < pageSize) break;
+            from += pageSize;
+        }
+        return all;
     } catch (error) {
         console.error('[getSchedulesByTeacher] 에러:', error);
         return [];

@@ -1,6 +1,6 @@
 # 출석관리앱 작업 계획서
 
-- 문서 기준일: 2026-04-03
+- 문서 기준일: 2026-04-04
 ## 프로젝트 목표
 - 학생/수업 기준으로 출석 상태를 정확히 기록하고 조회한다.
 - 교사 권한으로만 수정 가능하도록 접근 제어를 적용한다.
@@ -97,6 +97,108 @@
   - `loadAllTeachersScheduleData`는 `finally`에서 항상 `allScopeScheduleHydrated=true`·로딩 종료로 정리(오류·조기 return 시에도 영구 빈 달 방지)
 - 검증: 정적 코드 점검; 배포 후 Vercel에서 로그인·월간 캘린더 뱃지 스모크 권장
 - 다음 단계: 400이 계속이면 Supabase 대시보드 anon 키와 `supabase-config.js` 폴백·Vercel env가 동일 프로젝트인지 확인
+
+### 메인 캘린더 일정 누락(3월 등) — start_time NULL·1000행 제한 — 2026-04-03
+- 상태: [x] 완료
+- 구현 파일: `script.js`, `database.js`
+- 구현 요약:
+  - `loadTeacherScheduleData`의 `appendScheduleEntry`가 `start_time`이 비어 `default`로 정규화될 때 행 전체를 버리던 부분을 **기본 시각(09:00)** 보정으로 표시
+  - `loadAllTeachersScheduleData` 병합 시에도 동일 보정
+  - owner·선생님별 `schedules` 조회를 **1000행 단위 페이지**로 누적(PostgREST 기본 상한 회피)
+- 검증: 정적 코드 점검; 배포 후 3월 전체 캘린더·콘솔 `[loadAllTeachersScheduleData]` 건수 스모크 권장
+- 다음 단계: refresh_token 400은 로그아웃 후 재로그인·PKCE 배포 후 재확인
+
+### 메인 캘린더 일정 누락(학생 목록·날짜키) — 2026-04-03
+- 상태: [x] 완료
+- 구현 파일: `script.js`
+- 구현 요약:
+  - `getActiveStudentsForTeacher`: 일정 버킷에만 있는 `student_id`는 전역 `students`에 없을 때 **합성 행**으로 집계해 뱃지 누락 방지
+  - `getTeacherIdsForTimetableScope`(전체 모드): `teacherList`의 선생님 id를 후보에 포함
+  - `buildCalendarSummaryMap`·`collectCellScheduleSummary`: 날짜 키를 `normalizeScheduleDateKeyLocal`로 맞춰 `2026-3-5` vs `2026-03-05` 불일치로 집계가 빠지는 경우 완화
+- 검증: 정적 코드 점검; 라이브 서버에서 3월 월간·전체 선생님 뱃지 스모크 권장
+- 다음 단계: 합성 표시명을 DB 조회로 보강할지 운영 판단
+
+### 메인 캘린더 일정 누락(출석 O·캘린더 X) — ISO schedule_date·퇴원일 미입력 — 2026-04-03
+- 상태: [x] 완료
+- 구현 파일: `database.js`, `script.js`
+- 구현 요약:
+  - `normalizeScheduleDateKey`(`_normalizeScheduleDateKey`): `2026-03-15T00:00:00+00:00` 등 **날짜+시간** 응답을 로컬 달력 `YYYY-MM-DD`로 통일(메인 그리드 `dateToStr`·집계 Set과 일치)
+  - `getActiveStudentsForTeacher`: 퇴원/휴원이어도 `status_changed_date` 없이 제외되지 않게 포함 → `shouldShowScheduleForStudent`가 일별로 필터
+  - `shouldShowScheduleForStudent`: 비교 전 날짜·`statusChangedDate` 정규화, 종료일 없으면 일정 표시(출석 기록과 불일치 완화)
+- 검증: `node --check script.js` `database.js` PASS; 라이브에서 3월 월간 뱃지·퇴원(종료일 미입력) 학생 스모크 권장
+- 다음 단계: 동일 증상 재현 시 Network `schedules` 응답의 `schedule_date` 형식 로그 확인
+
+### setCurrentTeacher 2~3단계 배정 학생 — 로컬 매핑만 보던 버그 — 2026-04-03
+- 상태: [x] 완료
+- 구현 파일: `script.js`(`setCurrentTeacher`)
+- 구현 요약:
+  - 기존: `teacher_students_mapping__${id}` 로컬스토리지 배열만으로 `currentTeacherStudents` 필터 → 매핑이 비어 있으면 **3단계 0명**·DB `students.teacher_id`는 무시
+  - 변경: `getAssignedStudentIdsForTeacher(teacher.id)`로 **DB 담당 teacher_id 우선 + 로컬 매핑 보조**와 동일 규칙 적용, id 비교는 문자열 Set으로 통일
+- 검증: 라이브 콘솔 로그에서 2단계가 `[]`여도 3단계가 DB 담당 인원과 일치하는지 확인; `node --check script.js` PASS
+- 다음 단계: 사용자 캐시 초기화 시에도 동일 동작 재확인
+
+### 메인 캘린더 일정 누락 — owner 전체 버킷 합집합 병합 — 2026-04-03
+- 상태: [x] 완료
+- 구현 파일: `script.js`(`mergeScheduleBucketsIntoTeacherScheduleData`, `loadAllTeachersScheduleData`)
+- 구현 요약:
+  - `loadAllTeachersScheduleData`가 `fetchSchedulesForOwnerPaged`로 `otherTeachers`를 만들지만 **현재 선생님** 데이터는 타 선생님만 덮어쓰고, 동일 fetch로 풀린 `otherTeachers[currentTeacherId]`를 `teacherScheduleData`에 합치지 않아 경로별 누락 가능
+  - `mergeScheduleBucketsIntoTeacherScheduleData`로 현재 선생님 버킷을 `teacherScheduleData`와 **슬롯 단위 합집합**(기존 `upsertScheduleEntry`) 병합 후 로컬 `teacher_schedule_data__` 저장
+  - `finally`에서 `refreshCurrentTeacherStudents()`로 집계 대상 학생 목록 정합
+- 검증: `node --check script.js` PASS; 전체 선생님 모드·월 이동 후 뱃지 스모크 권장
+- 다음 단계: 동일 슬롯 중복 로그가 보이면 `schedules` PK·중복 행 점검
+
+### 운영 점검 — Supabase 캘린더 일정 누락 — 2026-04-03
+- 상태: [x] 완료(점검 스크립트 추가)
+- 구현 파일: `qa-artifacts/supabase_calendar_schedule_check.sql`
+- 구현 요약: 메인 캘린더는 **Railway가 아닌** 브라우저→Supabase `schedules` 조회. RLS·owner UUID·프로젝트 URL/anon 키·`teacher_id` 고아·출석 대비 일정 부재를 SQL로 확인.
+- 검증: SQL Editor에서 `REPLACE_WITH_YOUR_OWNER_UUID` 치환 후 실행
+- 다음 단계: Network `schedules` 응답 200·행 수와 [2][3] 결과 대조
+
+### 메인 캘린더 일정 전량 소실(패치 후) — loadAllTeachers·loadTeacher 경합 — 2026-04-03
+- 상태: [x] 완료
+- 구현 파일: `script.js`(`setCurrentTeacher`)
+- 구현 요약:
+  - `loadAllTeachersScheduleData`를 `loadTeacherScheduleData`와 **병렬**로 시작하면, 전자가 먼저 끝날 때 `merge`로 채운 `teacherScheduleData[current]`가 후자 시작 시 `teacherScheduleData[teacherId]={}` 초기화에 **통째로 지워지는 경합** 가능
+  - 전체 일정 로드는 **현재 선생님 일정 로드 await 이후**에만 순차 호출. 백그라운드 `allScopeLoadPromise` 대기 제거
+- 검증: `node --check script.js` PASS; 선생님 전환 후 월간 뱃지·콘솔 경고 없음 스모크 권장
+- 다음 단계: 체감 지연이 크면 전체 fetch만 지연 로드·현재 선생님은 유지하는지 운영 피드백
+
+### 월간 캘린더 학원 일정 글자색(여러 줄인데 전부 빨강) — 2026-04-04
+- 상태: [x] 완료
+- 구현 파일: `style.css`
+- 원인: `.grid-cell.custom-holiday .holiday-name { color: var(--holiday-text-color) !important }`가 셀의 **첫 일정** 색만 담은 CSS 변수로 **모든** `.holiday-name`을 덮어써, JS가 넣는 줄별 인라인 `color`가 무시됨
+- 조치: 해당 규칙에서 `color`·`!important` 제거, `font-weight`만 유지(날짜 숫자 `.date-num`은 기존처럼 `--holiday-text-color` 유지)
+- 검증: 날짜 설정 모달에서 서로 다른 글자색 일정 2건 저장 후 월간 셀에서 색 분리 표시 확인
+
+### 월간 캘린더 「집계중」 고착(일정 저장 후) — 2026-04-04
+- 상태: [x] 완료
+- 구현 파일: `script.js`(`loadAllTeachersScheduleData`, `_generateScheduleCore`, `updateClassTime`, `setTimetableScope`)
+- 원인: `renderCalendar()` 기본 50ms 디바운스 + `loadAllTeachersScheduleData` 시작 시 `allScopeScheduleLoading=true` → 디바운스된 렌더가 로딩 중에 실행되어 모든 셀에 「집계중」이 박힘. 완료 후 재렌더 없으면 새로고침 전까지 고정.
+- 조치: `loadAllTeachersScheduleData`의 `finally`에서 `renderCalendar(true)`로 즉시 재페인트. 일정 일괄 생성·수업 시간 변경 직전 `renderCalendar(true)`, `setTimetableScope` 마지막도 `renderCalendar(true)`.
+- 검증: `node --check script.js` PASS; 전체 선생님 모드에서 일정 생성 후 월간 뱃지가 곧바로 `N명`으로 복귀하는지 스모크
+- 다음 단계: 동일 패턴으로 `loadAll` 직후 디바운스만 호출하는 다른 경로가 있으면 동일 원칙 적용
+
+### 선생님 선택 → 메인 진입 체감 속도 — 2026-04-04
+- 상태: [x] 완료
+- 구현 파일: `script.js`(`setCurrentTeacher`, `loadTeacherScheduleData`, `loadAllTeachersScheduleData`)
+- 구현 요약:
+  - `loadAndCleanData()`와 `fetchSchedulesForOwnerPaged(owner)`를 **병렬**(`Promise.all`)로 시작해 RTT 중첩 제거
+  - owner `schedules` 전체를 `loadTeacherScheduleData`와 `loadAllTeachersScheduleData`에서 **이중 조회하던 것 제거**: 선패치 배열을 `loadAllTeachersScheduleData(prefetched)`로 전달, `loadTeacherScheduleData`에 `skipOwnerPagedHydrate` 옵션
+  - `autoMarkAbsentForPastSchedules`는 **첫 캘린더 렌더 후** `requestIdleCallback`(폴백 `setTimeout(0)`)으로 지연
+  - `scheduleKstMidnightAutoAbsent`·`initMissedScanChecks`는 메인 진입 전 유지
+  - `navigateToPage` 직후 **100ms 고정 대기 제거** → 이중 `requestAnimationFrame`
+- 검증: `node --check script.js` PASS; 실제 환경에서 `[setCurrentTeacher][perf]` 로그 스모크
+- 리스크: 자동결석 반영이 첫 페인트 직후 지연될 수 있음(두 번째 `renderCalendar`로 반영)
+- 다음 단계: 여전히 느리면 출석 전량 로드 범위·캐시 검토
+
+### setCurrentTeacher — 구버전 ZIP 동선 참고 + 2026-04-04 속도 조정
+- 상태: [x] 완료(참고) / 자동결석 타이밍은 속도 우선으로 변경(2026-04-04)
+- 구현 파일: `script.js`(`setCurrentTeacher`)
+- 구현 요약:
+  - **ZIP 참고 범위**: 과거 ZIP은 **일정 데이터 일치**가 아니라 일정관리 **코드·동선** 참고
+  - **2026-04-04**: ZIP은 `autoMark`를 진입 전에 두었으나, 슬롯·DB 루프 비용이 커 **idle 지연**으로 조정(체감 진입 속도). 자정 타이머·미스캔 초기화는 진입 전 유지
+- 검증: `node --check script.js` PASS
+- 다음 단계: 자동결석 한 박자 지연 현장 수용 여부
 
 ## 현재 스프린트 목표
 ### QR 전화번호 인증 입력창 소프트 키패드 차단 — 2026-03-31
@@ -1559,6 +1661,7 @@
 - [ ] 다음 작업자가 바로 이어서 할 수 있게 문서가 갱신되었다.
 
 ## 변경 이력
+- 2026-04-04 - AUTO-20260404(staged 9개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-04-03 - AUTO-20260403(staged 6개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-04-03 - AUTO-20260403(staged 5개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-04-03 - AUTO-20260403(staged 6개 파일 기준 문서 연동 자동기록): 연동 자동 기록

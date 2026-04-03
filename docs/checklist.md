@@ -1,10 +1,22 @@
 # 출석관리앱 체크리스트
 
-- 문서 기준일: 2026-04-03
+- 문서 기준일: 2026-04-04
 ## 문의 답변 처리
+- [x] 월간 학원 일정 글자색(2026-04-04): `style.css`에서 `.grid-cell.custom-holiday .holiday-name`의 `color !important` 제거 — 줄별 인라인 색 복구
+- [x] 월간 캘린더 「집계중」 고착(2026-04-04): `loadAllTeachersScheduleData` finally에 `renderCalendar(true)` — 디바운스 렌더×로딩 플래그 경합 제거; `_generateScheduleCore`/`updateClassTime`/`setTimetableScope` 보강
+- [x] 선생님 선택→메인 체감 속도(2026-04-04): `loadAndCleanData`∥`fetchSchedulesForOwnerPaged`, owner `schedules` 단일 패치→`loadAllTeachersScheduleData(prefetched)` + `skipOwnerPagedHydrate`, `autoMarkAbsentForPastSchedules`는 idle 지연·이중 rAF로 100ms 제거
+- [x] 과거 기기 ZIP 참고 범위(2026-04-03): **일정 데이터** 동기화가 아니라 일정관리 **코드·진입 동선** 참고 — 현재 `schedules`/스키마와 예전 일정은 다를 수 있음
 - [x] Supabase에서 숙제 배정/제출/채점 기록 확인 테이블 위치 정리(2026-04-03)
 - [x] 숙제 달력·상태: `schedules` 폴백 제거, 마감은 `grading_assignments`/`/api/homework-assignments`만 사용(2026-04-03, `parent-portal/report.js`, `homework/index.html`)
 - [x] Vercel 관리자 로그인 400·메인 캘린더 일정 누락(2026-04-03): `supabase-config.js` `flowType: pkce`, `script.js` 전체 선생님 요약 빈 맵 제거·`loadAllTeachersScheduleData` finally 정리, `index.html` `__envLoadPromise`
+- [x] 메인 캘린더 일정 누락 보강(2026-04-03): `start_time` NULL→`09:00` 보정, `schedules` 조회 1000행 페이지네이션(`fetchSchedulesForOwnerPaged`, `getSchedulesByTeacher`)
+- [x] 메인 캘린더 일정 누락 보강 2차(2026-04-03): `getActiveStudentsForTeacher` 일정 전용 학생 합성, 날짜 키 정규화, `getTeacherIdsForTimetableScope`+`teacherList`
+- [x] 메인 캘린더 일정 누락 보강 3차(2026-04-03): `normalizeScheduleDateKey` ISO·날짜시간→로컬 YYYY-MM-DD, 퇴원/휴원+종료일 미입력 학생 목록 포함·`shouldShowScheduleForStudent` 정규화 비교
+- [x] 선생님 선택 시 배정 학생(2026-04-03): `setCurrentTeacher` 2~3단계를 `getAssignedStudentIdsForTeacher`로 통일(로컬 매핑만 보던 경로 제거)
+- [x] 메인 캘린더 일정 누락 보강 4차(2026-04-03): `loadAllTeachersScheduleData`에서 `otherTeachers[currentTeacherId]`→`teacherScheduleData` 합집합 병합(`mergeScheduleBucketsIntoTeacherScheduleData`)·`finally`에서 `refreshCurrentTeacherStudents`
+- [x] Supabase 운영 점검 SQL(2026-04-03): `qa-artifacts/supabase_calendar_schedule_check.sql` — RLS·월별·teacher별·고아·출석만 있는 날
+- [x] 메인 캘린더 일정 소실 회귀(2026-04-03): `setCurrentTeacher`에서 `loadAllTeachersScheduleData` 병렬 시작 제거·`loadTeacherScheduleData` 이후 순차
+- [x] `setCurrentTeacher` 자동결석·미스캔(2026-04-04 갱신): `scheduleKstMidnightAutoAbsent`·`initMissedScanChecks`는 `MAIN_APP` **전** — `autoMarkAbsentForPastSchedules`는 **첫 렌더 후 idle**(진입 속도). 구 ZIP 전부 진입 전이었으나 2026-04-04에 분리
 ## 공통 품질 체크
 - [x] 교재 상세 페이지 화살표/북마크 가시성 보강(2026-04-01): `grading/index.html`에서 `.kd-pages-wrap` 높이(일반/영역모드)를 재조정하고 `ensureKdPreviewControlsVisible()`를 추가해 `toggleRegionMode`/`renderKdPageImages` 시 `#kd-page-nav`/`#kd-bookmarks` 표시를 재보정
 - [x] 교재 상세 영역 표시 UX(2026-04-01): `grading/index.html`에서 영역 표시 모드(`kdRegionMode`) 중에도 드래그 팬을 유지하고 클릭 임계값 기반으로만 마킹 처리, 하단 페이지 네비게이션 `.image-nav` z-index 보강으로 앞/뒤 이동 버튼 접근성 개선
@@ -165,6 +177,7 @@
 ## 테스트/검증 결과 기록
 | 날짜 | 작업 | 검증 방법 | 결과 | 비고 |
 |---|---|---|---|---|
+| 2026-04-04 | AUTO-20260404(staged 9개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-04-03 | AUTO-20260403(staged 6개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-04-03 | AUTO-20260403(staged 5개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-04-03 | AUTO-20260403(staged 6개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |

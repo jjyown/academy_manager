@@ -1,6 +1,6 @@
 # 출석관리앱 컨텍스트 노트
 
-- 문서 기준일: 2026-04-03
+- 문서 기준일: 2026-04-04
 ## 제품/운영 컨텍스트
 - 대상 사용자: 교사(관리), 학생(조회)
 - 핵심 데이터: 학생, 반, 수업, 날짜, 출석상태, 수정자, 수정시각
@@ -14,11 +14,29 @@
 ## 최근 의사결정 로그
 | 날짜 | 결정 | 이유 | 영향 범위 |
 |---|---|---|---|
+| 2026-04-04 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | database.js, docs/checklist.md, docs/context.md, docs/enterprise_workflow.md, docs/plan.md 외 4개 |
+| 2026-04-04 | 같은 날 학원 일정 **줄마다 글자색**은 CSS가 인라인을 덮으면 안 됨 | `custom-holiday` 셀에서 `.holiday-name`에 `color: var(--holiday-text-color) !important`를 쓰면 첫 일정색으로 전 줄 통일됨 | `style.css` |
+| 2026-04-04 | 월간 「집계중」 고착: `loadAll` 직후 **반드시** `renderCalendar(true)` | `renderCalendar` 50ms 디바운스가 `allScopeScheduleLoading` 구간과 겹치면 셀 전부 「집계중」으로 그려진 뒤 완료 시 재페인트가 없을 수 있음 | `script.js` `loadAllTeachersScheduleData` finally + 일정 저장 경로 |
+| 2026-04-04 | 선생님 선택→메인: `schedules` owner 전체 **단일 패치** + `loadAndCleanData`와 **병렬** | 동일 `fetchSchedulesForOwnerPaged`를 `loadTeacher`·`loadAll`에서 연속 호출해 RTT·페이지 루프가 두 배로 쌓이던 병목 제거 | `script.js` `setCurrentTeacher`, `loadTeacherScheduleData`, `loadAllTeachersScheduleData` |
+| 2026-04-04 | `autoMarkAbsentForPastSchedules`는 메인 **첫 렌더 후 idle** | 슬롯 순회·DB 조회가 길어 진입을 막음; 첫 페인트 우선, 이후 `renderCalendar`로 반영 | `script.js` `setCurrentTeacher` |
+| 2026-04-03 | 과거 기기 ZIP 대조는 **일정 데이터** 일치가 아니라 **일정관리 코드·진입 동선** 참고 | 예전 빌드의 수업 일정·저장 형태는 현재 Supabase `schedules`·정책과 다를 수 있음. 비교 대상은 `load*` 순서·`setCurrentTeacher` 단계·UI 훅 | 문서·구현 스코프(데이터 마이그레이션 요구 아님) |
+| 2026-04-03 | `setCurrentTeacher`에서 자동결석·미스캔은 메인 진입 전(구 ZIP과 동일 순서) | 일정 로드 직후 백그라운드로 미루면 첫 캘린더 렌더와 출석 집계 타이밍이 어긋날 수 있음 | `script.js` `setCurrentTeacher` |
 | 2026-04-03 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/checklist.md, docs/context.md, docs/plan.md, index.html, script.js 외 1개 |
 | 2026-04-03 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | grading-server/main.py, grading-server/routers/homework_assignments.py, grading-server/routers/homework_submissions.py, grading/index.html, supabase/functions/upload-homework/index.ts |
 | 2026-04-03 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/checklist.md, docs/context.md, docs/plan.md, grading-server/integrations/supabase_client.py, homework/index.html 외 1개 |
 | 2026-04-03 | Supabase 클라이언트 `auth.flowType`은 `pkce`(implicit 금지) | `implicit`는 비밀번호 로그인 토큰 요청과 맞지 않아 Vercel 등에서 `/token?grant_type=password` 400이 날 수 있음 | `supabase-config.js` |
 | 2026-04-03 | 메인 월간 캘린더는 `allScopeScheduleHydrated`로 요약을 비우지 않음 | 전체 선생님 모드에서 집계 완료 전 `buildCalendarSummaryMap`이 빈 맵을 반환해 등록 일정이 대거 안 보이던 회귀 제거 | `script.js` |
+| 2026-04-03 | `schedules.start_time` NULL은 `09:00`으로 보정해 캘린더에 반영 | `appendScheduleEntry`가 `default`로 정규화된 행을 버려 DB 건수와 뱃지가 어긋날 수 있음 | `script.js`, `loadAllTeachersScheduleData` |
+| 2026-04-03 | owner·선생님별 `schedules` 조회는 1000행 제한 회피용 페이지 누적 | PostgREST 기본 상한으로 일정이 잘리면 월간 일부 날짜가 비어 보임 | `script.js` `fetchSchedulesForOwnerPaged`, `database.js` `getSchedulesByTeacher` |
+| 2026-04-03 | 캘린더 집계는 `teacherScheduleData`의 학생 id를 `students` 배열과 무관하게 포함 | `getActiveStudentsForTeacher`가 `students.filter`만 쓰면 일정만 있는 학생·DB 잔존 행이 월간 뱃지에서 빠짐 | `script.js` `getActiveStudentsForTeacher` |
+| 2026-04-03 | `setCurrentTeacher`에서 전체 일정 로드는 현재 선생님 일정 로드 **이후** 순차 | 병렬 시 `loadAllTeachers` merge → `loadTeacherScheduleData` 초기화로 버킷 소실 경합 | `script.js` |
+| 2026-04-03 | 메인 캘린더 일정은 브라우저→Supabase `schedules`(Railway 아님) | 채점·숙제 API와 혼동 시 원인 분기 실패 | 운영: `qa-artifacts/supabase_calendar_schedule_check.sql` |
+| 2026-04-03 | owner 전체 일정 fetch로 풀린 **현재 선생님** 버킷도 `teacherScheduleData`에 합집합 병합 | `loadAllTeachersScheduleData`가 타 선생님만 동기화하고 현재 선생님은 `loadTeacherScheduleData`만 믿으면 경로·해석 차이로 월간 뱃지 누락 가능 | `script.js` `mergeScheduleBucketsIntoTeacherScheduleData` |
+| 2026-04-03 | `setCurrentTeacher` 2~3단계는 `getAssignedStudentIdsForTeacher`로 배정 학생 결정 | 로컬 `teacher_students_mapping__`만 쓰면 매핑 비어 있을 때 3단계 0명·DB `students.teacher_id`와 불일치(콘솔 로그로 재현) | `script.js` `setCurrentTeacher` |
+| 2026-04-03 | `schedule_date`는 ISO 날짜시간 문자열도 로컬 `YYYY-MM-DD`로 정규화 | PostgREST/클라이언트가 `T`/타임존 포함 문자열을 주면 키가 캘린더 셀과 달라 뱃지가 빠질 수 있음 | `database.js` `_normalizeScheduleDateKey`, `script.js` `normalizeScheduleDateKeyLocal` 폴백 |
+| 2026-04-03 | 퇴원/휴원 학생은 `getActiveStudentsForTeacher`에서 제외하지 않고 `shouldShowScheduleForStudent`로 일별 제어 | `status_changed_date` 미입력 시 목록에서 빠져 메인 캘린더만 비고 출석 기록과 불일치할 수 있음 | `script.js` `getActiveStudentsForTeacher`, `shouldShowScheduleForStudent` |
+| 2026-04-03 | 월간 요약은 날짜 키 정규화 후 `targetDates`와 매칭 | `2026-3-5` vs `2026-03-05` 불일치로 해당 날짜 뱃지가 사라질 수 있음 | `script.js` `buildCalendarSummaryMap`, `collectCellScheduleSummary` |
+| 2026-04-03 | 전체 선생님 모드에서 `teacherList` 선생님 id를 집계 후보에 포함 | 일정 버킷 키가 비어 있을 때도 담당 선생님별 매핑·표시를 일관되게 | `script.js` `getTeacherIdsForTimetableScope` |
 | 2026-04-03 | 숙제 달력 O/X/△는 배정(`grading_assignments`·`/api/homework-assignments`)만 사용 | 선생님 지정 마감이 단일 진실원천이어야 하며, 배정 API 실패 시 수업 `schedules`로 대체하면 마감과 무관한 날에 잘못된 표시가 남 | `parent-portal/report.js`, `homework/index.html` |
 | 2026-04-03 | 숙제 배정/제출/채점 기록 Supabase 확인 테이블 | 배정은 `grading_assignments`, 학생 제출은 `homework_submissions`(FK=`grading_assignment_id`), 채점 결과는 `grading_results`에서 확인 | `grading_assignments`, `homework_submissions`, `grading_results` |
 | 2026-04-01 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/checklist.md, docs/context.md, docs/plan.md, grading/index.html |

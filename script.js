@@ -309,10 +309,30 @@ function normalizeScheduleDateKeyLocal(input) {
         return window.normalizeScheduleDateKey(input);
     }
     if (input == null || input === '') return '';
+    if (input instanceof Date) {
+        if (Number.isNaN(input.getTime())) return '';
+        const y = input.getFullYear();
+        const m = String(input.getMonth() + 1).padStart(2, '0');
+        const d = String(input.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+    }
     const s = String(input).trim();
     if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    const head10 = s.slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(head10) && s.length > 10) {
+        const d = new Date(s);
+        if (!Number.isNaN(d.getTime())) {
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        }
+    }
     const m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
-    if (!m) return s;
+    if (!m) {
+        const parsed = new Date(s);
+        if (!Number.isNaN(parsed.getTime())) {
+            return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}-${String(parsed.getDate()).padStart(2, '0')}`;
+        }
+        return s;
+    }
     const y = parseInt(m[1], 10);
     const mo = parseInt(m[2], 10);
     const d = parseInt(m[3], 10);
@@ -683,6 +703,17 @@ function getTeacherIdsForTimetableScope() {
         Object.keys(teacherScheduleData || {}).forEach((tid) => {
             if (tid) ids.add(String(tid));
         });
+        // 일정 버킷이 아직 비어 있어도 teacherList의 담당 선생님은 집계 후보에 포함(매핑·지연 로드 정합)
+        if (Array.isArray(teacherList)) {
+            teacherList.forEach((t) => {
+                const raw = String(t?.id ?? '').trim();
+                if (!raw) return;
+                const resolved = typeof resolveKnownTeacherId === 'function'
+                    ? String(resolveKnownTeacherId(raw) || raw).trim()
+                    : raw;
+                if (resolved) ids.add(resolved);
+            });
+        }
     }
     return Array.from(ids);
 }
@@ -1020,7 +1051,7 @@ window.setTimetableScope = async function(scope) {
             console.warn('[setTimetableScope] 전체 일정 재로드 실패:', e);
         }
     }
-    renderCalendar();
+    renderCalendar(true);
     if (currentDetailDate && document.getElementById('day-detail-modal')?.style.display === 'flex') {
         renderDayEvents(currentDetailDate);
     }
@@ -2039,53 +2070,75 @@ async function setCurrentTeacher(teacher) {
         updateTimetableScopeUi();
         allScopeScheduleHydrated = timetableScope !== 'all';
         allScopeScheduleLoading = timetableScope === 'all';
-        const allScopeLoadPromise = (timetableScope === 'all' && typeof loadAllTeachersScheduleData === 'function')
-            ? loadAllTeachersScheduleData()
-            : Promise.resolve();
+        // 주의: loadAllTeachersScheduleData를 loadTeacherScheduleData와 병렬로 돌리면 안 됨.
+        // 선행 완료 시 merge로 teacherScheduleData[current]를 채운 뒤, loadTeacherScheduleData가
+        // 시작 시 teacherScheduleData[teacherId]={} 로 초기화하면서 그 병합분이 통째로 사라지는 경합이 난다.
         
-        // 1단계: 관리자별 모든 학생 로드
-        console.log('[setCurrentTeacher] 1단계: 학생 데이터 로드 중...');
-        await loadAndCleanData();
-        console.log('[setCurrentTeacher] 1단계 완료, 전체 학생:', students.length);
+        // 1단계: 학생·출결·수납 로드 + (전체 일정 모드면) owner schedules 1회 선패치 — 순차 시 네트워크 왕복이 겹쳐 지연됨
+        console.log('[setCurrentTeacher] 1단계: 학생 데이터 + 일정 선패치(병렬) 중...');
+        const ownerIdForSchedules = cachedLsGet('current_owner_id');
+        const shouldPrefetchOwnerSchedules = timetableScope === 'all' && !!ownerIdForSchedules;
+        const [, ownerSchedulesPrefetch] = await Promise.all([
+            loadAndCleanData(),
+            shouldPrefetchOwnerSchedules && typeof fetchSchedulesForOwnerPaged === 'function'
+                ? fetchSchedulesForOwnerPaged(ownerIdForSchedules)
+                : Promise.resolve(null)
+        ]);
+        console.log('[setCurrentTeacher] 1단계 완료, 전체 학생:', students.length,
+            shouldPrefetchOwnerSchedules ? `· 일정 선패치 ${(ownerSchedulesPrefetch || []).length}건` : '');
         
-        // 2단계: 현재 선생님의 학생 매핑 키 구성
-        const teacherStudentsKey = `teacher_students_mapping__${teacher.id}`;
-        let teacherStudentIds = [];
-        const saved = localStorage.getItem(teacherStudentsKey);
-        if (saved) {
-            try {
-                teacherStudentIds = JSON.parse(saved) || [];
-            } catch (e) {
-                console.error('[setCurrentTeacher] 선생님-학생 매핑 파싱 실패:', e);
-                teacherStudentIds = [];
-            }
-        }
+        // 2~3단계: 배정 학생 — 로컬 매핑만 보면 []로 나오는 경우가 많음(실제는 DB students.teacher_id에 있음).
+        // 시간표·학생목록과 동일하게 getAssignedStudentIdsForTeacher(DB 우선 + 매핑 보조) 사용.
+        const teacherStudentIds = typeof getAssignedStudentIdsForTeacher === 'function'
+            ? getAssignedStudentIdsForTeacher(teacher.id)
+            : [];
         console.log('[setCurrentTeacher] 2단계: 선생님에 할당된 학생 ID:', teacherStudentIds);
-        
-        // 3단계: 학생 목록에서 현재 선생님에 할당된 학생만 필터링
-        currentTeacherStudents = students.filter(s => teacherStudentIds.includes(s.id));
+        const assignedSet = new Set((teacherStudentIds || []).map((id) => String(id)));
+        currentTeacherStudents = students.filter((s) => assignedSet.has(String(s.id)));
         console.log('[setCurrentTeacher] 3단계: 현재 선생님의 학생 필터링 완료 -', currentTeacherStudents.length + '명');
         
         const perfStart = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
 
-        // 4단계: 현재 선생님의 일정 데이터 로드
+        // 4단계: 현재 선생님 일정(getSchedulesByTeacher) + 전체 버킷 병합.
+        // 선패치가 있으면 loadTeacher 내부 owner 전체 fetch 생략 → 동일 데이터 2중 조회 제거.
         console.log('[setCurrentTeacher] 4단계: 일정 데이터 로드 중...');
-        await loadTeacherScheduleData(teacher.id);
+        const useSchedulePrefetch = shouldPrefetchOwnerSchedules && Array.isArray(ownerSchedulesPrefetch);
+        await loadTeacherScheduleData(teacher.id, {
+            skipOwnerPagedHydrate: useSchedulePrefetch,
+            skipRefreshCurrentTeacherStudents: true
+        });
         console.log('[setCurrentTeacher] 4단계 완료: 현재 선생님 일정 로드 완료');
-        if (timetableScope === 'all') {
-            // 정확성 우선: 전체 범위는 전체 일정 로드 완료 후 첫 렌더
+        if (timetableScope === 'all' && typeof loadAllTeachersScheduleData === 'function') {
             try {
-                await allScopeLoadPromise;
+                await loadAllTeachersScheduleData(useSchedulePrefetch ? ownerSchedulesPrefetch : undefined);
             } catch (e) {
-                console.warn('[setCurrentTeacher] 전체 일정 선로딩 실패:', e);
+                console.warn('[setCurrentTeacher] 전체 일정 로드 실패:', e);
             }
+        } else if (typeof refreshCurrentTeacherStudents === 'function') {
+            await refreshCurrentTeacherStudents();
         }
+
+        // 가벼운 타이머·미스캔은 메인 진입 전 등록(동기 비용 거의 없음).
+        try {
+            scheduleKstMidnightAutoAbsent();
+        } catch (e) {
+            console.warn('[setCurrentTeacher] 자동결석 타이머 실패:', e);
+        }
+        try {
+            if (typeof window.initMissedScanChecks === 'function') {
+                window.initMissedScanChecks();
+            }
+        } catch (e) {
+            console.warn('[setCurrentTeacher] 미스캔 체크 초기화 실패:', e);
+        }
+
+        // 과거 일정 자동결석은 슬롯×DB조회로 수 초 걸릴 수 있어 — 화면 진입 후 idle에 실행해 체감 속도 우선.
         
         // 5단계: 페이지를 MAIN_APP으로 전환
         console.log('[setCurrentTeacher] 5단계: 페이지 전환 중...');
         navigateToPage('MAIN_APP');  // ✅ active_page를 'MAIN_APP'으로 저장
-        
-        await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         
         // 6단계: UI 업데이트 (레이블)
         console.log('[setCurrentTeacher] 6단계: UI 업데이트 중...');
@@ -2127,32 +2180,26 @@ async function setCurrentTeacher(teacher) {
         const perfAfterFirstRender = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
         console.info(`[setCurrentTeacher][perf] first-render: ${Math.round(perfAfterFirstRender - perfStart)}ms`);
 
-        // --- 백그라운드 후속 작업 ---
-        // 전체 선생님 일정(전체 보기/교차 확인용)과 자동결석 보정은 화면 진입 후 비동기로 실행
-        Promise.resolve()
-            .then(async () => {
-                try { await allScopeLoadPromise; } catch (_) {}
-                try {
-                    await autoMarkAbsentForPastSchedules();
-                } catch (e) {
-                    console.warn('[setCurrentTeacher] 백그라운드 자동결석 보정 실패:', e);
-                }
-                try {
-                    scheduleKstMidnightAutoAbsent();
-                } catch (e) {
-                    console.warn('[setCurrentTeacher] 자동결석 타이머 등록 실패:', e);
-                }
-                try {
-                    if (typeof window.initMissedScanChecks === 'function') {
-                        window.initMissedScanChecks();
+        const runDeferredAutoAbsentAndRepaint = () => {
+            Promise.resolve()
+                .then(async () => {
+                    try {
+                        await autoMarkAbsentForPastSchedules();
+                    } catch (e) {
+                        console.warn('[setCurrentTeacher] 자동결석 보정(지연) 실패:', e);
                     }
-                } catch (e) {
-                    console.warn('[setCurrentTeacher] 미스캔 체크 초기화 실패:', e);
-                }
-                renderCalendar();
-                const perfDone = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
-                console.info(`[setCurrentTeacher][perf] background-complete: ${Math.round(perfDone - perfStart)}ms`);
-            });
+                    try {
+                        renderCalendar();
+                    } catch (_) { /* ignore */ }
+                    const perfDone = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+                    console.info(`[setCurrentTeacher][perf] post-auto-absent-render: ${Math.round(perfDone - perfStart)}ms`);
+                });
+        };
+        if (typeof requestIdleCallback === 'function') {
+            requestIdleCallback(runDeferredAutoAbsentAndRepaint, { timeout: 2500 });
+        } else {
+            setTimeout(runDeferredAutoAbsentAndRepaint, 0);
+        }
         
         console.log('[setCurrentTeacher] 완료 - 선생님:', teacher.name);
     } catch (err) {
@@ -3386,7 +3433,12 @@ function collectCellScheduleSummary(dateStr) {
         const activeStudents = getActiveStudentsForTeacher(teacherId);
         for (const student of activeStudents) {
             if (!student || !shouldShowScheduleForStudent(student, dateStr)) continue;
-            const entries = normalizeScheduleEntries((teacherSched[String(student.id)] || {})[dateStr]);
+            const byDay = teacherSched[String(student.id)] || {};
+            let entries = [];
+            for (const [rawKey, cellVal] of Object.entries(byDay)) {
+                if (normalizeScheduleDateKeyLocal(rawKey) !== dateStr) continue;
+                entries = entries.concat(normalizeScheduleEntries(cellVal));
+            }
             if (!entries.length) continue;
             const uniqueKey = `${teacherId}__${student.id}`;
             if (seen.has(uniqueKey)) continue;
@@ -3419,12 +3471,13 @@ function buildCalendarSummaryMap(dateStrList) {
             const sid = String(student.id || '');
             if (!sid) continue;
             const byDate = teacherSched[sid] || {};
-            const scheduleDates = Object.keys(byDate);
-            if (!scheduleDates.length) continue;
-            for (const dateStr of scheduleDates) {
-                if (!targetDates.has(dateStr)) continue;
+            const scheduleDateEntries = Object.entries(byDate);
+            if (!scheduleDateEntries.length) continue;
+            for (const [rawDateKey, cellVal] of scheduleDateEntries) {
+                const dateStr = normalizeScheduleDateKeyLocal(rawDateKey);
+                if (!dateStr || !targetDates.has(dateStr)) continue;
                 if (!shouldShowScheduleForStudent(student, dateStr)) continue;
-                const entries = normalizeScheduleEntries(byDate[dateStr]);
+                const entries = normalizeScheduleEntries(cellVal);
                 if (!entries.length) continue;
                 const dedupeKey = `${teacherId}__${sid}__${dateStr}`;
                 if (seen.has(dedupeKey)) continue;
@@ -4607,7 +4660,7 @@ window.updateClassTime = async function() {
         const originalOwnerInput = document.getElementById('att-original-owner-teacher-id');
         if (originalOwnerInput) originalOwnerInput.value = targetTeacherId;
 
-        renderCalendar(); 
+        renderCalendar(true);
         if (document.getElementById('day-detail-modal').style.display === 'flex') { if (currentDetailDate === newDateStr || currentDetailDate === oldDateStr) renderDayEvents(currentDetailDate); }
         if (typeof window.onScheduleSlotChangedForAttendanceCheck === 'function') {
             window.onScheduleSlotChangedForAttendanceCheck({
@@ -5244,7 +5297,7 @@ async function _generateScheduleCore(excludeHolidays) {
         } else {
             closeModal('schedule-modal');
         }
-        renderCalendar();
+        renderCalendar(true);
         await loadAllTeachersScheduleData();
         if (typeof window.initMissedScanChecks === 'function') window.initMissedScanChecks();
         if (typeof scheduleKstMidnightAutoAbsent === 'function') scheduleKstMidnightAutoAbsent();
@@ -5259,7 +5312,7 @@ async function _generateScheduleCore(excludeHolidays) {
     } catch (e) {
         console.error('[generateSchedule] 일정 생성 처리 예외:', e);
         // 로컬 반영은 이미 된 경우가 있으므로 캘린더를 다시 렌더링해 사용자 혼란을 줄인다.
-        renderCalendar();
+        renderCalendar(true);
         if (totalCount > 0) {
             showToast(`${totalCount}개의 일정이 추가되었습니다. 다만 후처리 중 오류가 발생했습니다.`, 'warning');
         } else {
@@ -8805,15 +8858,87 @@ async function ensureAttendanceForDate(dateStr) {
     }
 }
 
+/** DB에 start_time이 비어 있는 레거시/수동 행 — 캘린더·겹침 검사용 기본 슬롯 */
+const DEFAULT_SCHEDULE_START_FALLBACK = '09:00';
+
+/** owner_user_id 기준 schedules 전체 (PostgREST 기본 1000행 제한 회피) */
+async function fetchSchedulesForOwnerPaged(ownerId) {
+    if (!ownerId || typeof supabase === 'undefined') return [];
+    const pageSize = 1000;
+    let from = 0;
+    const all = [];
+    for (;;) {
+        const { data, error } = await supabase
+            .from('schedules')
+            .select('teacher_id, student_id, schedule_date, start_time, duration')
+            .eq('owner_user_id', ownerId)
+            .range(from, from + pageSize - 1);
+        if (error) {
+            console.error('[fetchSchedulesForOwnerPaged]', error);
+            return all;
+        }
+        const chunk = data || [];
+        all.push(...chunk);
+        if (chunk.length < pageSize) break;
+        from += pageSize;
+    }
+    return all;
+}
+
+/**
+ * owner 전체 fetch(`loadAllTeachersScheduleData`의 otherTeachers)에서 특정 teacher_id로
+ * 묶인 버킷을 `teacherScheduleData[teacherId]`와 **합집합** 병합한다.
+ * `getSchedulesByTeacher` + `loadTeacherScheduleData`의 owner 보강만으로는
+ * 호출 순서·해석 차이로 빈틈이 남을 수 있어, 동일 DB를 두 경로로 맞춘다.
+ */
+function mergeScheduleBucketsIntoTeacherScheduleData(teacherId, additions) {
+    if (!teacherId || !additions || typeof additions !== 'object') return;
+    const tid = String(teacherId).trim();
+    if (!tid) return;
+    if (!teacherScheduleData[tid]) teacherScheduleData[tid] = {};
+    Object.keys(additions).forEach((sidRaw) => {
+        const sid = String(sidRaw).trim();
+        if (!sid || sid === 'null' || sid === 'undefined') return;
+        const byDate = additions[sidRaw];
+        if (!byDate || typeof byDate !== 'object') return;
+        if (!teacherScheduleData[tid][sid]) teacherScheduleData[tid][sid] = {};
+        Object.keys(byDate).forEach((dk) => {
+            const nk = normalizeScheduleDateKeyLocal(dk);
+            if (!nk) return;
+            const incoming = normalizeScheduleEntries(byDate[dk]);
+            if (!incoming.length) return;
+            let next = [...getScheduleEntries(tid, sid, nk)];
+            incoming.forEach((ent) => {
+                let st = normalizeScheduleTimeKey(ent?.start || '');
+                if (!st || st === 'default') st = DEFAULT_SCHEDULE_START_FALLBACK;
+                const duration = parseInt(ent?.duration, 10) || 60;
+                next = upsertScheduleEntry(next, { start: st, duration }).list;
+            });
+            setScheduleEntries(tid, sid, nk, next);
+        });
+    });
+}
+
 // 선생님별 일정 데이터 로드
-async function loadTeacherScheduleData(teacherId) {
+// opts.skipOwnerPagedHydrate: 곧바로 `loadAllTeachersScheduleData(동일 owner fetch 결과)`를 호출할 때
+//   owner `schedules` 전체를 두 번 가져오지 않도록 생략한다.
+// opts.skipRefreshCurrentTeacherStudents: `loadAndCleanData`와 병렬 실행 시 끝에서 갱신하지 않고
+//   호출부에서 한 번만 `refreshCurrentTeacherStudents` 하도록 할 때 사용.
+async function loadTeacherScheduleData(teacherId, opts) {
+    const {
+        skipOwnerPagedHydrate = false,
+        skipRefreshCurrentTeacherStudents = false
+    } = opts && typeof opts === 'object' ? opts : {};
     try {
         const normalizedTeacherId = String(resolveKnownTeacherId(teacherId) || teacherId || '').trim();
         const appendScheduleEntry = (ownerTid, schedule) => {
             const sid = String(schedule?.student_id || '').trim();
             const date = normalizeScheduleDateKeyLocal(String(schedule?.schedule_date || '').trim());
-            const start = normalizeScheduleTimeKey(schedule?.start_time || '');
-            if (!ownerTid || !sid || !date || !start || start === 'default') return;
+            let start = normalizeScheduleTimeKey(schedule?.start_time || '');
+            if (!start || start === 'default') {
+                start = DEFAULT_SCHEDULE_START_FALLBACK;
+            }
+            if (!ownerTid || !sid || !date) return;
             if (!teacherScheduleData[ownerTid]) teacherScheduleData[ownerTid] = {};
             if (!teacherScheduleData[ownerTid][sid]) teacherScheduleData[ownerTid][sid] = {};
             const entry = {
@@ -8834,17 +8959,11 @@ async function loadTeacherScheduleData(teacherId) {
                     appendScheduleEntry(teacherId, schedule);
                 });
 
-                // legacy/미배정 혼합 데이터 보강:
-                // owner 전체 조회에서 학생 컨텍스트로 현재 teacher 일정을 재해석해 누락을 줄인다.
+                // legacy/미배정 혼합 데이터 보강 (owner 전체 fetch — `loadAllTeachersScheduleData` 직전이면 opts로 생략)
                 const ownerId = cachedLsGet('current_owner_id');
-                if (ownerId && typeof supabase !== 'undefined') {
-                    const { data: ownerSchedules, error: ownerErr } = await supabase
-                        .from('schedules')
-                        .select('teacher_id, student_id, schedule_date, start_time, duration')
-                        .eq('owner_user_id', ownerId);
-                    if (ownerErr) {
-                        console.warn('[loadTeacherScheduleData] owner 전체 보강 조회 실패:', ownerErr);
-                    } else {
+                if (!skipOwnerPagedHydrate && ownerId && typeof supabase !== 'undefined') {
+                    try {
+                        const ownerSchedules = await fetchSchedulesForOwnerPaged(ownerId);
                         (ownerSchedules || []).forEach((row) => {
                             const resolvedOwnerTid = String(
                                 resolveKnownTeacherId(row?.teacher_id)
@@ -8855,6 +8974,8 @@ async function loadTeacherScheduleData(teacherId) {
                             if (!resolvedOwnerTid || resolvedOwnerTid !== normalizedTeacherId) return;
                             appendScheduleEntry(teacherId, row);
                         });
+                    } catch (ownerErr) {
+                        console.warn('[loadTeacherScheduleData] owner 전체 보강 조회 실패:', ownerErr);
                     }
                 }
                 
@@ -8887,7 +9008,7 @@ async function loadTeacherScheduleData(teacherId) {
         console.log(`선생님 ${teacherId} 일정 데이터 로드 완료: ${Object.keys(teacherScheduleData[teacherId] || {}).length}명`);
         normalizeLegacyTeacherScheduleOwnership();
         normalizeAllTeacherScheduleDataDateKeys();
-        if (teacherId === currentTeacherId) {
+        if (teacherId === currentTeacherId && !skipRefreshCurrentTeacherStudents) {
             await refreshCurrentTeacherStudents();
         }
     } catch (e) {
@@ -8907,7 +9028,8 @@ async function reloadScheduleDataAfterOwnerMutation() {
 }
 
 // ★ 모든 선생님의 일정 데이터 로드 (겹침 확인/알림 등에 필요)
-async function loadAllTeachersScheduleData() {
+// prefetchedSchedules: `fetchSchedulesForOwnerPaged` 결과를 넘기면 네트워크 1회 생략(선생님 선택 진입 최적화)
+async function loadAllTeachersScheduleData(prefetchedSchedules) {
     allScopeScheduleLoading = true;
     if (timetableScope === 'all') {
         allScopeScheduleHydrated = false;
@@ -8917,15 +9039,9 @@ async function loadAllTeachersScheduleData() {
         const ownerId = cachedLsGet('current_owner_id');
         if (!ownerId) return;
 
-        const { data, error } = await supabase
-            .from('schedules')
-            .select('teacher_id, student_id, schedule_date, start_time, duration')
-            .eq('owner_user_id', ownerId);
-
-        if (error) {
-            console.error('[loadAllTeachersScheduleData] DB 에러:', error);
-            return;
-        }
+        const data = Array.isArray(prefetchedSchedules)
+            ? prefetchedSchedules
+            : await fetchSchedulesForOwnerPaged(ownerId);
 
         // 타교사 일정 라벨 복원을 위해 owner 범위 선생님 이름 맵 갱신
         try {
@@ -8968,8 +9084,12 @@ async function loadAllTeachersScheduleData() {
             if (!tid) return;
             const sid = String(schedule.student_id);
             const date = normalizeScheduleDateKeyLocal(String(schedule.schedule_date || '').trim());
+            let startRaw = schedule.start_time ? String(schedule.start_time).substring(0, 5) : '';
+            if (!startRaw || String(startRaw).trim() === '') {
+                startRaw = DEFAULT_SCHEDULE_START_FALLBACK;
+            }
             const entry = {
-                start: schedule.start_time ? schedule.start_time.substring(0, 5) : schedule.start_time,
+                start: startRaw,
                 duration: schedule.duration
             };
 
@@ -8989,6 +9109,19 @@ async function loadAllTeachersScheduleData() {
                 otherTeachers[tid][sid][date] = arr;
             }
         });
+
+        // 현재 선생님: owner 전체 해석(otherTeachers)을 teacherScheduleData와 합집합 병합
+        if (currentTeacherId) {
+            const curKey = String(currentTeacherId);
+            const curBucket = otherTeachers[curKey];
+            if (curBucket && Object.keys(curBucket).length) {
+                mergeScheduleBucketsIntoTeacherScheduleData(curKey, curBucket);
+                try {
+                    const key = `teacher_schedule_data__${curKey}`;
+                    localStorage.setItem(key, JSON.stringify(teacherScheduleData[curKey] || {}));
+                } catch (_) { /* ignore */ }
+            }
+        }
 
         // 현재 선생님 데이터는 유지하고, 다른 선생님 데이터를 병합
         const knownTeacherIds = (teacherList || [])
@@ -9017,6 +9150,18 @@ async function loadAllTeachersScheduleData() {
     } finally {
         allScopeScheduleLoading = false;
         allScopeScheduleHydrated = true;
+        try {
+            if (currentTeacherId && typeof refreshCurrentTeacherStudents === 'function') {
+                refreshCurrentTeacherStudents();
+            }
+        } catch (_) { /* ignore */ }
+        // 전체 선생님 모드: 본 함수 시작 시 loading=true가 되며, 디바운스된 renderCalendar(50ms)가
+        // 이 구간과 겹치면 모든 셀이 「집계중」으로 박힌 뒤 완료 후 재페인트가 없어 고정되는 버그가 난다.
+        try {
+            if (typeof window.renderCalendar === 'function') {
+                window.renderCalendar(true);
+            }
+        } catch (_) { /* ignore */ }
     }
 }
 
@@ -9219,12 +9364,31 @@ function getActiveStudentsForTeacher(teacherId) {
     const scheduleIds = Object.keys(teacherScheduleData[teacherId] || {});
     const mergedIds = new Set([ ...mappedIds.map(String), ...scheduleIds.map(String) ]);
 
-    // 활성 학생 + 퇴원/휴원 학생 (퇴원/휴원 학생은 상태 변경일 이전 일정 표시용)
-    return students.filter(s => {
-        if (!mergedIds.has(String(s.id))) return false;
+    const byStudentId = new Map((students || []).map((s) => [String(s.id), s]));
+    const out = [];
+
+    mergedIds.forEach((idStr) => {
+        let s = byStudentId.get(idStr);
+        if (!s) {
+            // 일정 DB에는 있으나 전역 students에 아직 없거나(로드 순서)·삭제 잔존 행 등 — 캘린더 집계에서 누락 방지
+            const numericId = /^\d+$/.test(idStr) ? parseInt(idStr, 10) : idStr;
+            s = {
+                id: numericId,
+                name: `학생 #${idStr}`,
+                grade: '-',
+                school: '',
+                status: 'active',
+                _scheduleOnlyStudent: true
+            };
+        }
+        out.push(s);
+    });
+
+    // 활성 학생 + 퇴원/휴원(종료일 유무와 관계없이 목록에 포함 — `shouldShowScheduleForStudent`가 일별 표시 제어)
+    return out.filter((s) => {
+        if (s._scheduleOnlyStudent) return true;
         if (s.status === 'active') return true;
-        // 퇴원/휴원 학생은 statusChangedDate가 있으면 포함 (이전 일정 표시용)
-        if ((s.status === 'archived' || s.status === 'paused') && s.statusChangedDate) return true;
+        if (s.status === 'archived' || s.status === 'paused') return true;
         return false;
     });
 }
@@ -9232,13 +9396,15 @@ function getActiveStudentsForTeacher(teacherId) {
 // 퇴원/휴원 학생의 일정을 해당 날짜에 표시할지 판단
 function shouldShowScheduleForStudent(student, dateStr) {
     if (!student) return false;
-    // 재원생은 항상 표시
+    const day = normalizeScheduleDateKeyLocal(String(dateStr || '').trim());
+    if (!day) return false;
     if (student.status === 'active') return true;
-    // 퇴원/휴원 학생은 상태 변경일 당일까지 표시, 그 이후만 숨김
-    if ((student.status === 'archived' || student.status === 'paused') && student.statusChangedDate) {
-        return dateStr <= student.statusChangedDate;
+    if (student.status === 'archived' || student.status === 'paused') {
+        if (!student.statusChangedDate) return true;
+        const end = normalizeScheduleDateKeyLocal(String(student.statusChangedDate || '').trim());
+        if (!end) return true;
+        return day <= end;
     }
-    // statusChangedDate가 없는 퇴원/휴원 학생은 표시하지 않음
     return false;
 }
 

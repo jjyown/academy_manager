@@ -2902,7 +2902,8 @@ textarea:focus:not(:focus-visible) {
     box-shadow: none;
 }
 .grid-cell.custom-holiday .date-num { background: transparent; color: var(--holiday-text-color) !important; }
-.grid-cell.custom-holiday .holiday-name { color: var(--holiday-text-color) !important; font-weight: 600; }
+/* 일정 여러 개일 때 줄마다 색이 다름 — JS 인라인 color를 쓰므로 여기서 !important로 덮지 않음(첫 일정색으로 전부 통일되던 버그) */
+.grid-cell.custom-holiday .holiday-name { font-weight: 600; }
 
 .date-num {
     font-size: 12px;
