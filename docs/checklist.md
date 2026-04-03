@@ -2,6 +2,7 @@
 
 - 문서 기준일: 2026-04-04
 ## 문의 답변 처리
+- [x] 관리자·선생님 로그인 Enter(2026-04-04): `#login-password`→`signIn()`, `#teacher-select-password`→`confirmTeacher()` — `index.html`
 - [x] 월간 학원 일정 글자색(2026-04-04): `style.css`에서 `.grid-cell.custom-holiday .holiday-name`의 `color !important` 제거 — 줄별 인라인 색 복구
 - [x] 월간 캘린더 「집계중」 고착(2026-04-04): `loadAllTeachersScheduleData` finally에 `renderCalendar(true)` — 디바운스 렌더×로딩 플래그 경합 제거; `_generateScheduleCore`/`updateClassTime`/`setTimetableScope` 보강
 - [x] 선생님 선택→메인 체감 속도(2026-04-04): `loadAndCleanData`∥`fetchSchedulesForOwnerPaged`, owner `schedules` 단일 패치→`loadAllTeachersScheduleData(prefetched)` + `skipOwnerPagedHydrate`, `autoMarkAbsentForPastSchedules`는 idle 지연·이중 rAF로 100ms 제거
@@ -177,6 +178,7 @@
 ## 테스트/검증 결과 기록
 | 날짜 | 작업 | 검증 방법 | 결과 | 비고 |
 |---|---|---|---|---|
+| 2026-04-04 | AUTO-20260404(staged 4개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-04-04 | AUTO-20260404(staged 9개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-04-03 | AUTO-20260403(staged 6개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-04-03 | AUTO-20260403(staged 5개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |

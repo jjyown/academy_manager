@@ -14,7 +14,9 @@
 ## 최근 의사결정 로그
 | 날짜 | 결정 | 이유 | 영향 범위 |
 |---|---|---|---|
+| 2026-04-04 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/checklist.md, docs/context.md, docs/plan.md, index.html |
 | 2026-04-04 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | database.js, docs/checklist.md, docs/context.md, docs/enterprise_workflow.md, docs/plan.md 외 4개 |
+| 2026-04-04 | 관리자·선생님 선택 화면 비밀번호에서 **Enter = 로그인/입장** | 버튼 클릭과 동일 UX, `preventDefault`로 기본 동작 차단 | `index.html` |
 | 2026-04-04 | 같은 날 학원 일정 **줄마다 글자색**은 CSS가 인라인을 덮으면 안 됨 | `custom-holiday` 셀에서 `.holiday-name`에 `color: var(--holiday-text-color) !important`를 쓰면 첫 일정색으로 전 줄 통일됨 | `style.css` |
 | 2026-04-04 | 월간 「집계중」 고착: `loadAll` 직후 **반드시** `renderCalendar(true)` | `renderCalendar` 50ms 디바운스가 `allScopeScheduleLoading` 구간과 겹치면 셀 전부 「집계중」으로 그려진 뒤 완료 시 재페인트가 없을 수 있음 | `script.js` `loadAllTeachersScheduleData` finally + 일정 저장 경로 |
 | 2026-04-04 | 선생님 선택→메인: `schedules` owner 전체 **단일 패치** + `loadAndCleanData`와 **병렬** | 동일 `fetchSchedulesForOwnerPaged`를 `loadTeacher`·`loadAll`에서 연속 호출해 RTT·페이지 루프가 두 배로 쌓이던 병목 제거 | `script.js` `setCurrentTeacher`, `loadTeacherScheduleData`, `loadAllTeachersScheduleData` |
