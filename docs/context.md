@@ -1,6 +1,6 @@
 # 출석관리앱 컨텍스트 노트
 
-- 문서 기준일: 2026-04-01
+- 문서 기준일: 2026-04-03
 ## 제품/운영 컨텍스트
 - 대상 사용자: 교사(관리), 학생(조회)
 - 핵심 데이터: 학생, 반, 수업, 날짜, 출석상태, 수정자, 수정시각
@@ -14,6 +14,9 @@
 ## 최근 의사결정 로그
 | 날짜 | 결정 | 이유 | 영향 범위 |
 |---|---|---|---|
+| 2026-04-03 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/checklist.md, docs/context.md, docs/plan.md, grading-server/integrations/supabase_client.py, homework/index.html 외 1개 |
+| 2026-04-03 | 숙제 달력 O/X/△는 배정(`grading_assignments`·`/api/homework-assignments`)만 사용 | 선생님 지정 마감이 단일 진실원천이어야 하며, 배정 API 실패 시 수업 `schedules`로 대체하면 마감과 무관한 날에 잘못된 표시가 남 | `parent-portal/report.js`, `homework/index.html` |
+| 2026-04-03 | 숙제 배정/제출/채점 기록 Supabase 확인 테이블 | 배정은 `grading_assignments`, 학생 제출은 `homework_submissions`(FK=`grading_assignment_id`), 채점 결과는 `grading_results`에서 확인 | `grading_assignments`, `homework_submissions`, `grading_results` |
 | 2026-04-01 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/checklist.md, docs/context.md, docs/plan.md, grading/index.html |
 | 2026-04-01 | **영역 표시 토글 시 페이지 화살표/북마크 가시성 보강**: `.kd-pages-wrap` 높이를 일반/영역모드 각각 재조정하고, `ensureKdPreviewControlsVisible()`로 토글·렌더 직후 `#kd-page-nav`/`#kd-bookmarks` 표시 상태를 재보정 | 영역 표시 활성화 시 하단 앞/뒤 이동 화살표 및 북마크 버튼이 보이지 않는 운영 이슈를 즉시 완화하기 위해 | `grading/index.html` |
 | 2026-04-01 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/checklist.md, docs/context.md, docs/plan.md, grading/index.html |
@@ -44,7 +47,7 @@
 | 2026-03-30 | **채점 기록 삭제와 교재(answer_keys) 남음: FK가 SET NULL**: `grading_assignments.answer_key_id`와 `grading_results.answer_key_id`가 `ON DELETE SET NULL` 정책이어서, `grading_results`/`grading_items`/`grading_assignments`를 지워도 `answer_keys`(교재)는 자동 삭제되지 않을 수 있음. 교재까지 지우려면 `answer-keys`(교재 관리 탭) 삭제 또는 “전체 초기화”용 별도 로직이 필요 | “삭제했는데 교재가 남음” 운영 혼선 제거 | `GRADING_SETUP.sql`, `results.py`, `answer_keys.py`, `grading/index.html` |
 | 2026-03-30 | **OCR 수식 답안 trailing 잡문자(`, ', $$) 표시**: OCR 결과의 `student_answer`가 그대로 UI에 노출되어 `{1}over{6}` $$, 256'처럼 수식 뒤 잡문자가 따라오는 케이스가 있었음. `grading/grader.py`에서 `student_answer` 저장 직전 `$$`, backtick(`` ` ``), 끝 apostrophe(`'`) 등을 제거해 표시를 정리. 정답 판정은 기존 로직 유지 | 사용자 UI 혼선 제거(정답은 유지) | `grading/grader.py`, `ocr/engines.py` |
 | 2026-03-30 | **Google Drive 숙제 폴더 트리**: 루트 **`숙제 관리`** — `교재/{중1~고3}`, `제출 과제 원본/{년}/{월}/{일}/{학생}`, `채점 결과/{년}/{월}/{일}/{학생}` 자동 생성. 기존 `과제 관리`·`제출 과제` 명은 기본값에서 교체; 운영은 `.env`·Drive 수동 이관으로 이전 경로 유지 가능 | 원장 요청 구조와 업로드 경로 일치 | `upload-homework/index.ts`, `grading-server/integrations/drive.py`, `config.py` |
-| 2026-03-30 | **숙제 O/X/△ + 배정 연결(1단계)**: `homework_submissions.grading_assignment_id` → `grading_assignments(id)`(nullable). **마감 시각(운영 확정)**: 학생 `schedules` 기준 **배정 `due_date`에 맞춰 잡히는 다음 수업의 시작 시각을 정각(시 단위, 분 0)으로 둔 시각**(예: 다음 수업 `start_time`이 18:30이면 마감 18:00). **O**=그 마감 이전 `created_at` **△**=마감 후 제출 **X**=미제출. 일정 없음 등 폴백은 구현 시 명시. 학부모·학생 동일 규칙 | 제출일만으로는 배정 구분 불가·일정 기반 마감이 원장 정책과 일치 | `SUPABASE_HOMEWORK_SUBMISSION_GRADING_ASSIGNMENT_20260330.sql` — UI·Edge는 일정 조회 후 동일 식으로 비교 |
+| 2026-03-30 | **숙제 O/X/△ + 배정 연결(1단계)**: `homework_submissions.grading_assignment_id` → `grading_assignments(id)`(nullable). **마감 시각(운영 확정)**: `grading_assignments.due_date` + `grading_assignments.due_time`(TIME) 조합을 기준으로 마감 시각을 결정(클라이언트 비교). `due_time`이 없거나 유효하지 않으면 `23:59` 폴백. **O**=마감 이전(전날 `created_at`도 O로 처리) **△**=마감 후 제출 **X**=미제출. **배정 없는 날짜는 달력에서 비움(Q1)**. 학부모·학생 동일 규칙 | 제출일만으로는 배정 구분 불가·마감 시각을 due_time 기준으로 통일해 계산 안정화 | `SUPABASE_HOMEWORK_SUBMISSION_GRADING_ASSIGNMENT_20260330.sql` + UI/Edge 비교 규칙 통일 |
 | 2026-03-30 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | SUPABASE_STUDENT_EVAL_AI_STYLE_ENTRIES_20260329.sql, SUPABASE_USERS_RLS_STUDENT_EVAL_STYLE_NOTE_20260329.sql, SUPABASE_USER_EVAL_AI_STYLE_NOTE_20260329.sql, database.js, docs/checklist.md 외 8개 |
 | 2026-03-30 | **채점관리 숙제 탭 기능 분리(UI/UX 절충)**: 동일 레이아웃 유지하되 **배정**=`currentAssignments` 마감일·학생 필터, **제출**=`homework_submissions` API, **채점**=`currentResults` 일자·학생 필터. 제출 탭에서만 숙제 API 호출·나머지는 서버 목록 재구성 | 한 화면에서 역할 구분·학습 비용 최소화 | `grading/index.html` |
 | 2026-03-29 | **학생 「평가」모달 평가 월 선택**: 헤더에 `input type="month"`로 `YYYY-MM` 지정·`loadStudentEvalModalContent`로 기록·종합평가·점수·차트를 동일 월로 재로드. `openStudentEvalModal(id, { evalMonth })` 옵션 추가. 미저장 평가 문구가 있을 때 월 변경 전 `showConfirm` | 과거 월 기록·종합평가를 덮어쓰지 않고 조회·편집하려는 운영 요구 | `index.html`, `script.js`, `style.css` |

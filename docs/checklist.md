@@ -1,6 +1,9 @@
 # 출석관리앱 체크리스트
 
-- 문서 기준일: 2026-04-01
+- 문서 기준일: 2026-04-03
+## 문의 답변 처리
+- [x] Supabase에서 숙제 배정/제출/채점 기록 확인 테이블 위치 정리(2026-04-03)
+- [x] 숙제 달력·상태: `schedules` 폴백 제거, 마감은 `grading_assignments`/`/api/homework-assignments`만 사용(2026-04-03, `parent-portal/report.js`, `homework/index.html`)
 ## 공통 품질 체크
 - [x] 교재 상세 페이지 화살표/북마크 가시성 보강(2026-04-01): `grading/index.html`에서 `.kd-pages-wrap` 높이(일반/영역모드)를 재조정하고 `ensureKdPreviewControlsVisible()`를 추가해 `toggleRegionMode`/`renderKdPageImages` 시 `#kd-page-nav`/`#kd-bookmarks` 표시를 재보정
 - [x] 교재 상세 영역 표시 UX(2026-04-01): `grading/index.html`에서 영역 표시 모드(`kdRegionMode`) 중에도 드래그 팬을 유지하고 클릭 임계값 기반으로만 마킹 처리, 하단 페이지 네비게이션 `.image-nav` z-index 보강으로 앞/뒤 이동 버튼 접근성 개선
@@ -16,8 +19,10 @@
 - [x] OCR 수식 답안 표시 아티팩트 제거(2026-03-30): `grading/grader.py` — `student_answer` 저장 직전 `$$`, backtick(`` ` ``), 끝 apostrophe(`'`) 등 잡문자 정리로 `{1}over{6}` $$, 256' 같은 케이스 UI 표시 개선. `ast.parse` 문법 파싱 OK. 실데이터 재채점 스모크 권장
 - [x] Google Drive 숙제 폴더 자동 생성(2026-03-30): `숙제 관리`·`교재/{중1~고3}`·`제출 과제 원본`·`채점 결과` — `upload-homework/index.ts`·`grading-server/integrations/drive.py` · `python -m compileall grading-server` PASS · **Edge·Railway 재배포** 후 실제 업로드 스모크 권장
 - [x] 숙제 제출–배정 FK 스키마(2026-03-30): `SUPABASE_HOMEWORK_SUBMISSION_GRADING_ASSIGNMENT_20260330.sql` — `grading_assignments` 선행·SQL Editor 적용 후 제출 UI 연동
-- [ ] 숙제 제출 시 배정 선택 + Edge `upload-homework`·`homework/index.html` insert 연동(2026-03-30 계획, 마감=학생 다음 일정 정각)
-- [ ] 학부모 포털 숙제 O/X/△·제출 시각(배정 단위, 동일 마감 규칙)(2026-03-30 계획)
+- [x] 숙제 제출 시 배정 선택 + Edge `upload-homework`·`homework/index.html` insert 연동(2026-04-03 완료, 마감=배정 `due_date`+`due_time` 기준)
+- [x] 학부모 포털 숙제 O/X/△·제출 시각(배정 단위, 동일 마감 규칙)(2026-04-03 완료, 배정 없는 날은 비움(Q1))
+- [x] 채점관리(제출 탭)에서 O/△/X 및 제출 시각 표시 + 배정 없는 날짜 점/아이콘 없음(2026-04-03 완료)
+- [x] `DELETE /api/homework-submissions/{id}`로 제출 삭제 시 `grading_results/items`까지 동기화 + UI 캐시/렌더 갱신(2026-04-03 완료)
 - [ ] Drive 레거시 루트(`과제 관리`) 통합 정리(2026-03-30): `과제 관리` 하위(`교재/제출 과제 원본/채점 결과`)를 `숙제 관리`로 병합(또는 가장 안전한 수동 병합+검증) 후 Supabase/URL 스모크
 - [x] 채점관리 숙제 탭 기능 분리(2026-03-30): 배정=`assignments`/제출=`homework_submissions`/채점=`results`·`refreshHomeworkMgmtFromServerLists`·안내·범례 · 브라우저 3탭 스모크 권장
 - [x] 학생 「평가」모달 평가 월 선택(2026-03-29): `#student-eval-month-picker`·`loadStudentEvalModalContent`·`onStudentEvalModalMonthChange`·`openStudentEvalModal(..., { evalMonth })` · `node --check script.js` PASS · 실기기: 과거 월 전환·저장·AI 생성 스모크 권장
@@ -159,6 +164,7 @@
 ## 테스트/검증 결과 기록
 | 날짜 | 작업 | 검증 방법 | 결과 | 비고 |
 |---|---|---|---|---|
+| 2026-04-03 | AUTO-20260403(staged 6개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-04-01 | AUTO-20260401(staged 4개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-04-01 | AUTO-20260401(staged 4개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-03-31 | AUTO-20260331(staged 1개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |

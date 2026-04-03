@@ -327,6 +327,35 @@ async def get_homework_submissions_by_owner_student_dates(
     return res.data or []
 
 
+# ── 숙제 배정(테이블명: grading_assignments; API 경로: /api/homework-assignments) ──
+
+async def get_homework_assignments_by_owner_student_dates(
+    owner_user_id: str,
+    student_id: int,
+    date_from: str,
+    date_to: str,
+) -> list[dict]:
+    """
+    원장(owner_user_id) 소유 숙제 배정 목록(= 학생 assigned_students 포함) 조회.
+
+    Service Role로 RLS 우회 조회한다.
+    """
+    sb = get_supabase()
+    contains_value = json.dumps([student_id])
+    q = (
+        sb.table("grading_assignments")
+        .select("id, due_date, due_time, title, page_range, answer_key_id, answer_keys(id,title,subject)")
+        .eq("teacher_id", owner_user_id)
+        .filter("assigned_students", "cs", contains_value)
+        .gte("due_date", date_from)
+        .lte("due_date", date_to)
+        .order("due_date")
+        .order("due_time", desc=False)
+    )
+    res = await run_query(q.execute)
+    return res.data or []
+
+
 # ── students ──
 
 async def get_student(student_id: int) -> dict | None:

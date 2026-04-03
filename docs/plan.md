@@ -1,6 +1,6 @@
 # 출석관리앱 작업 계획서
 
-- 문서 기준일: 2026-04-01
+- 문서 기준일: 2026-04-03
 ## 프로젝트 목표
 - 학생/수업 기준으로 출석 상태를 정확히 기록하고 조회한다.
 - 교사 권한으로만 수정 가능하도록 접근 제어를 적용한다.
@@ -75,6 +75,18 @@
   - `py qa-artifacts/append_enterprise_log.py ...` 실행 시 `docs/enterprise_workflow.md` 로그 자동 추가 확인
 - 다음 단계:
   - 이후 작업 사이클 종료 시 `append_enterprise_log.py`를 표준 명령으로 포함해 자동 기록 누락을 방지
+
+## 문의 답변 기록 — 2026-04-03
+- 상태: [x] 완료
+- 정리: 숙제 “배정”은 `grading_assignments`, 학생 “제출(배정연결)”은 `homework_submissions.grading_assignment_id`, 채점 결과는 `grading_results`에서 확인
+- 다음 단계: 필요 시 기간/교사 조건 포함 SQL 조인 예시 제공
+
+### 숙제 마감 단일 소스(배정 API) — schedules 폴백 제거 — 2026-04-03
+- 상태: [x] 완료
+- 구현 파일: `parent-portal/report.js`, `homework/index.html`, `grading-server/integrations/supabase_client.py`(주석 명확화)
+- 구현 요약: 마감은 선생님이 `grading_assignments`(조회는 `GET /api/homework-assignments`)에만 둠. 배정 API 실패·미설정 시 `schedules`로 O/△/X를 추론하지 않고 달력은 비움(오판 방지).
+- 검증: `node --check parent-portal/report.js` PASS
+- 다음 단계: `GRADING_SERVER_URL` 미설정 시 학부모/학생에 안내 토스트 여부는 운영 피드백 후
 
 ## 현재 스프린트 목표
 ### QR 전화번호 인증 입력창 소프트 키패드 차단 — 2026-03-31
@@ -213,14 +225,15 @@
 - 검증: 브라우저에서 `upload-homework` 재시도 시 401 해결 + Drive 업로드/DB 저장 스모크. (필요 시 Edge 함수도 재배포)
 
 ### 숙제 배정 연결 + O/X/△ (단계 분리) — 2026-03-30
-- 상태: [x] 1단계 완료(스키마·문서), [ ] 2단계 이후(제출 UI·학부모 표시)
+- 상태: [x] 1단계 완료(스키마·문서), [x] 2단계 이후 완료(제출 UI·학부모 표시)
 - 구현 파일(1단계): `SUPABASE_HOMEWORK_SUBMISSION_GRADING_ASSIGNMENT_20260330.sql`, `docs/context.md`, `docs/checklist.md`
 - 구현 요약(1단계):
-  - **전문가 절충**: 배정과 제출을 **FK `grading_assignment_id`**로 연결. **마감 시각**은 `due_date` 당일 23:59가 아니라 **학생 `schedules`의 다음 수업 시작 시각을 정각(시 단위)**으로 둠(원장 확정, `docs/context.md` 참고).
-  - **O** = 위 마감 시각 이전 제출, **△** = 마감 후 제출, **X** = 해당 배정 미제출.
+  - 배정과 제출을 **FK `grading_assignment_id`**로 연결.
+  - **마감 시각(운영 확정)**: `grading_assignments.due_date` + `grading_assignments.due_time`(TIME) 조합을 기준으로 결정(없거나 유효하지 않으면 `23:59` 폴백).
+  - **O** = 마감 이전(전날 제출도 O로 처리) `created_at` 제출, **△** = 마감 후 제출, **X** = 해당 배정 미제출.
+  - **배정 없는 날짜**는 달력에서 비움(Q1).
 - 검증: Supabase SQL Editor에서 스크립트 실행·`grading_assignments` 선행 확인
-- 다음 단계(2): `homework/index.html`·`upload-homework`에 배정 선택·insert 시 `grading_assignment_id` 전달
-- 다음 단계(3): 학부모 포털 `report.js`에서 배정·제출 조인 또는 동일 규칙으로 O/X/△·제출 시각 표시
+- 구현 결과(2→3): `homework/index.html`(배정 선택+FK 저장+due_time 비교), `parent-portal/report.js`(배정 없는 날 비움+due_time 비교), `grading/index.html`(제출 탭 O/△/X+제출시각+삭제)까지 일괄 반영
 
 ### 학생 「평가」모달 평가 월 선택 — 2026-03-29
 - 상태: [x] 완료
@@ -1536,6 +1549,7 @@
 - [ ] 다음 작업자가 바로 이어서 할 수 있게 문서가 갱신되었다.
 
 ## 변경 이력
+- 2026-04-03 - AUTO-20260403(staged 6개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-04-01 - AUTO-20260401(staged 4개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-04-01 - AUTO-20260401(staged 4개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-03-31 - AUTO-20260331(staged 1개 파일 기준 문서 연동 자동기록): 연동 자동 기록

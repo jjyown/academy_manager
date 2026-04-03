@@ -816,6 +816,17 @@
 			</div>
 		</div>
 
+		<!-- 배정 과제 선택 -->
+		<div class="section-card" id="upload-assignment-card" style="display:none;">
+			<div class="section-title">
+				<i class="fas fa-clipboard-list"></i>
+				<span>배정 과제 선택</span>
+				<span style="margin-left:auto;font-size:11px;color:var(--gray);font-weight:500;">미제출 배정만</span>
+			</div>
+			<div style="font-size:11px;color:var(--text-sec);margin-top:8px;line-height:1.5;" id="upload-assignment-desc"></div>
+			<div id="upload-assignment-select-wrap" style="margin-top:10px;"></div>
+		</div>
+
 		<!-- 파일 업로드 영역 -->
 		<div class="section-card">
 			<div class="section-title">
@@ -1028,6 +1039,12 @@ let currentStudent = null;
 let currentTeacher = null;
 let selectedFiles = [];
 let availableTextbooks = [];
+// 업로드 페이지에서 선택된 "배정 due_date"(= 제출 날짜)
+let uploadDueDate = null; // YYYY-MM-DD
+// 선택된 배정 과제(grading_assignments)
+let uploadSelectedGradingAssignmentId = null; // number
+let uploadSelectedAnswerKeyId = null; // number | null
+let uploadAvailableGradingAssignments = []; // API returned for uploadDueDate (already-filtered: 미제출)
 // 학생 포털(인증코드)에서 입력된 값을 저장해, currentStudent에 student_code가
 // 비어있는 상태에서도 Edge upload-homework에 student_code를 반드시 전달한다.
 let lastPortalStudentCodeNormalized = sessionStorage.getItem('hw_portal_student_code') || '';
@@ -1086,6 +1103,17 @@ function getTodayString() {
 function getTodayDisplay() {
 	const now = new Date();
 	return `${now.getFullYear()}년 ${now.getMonth()+1}월 ${now.getDate()}일`;
+}
+
+function getDateDisplay(dateStr) {
+	try {
+		if (!dateStr) return getTodayDisplay();
+		const [y, m, d] = String(dateStr).split('-').map((x) => parseInt(x, 10));
+		if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return getTodayDisplay();
+		return `${y}년 ${m}월 ${d}일`;
+	} catch (_) {
+		return getTodayDisplay();
+	}
 }
 
 function getZipFilename(studentName) {
@@ -1371,6 +1399,9 @@ function savePageState(page) {
 		sessionStorage.setItem('hw_page', page);
 		if (currentStudent) sessionStorage.setItem('hw_student', JSON.stringify(currentStudent));
 		if (currentTeacher) sessionStorage.setItem('hw_teacher', JSON.stringify(currentTeacher));
+		if (page === 'upload') {
+			sessionStorage.setItem('hw_upload_due_date', uploadDueDate || '');
+		}
 	} catch (e) {}
 }
 
@@ -1379,6 +1410,7 @@ function clearPageState() {
 		sessionStorage.removeItem('hw_page');
 		sessionStorage.removeItem('hw_student');
 		sessionStorage.removeItem('hw_teacher');
+		sessionStorage.removeItem('hw_upload_due_date');
 	} catch (e) {}
 }
 
@@ -1391,6 +1423,7 @@ function restorePageState() {
 			if (student) {
 				currentStudent = student;
 				currentTeacher = teacher;
+				uploadDueDate = sessionStorage.getItem('hw_upload_due_date') || null;
 				// session 복원 후 currentStudent에 student_code가 없으면 fallback 코드도 동기화
 				if (currentStudent && currentStudent.student_code) {
 					lastPortalStudentCodeNormalized = normalizeHomeworkPortalCode(String(currentStudent.student_code));
@@ -1420,7 +1453,8 @@ let calYear = new Date().getFullYear();
 let calMonth = new Date().getMonth(); // 0-indexed
 let calSelectedDate = null;
 let calSubmissions = []; // 이번 달 제출 데이터
-let calSchedules = [];   // 이번 달 스케줄 데이터
+let calAssignments = []; // 이번 달 배정(due_date/due_time)
+let calAssignmentsLoaded = false; // API 호출 성공 여부(배정이 0건이어도 true)
 let calDateStatus = {};  // { dateStr: { status, scheduleTime } }
 
 // 관리자 모드
@@ -1470,7 +1504,6 @@ function goBackFromStatus() {
 		currentStudent = null;
 		currentTeacher = null;
 		calSubmissions = [];
-		calSchedules = [];
 		calDateStatus = {};
 		calSelectedDate = null;
 		// 관리자 모드는 유지 (학생 목록에서 다른 학생 선택 가능)
@@ -1485,7 +1518,6 @@ function goBackFromStatus() {
 	currentTeacher = null;
 	calSubmissions = [];
 	document.getElementById('search-code').value = '';
-	calSchedules = [];
 	calDateStatus = {};
 	calSelectedDate = null;
 	isAdminMode = false;
@@ -1497,7 +1529,8 @@ function goBackFromStatus() {
 
 function goToUploadFromStatus() {
 	document.getElementById('page-status').style.display = 'none';
-	showUploadPage();
+	uploadDueDate = calSelectedDate || getTodayString();
+	showUploadPage(false, uploadDueDate);
 }
 
 // 즉시 채점 모드
@@ -1578,32 +1611,51 @@ async function loadCalendarData() {
 		// 제출 기록 조회 (uploaded + manual 모두)
 		const subPromise = db
 			.from('homework_submissions')
-			.select('id, submission_date, file_name, file_size, status, created_at')
+			.select('id, submission_date, file_name, file_size, status, created_at, grading_assignment_id')
 			.eq('student_id', currentStudent.id)
 			.gte('submission_date', startDate)
 			.lte('submission_date', endDate)
 			.in('status', ['uploaded', 'manual'])
 			.order('created_at', { ascending: false });
 
-		// 스케줄 조회
-		const schedPromise = db
-			.from('schedules')
-			.select('schedule_date, start_time')
-			.eq('student_id', currentStudent.id)
-			.gte('schedule_date', startDate)
-			.lte('schedule_date', endDate);
+		// 배정(due_date/due_time): 선생님 지정 마감만 사용 — 수업 schedules 폴백 없음
+		const assignmentsPromise = (async () => {
+			if (!GRADING_SERVER_URL_HW) return { ok: false, data: [] };
+			try {
+				const base = GRADING_SERVER_URL_HW.replace(/\/$/, '');
+				const url = new URL(`${base}/api/homework-assignments`);
+				url.searchParams.set('teacher_id', String(currentStudent.owner_user_id || ''));
+				url.searchParams.set('student_id', String(currentStudent.id || ''));
+				url.searchParams.set('date_from', startDate);
+				url.searchParams.set('date_to', endDate);
 
-		const [subResult, schedResult] = await Promise.all([subPromise, schedPromise]);
+				const res = await fetch(url.toString());
+				const body = await res.json().catch(() => ({}));
+				if (!res.ok) throw new Error(body?.detail || body?.error || `HTTP ${res.status}`);
+				return { ok: true, data: body?.data || [] };
+			} catch (e) {
+				console.warn('[loadCalendarData] assignments fetch failed:', e);
+				return { ok: false, data: [] };
+			}
+		})();
+
+		const [subResult, assignResult] = await Promise.all([subPromise, assignmentsPromise]);
 
 		calSubmissions = (subResult.error ? [] : subResult.data) || [];
-		calSchedules = (schedResult.error ? [] : schedResult.data) || [];
+		if (assignResult && assignResult.ok) {
+			calAssignments = assignResult.data || [];
+			calAssignmentsLoaded = true;
+		} else {
+			calAssignments = [];
+			calAssignmentsLoaded = false;
+		}
 
 		if (subResult.error) console.error('Submissions error:', subResult.error);
-		if (schedResult.error) console.error('Schedules error:', schedResult.error);
 	} catch (e) {
 		console.error('Calendar fetch error:', e);
 		calSubmissions = [];
-		calSchedules = [];
+		calAssignments = [];
+		calAssignmentsLoaded = false;
 	}
 
 	computeDateStatuses();
@@ -1625,15 +1677,6 @@ function computeDateStatuses() {
 	calDateStatus = {};
 	const today = new Date();
 
-	// 스케줄 맵: { dateStr: 'HH:MM' (가장 이른 시간) }
-	const scheduleMap = {};
-	calSchedules.forEach(s => {
-		const t = (s.start_time || '').substring(0, 5);
-		if (!scheduleMap[s.schedule_date] || t < scheduleMap[s.schedule_date]) {
-			scheduleMap[s.schedule_date] = t;
-		}
-	});
-
 	// 제출 맵: { dateStr: [submissions] }
 	const subMap = {};
 	calSubmissions.forEach(s => {
@@ -1641,59 +1684,61 @@ function computeDateStatuses() {
 		subMap[s.submission_date].push(s);
 	});
 
+	const useAssignments = !!calAssignmentsLoaded;
+
+	// 배정 맵(grading_assignments, GET /api/homework-assignments)
+	const assignmentMap = {};
+	if (useAssignments) {
+		calAssignments.forEach(a => {
+			const dateStr = a?.due_date;
+			if (!dateStr) return;
+			const t = (a?.due_time ? String(a.due_time).slice(0, 5) : '').trim() || '23:59';
+			if (!assignmentMap[dateStr] || t < assignmentMap[dateStr]) assignmentMap[dateStr] = t;
+		});
+	}
+
 	const lastDay = new Date(calYear, calMonth + 1, 0);
 	for (let d = 1; d <= lastDay.getDate(); d++) {
 		const dateStr = `${calYear}-${String(calMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-		const hasSchedule = !!scheduleMap[dateStr];
-		const scheduleTime = scheduleMap[dateStr] || null;
 		const subs = subMap[dateStr] || [];
 
-		if (!hasSchedule) {
-			// 수업 없는 날 - 제출 있으면 submitted, 없으면 none
-			if (subs.length > 0) {
-				calDateStatus[dateStr] = { status: 'submitted', scheduleTime: null };
-			} else {
-				calDateStatus[dateStr] = { status: 'none', scheduleTime: null };
-			}
-			continue;
-		}
+		if (!useAssignments) continue;
 
-		// 수업 있는 날
+		const hasAssignment = !!assignmentMap[dateStr];
+		const deadlineTime = assignmentMap[dateStr] || null;
+		if (!hasAssignment) continue;
+
 		const hasManual = subs.some(s => s.status === 'manual');
 		if (hasManual) {
-			calDateStatus[dateStr] = { status: 'manual', scheduleTime };
+			calDateStatus[dateStr] = { status: 'manual', scheduleTime: deadlineTime };
 			continue;
 		}
 
 		const uploadedSubs = subs.filter(s => s.status === 'uploaded');
 		if (uploadedSubs.length === 0) {
-			// 미제출 - 마감 지났는지 확인
-			const [dh, dm] = (scheduleTime || '23:59').split(':').map(Number);
+			const [dh, dm] = (deadlineTime || '23:59').split(':').map(Number);
 			const deadline = new Date(calYear, calMonth, d, dh, dm);
-			if (deadline <= today) {
-				calDateStatus[dateStr] = { status: 'missed', scheduleTime };
-			} else {
-				calDateStatus[dateStr] = { status: 'pending', scheduleTime };
-			}
+			calDateStatus[dateStr] = deadline <= today
+				? { status: 'missed', scheduleTime: deadlineTime }
+				: { status: 'pending', scheduleTime: deadlineTime };
 			continue;
 		}
 
-		// 제출 있음 - 시간 전/후 확인
-		const [sh, sm] = (scheduleTime || '23:59').split(':').map(Number);
+		const [sh, sm] = (deadlineTime || '23:59').split(':').map(Number);
 		const deadlineMinutes = sh * 60 + sm;
 
 		const hasOnTime = uploadedSubs.some(s => {
 			const ct = new Date(s.created_at);
 			const ctMinutes = ct.getHours() * 60 + ct.getMinutes();
-			const ctDateStr = `${ct.getFullYear()}-${String(ct.getMonth()+1).padStart(2,'0')}-${String(ct.getDate()).padStart(2,'0')}`;
-			if (ctDateStr < dateStr) return true; // 전날 제출
+			const ctDateStr = `${ct.getFullYear()}-${String(ct.getMonth() + 1).padStart(2, '0')}-${String(ct.getDate()).padStart(2, '0')}`;
+			if (ctDateStr < dateStr) return true;
 			if (ctDateStr === dateStr && ctMinutes <= deadlineMinutes) return true;
 			return false;
 		});
 
 		calDateStatus[dateStr] = {
 			status: hasOnTime ? 'on_time' : 'late',
-			scheduleTime
+			scheduleTime: deadlineTime
 		};
 	}
 }
@@ -1812,7 +1857,7 @@ function showDateDetail(dateStr) {
 	if (ds.scheduleTime) {
 		const schedDiv = document.createElement('div');
 		schedDiv.className = 'detail-schedule-info';
-		schedDiv.innerHTML = `<i class="fas fa-clock"></i> 수업 시작: ${ds.scheduleTime} &nbsp;|&nbsp; 제출 마감: ${ds.scheduleTime}`;
+		schedDiv.innerHTML = `<i class="fas fa-clock"></i> 제출 마감: ${ds.scheduleTime}`;
 		listEl.appendChild(schedDiv);
 	}
 
@@ -2079,7 +2124,6 @@ function logoutAdmin() {
 	currentStudent = null;
 	currentTeacher = null;
 	calSubmissions = [];
-	calSchedules = [];
 	calDateStatus = {};
 	calSelectedDate = null;
 
@@ -2136,11 +2180,28 @@ async function executeAdminAction() {
 
 	try {
 		if (type === 'add') {
+			let gradingAssignmentId = null;
+			if (calAssignmentsLoaded && Array.isArray(calAssignments)) {
+				const candidates = calAssignments
+					.filter(a => String(a?.due_date || '') === String(dateStr))
+					.filter(a => a?.id != null);
+				if (candidates.length > 0) {
+					// due_time이 가장 빠른 배정을 선택
+					candidates.sort((a, b) => {
+						const ta = a?.due_time ? String(a.due_time).slice(0, 5) : '99:59';
+						const tb = b?.due_time ? String(b.due_time).slice(0, 5) : '99:59';
+						return ta.localeCompare(tb);
+					});
+					gradingAssignmentId = candidates[0]?.id ?? null;
+				}
+			}
+
 			const { error } = await db.from('homework_submissions').insert({
 				owner_user_id: currentStudent.owner_user_id,
 				teacher_id: currentStudent.teacher_id,
 				student_id: currentStudent.id,
 				submission_date: dateStr,
+				grading_assignment_id: gradingAssignmentId,
 				file_name: '관리자 수동 확인',
 				file_size: 0,
 				status: 'manual'
@@ -2168,19 +2229,189 @@ async function executeAdminAction() {
 }
 
 // ============================================================
+// 업로드용 배정 과제 선택(미제출만)
+// ============================================================
+function hideUploadAssignmentSelectionUI() {
+	uploadDueDate = uploadDueDate || getTodayString();
+	uploadSelectedGradingAssignmentId = null;
+	uploadSelectedAnswerKeyId = null;
+	uploadAvailableGradingAssignments = [];
+
+	const card = document.getElementById('upload-assignment-card');
+	const desc = document.getElementById('upload-assignment-desc');
+	const wrap = document.getElementById('upload-assignment-select-wrap');
+	if (card) card.style.display = 'none';
+	if (desc) desc.textContent = '';
+	if (wrap) wrap.innerHTML = '';
+	updateSubmitButton();
+}
+
+function _formatDueTimeToHHMM(dueTime) {
+	if (!dueTime) return '';
+	const s = String(dueTime).trim();
+	// TIME 컬럼이 HH:MM:SS로 오더라도 앞 5글자만 표시
+	const hhmm = s.slice(0, 5);
+	return /^\d{2}:\d{2}$/.test(hhmm) ? hhmm : '';
+}
+
+async function loadUploadAssignmentSelection() {
+	const card = document.getElementById('upload-assignment-card');
+	const desc = document.getElementById('upload-assignment-desc');
+	const wrap = document.getElementById('upload-assignment-select-wrap');
+	if (!card || !desc || !wrap) return;
+
+	// 기본값: 업로드 날짜는 항상 있어야 함
+	const dueDate = uploadDueDate || getTodayString();
+	uploadDueDate = dueDate;
+
+	uploadSelectedGradingAssignmentId = null;
+	uploadSelectedAnswerKeyId = null;
+	uploadAvailableGradingAssignments = [];
+	desc.textContent = '';
+	wrap.innerHTML = '';
+
+	// 채점 서버 연결 정보가 없으면(로컬) 선택 UI를 포기하고 기존 업로드로 폴백
+	if (!GRADING_SERVER_URL_HW) {
+		card.style.display = 'none';
+		updateSubmitButton();
+		showToast('배정 과제 선택은 채점 서버 연결이 필요합니다. (현재 로컬 폴백)', 'warning');
+		return;
+	}
+
+	try {
+		// 1) 해당 날짜의 학생 배정(due_date/due_time)
+		const base = GRADING_SERVER_URL_HW.replace(/\/$/, '');
+		const url = new URL(`${base}/api/homework-assignments`);
+		url.searchParams.set('teacher_id', String(currentStudent?.owner_user_id || ''));
+		url.searchParams.set('student_id', String(currentStudent?.id || ''));
+		url.searchParams.set('date_from', dueDate);
+		url.searchParams.set('date_to', dueDate);
+
+		const res = await fetch(url.toString());
+		const body = await res.json().catch(() => ({}));
+		if (!res.ok) {
+			throw new Error(body?.detail || body?.error || `HTTP ${res.status}`);
+		}
+		const assignments = body?.data || [];
+
+		// 2) 이미 제출된 배정 제외
+		let submissions = [];
+		try {
+			const { data } = await db
+				.from('homework_submissions')
+				.select('id, submission_date, status, grading_assignment_id')
+				.eq('student_id', currentStudent.id)
+				.eq('submission_date', dueDate)
+				.in('status', ['uploaded', 'manual']);
+			submissions = data || [];
+		} catch (e) {
+			// RLS/권한 이슈 시에도 업로드 자체는 막지 않되, 중복 업로드는 Edge에서 409로 막는다.
+			console.warn('[upload] submissions 조회 실패(제외 처리 완화):', e);
+		}
+
+		const hasAnySubmission = submissions.length > 0;
+		const submittedSet = new Set(
+			(submissions || [])
+				.filter((s) => s.grading_assignment_id != null)
+				.map((s) => String(s.grading_assignment_id))
+		);
+
+		let available = assignments;
+		// (old data) grading_assignment_id가 누락된 제출이 있다면, 안전하게 전체를 제외 처리(= 선택 불가)
+		if (submittedSet.size === 0 && hasAnySubmission) {
+			available = [];
+		} else if (submittedSet.size > 0) {
+			available = assignments.filter((a) => !submittedSet.has(String(a.id)));
+		}
+
+		// sort: due_time 오름차순(없으면 뒤)
+		available.sort((a, b) => {
+			const ta = a?.due_time ? String(a.due_time) : '99:59:59';
+			const tb = b?.due_time ? String(b.due_time) : '99:59:59';
+			return ta.localeCompare(tb);
+		});
+
+		uploadAvailableGradingAssignments = available;
+
+		// 3) 렌더링
+		if (!available.length) {
+			card.style.display = 'block';
+			desc.textContent = `이 날짜(${getDateDisplay(dueDate)})의 미제출 배정 과제가 없습니다.`;
+			wrap.innerHTML = '<div style="font-size:12px;color:var(--text-sec);margin-top:10px;line-height:1.5;">이미 제출 기록이 있거나 배정 연결 정보를 확인할 수 없습니다.</div>';
+			updateSubmitButton();
+			return;
+		}
+
+		card.style.display = 'block';
+		desc.textContent = `이 날짜(${getDateDisplay(dueDate)})의 미제출 배정 과제를 선택하세요.`;
+
+		const optsHtml = available.map((a) => {
+			const dueTime = _formatDueTimeToHHMM(a?.due_time);
+			const answerKey = a?.answer_keys?.title || '';
+			const answerSub = a?.answer_keys?.subject ? ` · ${a.answer_keys.subject}` : '';
+			const label = [a.title, answerKey ? `(${answerKey}${answerSub})` : null, dueTime ? `· 마감 ${dueTime}` : null]
+				.filter(Boolean)
+				.join(' ');
+			return `<option value="${a.id}">${escapeHtml(label)}</option>`;
+		}).join('');
+
+		wrap.innerHTML = `
+			<select id="upload-assignment-select" style="width:100%;padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:var(--bg-elevated);color:var(--text);font-size:14px;outline:none;cursor:pointer;">
+				${optsHtml}
+			</select>
+		`;
+
+		const sel = document.getElementById('upload-assignment-select');
+		if (sel) {
+			uploadSelectedGradingAssignmentId = parseInt(sel.value, 10);
+			const picked = available.find((x) => String(x.id) === String(uploadSelectedGradingAssignmentId));
+			uploadSelectedAnswerKeyId = picked?.answer_key_id != null ? Number(picked.answer_key_id) : null;
+			// answer_key_id 기반으로 교재 선택 UI를 자동 동기화
+			const textbookSel = document.getElementById('textbook-select');
+			if (textbookSel && uploadSelectedAnswerKeyId != null) {
+				textbookSel.value = String(uploadSelectedAnswerKeyId);
+			}
+
+			sel.onchange = () => {
+				uploadSelectedGradingAssignmentId = sel.value ? parseInt(sel.value, 10) : null;
+				const p = available.find((x) => String(x.id) === String(uploadSelectedGradingAssignmentId));
+				uploadSelectedAnswerKeyId = p?.answer_key_id != null ? Number(p.answer_key_id) : null;
+				const textbookSel2 = document.getElementById('textbook-select');
+				if (textbookSel2) {
+					textbookSel2.value = uploadSelectedAnswerKeyId != null ? String(uploadSelectedAnswerKeyId) : '';
+				}
+				updateSubmitButton();
+			};
+		}
+
+		updateSubmitButton();
+	} catch (e) {
+		console.warn('[upload] assignment selection load error:', e);
+		// 선택 UI 실패 시에도 업로드 페이지 자체는 유지(기존 동선 호환)
+		card.style.display = 'none';
+		uploadSelectedGradingAssignmentId = null;
+		uploadSelectedAnswerKeyId = null;
+		uploadAvailableGradingAssignments = [];
+		updateSubmitButton();
+	}
+}
+
+// ============================================================
 // 업로드 페이지
 // ============================================================
-function showUploadPage(isRestore) {
+function showUploadPage(isRestore, dueDateStr) {
 	document.getElementById('page-landing').style.display = 'none';
 	document.getElementById('page-admin-students').style.display = 'none';
 	document.getElementById('page-status').style.display = 'none';
 	document.getElementById('page-upload').style.display = 'block';
 
+	uploadDueDate = dueDateStr || uploadDueDate || getTodayString();
+
 	// 학생 정보 표시
 	document.getElementById('upload-name').textContent = currentStudent.name;
 	document.getElementById('upload-grade').textContent = currentStudent.grade || '-';
 	document.getElementById('upload-teacher').textContent = currentTeacher ? currentTeacher.name + ' 선생님' : '미배정';
-	document.getElementById('upload-date').textContent = getTodayDisplay();
+	document.getElementById('upload-date').textContent = getDateDisplay(uploadDueDate);
 
 	// 제출 정보
 	document.getElementById('zip-filename').textContent = getZipFilename(currentStudent.name);
@@ -2202,6 +2433,17 @@ function showUploadPage(isRestore) {
 
 	// 스크롤 맨 위로
 	window.scrollTo(0, 0);
+
+	// 업로드용 배정(미제출) 선택 UI 로드
+	if (!isAdminMode) {
+		loadUploadAssignmentSelection().catch((e) => {
+			console.warn('[upload] 배정 선택 로드 실패:', e);
+		});
+	} else {
+		// 관리자 모드면 선택 강제하지 않음
+		hideUploadAssignmentSelectionUI();
+		updateSubmitButton();
+	}
 }
 
 function goBackToLanding() {
@@ -2308,13 +2550,20 @@ function updateFileUI() {
 function updateSubmitButton() {
 	const btn = document.getElementById('submit-btn');
 	const hasFiles = selectedFiles.length > 0;
-	btn.disabled = !hasFiles;
-
-	if (!hasFiles) {
-		btn.title = '파일을 먼저 업로드하세요';
-	} else {
-		btn.title = '';
+	let assignmentOk = true;
+	if (!isAdminMode) {
+		const card = document.getElementById('upload-assignment-card');
+		const isVisible = !!card && card.style.display !== 'none';
+		const hasPickable = (uploadAvailableGradingAssignments || []).length > 0;
+		// 선택 UI가 보이면 "미제출이 있는 경우에만" 선택값이 필요
+		assignmentOk = isVisible ? (hasPickable && uploadSelectedGradingAssignmentId != null) : true;
 	}
+
+	btn.disabled = !(hasFiles && assignmentOk);
+
+	if (!hasFiles) btn.title = '파일을 먼저 업로드하세요';
+	else if (!assignmentOk) btn.title = '배정 과제를 선택하세요';
+	else btn.title = '';
 }
 
 // 드래그 앤 드롭
@@ -2361,6 +2610,17 @@ async function handleSubmit() {
 	if (!currentTeacher) {
 		showToast('선생님 정보를 불러올 수 없습니다.', 'error');
 		return;
+	}
+
+	// 배정 과제 선택이 필요하고 아직 선택되지 않은 경우 제출 막기
+	if (!isAdminMode) {
+		const card = document.getElementById('upload-assignment-card');
+		const isVisible = !!card && card.style.display !== 'none';
+		const hasPickable = (uploadAvailableGradingAssignments || []).length > 0;
+		if (isVisible && hasPickable && uploadSelectedGradingAssignmentId == null) {
+			showToast('배정 과제를 먼저 선택하세요.', 'warning');
+			return;
+		}
 	}
 
 	const submitBtn = document.getElementById('submit-btn');
@@ -2418,7 +2678,13 @@ async function handleSubmit() {
 		formData.append('student_id', String(currentStudent.id));
 		formData.append('student_name', currentStudent.name);
 		formData.append('owner_user_id', currentStudent.owner_user_id);
-		formData.append('submission_date', getTodayString());
+		const submissionDate = uploadDueDate || getTodayString();
+		formData.append('submission_date', submissionDate);
+
+		// 배정 선택값(선택사항)
+		if (uploadSelectedGradingAssignmentId != null) {
+			formData.append('grading_assignment_id', String(uploadSelectedGradingAssignmentId));
+		}
 		// Edge upload-homework: 학생 포털은 Supabase 세션이 없으므로 DB student_code와 일치 검증
 		let portalCodeToSend = '';
 		if (currentStudent.student_code != null && currentStudent.student_code !== '') {
@@ -2435,6 +2701,8 @@ async function handleSubmit() {
 		const selectedTextbook = document.getElementById('textbook-select')?.value;
 		if (selectedTextbook) {
 			formData.append('answer_key_id', selectedTextbook);
+		} else if (uploadSelectedAnswerKeyId != null) {
+			formData.append('answer_key_id', String(uploadSelectedAnswerKeyId));
 		}
 
 		const { data: fnData, error: fnError } = await db.functions.invoke('upload-homework', {

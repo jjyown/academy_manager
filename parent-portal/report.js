@@ -28,6 +28,10 @@ const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_
 	auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
 });
 
+const _isLocal = ['localhost','127.0.0.1'].includes(location.hostname);
+const GRADING_SERVER_URL_HW = (localStorage.getItem('grading_server_url') || '').trim()
+	|| (_isLocal ? 'https://academymanager-production.up.railway.app' : 'https://academymanager-production.up.railway.app');
+
 // ========== State ==========
 let currentStudent = null;
 let teacherAuthList = [];
@@ -52,7 +56,8 @@ let attSelectedDate = null;
 let hwYear = new Date().getFullYear();
 let hwMonth = new Date().getMonth(); // 0-indexed
 let hwSubmissions = [];
-let hwSchedules = [];
+let hwAssignments = [];
+let hwAssignmentsLoaded = false; // API 호출 성공 여부(0건이어도 true)
 let hwDateStatus = {};
 let hwSelectedDate = null;
 let hwLoaded = false;
@@ -1503,21 +1508,41 @@ async function loadHomeworkData() {
 			.in('status', ['uploaded', 'manual'])
 			.order('created_at', { ascending: false });
 
-		const schedPromise = supabaseClient
-			.from('schedules')
-			.select('schedule_date, start_time')
-			.eq('student_id', currentStudent.id)
-			.gte('schedule_date', startDate)
-			.lte('schedule_date', endDate);
+		// 숙제 마감은 선생님 배정(grading_assignments, GET /api/homework-assignments)만 신뢰 — 수업 schedules로 폴백하지 않음
+		const assignmentsPromise = (async () => {
+			if (!GRADING_SERVER_URL_HW) return { ok: false, data: [] };
+			try {
+				const base = GRADING_SERVER_URL_HW.replace(/\/$/, '');
+				const url = new URL(`${base}/api/homework-assignments`);
+				url.searchParams.set('teacher_id', String(currentStudent.owner_user_id || ''));
+				url.searchParams.set('student_id', String(currentStudent.id || ''));
+				url.searchParams.set('date_from', startDate);
+				url.searchParams.set('date_to', endDate);
+				const res = await fetch(url.toString());
+				const body = await res.json().catch(() => ({}));
+				if (!res.ok) throw new Error(body?.detail || body?.error || `HTTP ${res.status}`);
+				return { ok: true, data: body?.data || [] };
+			} catch (e) {
+				console.warn('[parent-portal] assignments fetch failed:', e);
+				return { ok: false, data: [] };
+			}
+		})();
 
-		const [subResult, schedResult] = await Promise.all([subPromise, schedPromise]);
+		const [subResult, assignResult] = await Promise.all([subPromise, assignmentsPromise]);
 
 		hwSubmissions = (subResult.error ? [] : subResult.data) || [];
-		hwSchedules = (schedResult.error ? [] : schedResult.data) || [];
+		if (assignResult && assignResult.ok) {
+			hwAssignments = assignResult.data || [];
+			hwAssignmentsLoaded = true;
+		} else {
+			hwAssignments = [];
+			hwAssignmentsLoaded = false;
+		}
 	} catch (e) {
 		console.error('Homework fetch error:', e);
 		hwSubmissions = [];
-		hwSchedules = [];
+		hwAssignments = [];
+		hwAssignmentsLoaded = false;
 	}
 
 	computeHwDateStatuses();
@@ -1536,35 +1561,37 @@ function computeHwDateStatuses() {
 	hwDateStatus = {};
 	const today = new Date();
 
-	const scheduleMap = {};
-	hwSchedules.forEach(s => {
-		const t = (s.start_time || '').substring(0, 5);
-		if (!scheduleMap[s.schedule_date] || t < scheduleMap[s.schedule_date]) {
-			scheduleMap[s.schedule_date] = t;
-		}
-	});
-
 	const subMap = {};
 	hwSubmissions.forEach(s => {
 		if (!subMap[s.submission_date]) subMap[s.submission_date] = [];
 		subMap[s.submission_date].push(s);
 	});
 
+	const useAssignments = !!hwAssignmentsLoaded;
+
+	// 배정 맵: grading_assignments 기반(API /api/homework-assignments)
+	const assignmentMap = {};
+	if (useAssignments) {
+		hwAssignments.forEach(a => {
+			const dateStr = a?.due_date;
+			if (!dateStr) return;
+			const t = (a?.due_time ? String(a.due_time).slice(0, 5) : '').trim() || '23:59';
+			if (!assignmentMap[dateStr] || t < assignmentMap[dateStr]) assignmentMap[dateStr] = t;
+		});
+	}
+
 	const lastDay = new Date(hwYear, hwMonth + 1, 0);
 	for (let d = 1; d <= lastDay.getDate(); d++) {
 		const dateStr = `${hwYear}-${String(hwMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-		const hasSchedule = !!scheduleMap[dateStr];
-		const scheduleTime = scheduleMap[dateStr] || null;
 		const subs = subMap[dateStr] || [];
 
-		if (!hasSchedule) {
-			if (subs.length > 0) {
-				hwDateStatus[dateStr] = { status: 'submitted', scheduleTime: null };
-			} else {
-				hwDateStatus[dateStr] = { status: 'none', scheduleTime: null };
-			}
-			continue;
-		}
+		if (!useAssignments) continue;
+
+		// 배정 없는 날은 상태 엔트리 생성하지 않음(Q1)
+		const hasAssignment = !!assignmentMap[dateStr];
+		if (!hasAssignment) continue;
+
+		const scheduleTime = assignmentMap[dateStr];
 
 		const hasManual = subs.some(s => s.status === 'manual');
 		if (hasManual) {
@@ -1576,11 +1603,9 @@ function computeHwDateStatuses() {
 		if (uploadedSubs.length === 0) {
 			const [dh, dm] = (scheduleTime || '23:59').split(':').map(Number);
 			const deadline = new Date(hwYear, hwMonth, d, dh, dm);
-			if (deadline <= today) {
-				hwDateStatus[dateStr] = { status: 'missed', scheduleTime };
-			} else {
-				hwDateStatus[dateStr] = { status: 'pending', scheduleTime };
-			}
+			hwDateStatus[dateStr] = deadline <= today
+				? { status: 'missed', scheduleTime }
+				: { status: 'pending', scheduleTime };
 			continue;
 		}
 
@@ -1590,7 +1615,7 @@ function computeHwDateStatuses() {
 		const hasOnTime = uploadedSubs.some(s => {
 			const ct = new Date(s.created_at);
 			const ctMinutes = ct.getHours() * 60 + ct.getMinutes();
-			const ctDateStr = `${ct.getFullYear()}-${String(ct.getMonth()+1).padStart(2,'0')}-${String(ct.getDate()).padStart(2,'0')}`;
+			const ctDateStr = `${ct.getFullYear()}-${String(ct.getMonth() + 1).padStart(2, '0')}-${String(ct.getDate()).padStart(2, '0')}`;
 			if (ctDateStr < dateStr) return true;
 			if (ctDateStr === dateStr && ctMinutes <= deadlineMinutes) return true;
 			return false;
@@ -1717,7 +1742,7 @@ function showHwDateDetail(dateStr) {
 	if (ds.scheduleTime) {
 		const schedDiv = document.createElement('div');
 		schedDiv.className = 'hw-sched-info';
-		schedDiv.innerHTML = `<i class="fas fa-clock"></i> 수업 시작: ${ds.scheduleTime} &nbsp;|&nbsp; 제출 마감: ${ds.scheduleTime}`;
+		schedDiv.innerHTML = `<i class="fas fa-clock"></i> 제출 마감: ${ds.scheduleTime}`;
 		bodyEl.appendChild(schedDiv);
 	}
 
