@@ -127,7 +127,12 @@ window.signUp = async function() {
     }
 }
 
+let _signInInFlight = false;
+/** signIn에서 admin role 검증 직후에만 true → showMainApp에서 중복 users 조회 생략(콘솔에서 skip 플래그만으로는 우회 불가) */
+let _adminRoleJustVerifiedForShowMain = false;
+
 window.signIn = async function() {
+    if (_signInInFlight) return;
     const email = (document.getElementById('login-email')?.value || '').trim();
     const password = document.getElementById('login-password').value;
     const rememberMe = document.getElementById('remember-me').checked;
@@ -137,6 +142,7 @@ window.signIn = async function() {
         return;
     }
 
+    _signInInFlight = true;
     try {
         const { data, error } = await supabase.auth.signInWithPassword({
             email: email,
@@ -168,6 +174,7 @@ window.signIn = async function() {
             return;
         }
         console.log('[signIn] admin 권한 확인됨');
+        _adminRoleJustVerifiedForShowMain = true;
 
         // 로그인 성공 - 현재 사용자(관리자) ID 저장
         console.log('[signIn] 로그인 성공, current_owner_id 저장');
@@ -186,12 +193,13 @@ window.signIn = async function() {
             console.log('[signIn] 로그인 유지 미체크 → localStorage에서 제거');
         }
         
-        // showMainApp() 호출로 선생님 선택 페이지 표시
-        // (showMainApp 내에서 navigateToPage('TEACHER_SELECT') 호출됨)
+        // showMainApp: 방금 role 검증했으므로 동일 조회 생략(왕복 1회 절약)
         console.log('[signIn] 선생님 선택 페이지로 이동');
-        await showMainApp();
+        await showMainApp(false, { skipAdminRoleRecheck: true });
     } catch (error) {
         showToast('오류 발생: ' + error.message, 'error');
+    } finally {
+        _signInInFlight = false;
     }
 }
 
@@ -438,14 +446,25 @@ window.resetAdminPassword = async function() {
     }
 }
 
-window.openAdminPasswordUpdateModal = function() {
+window.openAdminPasswordUpdateModal = async function() {
     const modal = document.getElementById('admin-password-update-modal');
     if (modal) modal.style.display = 'flex';
+    const userAc = document.getElementById('admin-password-update-username-ac');
+    if (userAc) {
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            userAc.value = user?.email || '';
+        } catch (e) {
+            userAc.value = '';
+        }
+    }
 }
 
 window.closeAdminPasswordUpdateModal = function() {
     const modal = document.getElementById('admin-password-update-modal');
     if (modal) modal.style.display = 'none';
+    const userAc = document.getElementById('admin-password-update-username-ac');
+    if (userAc) userAc.value = '';
 }
 
 window.confirmAdminPasswordReset = async function() {
@@ -606,9 +625,11 @@ async function handlePasswordRecoveryOnLoad() {
 
 handlePasswordRecoveryOnLoad();
 
-window.showMainApp = async function(forceTeacherSelect = false) {
+window.showMainApp = async function(forceTeacherSelect = false, opts = {}) {
     try {
-        console.log('[showMainApp] 시작, forceTeacherSelect:', forceTeacherSelect);
+        const skipAdminRoleRecheck = !!opts.skipAdminRoleRecheck && _adminRoleJustVerifiedForShowMain;
+        _adminRoleJustVerifiedForShowMain = false;
+        console.log('[showMainApp] 시작, forceTeacherSelect:', forceTeacherSelect, 'skipAdminRoleRecheck:', skipAdminRoleRecheck);
 
         // ✅ 필수: Supabase 세션 재확인
         const { data: { session }, error: sessionError } = await supabase.auth.getSession();
@@ -642,16 +663,18 @@ window.showMainApp = async function(forceTeacherSelect = false) {
             return;
         }
 
-        const { data: ownerRoleRow, error: ownerRoleErr } = await supabase
-            .from('users')
-            .select('role')
-            .eq('id', session.user.id)
-            .single();
-        if (ownerRoleErr || !ownerRoleRow || ownerRoleRow.role !== 'admin') {
-            await supabase.auth.signOut();
-            showToast('관리자 권한이 없습니다. 다시 로그인해주세요.', 'warning');
-            await cleanupAndRedirectToAuth();
-            return;
+        if (!skipAdminRoleRecheck) {
+            const { data: ownerRoleRow, error: ownerRoleErr } = await supabase
+                .from('users')
+                .select('role')
+                .eq('id', session.user.id)
+                .single();
+            if (ownerRoleErr || !ownerRoleRow || ownerRoleRow.role !== 'admin') {
+                await supabase.auth.signOut();
+                showToast('관리자 권한이 없습니다. 다시 로그인해주세요.', 'warning');
+                await cleanupAndRedirectToAuth();
+                return;
+            }
         }
         localStorage.setItem('current_user_role', 'admin');
 
@@ -682,7 +705,7 @@ window.showMainApp = async function(forceTeacherSelect = false) {
                 list = await loadTeachers();
                 console.log('[showMainApp] loadTeachers 결과:', (list || []).length + '명, 남은 재시도:', retries - 1);
                 if (list.length === 0 && retries > 1) {
-                    await new Promise(resolve => setTimeout(resolve, 500));
+                    await new Promise(resolve => setTimeout(resolve, 180));
                 }
                 retries--;
             }
@@ -769,7 +792,8 @@ window.initializeAuth = async function(isRefresh = false) {
             console.log('[initializeAuth] 새로고침 감지 - current_owner_id 확인:', currentOwnerId);
             
             if (!currentOwnerId) {
-                console.warn('[initializeAuth] 새로고침 시 current_owner_id 없음 - 로그인 페이지로 이동');
+                // 미로그인 상태에서 새로고침한 정상 동선 — warn은 콘솔 노이즈이므로 debug만
+                console.debug('[initializeAuth] 새로고침 시 current_owner_id 없음 → 로그인 페이지');
                 navigateToPage('AUTH');
                 return;
             }

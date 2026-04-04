@@ -12,6 +12,10 @@ SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")
 GRADING_SESSION_SECRET = os.getenv("GRADING_SESSION_SECRET", "")
 GRADING_SESSION_TTL_HOURS = int(os.getenv("GRADING_SESSION_TTL_HOURS", "12"))
 
+# 운영 단일 원장(jjyown@gmail.com 등): 모든 선생님 채점 세션 JWT의 sub·응답 owner_user_id를 이 UUID로 고정.
+# 비우면 기존대로 teachers.owner_user_id 사용. 설정 시 채점관리 프론트의 과제 API teacher_id와 반드시 동일해야 함.
+GRADING_CANONICAL_OWNER_USER_ID = os.getenv("GRADING_CANONICAL_OWNER_USER_ID", "").strip()
+
 # JWT 검증용 시크릿 (Supabase Dashboard → Settings → API → JWT Secret)
 # 설정하지 않으면 인증이 비활성화됩니다 (개발 모드)
 SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "")

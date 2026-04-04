@@ -1,6 +1,6 @@
 # 출석관리앱 작업 계획서
 
-- 문서 기준일: 2026-04-04
+- 문서 기준일: 2026-04-05
 ## 프로젝트 목표
 - 학생/수업 기준으로 출석 상태를 정확히 기록하고 조회한다.
 - 교사 권한으로만 수정 가능하도록 접근 제어를 적용한다.
@@ -76,6 +76,13 @@
 - 다음 단계:
   - 이후 작업 사이클 종료 시 `append_enterprise_log.py`를 표준 명령으로 포함해 자동 기록 누락을 방지
 
+## Railway 로그 분석·고아 제출 복구 — 2026-04-05
+- 상태: [x] 완료
+- 증거: Railway CSV에서 기동 직후 Supabase `GET .../homework_submissions?...updated_at=lt...`가 **HTTP 400**, 본문에 `column homework_submissions.updated_at does not exist`(힌트 `created_at`). `grading_results` 쪽 동일 복구는 **200**.
+- 조치: `grading-server/main.py`의 `_recover_orphaned_grading`에서 stuck 제출 조회를 `updated_at` → `created_at`으로 변경.
+- 검증: `python -m compileall grading-server` 권장 · Railway 재배포 후 기동 로그에서 고아 복구 400 재발 여부 확인.
+- 다음 단계: 장기적으로는 `homework_submissions.updated_at` 트리거 추가 vs 코드만 `created_at` 유지 중 운영 정책 확정.
+
 ## 문의 답변 기록 — 2026-04-03
 - 상태: [x] 완료
 - 정리: 숙제 “배정”은 `grading_assignments`, 학생 “제출(배정연결)”은 `homework_submissions.grading_assignment_id`, 채점 결과는 `grading_results`에서 확인
@@ -97,6 +104,70 @@
   - `loadAllTeachersScheduleData`는 `finally`에서 항상 `allScopeScheduleHydrated=true`·로딩 종료로 정리(오류·조기 return 시에도 영구 빈 달 방지)
 - 검증: 정적 코드 점검; 배포 후 Vercel에서 로그인·월간 캘린더 뱃지 스모크 권장
 - 다음 단계: 400이 계속이면 Supabase 대시보드 anon 키와 `supabase-config.js` 폴백·Vercel env가 동일 프로젝트인지 확인
+
+### 메인 앱 콘솔 노이즈·정책 위반 완화 — 2026-04-04
+- 상태: [x] 완료
+- 구현 파일: `index.html`, `script.js`, `auth.js`
+- 구현 요약:
+  - `.env` fetch는 `localhost`/`127.0.0.1`/`[::1]`에서만 시도(배포 도메인의 불필요 404 제거). 후보 순서 `env.local` → `.env.local`
+  - `unload` 리스너 제거(`pagehide`만 유지) — Chrome Permissions-Policy `unload` 위반 로그 방지
+  - `initializeAuth`에서 새로고침·미로그인 시 `console.warn` → `console.debug`
+  - 비밀번호 `<input>`을 실제 `<form>`으로 감싸 DOM `[Password field is not contained in a form]` 경고 완화
+  - 추가: Chrome `[DOM] Password forms should have … username`·`autocomplete` 권고 — 이메일/이름 등에 `autocomplete`, 선생님·QR 비밀번호 폼에 숨은 `username` 필드(+선택 시 값 채움)로 완화(`index.html`, `script.js`, `qr-attendance.js`)
+  - 잔여 폼: 관리자 복구(`admin-password-update`)·선생님 비밀번호 변경/강제 초기화·`teacher-password-modal`에도 비밀번호 앞 숨은 `username` + 모달 오픈/드롭다운 동기화(`index.html`, `auth.js`, `script.js`)
+  - 학부모/숙제(2026-04-05): `env.local` 단일 fetch·로더 중복 방지·`localStorage.academy_skip_local_env_fetch=1`로 시도 생략·선생님 인증 `<form>`(`parent-portal/index.html`, `report.js`, `homework/index.html`)
+- 검증: 정적 마크업·이벤트 점검
+- 다음 단계: 로컬을 LAN IP로만 열 때 env 파일이 필요하면 `127.0.0.1`로 열거나 `supabase-config.js`/브라우저 저장소 사용
+
+### 숙제·학부모 포털 관리자 로그인 — PKCE·URL 오타 교정·teachers 없음 구분 — 2026-04-04
+- 상태: [x] 완료
+- 구현 파일: `homework/index.html`, `parent-portal/report.js`, `parent-portal/index.html`
+- 구현 요약:
+  - `createClient`에 `auth.flowType: 'pkce'` 추가(메인 `supabase-config.js`와 정렬, 잘못된 implicit 흐름으로 인한 `token?grant_type=password` 400 완화)
+  - `normalizeSupabaseProjectUrl`: 콘솔에 관측된 호스트 오타(`jzcrpdeomjmtfekcgqu`, `izcrpdeominmtfekcgqu` 등)→정상 프로젝트 URL로 교정
+  - `Invalid login credentials`류 메시지에 localStorage URL 점검·Auth 사용자 삭제 여부 안내
+  - `teachers`에 `owner_user_id` 매칭 행이 없을 때 `signOut` 후 명시 문구(선생님 전부 삭제 시 혼동 방지)
+  - 관리자 모달을 `<form>`+`type="submit"`으로 감싸 비밀번호 필드 DOM 경고 완화
+- 검증: `node --check parent-portal/report.js` PASS(권장)
+- 다음 단계: 여전히 실패 시 Supabase Auth에 원장 이메일 사용자 존재·비밀번호 확인, `teachers`에 최소 1행 유지
+
+### 즉시 채점 연결 오류 수정 — 2026-04-05
+- 상태: [x] 완료
+- 구현 파일: `grading/index.html`
+- 원인: `gradingOwnerId()`가 폴백으로 자기 자신을 호출해 무한 재귀·빈 UUID. 또한 로컬 호스트에서 `shouldTryRemoteGradingServer===false`일 때 기본 Railway URL이 있어도 즉시 채점만 차단됨.
+- 조치: 폴백을 `currentTeacher.owner_user_id`로 복구. 즉시 채점은 `GRADING_SERVER_URL` 비어 있을 때만 거부.
+- 검증: 정적 코드 확인
+
+### 즉시 채점 UI 이관(학생 숙제 → 채점관리 상단) — 2026-04-05
+- 상태: [x] 완료
+- 구현 파일: `homework/index.html`, `grading/index.html`
+- 구현 요약: 학생 숙제 제출 현황 하단의「즉시 채점」플로팅 버튼·`goToInstantGrade` 제거. 채점관리 `#main-tabs`에서「교재 관리」오른쪽에「📷 즉시 채점」탭 스타일 버튼 추가, `openInstantGradeCamera`에서 `hwSelectedStudentId`+`gradingOwnerId()`로 `POST /api/grade`(mode=auto_search) 유지. 학생 미선택 시 안내 후 숙제 관리 탭으로 전환.
+- 검증: 문자열 참조 grep로 잔존 호출 없음 확인
+- 다음 단계: 실기기에서 카메라·갤러리·Railway `/api/grade` 스모크
+
+### 관리자·선생님 로그인 Enter 체감 속도 — 2026-04-05
+- 상태: [x] 완료
+- 구현 파일: `index.html`, `auth.js`, `script.js`
+- 구현 요약: 비밀번호 필드 Enter 시 `onkeydown`+폼 `submit`으로 `signIn`/`confirmTeacher`가 이중 호출되던 부분 제거(폼 submit만 사용). `signIn`·`confirmTeacher` 재진입 가드. 로그인 직후 `showMainApp`은 일회성 플래그로 `users.role` 재조회 1회 생략, `loadTeachers` 빈 목록 재시도 대기 500ms→180ms.
+- 검증: `node --check auth.js` `script.js` PASS
+- 다음 단계: 없음
+
+### 선생님 등록 이메일 직접 입력 + 채점관리 API 원장 통일 — 2026-04-05
+- 상태: [x] 완료
+- 구현 파일: `index.html`, `script.js`, `grading/index.html`, `grading-server/config.py`, `grading-server/routers/grading_auth.py`
+- 구현 요약:
+  - 선생님 등록: 구글 OAuth 버튼 제거 → `type="email"` 입력, 형식 검증, `google_sub`는 null 저장(비밀번호 초기화 등은 `email`/`google_email` 동일 유지).
+  - 채점관리: 로그인 후 과제/채점 Railway 호출의 `teacher_id`(=원장 UUID)를 `currentTeacher._gradingApiOwner`로 통일. 세션 응답 `owner_user_id` 우선, 없으면 `teachers`에서 `jjyown@gmail.com` 행의 `owner_user_id` 조회 후 `localStorage.canonical_grading_owner_user_id` 캐시, 최종 폴백은 선생님 행의 `owner_user_id`.
+  - Railway: 선택 환경변수 `GRADING_CANONICAL_OWNER_USER_ID`(jjyown Supabase Auth User UUID) — 설정 시 채점 세션 JWT `sub`가 항상 이 값이 되어 `GRADING_SESSION_SECRET` 사용 시 쿼리 `teacher_id`와 불일치 403을 방지.
+- 검증: `node --check script.js` PASS, `python -m compileall grading-server` PASS
+- 다음 단계: Railway에 `GRADING_CANONICAL_OWNER_USER_ID` 배포(운영 단일 원장 확정 시). 멀티 테넌트(여러 학원 단일 인스턴스)에서는 이 변수 설정 금지.
+
+### 학부모 포털 점수 탭 제거 — 2026-04-05
+- 상태: [x] 완료
+- 구현 파일: `parent-portal/index.html`, `parent-portal/report.js`
+- 구현 요약: 대시보드 탭을 **출결·숙제·종합평가**만 노출. `점수` 탭 버튼·`tab-score` 패널·점수 그래프 전용 CSS 제거. `loadStudentScoreTrend`·`student_test_scores` 조회·월 범위 입력·차트/툴팁/드래그 로직 및 `DOMContentLoaded` 초기화 제거.
+- 검증: `node --check parent-portal/report.js` PASS
+- 다음 단계: 학부모에게 테스트 점수 추이가 다시 필요하면 별도 요구사항(메인 학생 평가 모달 vs 포털 전용)으로 재설계
 
 ### 메인 캘린더 일정 누락(3월 등) — start_time NULL·1000행 제한 — 2026-04-03
 - 상태: [x] 완료
@@ -1667,6 +1738,7 @@
 - [ ] 다음 작업자가 바로 이어서 할 수 있게 문서가 갱신되었다.
 
 ## 변경 이력
+- 2026-04-05 - AUTO-20260405(staged 15개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-04-04 - AUTO-20260404(staged 4개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-04-04 - AUTO-20260404(staged 9개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-04-03 - AUTO-20260403(staged 6개 파일 기준 문서 연동 자동기록): 연동 자동 기록

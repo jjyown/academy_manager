@@ -1886,6 +1886,14 @@ window.showQRPasswordModal = async function() {
     const pwInput = document.getElementById('qr-scan-password');
     if (pwInput) pwInput.value = '';
 
+    const qrUserAc = document.getElementById('qr-teacher-username-autocomplete');
+    if (qrUserAc && qrDropdown && qrDropdown.value) {
+        const opt = qrDropdown.options[qrDropdown.selectedIndex];
+        qrUserAc.value = opt ? opt.textContent : '';
+    } else if (qrUserAc) {
+        qrUserAc.value = '';
+    }
+
     modal.style.display = 'flex';
     setTimeout(() => {
         if (teacherList && teacherList.length === 1 && pwInput) {

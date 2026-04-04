@@ -4,7 +4,7 @@ import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from config import GRADING_SESSION_TTL_HOURS
+from config import GRADING_SESSION_TTL_HOURS, GRADING_CANONICAL_OWNER_USER_ID
 from grading_session import create_grading_session_token, grading_session_enabled
 from integrations.edge_verify_pin import verify_teacher_pin_via_edge
 from integrations.supabase_client import get_supabase, run_query
@@ -63,9 +63,13 @@ async def create_session(body: GradingSessionRequest):
     if not row or not row.get("owner_user_id"):
         raise HTTPException(status_code=404, detail="선생님 정보를 찾을 수 없습니다")
 
-    owner = str(row["owner_user_id"]).strip()
-    if body.owner_user_id and str(body.owner_user_id).strip() != owner:
+    row_owner = str(row["owner_user_id"]).strip()
+    if body.owner_user_id and str(body.owner_user_id).strip() != row_owner:
         raise HTTPException(status_code=403, detail="원장 정보가 일치하지 않습니다")
+
+    owner = row_owner
+    if GRADING_CANONICAL_OWNER_USER_ID:
+        owner = str(GRADING_CANONICAL_OWNER_USER_ID).strip()
 
     try:
         token = create_grading_session_token(owner, str(row["id"]))

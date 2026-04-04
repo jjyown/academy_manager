@@ -2,13 +2,31 @@
 // ============================================================
 
 // ========== Supabase 초기화 ==========
+/** localStorage·수동 입력 시 흔한 호스트 오타 교정(잘못된 프로젝트 → Invalid login credentials) */
+function normalizeSupabaseProjectUrl(url) {
+	const u = String(url || '').trim().replace(/\/+$/, '');
+	if (!u) return u;
+	const lower = u.toLowerCase();
+	const fixes = [
+		['https://jzcrpdeomjmtfekcgqu.supabase.co', 'https://jzcrpdeomjmytfekcgqu.supabase.co'],
+		['https://izcrpdeominmtfekcgqu.supabase.co', 'https://jzcrpdeomjmytfekcgqu.supabase.co']
+	];
+	for (const [bad, good] of fixes) {
+		if (lower === bad) {
+			console.warn('[supabase] URL 오타 교정:', bad, '→', good);
+			return good;
+		}
+	}
+	return u;
+}
+
 function resolveRuntimeSupabaseConfig() {
 	const env = (typeof window !== 'undefined' && window.env) ? window.env : {};
 	const ls = (typeof window !== 'undefined' && window.localStorage) ? window.localStorage : null;
 	const fromStorageUrl = ls ? (ls.getItem('academy_supabase_url') || ls.getItem('REACT_APP_SUPABASE_URL')) : '';
 	const fromStorageKey = ls ? (ls.getItem('academy_supabase_anon_key') || ls.getItem('REACT_APP_SUPABASE_ANON_KEY')) : '';
 	return {
-		url: String(
+		url: normalizeSupabaseProjectUrl(
 			env.REACT_APP_SUPABASE_URL ||
 			fromStorageUrl ||
 			'https://jzcrpdeomjmytfekcgqu.supabase.co'
@@ -25,7 +43,12 @@ const runtimeSupabase = resolveRuntimeSupabaseConfig();
 const SUPABASE_URL = runtimeSupabase.url;
 const SUPABASE_ANON_KEY = runtimeSupabase.key;
 const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-	auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
+	auth: {
+		flowType: 'pkce',
+		persistSession: false,
+		autoRefreshToken: false,
+		detectSessionInUrl: false
+	}
 });
 
 const _isLocal = ['localhost','127.0.0.1'].includes(location.hostname);
@@ -61,7 +84,6 @@ let hwAssignmentsLoaded = false; // API 호출 성공 여부(0건이어도 true)
 let hwDateStatus = {};
 let hwSelectedDate = null;
 let hwLoaded = false;
-let scoreDragBound = false;
 
 // ========== Utilities ==========
 
@@ -315,11 +337,6 @@ function switchTab(tab) {
 		hwLoaded = true;
 	}
 
-	// 점수 탭 진입 시 데이터 로드
-	if (tab === 'score' && currentStudent) {
-		loadStudentScoreTrend();
-	}
-
 	// 종합평가 탭: 인증코드로 이미 조회한 학부모는 추가 인증 없이 표시
 	if (tab === 'eval' && currentStudent && isParentVerified()) {
 		const v = document.getElementById('eval-month-selector')?.value;
@@ -369,7 +386,15 @@ async function handleAdminLogin() {
 			password: password
 		});
 
-		if (authError) throw new Error('로그인 실패: ' + authError.message);
+		if (authError) {
+			const m = String(authError.message || '');
+			const low = m.toLowerCase();
+			let hint = '';
+			if (low.includes('invalid login') || low.includes('invalid credential') || low.includes('email not confirmed')) {
+				hint = ' (비밀번호·이메일 확인, Supabase Auth에서 사용자 삭제 여부 확인. 저장된 URL 오타 시 개발자도구 → Application → Local Storage에서 academy_supabase_url 등을 삭제 후 재시도)';
+			}
+			throw new Error('로그인 실패: ' + m + hint);
+		}
 		if (!authData.user) throw new Error('로그인에 실패했습니다.');
 
 		adminUser = authData.user;
@@ -381,10 +406,10 @@ async function handleAdminLogin() {
 			.single();
 		if (roleErr || roleRow?.role !== 'admin') {
 			await supabaseClient.auth.signOut();
-			throw new Error('관리자 권한이 없습니다. 원장(관리자) 계정으로 로그인해주세요.');
+			throw new Error('관리자 권한이 없습니다. 원장(관리자) 계정으로 로그인해주세요. (users.role=admin 확인)');
 		}
 
-		// 선생님 정보 조회 (owner_user_id = auth user id)
+		// 선생님 정보 조회 (owner_user_id = auth user id) — teachers 행이 없으면 여기서 실패
 		const { data: teachers, error: tErr } = await supabaseClient
 			.from('teachers')
 			.select('id, name, phone')
@@ -393,7 +418,10 @@ async function handleAdminLogin() {
 
 		if (tErr) throw tErr;
 		const teacher = (teachers && teachers.length > 0) ? teachers[0] : null;
-		if (!teacher) throw new Error('등록된 선생님 계정이 아닙니다.');
+		if (!teacher) {
+			await supabaseClient.auth.signOut();
+			throw new Error('이 원장 계정에 연결된 선생님(teachers) 행이 없습니다. 메인 관리 앱에서 선생님을 한 명 이상 등록한 뒤 다시 시도하세요.');
+		}
 
 		adminTeacher = teacher;
 		isAdminMode = true;
@@ -898,312 +926,6 @@ function setParentVerified() {
 	sessionStorage.setItem(`parent_verified__${currentStudent.id}`, 'true');
 }
 
-// ========== 점수 변화 그래프 (평가 점수탭 연동) ==========
-function normalizeTestScoreRows(rows) {
-	return (rows || []).map((row) => {
-		const score = Number(row.score || 0);
-		const maxScore = Number(row.max_score || 0);
-		const percent = maxScore > 0 ? Math.max(0, Math.min(100, Math.round((score / maxScore) * 100))) : 0;
-		return {
-			id: row.id,
-			examName: String(row.exam_name || '테스트'),
-			examDate: String(row.exam_date || ''),
-			score,
-			maxScore,
-			percent,
-			createdAt: row.created_at || ''
-		};
-	}).filter((r) => r.examDate).sort((a, b) => {
-		if (a.examDate !== b.examDate) return a.examDate.localeCompare(b.examDate);
-		return String(a.examName || '').localeCompare(String(b.examName || ''), 'ko-KR');
-	});
-}
-
-function formatMonthValue(year, month) {
-	return `${year}-${String(month).padStart(2, '0')}`;
-}
-
-function parseMonthValue(monthStr) {
-	const m = String(monthStr || '').match(/^(\d{4})-(\d{2})$/);
-	if (!m) return null;
-	const y = parseInt(m[1], 10);
-	const mo = parseInt(m[2], 10);
-	if (!Number.isFinite(y) || !Number.isFinite(mo) || mo < 1 || mo > 12) return null;
-	return { year: y, month: mo };
-}
-
-function monthToIndex(monthStr) {
-	const p = parseMonthValue(monthStr);
-	if (!p) return null;
-	return p.year * 12 + (p.month - 1);
-}
-
-function indexToMonth(idx) {
-	const year = Math.floor(idx / 12);
-	const month = (idx % 12) + 1;
-	return formatMonthValue(year, month);
-}
-
-function getScoreRangeFromInputs() {
-	const now = new Date();
-	const curMonth = formatMonthValue(now.getFullYear(), now.getMonth() + 1);
-	const startEl = document.getElementById('score-range-start-month');
-	const endEl = document.getElementById('score-range-end-month');
-	let startM = String(startEl?.value || '');
-	let endM = String(endEl?.value || '');
-	if (!parseMonthValue(endM)) endM = curMonth;
-	if (!parseMonthValue(startM)) startM = endM;
-
-	let sIdx = monthToIndex(startM);
-	let eIdx = monthToIndex(endM);
-	const curIdx = monthToIndex(curMonth);
-	if (sIdx == null || eIdx == null || curIdx == null) {
-		sIdx = curIdx;
-		eIdx = curIdx;
-	}
-	if (sIdx > eIdx) {
-		const t = sIdx;
-		sIdx = eIdx;
-		eIdx = t;
-	}
-	if (eIdx > curIdx) eIdx = curIdx;
-	if (eIdx - sIdx > 11) sIdx = eIdx - 11; // 최대 12개월(1년)
-	startM = indexToMonth(sIdx);
-	endM = indexToMonth(eIdx);
-	if (startEl) startEl.value = startM;
-	if (endEl) endEl.value = endM;
-
-	const startDate = `${startM}-01`;
-	const endParts = parseMonthValue(endM);
-	const endLast = endParts ? new Date(endParts.year, endParts.month, 0).getDate() : 31;
-	const endDate = `${endM}-${String(endLast).padStart(2, '0')}`;
-	return { startMonth: startM, endMonth: endM, startDate, endDate, monthSpan: (eIdx - sIdx + 1) };
-}
-
-function shiftScoreRangeByMonths(delta) {
-	const range = getScoreRangeFromInputs();
-	const sIdx = monthToIndex(range.startMonth);
-	const eIdx = monthToIndex(range.endMonth);
-	const curIdx = monthToIndex(formatMonthValue((new Date()).getFullYear(), (new Date()).getMonth() + 1));
-	if (sIdx == null || eIdx == null || curIdx == null) return;
-	const span = eIdx - sIdx;
-	let nextS = sIdx + delta;
-	let nextE = eIdx + delta;
-	if (nextE > curIdx) {
-		nextE = curIdx;
-		nextS = curIdx - span;
-	}
-	if (nextS < 0) {
-		nextS = 0;
-		nextE = span;
-	}
-	const startEl = document.getElementById('score-range-start-month');
-	const endEl = document.getElementById('score-range-end-month');
-	if (startEl) startEl.value = indexToMonth(nextS);
-	if (endEl) endEl.value = indexToMonth(nextE);
-}
-
-function buildScoreTrendSvg(rows, rangeInfo) {
-	const n = rows.length;
-	const padL = 24;
-	const padR = 8;
-	const padT = 10;
-	const chartH = 74;
-	const chartW = 100 - padL - padR;
-	const svgH = 96;
-	if (n <= 0) return '';
-	const startTs = new Date(`${rangeInfo.startDate}T00:00:00`).getTime();
-	const endTs = new Date(`${rangeInfo.endDate}T23:59:59`).getTime();
-	const span = Math.max(1, endTs - startTs);
-	const getX = (item, i) => {
-		if (n === 1) return padL + chartW / 2;
-		const ts = new Date(`${item.examDate}T12:00:00`).getTime();
-		const ratio = Math.max(0, Math.min(1, (ts - startTs) / span));
-		return padL + ratio * chartW;
-	};
-
-	const points = rows.map((item, i) => {
-		const x = getX(item, i);
-		const y = padT + (100 - item.percent) / 100 * chartH;
-		return `${x.toFixed(2)},${y.toFixed(2)}`;
-	}).join(' ');
-	const dots = rows.map((item, i) => {
-		const x = getX(item, i);
-		const y = padT + (100 - item.percent) / 100 * chartH;
-		return `<circle class="score-chart-dot"
-			cx="${x.toFixed(2)}"
-			cy="${y.toFixed(2)}"
-			r="${n === 1 ? 2.8 : 2.2}"
-			data-exam-name="${escapeHtml(item.examName || '테스트')}"
-			data-exam-date="${escapeHtml(item.examDate || '-')}"
-			data-score="${escapeHtml(`${item.score || 0}/${item.maxScore || 0}`)}"
-		/>`;
-	}).join('');
-	return `
-		<svg class="score-chart-svg" viewBox="0 0 100 ${svgH}" preserveAspectRatio="xMidYMid meet" aria-label="점수 변화 선 그래프">
-			<text class="score-chart-y-label" x="4" y="10">100</text>
-			<text class="score-chart-y-label" x="8" y="${padT + chartH / 2 + 2}">50</text>
-			<text class="score-chart-y-label" x="10" y="${padT + chartH + 2}">0</text>
-			<line class="score-chart-grid" x1="${padL}" y1="${padT + chartH / 2}" x2="100" y2="${padT + chartH / 2}" />
-			<line class="score-chart-base" x1="${padL}" y1="${padT + chartH}" x2="100" y2="${padT + chartH}" />
-			${n >= 2 ? `<polyline class="score-chart-line" points="${points}" />` : ''}
-			${dots}
-		</svg>`;
-}
-
-function buildScoreTrendXAxis(rows, rangeInfo) {
-	if (!rows.length) return '';
-	const uniq = (arr) => [...new Set(arr)];
-	if (rangeInfo.monthSpan <= 1) {
-		const labels = uniq(rows.map((r) => String(r.examDate || '').slice(8, 10)).filter(Boolean));
-		return labels.map((d) => `<span class="score-chart-x-item">${parseInt(d, 10)}일</span>`).join('');
-	}
-	const labels = [];
-	const sIdx = monthToIndex(rangeInfo.startMonth);
-	const eIdx = monthToIndex(rangeInfo.endMonth);
-	if (sIdx == null || eIdx == null) return '';
-	for (let idx = sIdx; idx <= eIdx; idx += 1) {
-		const m = indexToMonth(idx);
-		labels.push(`<span class="score-chart-x-item">${m.slice(5, 7)}월</span>`);
-	}
-	return labels.join('');
-}
-
-function renderStudentScoreTrend(rows) {
-	const el = document.getElementById('score-results-list');
-	const rangeInfo = getScoreRangeFromInputs();
-	if (!el) return;
-	if (!rows.length) {
-		el.innerHTML = `<div class="score-empty"><i class="fas fa-chart-line"></i>평가에 등록된 점수가 없습니다</div>`;
-		return;
-	}
-
-	el.innerHTML = `
-		<div class="score-chart-wrap">
-			${buildScoreTrendSvg(rows, rangeInfo)}
-		</div>
-		<div class="score-chart-x">${buildScoreTrendXAxis(rows, rangeInfo)}</div>
-	`;
-	bindScoreChartTooltip();
-	bindScoreChartDrag();
-}
-
-function bindScoreChartTooltip() {
-	const wrap = document.querySelector('#score-results-list .score-chart-wrap');
-	if (!wrap) return;
-	const dots = wrap.querySelectorAll('.score-chart-dot');
-	if (!dots.length) return;
-
-	let tip = wrap.querySelector('.score-chart-tooltip');
-	if (!tip) {
-		tip = document.createElement('div');
-		tip.className = 'score-chart-tooltip';
-		wrap.appendChild(tip);
-	}
-
-	const positionTip = (evt) => {
-		const rect = wrap.getBoundingClientRect();
-		const x = evt.clientX - rect.left + 12;
-		const y = evt.clientY - rect.top;
-		const maxX = rect.width - tip.offsetWidth - 8;
-		const clampedX = Math.max(8, Math.min(maxX, x));
-		const aboveTop = y - tip.offsetHeight - 12;
-		const belowTop = y + 14;
-		const top = aboveTop >= 8 ? aboveTop : Math.min(rect.height - tip.offsetHeight - 8, belowTop);
-		tip.style.left = `${clampedX}px`;
-		tip.style.top = `${Math.max(8, top)}px`;
-	};
-
-	const showTip = (evt, dot) => {
-		const examName = dot.getAttribute('data-exam-name') || '테스트';
-		const examDate = dot.getAttribute('data-exam-date') || '-';
-		const score = dot.getAttribute('data-score') || '-';
-		tip.innerHTML = `<div><span class="k">시험명</span>${examName}</div>
-			<div><span class="k">시험일</span>${examDate}</div>
-			<div><span class="k">점수</span>${score}</div>`;
-		positionTip(evt);
-		tip.classList.add('show');
-	};
-
-	const hideTip = () => {
-		tip.classList.remove('show');
-	};
-
-	dots.forEach((dot) => {
-		dot.addEventListener('mouseenter', (evt) => showTip(evt, dot));
-		dot.addEventListener('mousemove', (evt) => positionTip(evt));
-		dot.addEventListener('mouseleave', hideTip);
-	});
-}
-
-function bindScoreChartDrag() {
-	if (scoreDragBound) return;
-	const listEl = document.getElementById('score-results-list');
-	if (!listEl) return;
-	scoreDragBound = true;
-
-	let startX = 0;
-	let dragging = false;
-	const onDown = (x) => {
-		startX = x;
-		dragging = true;
-	};
-	const onUp = (x) => {
-		if (!dragging) return;
-		dragging = false;
-		const diff = x - startX;
-		if (Math.abs(diff) < 42) return;
-		shiftScoreRangeByMonths(diff > 0 ? -1 : 1);
-		loadStudentScoreTrend();
-	};
-
-	listEl.addEventListener('mousedown', (e) => {
-		const wrap = e.target.closest('.score-chart-wrap');
-		if (!wrap) return;
-		onDown(e.clientX);
-	});
-	window.addEventListener('mouseup', (e) => onUp(e.clientX));
-
-	listEl.addEventListener('touchstart', (e) => {
-		const wrap = e.target.closest('.score-chart-wrap');
-		if (!wrap) return;
-		const t = e.touches && e.touches[0];
-		if (!t) return;
-		onDown(t.clientX);
-	}, { passive: true });
-	window.addEventListener('touchend', (e) => {
-		const t = e.changedTouches && e.changedTouches[0];
-		if (!t) return;
-		onUp(t.clientX);
-	}, { passive: true });
-}
-
-async function loadStudentScoreTrend() {
-	if (!currentStudent) return;
-	const el = document.getElementById('score-results-list');
-	if (!el) return;
-	el.innerHTML = '<div style="text-align:center;padding:20px;"><div class="spinner" style="width:20px;height:20px;border:2px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto;"></div></div>';
-	try {
-		const { startDate, endDate } = getScoreRangeFromInputs();
-		let query = supabaseClient
-			.from('student_test_scores')
-			.select('id, exam_name, exam_date, score, max_score, created_at')
-			.eq('student_id', currentStudent.id)
-			.gte('exam_date', startDate)
-			.lte('exam_date', endDate)
-			.order('exam_date', { ascending: true })
-			.order('created_at', { ascending: true });
-		if (currentStudent.owner_user_id) query = query.eq('owner_user_id', currentStudent.owner_user_id);
-		const { data, error } = await query;
-		if (error) throw error;
-		renderStudentScoreTrend(normalizeTestScoreRows(data || []));
-	} catch (err) {
-		console.error('[loadStudentScoreTrend] 오류:', err);
-		el.innerHTML = '<div class="score-empty"><i class="fas fa-triangle-exclamation"></i>점수 정보를 불러오지 못했습니다</div>';
-	}
-}
-window.loadStudentScoreTrend = loadStudentScoreTrend;
-
 async function loadEvaluationState(monthStr) {
 	updateEvalLockUI();
 	if (currentStudent && isParentVerified()) {
@@ -1356,6 +1078,13 @@ async function loadTeacherAuthList() {
 				opt.textContent = t.name;
 				select.appendChild(opt);
 			});
+			select.onchange = function() {
+				const u = document.getElementById('teacher-auth-username-ac');
+				if (!u) return;
+				const tid = this.value;
+				const te = teacherAuthList.find(x => String(x.id) === String(tid));
+				u.value = te ? (te.name || '') : '';
+			};
 		}
 	} catch(e) { console.error('선생님 목록 오류:', e); }
 }
@@ -1377,6 +1106,8 @@ function closeTeacherAuthModal() {
 	document.getElementById('admin-auth-modal').classList.remove('active');
 	const pw = document.getElementById('teacher-auth-password');
 	if (pw) pw.value = '';
+	const uac = document.getElementById('teacher-auth-username-ac');
+	if (uac) uac.value = '';
 }
 window.closeTeacherAuthModal = closeTeacherAuthModal;
 
@@ -1902,13 +1633,4 @@ document.addEventListener('DOMContentLoaded', () => {
 
 	// Pre-load teacher list
 	loadTeacherAuthList();
-
-	// 점수 조회 기본값: 최근 3개월(최대 1년 제한 로직은 load 시 재보정)
-	const startEl = document.getElementById('score-range-start-month');
-	const endEl = document.getElementById('score-range-end-month');
-	const now = new Date();
-	const endMonth = formatMonthValue(now.getFullYear(), now.getMonth() + 1);
-	const startMonth = formatMonthValue(new Date(now.getFullYear(), now.getMonth() - 2, 1).getFullYear(), new Date(now.getFullYear(), now.getMonth() - 2, 1).getMonth() + 1);
-	if (startEl && !startEl.value) startEl.value = startMonth;
-	if (endEl && !endEl.value) endEl.value = endMonth;
 });

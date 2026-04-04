@@ -11,16 +11,19 @@
 	<script>
 		// 로컬/정적 배포 공통 환경변수 로더
 		(async () => {
+			if (window.__academyParentPortalEnvLoaderRan) return;
+			window.__academyParentPortalEnvLoaderRan = true;
 			if (window.location.protocol === 'file:') {
 				window.env = {};
 				return;
 			}
-			// Vercel 등 프로덕션에는 .env 파일을 공개하지 않음 → fetch 시도 시 404만 콘솔에 쌓임. 로컬에서만 파일 로드.
+			window.env = window.env || {};
+			// 404를 아예 없애려면(기본값·report.js 폴백만 쓸 때): 콘솔에서 localStorage.setItem('academy_skip_local_env_fetch','1') 후 새로고침
+			try {
+				if (window.localStorage && window.localStorage.getItem('academy_skip_local_env_fetch') === '1') return;
+			} catch (_) {}
 			const h = window.location.hostname;
-			if (h !== 'localhost' && h !== '127.0.0.1') {
-				window.env = window.env || {};
-				return;
-			}
+			if (h !== 'localhost' && h !== '127.0.0.1' && h !== '[::1]') return;
 			const parseEnvText = (text) => {
 				const env = {};
 				String(text || '').split('\n').forEach((line) => {
@@ -31,28 +34,18 @@
 				});
 				return env;
 			};
-			// cleanUrls(/parent-portal)일 때 상대경로가 루트로 풀리는 것을 피하려면 /parent-portal/ 기준 절대 경로를 먼저 시도
-			const candidates = [
-				'/parent-portal/.env.local',
-				'/parent-portal/env.local',
-				'../.env.local',
-				'../env.local',
-				'.env.local',
-				'env.local'
-			];
-			window.env = window.env || {};
-			for (const fileName of candidates) {
-				try {
-					const response = await fetch(fileName, { cache: 'no-store' });
-					if (!response.ok) continue;
-					const text = await response.text();
-					window.env = parseEnvText(text);
-					return;
-				} catch (_) {}
-			}
+			// dotfile(.env.local)은 Live Server 등에서 막는 경우가 많고, 실패마다 콘솔 404가 남음 → `env.local` 한 번만 시도(내용은 .env.local과 동일하게 복사)
+			try {
+				const response = await fetch('env.local', { cache: 'no-store' });
+				if (!response.ok) return;
+				const text = await response.text();
+				window.env = parseEnvText(text);
+				console.log('[env-loader] 학부모 포털: env.local 로드');
+			} catch (_) {}
 		})();
 	</script>
 	<style>
+		.sr-only { position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0; }
 		#page-dashboard { display: none; min-height: 100vh; min-height: 100dvh; }
 
 		/* ===== Dashboard ===== */
@@ -219,139 +212,6 @@
 		.att-empty i {
 			font-size: 32px; display: block; margin-bottom: 12px; opacity: 0.3;
 			animation: emptyPulse 2s ease-in-out infinite;
-		}
-		/* Score trend */
-		.score-empty {
-			text-align: center;
-			padding: 28px 16px;
-			color: var(--gray);
-			font-size: 13px;
-			line-height: 1.6;
-		}
-		.score-empty i {
-			font-size: 28px;
-			display: block;
-			margin-bottom: 10px;
-			opacity: 0.4;
-		}
-		.score-query-row {
-			display: flex;
-			align-items: center;
-			gap: 10px;
-			margin-bottom: 10px;
-			flex-wrap: wrap;
-		}
-		.score-query-label {
-			font-size: 13px;
-			font-weight: 700;
-			color: var(--text-sec);
-		}
-		.score-query-month {
-			padding: 7px 10px;
-			background: rgba(15,23,42,0.55);
-			border: 1px solid var(--border);
-			border-radius: 10px;
-			color: var(--text);
-			font-size: 13px;
-			font-weight: 700;
-			outline: none;
-		}
-		.score-query-sep {
-			font-size: 12px;
-			font-weight: 700;
-			color: var(--text-sec);
-		}
-		.score-query-hint {
-			font-size: 11px;
-			color: var(--gray);
-			margin-left: auto;
-		}
-		.score-chart-wrap {
-			position: relative;
-			border: 1px solid var(--border);
-			border-radius: 12px;
-			padding: 10px;
-			background: var(--bg-elevated);
-			margin-bottom: 12px;
-		}
-		.score-chart-svg {
-			width: 100%;
-			height: 250px;
-			display: block;
-			border-radius: 10px;
-			background: rgba(255,255,255,0.02);
-			border: 1px solid rgba(148,163,184,0.2);
-		}
-		.score-chart-y-label {
-			fill: rgba(148,163,184,0.95);
-			font-size: 7px;
-			font-weight: 800;
-		}
-		.score-chart-grid {
-			stroke: rgba(148,163,184,0.28);
-			stroke-width: 0.4;
-			stroke-dasharray: 2 2;
-		}
-		.score-chart-base {
-			stroke: rgba(148,163,184,0.4);
-			stroke-width: 0.5;
-		}
-		.score-chart-line {
-			fill: none;
-			stroke: #60a5fa;
-			stroke-width: 1.2;
-			stroke-linecap: round;
-			stroke-linejoin: round;
-		}
-		.score-chart-dot {
-			fill: #c7d2fe;
-			stroke: #818cf8;
-			stroke-width: 0.8;
-			cursor: pointer;
-		}
-		.score-chart-tooltip {
-			position: absolute;
-			pointer-events: none;
-			z-index: 20;
-			min-width: 170px;
-			max-width: 240px;
-			padding: 10px 12px;
-			border-radius: 10px;
-			border: 1px solid rgba(129,140,248,0.45);
-			background: linear-gradient(180deg, rgba(15,23,42,0.98), rgba(30,41,59,0.98));
-			box-shadow: 0 8px 26px rgba(0,0,0,0.38);
-			color: #e2e8f0;
-			font-size: 12px;
-			line-height: 1.45;
-			opacity: 0;
-			transform: translateY(6px);
-			transition: opacity .08s ease, transform .08s ease;
-			white-space: nowrap;
-		}
-		.score-chart-tooltip.show {
-			opacity: 1;
-			transform: translateY(0);
-		}
-		.score-chart-tooltip .k {
-			color: #94a3b8;
-			font-weight: 700;
-			margin-right: 6px;
-		}
-		.score-chart-x {
-			margin-top: 10px;
-			display: flex;
-			gap: 8px;
-			justify-content: space-between;
-			flex-wrap: nowrap;
-			overflow-x: auto;
-			padding: 0 2px;
-		}
-		.score-chart-x-item {
-			font-size: 11px;
-			color: var(--gray);
-			font-weight: 700;
-			flex: 0 0 auto;
-			white-space: nowrap;
 		}
 		@keyframes emptyPulse {
 			0%, 100% { opacity: 0.3; }
@@ -815,32 +675,34 @@
 <!-- ===== Admin Login Modal ===== -->
 <div id="admin-login-modal" class="pp-admin-modal">
 	<div class="pp-admin-modal-box">
+		<form id="pp-admin-login-form" autocomplete="on" onsubmit="event.preventDefault(); handleAdminLogin(); return false;">
 		<div class="pp-admin-modal-header">
 			<h2><i class="fas fa-user-shield" style="margin-right:8px;color:var(--yellow);"></i>관리자 로그인</h2>
-			<button class="pp-admin-modal-close" onclick="closeAdminLoginModal()"><i class="fas fa-times"></i></button>
+			<button type="button" class="pp-admin-modal-close" onclick="closeAdminLoginModal()"><i class="fas fa-times"></i></button>
 		</div>
 		<p style="font-size:13px;color:var(--text-sec);line-height:1.6;margin-bottom:16px;">관리자 계정으로 로그인합니다.</p>
 		<div class="form-group">
-			<label class="form-label">이메일</label>
+			<label class="form-label" for="admin-email">이메일</label>
 			<div class="form-input-wrap">
 				<i class="fas fa-envelope form-icon"></i>
-				<input type="email" id="admin-email" class="form-input" placeholder="이메일을 입력하세요" autocomplete="email">
+				<input type="email" id="admin-email" name="email" class="form-input" placeholder="이메일을 입력하세요" autocomplete="email">
 			</div>
 		</div>
 		<div class="form-group">
-			<label class="form-label">비밀번호</label>
+			<label class="form-label" for="admin-password">비밀번호</label>
 			<div class="form-input-wrap">
 				<i class="fas fa-lock form-icon"></i>
-				<input type="password" id="admin-password" class="form-input" placeholder="비밀번호를 입력하세요" autocomplete="current-password">
+				<input type="password" id="admin-password" name="password" class="form-input" placeholder="비밀번호를 입력하세요" autocomplete="current-password">
 			</div>
 		</div>
 		<div id="admin-login-alert" class="landing-alert" style="margin-bottom:10px;"></div>
 		<div class="btn-row">
-			<button class="btn-cancel" onclick="closeAdminLoginModal()">취소</button>
-			<button class="btn-primary" id="admin-login-btn" onclick="handleAdminLogin()">
+			<button type="button" class="btn-cancel" onclick="closeAdminLoginModal()">취소</button>
+			<button type="submit" class="btn-primary" id="admin-login-btn">
 				<i class="fas fa-unlock"></i> 로그인
 			</button>
 		</div>
+		</form>
 	</div>
 </div>
 
@@ -900,9 +762,6 @@
 			</button>
 			<button class="dash-tab" onclick="switchTab('homework')">
 				<i class="fas fa-book"></i> 숙제
-			</button>
-			<button class="dash-tab" onclick="switchTab('score')">
-				<i class="fas fa-chart-line"></i> 점수
 			</button>
 			<button class="dash-tab" onclick="switchTab('eval')">
 				<i class="fas fa-star"></i> 종합평가
@@ -1008,25 +867,6 @@
 			</div>
 		</div>
 
-		<!-- TAB: Score Trend -->
-		<div id="tab-score" class="tab-panel">
-			<div class="section-card">
-				<div class="score-query-row">
-					<span class="score-query-label">조회</span>
-					<input id="score-range-start-month" class="score-query-month" type="month" onchange="loadStudentScoreTrend()">
-					<span class="score-query-sep">~</span>
-					<input id="score-range-end-month" class="score-query-month" type="month" onchange="loadStudentScoreTrend()">
-					<span class="score-query-hint">좌우 드래그로 기간 이동</span>
-				</div>
-				<div id="score-results-list" style="padding:4px 0;">
-					<div style="text-align:center;padding:30px 0;color:var(--gray);font-size:13px;">
-						<i class="fas fa-inbox" style="font-size:28px;margin-bottom:8px;opacity:0.4;display:block;"></i>
-						등록된 점수가 없습니다
-					</div>
-				</div>
-			</div>
-		</div>
-
 		<!-- TAB: Evaluation -->
 		<div id="tab-eval" class="tab-panel">
 			<div class="section-card">
@@ -1062,18 +902,23 @@
 <!-- ===== Teacher Auth Modal ===== -->
 <div id="admin-auth-modal" class="pp-modal">
 	<div class="pp-modal-box">
+		<form id="teacher-auth-form" class="pp-teacher-auth-form" autocomplete="on" onsubmit="event.preventDefault(); if(typeof handleTeacherAuth==='function')handleTeacherAuth(); return false;">
 		<div class="pp-modal-header">
 			<h2><i class="fas fa-chalkboard-user" style="margin-right:8px;color:var(--primary);"></i>선생님 인증</h2>
-			<button class="pp-modal-close" onclick="closeTeacherAuthModal()"><i class="fas fa-times"></i></button>
+			<button type="button" class="pp-modal-close" onclick="closeTeacherAuthModal()"><i class="fas fa-times"></i></button>
 		</div>
 		<p style="font-size:13px;color:var(--text-sec);margin-bottom:4px;">평가 수정은 선생님 인증이 필요합니다.</p>
-		<select id="teacher-auth-select" class="pp-modal-input" style="margin-top:8px;">
+		<label for="teacher-auth-select" class="sr-only">선생님 선택</label>
+		<select id="teacher-auth-select" class="pp-modal-input" style="margin-top:8px;" autocomplete="off">
 			<option value="">선생님 선택</option>
 		</select>
-		<input id="teacher-auth-password" class="pp-modal-input" type="password" placeholder="비밀번호">
-		<button class="pp-modal-btn" onclick="handleTeacherAuth()">
+		<input type="text" id="teacher-auth-username-ac" name="username" autocomplete="username" tabindex="-1" aria-hidden="true" value="" style="position:fixed;left:0;top:0;width:1px;height:1px;opacity:0;pointer-events:none;z-index:-1;border:0;padding:0;margin:0;">
+		<label for="teacher-auth-password" class="sr-only">비밀번호</label>
+		<input id="teacher-auth-password" name="password" class="pp-modal-input" type="password" placeholder="비밀번호" autocomplete="current-password">
+		<button type="submit" class="pp-modal-btn">
 			<i class="fas fa-lock-open"></i> 인증하기
 		</button>
+		</form>
 	</div>
 </div>
 

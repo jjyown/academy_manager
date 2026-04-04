@@ -1,6 +1,6 @@
 # 출석관리앱 컨텍스트 노트
 
-- 문서 기준일: 2026-04-04
+- 문서 기준일: 2026-04-05
 ## 제품/운영 컨텍스트
 - 대상 사용자: 교사(관리), 학생(조회)
 - 핵심 데이터: 학생, 반, 수업, 날짜, 출석상태, 수정자, 수정시각
@@ -14,6 +14,19 @@
 ## 최근 의사결정 로그
 | 날짜 | 결정 | 이유 | 영향 범위 |
 |---|---|---|---|
+| 2026-04-05 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | auth.js, docs/checklist.md, docs/context.md, docs/enterprise_workflow.md, docs/plan.md 외 10개 |
+| 2026-04-05 | Railway 로그(`logs.1775321035441.csv`): `homework_submissions`에 `updated_at` 없음 → 고아 제출 복구가 PostgREST **400**(Postgres `42703`) | 운영 DB는 `homework_submissions`에 `updated_at` 컬럼이 없고 힌트는 `created_at`. 시작 시 `_recover_orphaned_grading`만 실패하고 나머지 API는 정상 | `grading-server/main.py`(stuck_subs 필터를 `created_at`으로 변경) |
+| 2026-04-04 | 메인 앱 콘솔: env fetch는 루프백만·`unload` 제거·비밀번호 필드 `<form>` 래핑 | 배포 URL에서 `.env` 404는 기능과 무관한 빨간 로그만 유발. `unload`는 브라우저 정책 경고. 비밀번호 필드는 폼 내부가 권장(DOM 경고·비밀번호 관리자) | `index.html`, `script.js`, `auth.js` |
+| 2026-04-04 | Chrome DOM 권고: `autocomplete`·비밀번호 폼의 `username`(숨은 필드+선생님명 동기화) | 접근성/비밀번호 관리자 힌트용 경고로 기능 오류는 아님. 요구사항 충족 시 콘솔 노란 로그 감소 | `index.html`, `script.js`, `qr-attendance.js` |
+| 2026-04-04 | 복구·비밀번호 변경 모달도 동일: `admin-password-update`·`reset-teacher`·`force-reset`·`teacher-password-modal`에 숨은 `username` | 스크린샷 잔여 `[DOM] Password forms should have … username` 제거용 | `index.html`, `auth.js`, `script.js` |
+| 2026-04-05 | `gradingOwnerId()` 무한 재귀 버그 수정 | `replace_all` 오류로 폴백이 `gradingOwnerId()` 자기호출이었음 → `owner_user_id`로 복구. 즉시 채점은 `shouldTryRemoteGradingServer`와 무관하게 `GRADING_SERVER_URL`만 검사 | `grading/index.html` |
+| 2026-04-05 | 즉시 채점: 학생 숙제 페이지 제거 → 채점관리 상단(교재 관리 우측) | 동일 `POST /api/grade`·학생은 숙제 관리 좌측 선택 기준(`hwSelectedStudentId`), 원장 UUID는 `gradingOwnerId()` | `homework/index.html`, `grading/index.html` |
+| 2026-04-05 | 로그인 Enter 이중 호출 제거 + 로그인 직후 admin role 재조회 생략 | 비밀번호에서 Enter 시 submit+keydown으로 API 2배 호출되던 지연 완화. `showMainApp` 옵션은 일회성 플래그와 함께만 동작해 콘솔 우회 방지 | `index.html`, `auth.js`, `script.js` |
+| 2026-04-05 | 선생님 등록: 구글 이메일 OAuth 필수 제거 → 일반 이메일 입력 | 등록 마찰 감소. Drive/알림 등은 기존 `email`·`google_email` 컬럼에 동일 값 저장, `google_sub`는 null 허용 | `index.html`, `script.js` |
+| 2026-04-05 | 채점관리: 과제 API `teacher_id`(원장 UUID)를 단일 데이터 소스로 통일(jjyown 계정 기준) | 세션 JWT `sub`와 쿼리 파라미터 불일치 시 숙제 API 403 방지. Railway `GRADING_CANONICAL_OWNER_USER_ID` + 프론트 `_gradingApiOwner`/이메일 폴백. **멀티 학원 공유 인스턴스에서는 canonical 설정 시 타 학원 데이터 노출 위험** | `grading/index.html`, `grading-server/config.py`, `grading_auth.py` |
+| 2026-04-05 | 학부모 포털에서 **점수** 탭 제거(출결·숙제·종합평가만) | 운영 요청으로 부모 화면 단순화. `student_test_scores` 조회·그래프는 포털에서 제거되었고, 원장은 메인 앱 학생 평가 모달에서 계속 관리 가능 | `parent-portal/index.html`, `parent-portal/report.js` |
+| 2026-04-05 | 학부모/숙제: 선생님 인증 `<form>`·env 로더(`env.local` 단일 fetch·중복 실행 방지·`localStorage.academy_skip_local_env_fetch=1` 생략) | 404는 파일 없음일 뿐 기능은 폴백 유지. 비밀 노출은 “파일이 실제로 서빙될 때” 문제 | `parent-portal/index.html`, `report.js`, `homework/index.html` |
+| 2026-04-04 | 숙제·학부모 관리자 로그인: `pkce` + 알려진 Supabase 호스트 오타 교정 + `teachers` 없음 시 `signOut`·문구 분리 | 스크린샷·localStorage에 잘못된 프로젝트 URL이 있으면 Auth는 400/Invalid credentials로만 보임. 선생님 행 전부 삭제 시에는 인증은 되나 기존 문구가 자격 증명 오류와 혼동됨 | `homework/index.html`, `parent-portal/report.js`, `parent-portal/index.html` |
 | 2026-04-04 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/checklist.md, docs/context.md, docs/plan.md, index.html |
 | 2026-04-04 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | database.js, docs/checklist.md, docs/context.md, docs/enterprise_workflow.md, docs/plan.md 외 4개 |
 | 2026-04-04 | 관리자·선생님 선택 화면 비밀번호에서 **Enter = 로그인/입장** | 버튼 클릭과 동일 UX, `preventDefault`로 기본 동작 차단 | `index.html` |

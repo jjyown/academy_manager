@@ -1604,11 +1604,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         };
         
-        // pagehide 이벤트: 페이지가 숨겨질 때 (unload보다 더 신뢰성 있음)
+        // pagehide: 문서 숨김·bfcache 시 정리(Chrome Permissions-Policy에서 unload 리스너는 위반 로그 유발 → 등록하지 않음)
         window.addEventListener('pagehide', cleanupLocalStorage, false);
-        
-        // unload도 함께 등록 (pagehide를 지원하지 않는 브라우저 대비)
-        window.addEventListener('unload', cleanupLocalStorage, false);
         
         // visibilitychange에서 스토리지 정리는 하지 않음 (탭 전환 시 데이터 보호)
     }
@@ -1994,7 +1991,7 @@ window.toggleTeacherForm = function() {
         selectForm.style.display = 'flex';
         registerForm.style.display = 'none';
         if (logo) logo.textContent = '선생님 선택';
-        // 등록 폼으로 돌아갈 때 Google 인증 상태 초기화
+        // 등록 폼으로 돌아갈 때 이메일 등 입력 초기화
         if (typeof resetGoogleAuth === 'function') resetGoogleAuth();
     } else {
         selectForm.style.display = 'none';
@@ -2221,9 +2218,11 @@ window.onTeacherSelected = function() {
     
     console.log('[onTeacherSelected] teacherId:', teacherId);
     
+    const userAc = document.getElementById('teacher-select-username-autocomplete');
     if (!teacherId) {
         // 선생님을 선택하지 않았으면 비밀번호 필드 숨기기
         teacherPasswordSection.style.display = 'none';
+        if (userAc) userAc.value = '';
         return;
     }
     
@@ -2234,9 +2233,13 @@ window.onTeacherSelected = function() {
     console.log('[onTeacherSelected] 비밀번호 필드 표시');
     teacherPasswordSection.style.display = 'flex';
     document.getElementById('teacher-select-password').value = '';
+    if (userAc) userAc.value = teacher.name || '';
 }
 
+let _confirmTeacherInFlight = false;
+
 window.confirmTeacher = async function() {
+    if (_confirmTeacherInFlight) return;
     console.log('[confirmTeacher] 시작');
     const teacherId = document.getElementById('teacher-dropdown').value;
     if (!teacherId) { showToast('선생님을 선택해주세요.', 'warning'); return; }
@@ -2253,17 +2256,22 @@ window.confirmTeacher = async function() {
         showToast('비밀번호를 입력해주세요', 'warning');
         return;
     }
-    
-    const verifyResult = await verifyTeacherPinWithServer(teacher.id, password, {
-        ownerUserId: cachedLsGet('current_owner_id')
-    });
-    if (!verifyResult.ok) {
-        showToast(mapVerifyTeacherPinFailureToMessage(verifyResult), 'warning');
-        return;
+
+    _confirmTeacherInFlight = true;
+    try {
+        const verifyResult = await verifyTeacherPinWithServer(teacher.id, password, {
+            ownerUserId: cachedLsGet('current_owner_id')
+        });
+        if (!verifyResult.ok) {
+            showToast(mapVerifyTeacherPinFailureToMessage(verifyResult), 'warning');
+            return;
+        }
+        
+        console.log('[confirmTeacher] 비밀번호 인증 성공');
+        await setCurrentTeacher(teacher);
+    } finally {
+        _confirmTeacherInFlight = false;
     }
-    
-    console.log('[confirmTeacher] 비밀번호 인증 성공');
-    await setCurrentTeacher(teacher);
 }
 
 function populateTeacherResetDropdown() {
@@ -2294,6 +2302,9 @@ function populateTeacherResetDropdown() {
         
         const selectedTeacher = teacherList.find(t => String(t.id) === String(this.value));
         const teacherEmail = selectedTeacher && (selectedTeacher.google_email || selectedTeacher.email);
+
+        const resetUserAc = document.getElementById('reset-teacher-username-ac');
+        if (resetUserAc) resetUserAc.value = (selectedTeacher && this.value) ? (selectedTeacher.name || '') : '';
         
         if (emailInput) emailInput.value = teacherEmail || '';
         
@@ -2323,6 +2334,8 @@ window.openTeacherPasswordResetModal = async function() {
     }
 
     populateTeacherResetDropdown();
+    const resetUserAc = document.getElementById('reset-teacher-username-ac');
+    if (resetUserAc) resetUserAc.value = '';
     const modal = document.getElementById('teacher-password-reset-modal');
     if (modal) modal.style.display = 'flex';
 }
@@ -2385,6 +2398,8 @@ window.confirmTeacherPasswordReset = async function() {
         document.getElementById('reset-teacher-password').value = '';
         document.getElementById('reset-teacher-password-confirm').value = '';
         document.getElementById('reset-teacher-dropdown').value = '';
+        const rua = document.getElementById('reset-teacher-username-ac');
+        if (rua) rua.value = '';
         window.closeTeacherPasswordResetModal();
         showToast('선생님 비밀번호가 변경되었습니다.', 'success');
     } catch (err) {
@@ -2399,7 +2414,7 @@ window.sendResetCode = async function() {
     if (!teacherId) { showToast('선생님을 선택해주세요.', 'warning'); return; }
 
     const teacherEmail = (document.getElementById('reset-teacher-email')?.value || '').trim();
-    if (!teacherEmail) { showToast('등록된 구글 이메일이 없습니다.\n선생님 등록 시 구글 인증을 먼저 진행해주세요.', 'warning'); return; }
+    if (!teacherEmail) { showToast('등록된 이메일이 없습니다.\n선생님 등록 시 이메일을 입력해주세요.', 'warning'); return; }
 
     const ownerId = cachedLsGet('current_owner_id');
     if (!ownerId) { showToast('로그인이 필요합니다.', 'warning'); return; }
@@ -2544,6 +2559,8 @@ window.verifyAndResetTeacherPassword = async function() {
         document.getElementById('reset-teacher-password-confirm').value = '';
         document.getElementById('reset-teacher-email').value = '';
         document.getElementById('reset-teacher-dropdown').value = '';
+        const rua2 = document.getElementById('reset-teacher-username-ac');
+        if (rua2) rua2.value = '';
         document.getElementById('reset-verify-code').value = '';
         const emailDisplay = document.getElementById('reset-teacher-email-display');
         const noEmailMsg = document.getElementById('reset-teacher-no-email');
@@ -2584,7 +2601,16 @@ window.openForceResetModal = async function() {
             const roleText = t.teacher_role === 'admin' ? ' (관리자)' : t.teacher_role === 'staff' ? ' (직원)' : '';
             dropdown.innerHTML += `<option value="${t.id}">${t.name}${roleText}</option>`;
         });
+        dropdown.onchange = function() {
+            const u = document.getElementById('force-reset-username-ac');
+            if (!u) return;
+            const tid = this.value;
+            const te = teacherList.find(t => String(t.id) === String(tid));
+            u.value = te ? (te.name || '') : '';
+        };
     }
+    const forceUserAc = document.getElementById('force-reset-username-ac');
+    if (forceUserAc) forceUserAc.value = '';
 
     const modal = document.getElementById('force-reset-modal');
     if (modal) modal.style.display = 'flex';
@@ -2595,8 +2621,10 @@ window.closeForceResetModal = function() {
     if (modal) modal.style.display = 'none';
     const dropdown = document.getElementById('force-reset-teacher-dropdown');
     const pwInput = document.getElementById('force-reset-admin-password');
+    const forceUserAc = document.getElementById('force-reset-username-ac');
     if (dropdown) dropdown.value = '';
     if (pwInput) pwInput.value = '';
+    if (forceUserAc) forceUserAc.value = '';
 }
 
 window.forceResetTeacherPassword = async function() {
@@ -2867,20 +2895,22 @@ window.handleGoogleAuthCallback = async function(tokenResponse) {
 
         window._googleAuthTarget = null;
 
-        // 폼에 인증된 이메일 정보 반영 (선생님 등록 폼)
-        document.getElementById('new-teacher-email').value = userInfo.email;
-        document.getElementById('new-teacher-google-sub').value = userInfo.sub;
+        // 선생님 등록 폼 등: 이메일 입력란이 있으면 반영(구글 인증 버튼은 제거됨)
+        const newEmailEl = document.getElementById('new-teacher-email');
+        if (newEmailEl) newEmailEl.value = userInfo.email;
+        const subEl = document.getElementById('new-teacher-google-sub');
+        if (subEl) subEl.value = userInfo.sub;
 
-        // 인증 버튼 숨기고 인증 완료 영역 표시
         const authBtn = document.getElementById('google-auth-btn');
         const verifiedSection = document.getElementById('google-verified-email');
         const verifiedText = document.getElementById('verified-email-text');
+        if (authBtn && verifiedSection && verifiedText) {
+            authBtn.style.display = 'none';
+            verifiedSection.style.display = 'block';
+            verifiedText.textContent = userInfo.email;
+        }
 
-        if (authBtn) authBtn.style.display = 'none';
-        if (verifiedSection) verifiedSection.style.display = 'block';
-        if (verifiedText) verifiedText.textContent = userInfo.email;
-
-        console.log('[handleGoogleAuthCallback] 이메일 인증 완료:', userInfo.email);
+        console.log('[handleGoogleAuthCallback] Google 이메일 반영:', userInfo.email);
 
     } catch (err) {
         console.error('[handleGoogleAuthCallback] 예외:', err);
@@ -2888,17 +2918,18 @@ window.handleGoogleAuthCallback = async function(tokenResponse) {
     }
 }
 
-// Google 인증 상태 초기화 (선생님 등록 폼 리셋 시 사용)
+// 선생님 등록 폼 리셋 시 사용(이메일 직접 입력 + 선택적 구글 UI 잔존 시)
 function resetGoogleAuth() {
-    document.getElementById('new-teacher-email').value = '';
-    document.getElementById('new-teacher-google-sub').value = '';
-    
+    const em = document.getElementById('new-teacher-email');
+    if (em) em.value = '';
+    const sub = document.getElementById('new-teacher-google-sub');
+    if (sub) sub.value = '';
+
     const authBtn = document.getElementById('google-auth-btn');
     const verifiedSection = document.getElementById('google-verified-email');
-    
     if (authBtn) authBtn.style.display = 'flex';
     if (verifiedSection) verifiedSection.style.display = 'none';
-    
+
     window._googleAccessToken = null;
 }
 
@@ -3002,21 +3033,23 @@ window.registerTeacher = async function() {
     try {
         console.log('[registerTeacher] 시작');
         const name = document.getElementById('new-teacher-name').value.trim();
-        const googleEmail = document.getElementById('new-teacher-email').value.trim();
-        const googleSub = document.getElementById('new-teacher-google-sub').value.trim();
+        const teacherEmail = document.getElementById('new-teacher-email').value.trim();
         const phone = document.getElementById('new-teacher-phone').value.trim();
         const address = document.getElementById('new-teacher-address').value.trim();
         const addressDetail = document.getElementById('new-teacher-address-detail').value.trim();
         const teacherPassword = document.getElementById('register-teacher-password').value.trim();
         const teacherPasswordConfirm = document.getElementById('register-teacher-password-confirm')?.value.trim() || '';
         
-        console.log('[registerTeacher] 입력 값 - name:', name, ', googleEmail:', googleEmail, ', phone:', phone, ', address:', address);
+        console.log('[registerTeacher] 입력 값 - name:', name, ', email:', teacherEmail, ', phone:', phone, ', address:', address);
         
         if (!name) { showToast('선생님 이름은 필수입니다.', 'warning'); return; }
 
-        // 구글 이메일 인증 필수
-        if (!googleEmail || !googleSub) {
-            showToast('구글 이메일 인증이 필요합니다.\n"구글 이메일 인증" 버튼을 눌러 인증해주세요.', 'warning');
+        if (!teacherEmail) {
+            showToast('이메일을 입력해주세요.', 'warning');
+            return;
+        }
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(teacherEmail)) {
+            showToast('올바른 이메일 형식을 입력해주세요.', 'warning');
             return;
         }
         
@@ -3052,9 +3085,9 @@ window.registerTeacher = async function() {
             .insert({ 
                 owner_user_id: ownerId, 
                 name, 
-                email: googleEmail || null,
-                google_email: googleEmail || null,
-                google_sub: googleSub || null,
+                email: teacherEmail || null,
+                google_email: teacherEmail || null,
+                google_sub: null,
                 phone: phone || null, 
                 address: address || null,
                 address_detail: addressDetail || null,
@@ -10338,6 +10371,11 @@ async function renderQRTodaySummary() {
 
 window.openModal = function(id) {
     document.getElementById(id).style.display = 'flex';
+    if (id === 'teacher-password-modal') {
+        const u = document.getElementById('teacher-password-modal-username-ac');
+        const chip = document.getElementById('current-teacher-name');
+        if (u) u.value = chip && chip.textContent ? chip.textContent.trim() : '';
+    }
     if (id === 'period-delete-modal' && typeof window.updatePeriodDeletePreview === 'function') {
         window.updatePeriodDeletePreview();
     }

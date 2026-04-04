@@ -31,6 +31,8 @@
 		.tabs { display:flex; padding:8px 12px; gap:6px; background:var(--bg-card); border-bottom:1px solid var(--border); overflow-x:auto; }
 		.tab-btn { padding:8px 16px; border:none; border-radius:20px; background:transparent; color:var(--text-sec); font-size:13px; font-weight:600; cursor:pointer; white-space:nowrap; transition:all 0.2s; }
 		.tab-btn.active { background:var(--primary); color:var(--bg-card); }
+		.tab-btn-instant { border:1px solid rgba(201,167,74,0.45); }
+		.tab-btn-instant:hover { color:var(--primary); border-color:var(--primary); }
 
 		/* 카드 */
 		.card { background:var(--bg-card); border-radius:var(--radius); padding:16px; margin:8px 12px; border:1px solid var(--border); }
@@ -562,6 +564,7 @@
 		<button type="button" class="tab-btn active" data-main-tab="homework-mgmt" onclick="switchMainTab('homework-mgmt', event)">📚 숙제 관리</button>
 		<button type="button" class="tab-btn" data-main-tab="students" onclick="switchMainTab('students', event)">👨‍🎓 학생</button>
 		<button type="button" class="tab-btn" data-main-tab="keys" onclick="switchMainTab('keys', event)">📚 교재 관리</button>
+		<button type="button" class="tab-btn tab-btn-instant" onclick="openInstantGradeCamera(event)" title="카메라로 촬영한 숙제 이미지를 바로 채점합니다">📷 즉시 채점</button>
 	</div>
 
 	<!-- 숙제 관리: 배정 / 제출 / 채점 (각 탭 동일: 학생 목록 + 월별 제출 달력) + 내부용 레거시 날짜 달력(숨김) -->
@@ -1250,6 +1253,32 @@ const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 });
 
 let currentTeacher = null;
+/** teachers 행의 owner_user_id와 다를 수 있음: 채점/숙제 Railway API의 teacher_id(=원장 UUID) */
+function gradingOwnerId() {
+	if (!currentTeacher) return '';
+	return String(currentTeacher._gradingApiOwner || currentTeacher.owner_user_id || '').trim();
+}
+
+/** jjyown@gmail.com 행이 teachers에 있으면 그 owner_user_id로 통일(로컬스토리지 캐시). Railway에 GRADING_CANONICAL_OWNER_USER_ID 권장 */
+const CANONICAL_GRADING_OWNER_EMAIL = 'jjyown@gmail.com';
+
+async function resolveGradingOwnerUserIdFallback() {
+	const manual = (localStorage.getItem('canonical_grading_owner_user_id') || '').trim();
+	if (manual && /^[0-9a-f-]{36}$/i.test(manual)) return manual;
+	if (!CANONICAL_GRADING_OWNER_EMAIL) return '';
+	const em = CANONICAL_GRADING_OWNER_EMAIL.replace(/"/g, '');
+	const { data, error } = await db.from('teachers')
+		.select('owner_user_id')
+		.or(`email.eq.${em},google_email.eq.${em}`)
+		.not('owner_user_id', 'is', null)
+		.limit(1)
+		.maybeSingle();
+	if (error || !data?.owner_user_id) return '';
+	const u = String(data.owner_user_id).trim();
+	if (u) localStorage.setItem('canonical_grading_owner_user_id', u);
+	return u;
+}
+
 let teacherList = [];
 let currentResults = [];
 let currentItems = [];
@@ -1451,6 +1480,7 @@ async function handleLogin() {
 		return;
 	}
 
+	let sessBody = {};
 	// 숙제 조회 API용 단기 세션(서버에 GRADING_SESSION_SECRET 설정 시 필수)
 	if (shouldTryRemoteGradingServer && GRADING_SERVER_URL) {
 		const base = GRADING_SERVER_URL.replace(/\/$/, '');
@@ -1464,7 +1494,7 @@ async function handleLogin() {
 					owner_user_id: teacher.owner_user_id || undefined,
 				}),
 			});
-			const sessBody = await sessRes.json().catch(() => ({}));
+			sessBody = await sessRes.json().catch(() => ({}));
 			if (sessRes.status === 503) {
 				sessionStorage.removeItem('grading_session_token');
 			} else if (!sessRes.ok) {
@@ -1484,8 +1514,12 @@ async function handleLogin() {
 		sessionStorage.removeItem('grading_session_token');
 	}
 
-	currentTeacher = teacher;
-	sessionStorage.setItem('grading_teacher', JSON.stringify(teacher));
+	let apiOwner = (sessBody && sessBody.owner_user_id) ? String(sessBody.owner_user_id).trim() : '';
+	if (!apiOwner) apiOwner = await resolveGradingOwnerUserIdFallback();
+	if (!apiOwner) apiOwner = String(teacher.owner_user_id || '').trim();
+	const teacherPayload = { ...teacher, _gradingApiOwner: apiOwner };
+	currentTeacher = teacherPayload;
+	sessionStorage.setItem('grading_teacher', JSON.stringify(teacherPayload));
 	document.getElementById('login-error').style.display = 'none';
 	showPage('main');
 	goToday();
@@ -1745,6 +1779,65 @@ function showToast(msg, type = 'info', duration = 3000) {
 }
 function hideToast(el) { if (el && el.parentNode) el.remove(); }
 
+/** 학생 숙제 제출 페이지에 있던 즉시 채점: 카메라/갤러리 이미지 → POST /api/grade (mode=auto_search) */
+function openInstantGradeCamera(ev) {
+	if (ev) {
+		ev.preventDefault();
+		ev.stopPropagation();
+	}
+	if (!currentTeacher) {
+		showToast('선생님 로그인이 필요합니다.', 'error');
+		return;
+	}
+	if (!hwSelectedStudentId) {
+		showToast('숙제 관리에서 왼쪽 학생을 먼저 선택해주세요.', 'warning');
+		switchMainTab('homework-mgmt', null);
+		return;
+	}
+	const ownerForApi = gradingOwnerId();
+	if (!ownerForApi) {
+		showToast('원장(학원) 정보를 확인할 수 없습니다. 다시 로그인해주세요.', 'error');
+		return;
+	}
+	const gradeBase = String(GRADING_SERVER_URL || '').trim().replace(/\/$/, '');
+	if (!gradeBase) {
+		showToast('채점 서버 URL이 비어 있습니다. localStorage grading_server_url을 설정하세요.', 'error');
+		return;
+	}
+	const input = document.createElement('input');
+	input.type = 'file';
+	input.accept = 'image/*';
+	input.capture = 'environment';
+	input.onchange = async (e) => {
+		const file = e.target.files && e.target.files[0];
+		if (!file) return;
+		const busy = showToast('채점 중입니다...', 'info', 0);
+		try {
+			const formData = new FormData();
+			formData.append('student_id', String(hwSelectedStudentId));
+			formData.append('teacher_id', ownerForApi);
+			formData.append('mode', 'auto_search');
+			formData.append('image', file);
+			const res = await fetch(`${gradeBase}/api/grade`, { method: 'POST', body: formData });
+			const result = await res.json().catch(() => ({}));
+			hideToast(busy);
+			if (res.ok && result.total_score !== undefined) {
+				let msg = `채점 완료 · ${result.total_score}/${result.max_score}점 (정${result.correct_count} 오${result.wrong_count} ?${result.uncertain_count != null ? result.uncertain_count : 0})`;
+				if (result.graded_images && result.graded_images.length > 0) msg += ' · 드라이브 저장';
+				showToast(msg, 'success', 5500);
+			} else {
+				const detail = result.detail || result.error || result.message;
+				showToast('채점 실패: ' + (typeof detail === 'string' ? detail : (res.status ? `HTTP ${res.status}` : '다시 시도해주세요.')), 'error', 5000);
+			}
+		} catch (err) {
+			hideToast(busy);
+			console.error('[즉시채점]', err);
+			showToast('채점 서버에 연결할 수 없습니다.', 'error');
+		}
+	};
+	input.click();
+}
+
 // ============================================================
 // 데이터 로드
 // ============================================================
@@ -1818,7 +1911,7 @@ async function pollGradingProgress() {
 
 	try {
 		const result = await _pollingFetchJson(
-			`${GRADING_SERVER_URL}/api/grading-progress?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`
+			`${GRADING_SERVER_URL}/api/grading-progress?teacher_id=${encodeURIComponent(gradingOwnerId())}`
 		);
 		_progressPollFailCount = 0;
 		const active = (result.data || []).filter(p => p.stage !== 'done' && p.stage !== 'failed' && p.stage !== 'unknown');
@@ -1903,7 +1996,7 @@ async function loadResults() {
 	_loadingResults = true;
 	try {
 		const timeoutId = setTimeout(() => controller.abort(), 30000);
-		const params = new URLSearchParams({ teacher_id: currentTeacher.owner_user_id });
+		const params = new URLSearchParams({ teacher_id: gradingOwnerId() });
 		const res = await fetch(`${GRADING_SERVER_URL}/api/results?${params}`, { signal: controller.signal });
 		clearTimeout(timeoutId);
 		if (!res.ok) throw new Error(`서버 응답 오류 (${res.status})`);
@@ -2225,7 +2318,7 @@ async function _pollDetailResult() {
 	let resultOk = false;
 	try {
 		const progressData = await _pollingFetchJson(
-			`${GRADING_SERVER_URL}/api/grading-progress?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`
+			`${GRADING_SERVER_URL}/api/grading-progress?teacher_id=${encodeURIComponent(gradingOwnerId())}`
 		);
 		const myProgress = (progressData.data || []).find(p => p.result_id === currentResultId);
 		if (myProgress) {
@@ -2239,7 +2332,7 @@ async function _pollDetailResult() {
 
 	try {
 		const result = await _pollingFetchJson(
-			`${GRADING_SERVER_URL}/api/results?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`
+			`${GRADING_SERVER_URL}/api/results?teacher_id=${encodeURIComponent(gradingOwnerId())}`
 		);
 		const updated = (result.data || []).find(r => r.id === currentResultId);
 		if (updated && updated.status !== 'grading' && updated.status !== 'regrading') {
@@ -2319,7 +2412,7 @@ async function openDetail(resultId) {
 	const keySelect = document.getElementById('detail-key-select');
 	keySelect.innerHTML = '<option value="">교재 없음</option>';
 	try {
-		const keysRes = await fetch(`${GRADING_SERVER_URL}/api/answer-keys?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`);
+		const keysRes = await fetch(`${GRADING_SERVER_URL}/api/answer-keys?teacher_id=${encodeURIComponent(gradingOwnerId())}`);
 		if (!keysRes.ok) throw new Error(`HTTP ${keysRes.status}`);
 		const keysData = await keysRes.json();
 		const keys = keysData.data || [];
@@ -2677,7 +2770,7 @@ async function deleteHomeworkSubmission(submissionId) {
 	if (!submissionId) return;
 	if (!confirm('선택한 숙제 제출을 삭제하시겠습니까?\n\n이 작업은 되돌릴 수 없습니다.')) return;
 	try {
-		const teacherId = currentTeacher?.owner_user_id;
+		const teacherId = gradingOwnerId();
 		if (!teacherId) {
 			showToast('선생님 정보를 불러올 수 없습니다.', 'error');
 			return;
@@ -2733,7 +2826,7 @@ let _stuDragKeyId = null;
 async function loadStudentList() {
 	if (!currentTeacher) return;
 	try {
-		const { data: d1 } = await db.from('students').select('id, name, grade, school').eq('owner_user_id', currentTeacher.owner_user_id).order('name');
+		const { data: d1 } = await db.from('students').select('id, name, grade, school').eq('owner_user_id', gradingOwnerId()).order('name');
 		const { data: d2 } = await db.from('students').select('id, name, grade, school').eq('teacher_id', currentTeacher.id).order('name');
 		const merged = new Map();
 		[...(d1 || []), ...(d2 || [])].forEach(s => merged.set(s.id, s));
@@ -2743,7 +2836,7 @@ async function loadStudentList() {
 	try {
 		const c1 = new AbortController();
 		const t1 = setTimeout(() => c1.abort(), 30000);
-		const keysRes = await fetch(`${GRADING_SERVER_URL}/api/answer-keys?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`, { signal: c1.signal });
+		const keysRes = await fetch(`${GRADING_SERVER_URL}/api/answer-keys?teacher_id=${encodeURIComponent(gradingOwnerId())}`, { signal: c1.signal });
 		clearTimeout(t1);
 		stuAllBooks = (await keysRes.json()).data || [];
 	} catch (e) { stuAllBooks = []; }
@@ -2751,7 +2844,7 @@ async function loadStudentList() {
 	try {
 		const c2 = new AbortController();
 		const t2 = setTimeout(() => c2.abort(), 30000);
-		const booksRes = await fetch(`${GRADING_SERVER_URL}/api/student-books?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`, { signal: c2.signal });
+		const booksRes = await fetch(`${GRADING_SERVER_URL}/api/student-books?teacher_id=${encodeURIComponent(gradingOwnerId())}`, { signal: c2.signal });
 		clearTimeout(t2);
 		const allLinks = (await booksRes.json()).data || [];
 		stuBookMap = {};
@@ -2903,7 +2996,7 @@ async function addStudentBookDrop(studentId, answerKeyId) {
 		const formData = new FormData();
 		formData.append('student_id', studentId);
 		formData.append('answer_key_id', answerKeyId);
-		formData.append('teacher_id', currentTeacher.owner_user_id);
+		formData.append('teacher_id', gradingOwnerId());
 		const res = await fetch(`${GRADING_SERVER_URL}/api/student-books`, { method: 'POST', body: formData });
 		if (!res.ok) throw new Error('추가 실패');
 		const book = stuAllBooks.find(k => k.id === answerKeyId);
@@ -2937,7 +3030,7 @@ async function loadAssignments() {
 	try {
 		const controller = new AbortController();
 		const timeoutId = setTimeout(() => controller.abort(), 30000);
-		const res = await fetch(`${GRADING_SERVER_URL}/api/assignments?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`, { signal: controller.signal });
+		const res = await fetch(`${GRADING_SERVER_URL}/api/assignments?teacher_id=${encodeURIComponent(gradingOwnerId())}`, { signal: controller.signal });
 		clearTimeout(timeoutId);
 		const result = await res.json();
 		currentAssignments = result.data || [];
@@ -3025,7 +3118,7 @@ async function showAssignModal(prefillDate) {
 	try {
 		const controller = new AbortController();
 		const timeoutId = setTimeout(() => controller.abort(), ASSIGN_KEYS_FETCH_MS);
-		const keysRes = await fetch(`${GRADING_SERVER_URL}/api/answer-keys?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`, { signal: controller.signal });
+		const keysRes = await fetch(`${GRADING_SERVER_URL}/api/answer-keys?teacher_id=${encodeURIComponent(gradingOwnerId())}`, { signal: controller.signal });
 		clearTimeout(timeoutId);
 		if (keysRes.ok) {
 			const j = await keysRes.json();
@@ -3043,7 +3136,7 @@ async function showAssignModal(prefillDate) {
 	}
 
 	try {
-		const { data: d1 } = await db.from('students').select('id, name, grade, school').eq('owner_user_id', currentTeacher.owner_user_id).order('name');
+		const { data: d1 } = await db.from('students').select('id, name, grade, school').eq('owner_user_id', gradingOwnerId()).order('name');
 		const { data: d2 } = await db.from('students').select('id, name, grade, school').eq('teacher_id', currentTeacher.id).order('name');
 		const merged = new Map();
 		[...(d1 || []), ...(d2 || [])].forEach(s => merged.set(s.id, s));
@@ -3120,7 +3213,7 @@ async function editAssignment(assignId) {
 	if (!sel) return;
 
 	try {
-		const { data: d1 } = await db.from('students').select('id, name, grade, school').eq('owner_user_id', currentTeacher.owner_user_id).order('name');
+		const { data: d1 } = await db.from('students').select('id, name, grade, school').eq('owner_user_id', gradingOwnerId()).order('name');
 		const { data: d2 } = await db.from('students').select('id, name, grade, school').eq('teacher_id', currentTeacher.id).order('name');
 		const merged = new Map();
 		[...(d1 || []), ...(d2 || [])].forEach(s => merged.set(s.id, s));
@@ -3159,7 +3252,7 @@ async function editAssignment(assignId) {
 	try {
 		const controller = new AbortController();
 		const timeoutId = setTimeout(() => controller.abort(), ASSIGN_KEYS_FETCH_MS);
-		const keysRes = await fetch(`${GRADING_SERVER_URL}/api/answer-keys?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`, { signal: controller.signal });
+		const keysRes = await fetch(`${GRADING_SERVER_URL}/api/answer-keys?teacher_id=${encodeURIComponent(gradingOwnerId())}`, { signal: controller.signal });
 		clearTimeout(timeoutId);
 		if (keysRes.ok) {
 			const j = await keysRes.json();
@@ -3195,7 +3288,7 @@ async function createAssignment() {
 
 	const selectedStudents = assignSelectedStudents.map(s => s.id);
 	if (!selectedStudents.length) return showToast('학생을 1명 이상 선택해주세요', 'error');
-	if (!currentTeacher || !currentTeacher.owner_user_id) {
+	if (!currentTeacher || !gradingOwnerId()) {
 		showToast('선생님을 먼저 선택해주세요', 'error');
 		return;
 	}
@@ -3236,7 +3329,7 @@ async function createAssignment() {
 			if (editingAssignmentId) {
 				res = await fetch(`${GRADING_SERVER_URL}/api/assignments/${editingAssignmentId}`, { method: 'PUT', body: formData, signal: controller.signal });
 			} else {
-				formData.append('teacher_id', currentTeacher.owner_user_id);
+				formData.append('teacher_id', gradingOwnerId());
 				formData.append('mode', 'assigned');
 				res = await fetch(`${GRADING_SERVER_URL}/api/assignments`, { method: 'POST', body: formData, signal: controller.signal });
 			}
@@ -3369,7 +3462,7 @@ async function loadAnswerKeys() {
 	try {
 		const controller = new AbortController();
 		const timeoutId = setTimeout(() => controller.abort(), 30000);
-		const res = await fetch(`${GRADING_SERVER_URL}/api/answer-keys?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`, { signal: controller.signal });
+		const res = await fetch(`${GRADING_SERVER_URL}/api/answer-keys?teacher_id=${encodeURIComponent(gradingOwnerId())}`, { signal: controller.signal });
 		clearTimeout(timeoutId);
 		const result = await res.json();
 		data = result.data || [];
@@ -3401,7 +3494,7 @@ async function deleteAnswerKey(id, title) {
 	if (!confirm(`"${title}" 교재를 삭제하시겠습니까?\n\n정답 데이터 및 드라이브 페이지 이미지가 함께 삭제됩니다.`)) return;
 
 	try {
-		const res = await fetch(`${GRADING_SERVER_URL}/api/answer-keys/${id}?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`, {
+		const res = await fetch(`${GRADING_SERVER_URL}/api/answer-keys/${id}?teacher_id=${encodeURIComponent(gradingOwnerId())}`, {
 			method: 'DELETE',
 		});
 		const result = await res.json();
@@ -3550,7 +3643,7 @@ async function registerAnswerKey() {
 
 	if (pdfInput.files.length > 0) {
 		const formData = new FormData();
-		formData.append('teacher_id', currentTeacher.owner_user_id);
+		formData.append('teacher_id', gradingOwnerId());
 		formData.append('title', title);
 		formData.append('subject', subject);
 		if (gradeLevel) formData.append('grade_level', gradeLevel);
@@ -3591,7 +3684,7 @@ async function registerAnswerKey() {
 		// PDF 없이 수동 등록 (서버 API)
 		try {
 			const formData = new FormData();
-			formData.append('teacher_id', currentTeacher.owner_user_id);
+			formData.append('teacher_id', gradingOwnerId());
 			formData.append('title', title);
 			formData.append('subject', subject);
 			const res = await fetch(`${GRADING_SERVER_URL}/api/answer-keys/parse`, { method: 'POST', body: formData });
@@ -3730,7 +3823,7 @@ function applyKdZoom() {
 async function openKeyDetail(keyId) {
 	let allKeys = [];
 	try {
-		const res = await fetch(`${GRADING_SERVER_URL}/api/answer-keys?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`);
+		const res = await fetch(`${GRADING_SERVER_URL}/api/answer-keys?teacher_id=${encodeURIComponent(gradingOwnerId())}`);
 		const result = await res.json();
 		allKeys = result.data || [];
 	} catch (e) {
@@ -3835,7 +3928,7 @@ async function refreshKeyPageImages() {
 	if (!currentKeyDetail) return;
 	const keyId = currentKeyDetail.id;
 	try {
-		const res = await fetch(`${GRADING_SERVER_URL}/api/answer-keys?teacher_id=${encodeURIComponent(currentTeacher.owner_user_id)}`);
+		const res = await fetch(`${GRADING_SERVER_URL}/api/answer-keys?teacher_id=${encodeURIComponent(gradingOwnerId())}`);
 		const result = await res.json();
 		const keys = result.data || [];
 		const updated = keys.find(k => k.id === keyId);
@@ -4471,7 +4564,7 @@ async function saveKeyDetail() {
 			method: 'PUT',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({
-				teacher_id: currentTeacher.owner_user_id,
+				teacher_id: gradingOwnerId(),
 				title,
 				subject,
 				grade_level: gradeLevel,
@@ -4605,7 +4698,7 @@ async function loadHomeworkMonthForSelected() {
 		const lastD = new Date(y, m + 1, 0).getDate();
 		const end = `${y}-${String(m + 1).padStart(2, '0')}-${String(lastD).padStart(2, '0')}`;
 		const cacheKey = getHwSubmissionCacheKey({
-			teacherId: currentTeacher.owner_user_id,
+			teacherId: gradingOwnerId(),
 			studentId: hwSelectedStudentId,
 			year: y,
 			month: m,
@@ -4631,7 +4724,7 @@ async function loadHomeworkMonthForSelected() {
 				_homeworkSubmitAbortController = controller;
 				const base = GRADING_SERVER_URL.replace(/\/$/, '');
 				const url = new URL(`${base}/api/homework-submissions`);
-				url.searchParams.set('teacher_id', currentTeacher.owner_user_id);
+				url.searchParams.set('teacher_id', gradingOwnerId());
 				url.searchParams.set('student_id', String(hwSelectedStudentId));
 				url.searchParams.set('date_from', start);
 				url.searchParams.set('date_to', end);
@@ -4657,7 +4750,7 @@ async function loadHomeworkMonthForSelected() {
 				const { data, error } = await db
 					.from('homework_submissions')
 					.select('id, submission_date, file_name, status, created_at')
-					.eq('owner_user_id', currentTeacher.owner_user_id)
+					.eq('owner_user_id', gradingOwnerId())
 					.eq('student_id', hwSelectedStudentId)
 					.gte('submission_date', start)
 					.lte('submission_date', end)
@@ -5698,12 +5791,20 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 			// 병렬 시 Railway cold start에 results/assignments/answer-keys가 동시에 타임아웃·취소(AbortError) 나는 경우가 있어 순차 로드
 			await loadTeacherList();
+			if (!currentTeacher._gradingApiOwner) {
+				const r = await resolveGradingOwnerUserIdFallback();
+				currentTeacher._gradingApiOwner = r || currentTeacher.owner_user_id || '';
+				sessionStorage.setItem('grading_teacher', JSON.stringify(currentTeacher));
+			}
 			await loadAllData();
 
 			if (teacherList.length > 0) {
 				const match = teacherList.find(t => t.id === teacher.id);
 				if (match) {
-					currentTeacher = match;
+					currentTeacher = {
+						...match,
+						_gradingApiOwner: teacher._gradingApiOwner || match.owner_user_id || '',
+					};
 				} else {
 					sessionStorage.removeItem('grading_teacher');
 					currentTeacher = null;

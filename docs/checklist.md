@@ -1,8 +1,17 @@
 # 출석관리앱 체크리스트
 
-- 문서 기준일: 2026-04-04
+- 문서 기준일: 2026-04-05
 ## 문의 답변 처리
+- [x] 메인 앱 콘솔 빨강/노랑 완화(2026-04-04): `index.html`(env는 루프백만 fetch·비밀번호 구간 `<form>`·`autocomplete`/숨은 `username`·복구·선생님 비번 변경·강제초기화·선생님 인증 모달), `script.js`(`unload` 제거·username 동기화·`openModal` teacher-password), `auth.js`(`initializeAuth` debug·`openAdminPasswordUpdateModal` 이메일→username), `qr-attendance.js`(QR 모달)
+- [x] 숙제·학부모 관리자 로그인(2026-04-04): `homework/index.html`·`parent-portal/report.js`·`parent-portal/index.html` — `auth.flowType: pkce`, `normalizeSupabaseProjectUrl`(오타 호스트 교정), 인증 실패·`teachers` 없음 메시지 구분, 관리자 모달 `<form>` 래핑 · `node --check parent-portal/report.js` 권장
+- [x] 학부모/숙제 env·선생님 인증(2026-04-05): `parent-portal`·`homework` — `env.local` 단일 fetch·로더 1회·`academy_skip_local_env_fetch` 스킵·선생님 인증 `<form>`(`report.js` username 동기화)
+- [x] 학부모 포털 점수 탭 제거(2026-04-05): 탭은 출결·숙제·종합평가만 — `parent-portal/index.html`, `parent-portal/report.js` · `node --check parent-portal/report.js` PASS
+- [x] 선생님 등록 이메일 직접 입력·채점관리 원장 UUID 통일(2026-04-05): `index.html`·`script.js`(등록 폼)·`grading/index.html`(`gradingOwnerId`·jjyown 이메일 폴백·세션 `owner_user_id`)·`grading-server`(선택 `GRADING_CANONICAL_OWNER_USER_ID`) · `node --check script.js`·`python -m compileall grading-server` PASS · Railway env·재배포 후 채점 로그인 스모크 권장
 - [x] 관리자·선생님 로그인 Enter(2026-04-04): `#login-password`→`signIn()`, `#teacher-select-password`→`confirmTeacher()` — `index.html`
+- [x] 로그인 Enter 체감 속도(2026-04-05): 비밀번호 `onkeydown` 제거(이중 호출 방지)·`signIn`/`confirmTeacher` in-flight 가드·`showMainApp` 로그인 직후 `users.role` 생략·`loadTeachers` 재시도 180ms — `index.html`, `auth.js`, `script.js` · `node --check` PASS
+- [x] 즉시 채점 연결 오류(2026-04-05): `gradingOwnerId` 재귀 버그·로컬에서 `shouldTryRemote`로 즉시 채점 차단 제거 — `grading/index.html`
+- [x] 즉시 채점 UI 이관(2026-04-05): `homework/index.html` 플로팅 제거·`grading/index.html` 상단「교재 관리」우측 버튼·`openInstantGradeCamera` — 실기기 `/api/grade` 스모크 권장
+- [x] Railway 로그 CSV 분석 + 고아 제출 복구(2026-04-05): `homework_submissions.updated_at` 미존재로 400 → `grading-server/main.py`에서 `created_at` 사용 · 재배포 후 기동 시 `[Recovery]` 로그 스모크
 - [x] 월간 학원 일정 글자색(2026-04-04): `style.css`에서 `.grid-cell.custom-holiday .holiday-name`의 `color !important` 제거 — 줄별 인라인 색 복구
 - [x] 월간 캘린더 「집계중」 고착(2026-04-04): `loadAllTeachersScheduleData` finally에 `renderCalendar(true)` — 디바운스 렌더×로딩 플래그 경합 제거; `_generateScheduleCore`/`updateClassTime`/`setTimetableScope` 보강
 - [x] 선생님 선택→메인 체감 속도(2026-04-04): `loadAndCleanData`∥`fetchSchedulesForOwnerPaged`, owner `schedules` 단일 패치→`loadAllTeachersScheduleData(prefetched)` + `skipOwnerPagedHydrate`, `autoMarkAbsentForPastSchedules`는 idle 지연·이중 rAF로 100ms 제거
@@ -178,6 +187,7 @@
 ## 테스트/검증 결과 기록
 | 날짜 | 작업 | 검증 방법 | 결과 | 비고 |
 |---|---|---|---|---|
+| 2026-04-05 | AUTO-20260405(staged 15개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-04-04 | AUTO-20260404(staged 4개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-04-04 | AUTO-20260404(staged 9개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-04-03 | AUTO-20260403(staged 6개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |

@@ -37,7 +37,15 @@
                 return env;
             };
 
-            const candidates = ['.env.local', 'env.local'];
+            // 배포 환경에서 .env fetch는 항상 404 → 콘솔/네트워크 노이즈만 발생. 루프백에서만 시도.
+            const host = window.location.hostname;
+            if (host !== 'localhost' && host !== '127.0.0.1' && host !== '[::1]') {
+                window.env = {};
+                return;
+            }
+
+            // Live Server 등은 dotfile 미서빙이 많아 `env.local`을 먼저 시도(둘 다 없으면 404 1~2회는 브라우저가 표시할 수 있음)
+            const candidates = ['env.local', '.env.local'];
             window.env = {};
             for (const fileName of candidates) {
                 try {
@@ -51,7 +59,7 @@
                     // 다음 후보 파일 시도
                 }
             }
-            console.log('[env-loader] 로컬 env 파일 없음 - 기본값 사용');
+            console.log('[env-loader] 로컬 env 파일 없음 - supabase-config.js 등 기본값 사용');
         })();
     </script>
 </head>
@@ -77,31 +85,31 @@
                 <h1 class="auth-logo">하이로드 수학</h1>
                 
                 <!-- 로그인 폼 -->
-                <div id="login-form" class="auth-form">
+                <form id="login-form" class="auth-form" autocomplete="on" onsubmit="event.preventDefault(); if(typeof signIn==='function')signIn(); return false;">
                     <h2>로그인</h2>
                     <div class="form-group">
-                        <label>이메일</label>
-                        <input type="email" id="login-email" class="auth-input" placeholder="example@email.com">
+                        <label for="login-email">이메일</label>
+                        <input type="email" id="login-email" name="email" class="auth-input" placeholder="example@email.com" autocomplete="username">
                     </div>
                     <div class="form-group">
-                        <label>비밀번호</label>
-                        <input type="password" id="login-password" class="auth-input" placeholder="비밀번호를 입력하세요" onkeydown="if(event.key==='Enter'){ event.preventDefault(); if(typeof signIn==='function')signIn(); }">
+                        <label for="login-password">비밀번호</label>
+                        <input type="password" id="login-password" name="password" class="auth-input" placeholder="비밀번호를 입력하세요" autocomplete="current-password">
                     </div>
                     <div class="form-group" style="display: flex; flex-direction: row; align-items: center; gap: 8px; margin-top: 8px; padding: 10px 12px; background: #f5f7ff; border-radius: 10px; align-self: flex-start;">
                         <input type="checkbox" id="remember-me" style="width: 18px; height: 18px; margin: 0; cursor: pointer; accent-color: var(--primary);">
                         <label for="remember-me" style="margin: 0; cursor: pointer; font-weight: 600; color: var(--primary);">로그인 유지</label>
                     </div>
-                    <button class="auth-btn" onclick="signIn()">로그인</button>
+                    <button type="submit" class="auth-btn">로그인</button>
                     <p class="auth-toggle">계정이 없으신가요? <a href="#" onclick="toggleAuthForm(); return false;">회원가입</a></p>
                     <p class="auth-reset">비밀번호를 변경하세요. <a href="#" class="auth-reset-link" onclick="openAdminPasswordResetModal(); return false;">비밀번호 변경</a></p>
-                </div>
+                </form>
 
                 <!-- 회원가입 폼 -->
-                <div id="signup-form" class="auth-form" style="display: none;">
+                <form id="signup-form" class="auth-form" style="display: none;" autocomplete="on" onsubmit="event.preventDefault(); if(typeof signUp==='function')signUp(); return false;">
                     <h2>회원가입</h2>
                     <div class="form-group">
                         <label>이름</label>
-                        <input type="text" id="signup-name" class="auth-input" placeholder="관리자 이름">
+                        <input type="text" id="signup-name" name="name" class="auth-input" placeholder="관리자 이름" autocomplete="name">
                     </div>
                     <div class="form-group">
                         <label>이메일 (구글 인증)</label>
@@ -119,20 +127,20 @@
                                     <i class="fas fa-sync-alt"></i> 다른 계정으로 변경
                                 </button>
                             </div>
-                            <input type="hidden" id="signup-email">
+                            <input type="hidden" id="signup-email" name="username" autocomplete="username">
                         </div>
                     </div>
                     <div class="form-group">
-                        <label>비밀번호</label>
-                        <input type="password" id="signup-password" class="auth-input" placeholder="비밀번호를 입력하세요">
+                        <label for="signup-password">비밀번호</label>
+                        <input type="password" id="signup-password" name="new-password" class="auth-input" placeholder="비밀번호를 입력하세요" autocomplete="new-password">
                     </div>
                     <div class="form-group">
-                        <label>비밀번호 확인</label>
-                        <input type="password" id="signup-password-confirm" class="auth-input" placeholder="비밀번호를 다시 입력하세요">
+                        <label for="signup-password-confirm">비밀번호 확인</label>
+                        <input type="password" id="signup-password-confirm" class="auth-input" placeholder="비밀번호를 다시 입력하세요" autocomplete="new-password">
                     </div>
-                    <button class="auth-btn" onclick="signUp()">회원가입</button>
+                    <button type="submit" class="auth-btn">회원가입</button>
                     <p class="auth-toggle">이미 계정이 있으신가요? <a href="#" onclick="toggleAuthForm(); return false;">로그인</a></p>
-                </div>
+                </form>
             </div>
         </div>
     </div>
@@ -146,53 +154,39 @@
                 <h1 class="auth-logo">선생님 선택</h1>
                 
                 <!-- 선생님 선택 폼 -->
-                <div id="teacher-select-form" class="auth-form">
+                <form id="teacher-select-form" class="auth-form" autocomplete="on" onsubmit="event.preventDefault(); if(typeof confirmTeacher==='function')confirmTeacher(); return false;">
                     <div class="form-group">
-                        <label>등록된 선생님</label>
-                        <select id="teacher-dropdown" class="auth-input" onchange="onTeacherSelected()">
+                        <label for="teacher-dropdown">등록된 선생님</label>
+                        <select id="teacher-dropdown" class="auth-input" autocomplete="off" onchange="onTeacherSelected()">
                             <option value="">선생님을 선택해주세요</option>
                         </select>
                     </div>
+                    <!-- Chrome: 비밀번호와 짝을 이루는 username(선생님 선택 시 JS로 채움) -->
+                    <input type="text" id="teacher-select-username-autocomplete" name="username" autocomplete="username" tabindex="-1" aria-hidden="true" value="" style="position:fixed;left:0;top:0;width:1px;height:1px;opacity:0;pointer-events:none;z-index:-1;border:0;padding:0;margin:0;">
                     
                     <!-- 모든 선생님 비밀번호 입력 -->
                     <div id="teacher-password-section" style="display: none;">
                         <div class="form-group">
-                            <label>비밀번호</label>
-                            <input type="password" id="teacher-select-password" class="auth-input" placeholder="비밀번호" onkeydown="if(event.key==='Enter'){ event.preventDefault(); if(typeof confirmTeacher==='function')confirmTeacher(); }">
+                            <label for="teacher-select-password">비밀번호</label>
+                            <input type="password" id="teacher-select-password" name="password" class="auth-input" placeholder="비밀번호" autocomplete="current-password">
                         </div>
                     </div>
                     
-                    <button class="auth-btn" onclick="confirmTeacher()">입장</button>
-                    <button class="auth-btn" style="background-color:#b91c1c; margin-top:8px;" onclick="adminDeleteTeacher()">선생님 삭제</button>
+                    <button type="submit" class="auth-btn">입장</button>
+                    <button type="button" class="auth-btn" style="background-color:#b91c1c; margin-top:8px;" onclick="adminDeleteTeacher()">선생님 삭제</button>
                     <p class="auth-toggle">아직 등록된 선생님이 없으신가요? <a href="#" onclick="toggleTeacherForm(); return false;">선생님 등록</a></p>
                     <p class="auth-reset">비밀번호를 변경하세요. <a href="#" class="auth-reset-link" onclick="openTeacherPasswordResetModal(); return false;">비밀번호 변경</a></p>
-                </div>
+                </form>
 
                 <!-- 선생님 등록 폼 -->
-                <div id="teacher-register-form" class="auth-form" style="display: none; max-height: 70vh; overflow-y: auto;">
+                <form id="teacher-register-form" class="auth-form" style="display: none; max-height: 70vh; overflow-y: auto;" autocomplete="on" onsubmit="event.preventDefault(); if(typeof registerTeacher==='function')registerTeacher(); return false;">
                     <div class="form-group">
                         <label>선생님 이름</label>
-                        <input type="text" id="new-teacher-name" class="auth-input" placeholder="선생님 이름">
+                        <input type="text" id="new-teacher-name" name="name" class="auth-input" placeholder="선생님 이름" autocomplete="name">
                     </div>
                     <div class="form-group">
-                        <label>이메일 (구글 인증)</label>
-                        <div id="google-email-section">
-                            <button type="button" id="google-auth-btn" onclick="startGoogleAuth()" class="google-auth-btn">
-                                <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
-                                구글 이메일 인증
-                            </button>
-                            <div id="google-verified-email" style="display:none;">
-                                <div class="google-verified-info">
-                                    <span id="verified-email-text" class="verified-email-text"></span>
-                                    <span class="verified-badge"><i class="fas fa-check-circle"></i> 인증됨</span>
-                                </div>
-                                <button type="button" class="google-change-btn" onclick="startGoogleAuth()">
-                                    <i class="fas fa-sync-alt"></i> 다른 계정으로 변경
-                                </button>
-                            </div>
-                            <input type="hidden" id="new-teacher-email">
-                            <input type="hidden" id="new-teacher-google-sub">
-                        </div>
+                        <label for="new-teacher-email">이메일</label>
+                        <input type="email" id="new-teacher-email" name="username" class="auth-input" placeholder="example@email.com" autocomplete="email">
                     </div>
                     <div class="form-group">
                         <label>연락처</label>
@@ -207,19 +201,19 @@
                     </div>
                     <div class="form-group">
                         <label>상세주소 (동/호수)</label>
-                        <input type="text" id="new-teacher-address-detail" class="auth-input" placeholder="예: 101동 1202호">
+                        <input type="text" id="new-teacher-address-detail" name="address-line2" class="auth-input" placeholder="예: 101동 1202호" autocomplete="address-line2">
                     </div>
                     <div class="form-group">
-                        <label>비밀번호</label>
-                        <input type="password" id="register-teacher-password" class="auth-input" placeholder="비밀번호">
+                        <label for="register-teacher-password">비밀번호</label>
+                        <input type="password" id="register-teacher-password" name="new-password" class="auth-input" placeholder="비밀번호" autocomplete="new-password">
                     </div>
                     <div class="form-group">
-                        <label>비밀번호 확인</label>
-                        <input type="password" id="register-teacher-password-confirm" class="auth-input" placeholder="비밀번호 확인">
+                        <label for="register-teacher-password-confirm">비밀번호 확인</label>
+                        <input type="password" id="register-teacher-password-confirm" class="auth-input" placeholder="비밀번호 확인" autocomplete="new-password">
                     </div>
-                    <button class="auth-btn" onclick="registerTeacher()">등록하기</button>
+                    <button type="submit" class="auth-btn">등록하기</button>
                     <p class="auth-toggle">이미 등록된 선생님이 있으신가요? <a href="#" onclick="toggleTeacherForm(); return false;">선생님 선택</a></p>
-                </div>
+                </form>
             </div>
         </div>
     </div>
@@ -230,16 +224,19 @@
             <div style="width:56px;height:56px;border-radius:14px;background:linear-gradient(135deg,var(--primary),var(--primary-end));display:flex;align-items:center;justify-content:center;margin:0 auto 16px;"><i class="fas fa-qrcode" style="color:white;font-size:24px;"></i></div>
             <h3 style="margin:0 0 4px;font-size:18px;font-weight:700;color:#1e293b;">QR 코드 스캔</h3>
             <p style="margin:0 0 20px;font-size:13px;color:#64748b;">선생님 비밀번호를 입력해주세요</p>
+            <form autocomplete="on" onsubmit="event.preventDefault(); if(typeof confirmQRPassword==='function')confirmQRPassword(); return false;" style="margin:0;">
             <div style="margin-bottom:12px;">
-                <select id="qr-teacher-dropdown" style="width:100%;padding:12px 14px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:14px;color:#334155;background:#f8fafc;outline:none;margin-bottom:10px;" onchange="document.getElementById('qr-scan-password').focus()">
+                <select id="qr-teacher-dropdown" autocomplete="off" style="width:100%;padding:12px 14px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:14px;color:#334155;background:#f8fafc;outline:none;margin-bottom:10px;" onchange="(function(){var d=document.getElementById('qr-teacher-dropdown');var u=document.getElementById('qr-teacher-username-autocomplete');if(u&amp;&amp;d){var o=d.options[d.selectedIndex];u.value=(o&amp;&amp;d.value)?(o.textContent||''):'';}var p=document.getElementById('qr-scan-password');if(p)p.focus();})();">
                     <option value="">선생님 선택</option>
                 </select>
-                <input type="password" id="qr-scan-password" placeholder="비밀번호" style="width:100%;padding:12px 14px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:14px;outline:none;box-sizing:border-box;" onkeydown="if(event.key==='Enter')confirmQRPassword()">
+                <input type="text" id="qr-teacher-username-autocomplete" name="username" autocomplete="username" tabindex="-1" aria-hidden="true" value="" style="position:fixed;left:0;top:0;width:1px;height:1px;opacity:0;pointer-events:none;z-index:-1;border:0;padding:0;margin:0;">
+                <input type="password" id="qr-scan-password" name="password" placeholder="비밀번호" autocomplete="current-password" style="width:100%;padding:12px 14px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:14px;outline:none;box-sizing:border-box;" onkeydown="if(event.key==='Enter')confirmQRPassword()">
             </div>
             <div style="display:flex;gap:8px;">
-                <button onclick="closeQRPasswordModal()" style="flex:1;padding:12px;border:1.5px solid #e2e8f0;border-radius:10px;background:white;color:#64748b;font-size:14px;font-weight:600;cursor:pointer;">취소</button>
-                <button onclick="confirmQRPassword()" style="flex:1;padding:12px;border:none;border-radius:10px;background:linear-gradient(135deg,var(--primary),var(--primary-end));color:white;font-size:14px;font-weight:600;cursor:pointer;">확인</button>
+                <button type="button" onclick="closeQRPasswordModal()" style="flex:1;padding:12px;border:1.5px solid #e2e8f0;border-radius:10px;background:white;color:#64748b;font-size:14px;font-weight:600;cursor:pointer;">취소</button>
+                <button type="submit" style="flex:1;padding:12px;border:none;border-radius:10px;background:linear-gradient(135deg,var(--primary),var(--primary-end));color:white;font-size:14px;font-weight:600;cursor:pointer;">확인</button>
             </div>
+            </form>
         </div>
     </div>
 
@@ -251,30 +248,32 @@
                 <button class="btn-close-x" onclick="closeAdminPasswordResetModal()"><i class="fas fa-times"></i></button>
             </div>
             <div class="modal-body-scrollable" style="padding: 20px 24px;">
+                <form autocomplete="on" onsubmit="event.preventDefault(); return false;">
                 <div class="form-group">
-                    <label>관리자 이메일</label>
-                    <input type="email" id="admin-reset-email" class="auth-input" placeholder="example@email.com">
+                    <label for="admin-reset-email">관리자 이메일</label>
+                    <input type="email" id="admin-reset-email" name="username" class="auth-input" placeholder="example@email.com" autocomplete="username">
                 </div>
                 <div class="form-group">
-                    <label>기존 비밀번호</label>
-                    <input type="password" id="admin-current-password" class="auth-input" placeholder="현재 비밀번호를 입력하세요">
+                    <label for="admin-current-password">기존 비밀번호</label>
+                    <input type="password" id="admin-current-password" name="password" class="auth-input" placeholder="현재 비밀번호를 입력하세요" autocomplete="current-password">
                 </div>
                 <div class="form-group">
-                    <label>새 비밀번호</label>
-                    <input type="password" id="admin-reset-new-password" class="auth-input" placeholder="예: Abcdef1! (소문자·대문자·숫자·특수문자 포함)">
+                    <label for="admin-reset-new-password">새 비밀번호</label>
+                    <input type="password" id="admin-reset-new-password" name="new-password" class="auth-input" placeholder="예: Abcdef1! (소문자·대문자·숫자·특수문자 포함)" autocomplete="new-password">
                     <p style="font-size: 12px; color: var(--gray); margin: 6px 0 0; line-height: 1.45;"><strong>필수(현재 프로젝트 설정):</strong> 8자 이상, 그리고 <strong>영어 소문자·대문자·숫자·특수문자</strong>를 각각 1글자 이상 포함해야 합니다. 하나라도 빠지면 422 오류(<code style="font-size:11px;">AuthWeakPasswordError</code>)가 납니다.</p>
                 </div>
                 <div class="form-group">
-                    <label>새 비밀번호 확인</label>
-                    <input type="password" id="admin-reset-new-password-confirm" class="auth-input" placeholder="새 비밀번호 확인">
+                    <label for="admin-reset-new-password-confirm">새 비밀번호 확인</label>
+                    <input type="password" id="admin-reset-new-password-confirm" class="auth-input" placeholder="새 비밀번호 확인" autocomplete="new-password">
                 </div>
-                <button class="auth-btn" onclick="confirmAdminPasswordChange()">비밀번호 변경</button>
+                <button type="button" class="auth-btn" onclick="confirmAdminPasswordChange()">비밀번호 변경</button>
                 <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #e2e8f0;">
                     <p style="font-size: 12px; color: var(--gray); margin-bottom: 8px;">
                         기존 비밀번호가 기억나지 않으시면 초기화해주세요.
                     </p>
-                    <button class="auth-btn" style="background: #ef4444;" onclick="resetAdminPassword()">비밀번호 초기화 (이메일 발송)</button>
+                    <button type="button" class="auth-btn" style="background: #ef4444;" onclick="resetAdminPassword()">비밀번호 초기화 (이메일 발송)</button>
                 </div>
+                </form>
             </div>
         </div>
     </div>
@@ -287,15 +286,18 @@
                 <button class="btn-close-x" onclick="closeAdminPasswordUpdateModal()"><i class="fas fa-times"></i></button>
             </div>
             <div class="modal-body-scrollable" style="padding: 20px 24px;">
+                <form autocomplete="on" onsubmit="event.preventDefault(); if(typeof confirmAdminPasswordReset==='function')confirmAdminPasswordReset(); return false;">
+                <input type="text" id="admin-password-update-username-ac" name="username" autocomplete="username" tabindex="-1" aria-hidden="true" value="" style="position:fixed;left:0;top:0;width:1px;height:1px;opacity:0;pointer-events:none;z-index:-1;border:0;padding:0;margin:0;">
                 <div class="form-group">
-                    <label>새 비밀번호</label>
-                    <input type="password" id="admin-new-password" class="auth-input" placeholder="새 비밀번호">
+                    <label for="admin-new-password">새 비밀번호</label>
+                    <input type="password" id="admin-new-password" name="new-password" class="auth-input" placeholder="새 비밀번호" autocomplete="new-password">
                 </div>
                 <div class="form-group">
-                    <label>새 비밀번호 확인</label>
-                    <input type="password" id="admin-new-password-confirm" class="auth-input" placeholder="새 비밀번호 확인">
+                    <label for="admin-new-password-confirm">새 비밀번호 확인</label>
+                    <input type="password" id="admin-new-password-confirm" class="auth-input" placeholder="새 비밀번호 확인" autocomplete="new-password">
                 </div>
-                <button class="auth-btn" onclick="confirmAdminPasswordReset()">비밀번호 변경</button>
+                <button type="submit" class="auth-btn">비밀번호 변경</button>
+                </form>
             </div>
         </div>
     </div>
@@ -308,41 +310,43 @@
                 <button class="btn-close-x" onclick="closeTeacherPasswordResetModal()"><i class="fas fa-times"></i></button>
             </div>
             <div class="modal-body-scrollable" style="padding: 20px 24px;">
+                <form autocomplete="on" onsubmit="event.preventDefault(); return false;">
                 <div class="form-group">
-                    <label>선생님 선택</label>
-                    <select id="reset-teacher-dropdown" class="auth-input">
+                    <label for="reset-teacher-dropdown">선생님 선택</label>
+                    <select id="reset-teacher-dropdown" class="auth-input" autocomplete="off">
                         <option value="">선생님을 선택해주세요</option>
                     </select>
                 </div>
+                <input type="text" id="reset-teacher-username-ac" name="username" autocomplete="username" tabindex="-1" aria-hidden="true" value="" style="position:fixed;left:0;top:0;width:1px;height:1px;opacity:0;pointer-events:none;z-index:-1;border:0;padding:0;margin:0;">
                 <div class="form-group">
-                    <label>기존 비밀번호</label>
-                    <input type="password" id="reset-teacher-current-password" class="auth-input" placeholder="현재 비밀번호를 입력하세요">
+                    <label for="reset-teacher-current-password">기존 비밀번호</label>
+                    <input type="password" id="reset-teacher-current-password" name="password" class="auth-input" placeholder="현재 비밀번호를 입력하세요" autocomplete="current-password">
                 </div>
                 <div class="form-group">
-                    <label>새 비밀번호</label>
-                    <input type="password" id="reset-teacher-password" class="auth-input" placeholder="새 비밀번호">
+                    <label for="reset-teacher-password">새 비밀번호</label>
+                    <input type="password" id="reset-teacher-password" name="new-password" class="auth-input" placeholder="새 비밀번호" autocomplete="new-password">
                 </div>
                 <div class="form-group">
-                    <label>새 비밀번호 확인</label>
-                    <input type="password" id="reset-teacher-password-confirm" class="auth-input" placeholder="새 비밀번호 확인">
+                    <label for="reset-teacher-password-confirm">새 비밀번호 확인</label>
+                    <input type="password" id="reset-teacher-password-confirm" class="auth-input" placeholder="새 비밀번호 확인" autocomplete="new-password">
                 </div>
-                <button class="auth-btn" onclick="confirmTeacherPasswordReset()">비밀번호 변경</button>
+                <button type="button" class="auth-btn" onclick="confirmTeacherPasswordReset()">비밀번호 변경</button>
                 <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #e2e8f0;">
                     <p style="font-size: 12px; color: var(--gray); margin-bottom: 8px;">
-                        기존 비밀번호가 기억나지 않으시면 등록된 구글 이메일로 인증번호가 발송됩니다.
+                        기존 비밀번호가 기억나지 않으시면 등록된 이메일로 인증번호가 발송됩니다.
                     </p>
                     <div id="reset-teacher-email-display" style="display:none; margin-bottom: 8px; padding: 8px 12px; background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px; font-size: 13px; color: #166534; font-weight: 600;">
                         <i class="fas fa-envelope" style="margin-right: 6px;"></i>
                         <span id="reset-teacher-email-text"></span>
                     </div>
                     <div id="reset-teacher-no-email" style="display:none; margin-bottom: 8px; padding: 8px 12px; background: #fff1f2; border: 1px solid #fecaca; border-radius: 8px; font-size: 12px; color: #991b1b;">
-                        등록된 구글 이메일이 없습니다. 선생님 등록 시 구글 인증을 진행해주세요.
+                        등록된 이메일이 없습니다. 선생님 등록 시 이메일을 입력해주세요.
                     </div>
                     <input type="hidden" id="reset-teacher-email">
 
                     <!-- Step 1: 인증번호 발송 -->
                     <div id="reset-step1">
-                        <button class="auth-btn" style="background: #ef4444;" onclick="sendResetCode()">
+                        <button type="button" class="auth-btn" style="background: #ef4444;" onclick="sendResetCode()">
                             <i class="fas fa-paper-plane" style="margin-right: 6px;"></i>인증번호 발송
                         </button>
                     </div>
@@ -356,17 +360,18 @@
                             <p style="font-size: 11px; color: var(--primary); margin: 0;">5분 이내에 입력해주세요.</p>
                         </div>
                         <div class="form-group" style="margin-bottom: 10px;">
-                            <label style="font-size: 13px; font-weight: 600;">인증번호 6자리</label>
+                            <label for="reset-verify-code" style="font-size: 13px; font-weight: 600;">인증번호 6자리</label>
                             <input type="text" id="reset-verify-code" class="auth-input" placeholder="000000" maxlength="6" style="text-align: center; font-size: 24px; letter-spacing: 8px; font-weight: 700;">
                         </div>
-                        <button class="auth-btn" style="background: #ef4444;" onclick="verifyAndResetTeacherPassword()">
+                        <button type="button" class="auth-btn" style="background: #ef4444;" onclick="verifyAndResetTeacherPassword()">
                             <i class="fas fa-key" style="margin-right: 6px;"></i>확인 및 비밀번호 초기화
                         </button>
-                        <button class="auth-btn" style="background: #94a3b8; margin-top: 6px;" onclick="sendResetCode()">
+                        <button type="button" class="auth-btn" style="background: #94a3b8; margin-top: 6px;" onclick="sendResetCode()">
                             <i class="fas fa-redo" style="margin-right: 6px;"></i>인증번호 재발송
                         </button>
                     </div>
                 </div>
+                </form>
 
             </div>
         </div>
@@ -1703,7 +1708,7 @@
                     <input type="text" id="detail-teacher-phone" class="m-input" placeholder="010-0000-0000" maxlength="13" oninput="formatPhoneNumber(this)">
                 </div>
                 <div class="input-group">
-                    <label>인증 이메일 (구글)</label>
+                    <label>이메일</label>
                     <div id="detail-teacher-email-display" style="display:none; padding: 10px 14px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px;">
                         <span style="font-size: 13px; color: #16a34a;"><i class="fas fa-check-circle" style="margin-right: 6px;"></i><span id="detail-teacher-email-text"></span></span>
                     </div>
@@ -1741,6 +1746,7 @@
                 <button class="btn-close-x" onclick="closeForceResetModal()"><i class="fas fa-times"></i></button>
             </div>
             <div class="modal-body-scrollable" style="padding: 20px 24px;">
+                <form autocomplete="on" onsubmit="event.preventDefault(); return false;">
                 <div style="padding: 12px; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 10px; margin-bottom: 16px;">
                     <p style="font-size: 12px; color: #9a3412; margin: 0; line-height: 1.6;">
                         <i class="fas fa-exclamation-triangle" style="margin-right: 4px;"></i>
@@ -1749,18 +1755,20 @@
                     </p>
                 </div>
                 <div class="form-group" style="margin-bottom: 14px;">
-                    <label style="font-weight: 600;">초기화할 선생님</label>
-                    <select id="force-reset-teacher-dropdown" class="auth-input">
+                    <label for="force-reset-teacher-dropdown" style="font-weight: 600;">초기화할 선생님</label>
+                    <select id="force-reset-teacher-dropdown" class="auth-input" autocomplete="off">
                         <option value="">선생님을 선택해주세요</option>
                     </select>
                 </div>
+                <input type="text" id="force-reset-username-ac" name="username" autocomplete="username" tabindex="-1" aria-hidden="true" value="" style="position:fixed;left:0;top:0;width:1px;height:1px;opacity:0;pointer-events:none;z-index:-1;border:0;padding:0;margin:0;">
                 <div class="form-group" style="margin-bottom: 16px;">
-                    <label style="font-weight: 600;">관리자 비밀번호</label>
-                    <input type="password" id="force-reset-admin-password" class="auth-input" placeholder="관리자 비밀번호를 입력하세요">
+                    <label for="force-reset-admin-password" style="font-weight: 600;">관리자 비밀번호</label>
+                    <input type="password" id="force-reset-admin-password" name="password" class="auth-input" placeholder="관리자 비밀번호를 입력하세요" autocomplete="current-password">
                 </div>
-                <button class="auth-btn" style="background: #dc2626;" onclick="forceResetTeacherPassword()">
+                <button type="button" class="auth-btn" style="background: #dc2626;" onclick="forceResetTeacherPassword()">
                     <i class="fas fa-lock-open" style="margin-right: 6px;"></i>비밀번호 강제 초기화
                 </button>
+                </form>
             </div>
         </div>
     </div>
@@ -1773,12 +1781,15 @@
                 <button class="btn-close-x" onclick="closeModal('teacher-password-modal')"><i class="fas fa-times"></i></button>
             </div>
             <div class="modal-body-scrollable custom-scroll" style="padding: 20px;">
+                <form autocomplete="on" onsubmit="event.preventDefault(); if(typeof confirmTeacherPasswordLogin==='function')confirmTeacherPasswordLogin(); return false;">
                 <p style="margin-bottom: 20px; color: var(--gray);">선생님의 비밀번호를 입력해주세요.</p>
+                <input type="text" id="teacher-password-modal-username-ac" name="username" autocomplete="username" tabindex="-1" aria-hidden="true" value="" style="position:fixed;left:0;top:0;width:1px;height:1px;opacity:0;pointer-events:none;z-index:-1;border:0;padding:0;margin:0;">
                 <div class="input-group">
-                    <label>비밀번호</label>
-                    <input type="password" id="teacher-login-password" class="m-input" placeholder="비밀번호">
+                    <label for="teacher-login-password">비밀번호</label>
+                    <input type="password" id="teacher-login-password" name="password" class="m-input" placeholder="비밀번호" autocomplete="current-password">
                 </div>
-                <button class="btn-save-main" onclick="confirmTeacherPasswordLogin()">인증</button>
+                <button type="submit" class="btn-save-main">인증</button>
+                </form>
             </div>
         </div>
     </div>
@@ -1791,22 +1802,24 @@
                 <button class="btn-close-x" onclick="closeAdminVerifyModal()"><i class="fas fa-times"></i></button>
             </div>
             <div class="modal-body-scrollable custom-scroll" style="padding: 20px;">
+                <form autocomplete="on" onsubmit="event.preventDefault(); return false;">
                 <div style="padding: 12px; background: #fef3c7; border: 1px solid #fcd34d; border-radius: 10px; margin-bottom: 16px;">
                     <p style="font-size: 13px; color: #92400e; margin: 0; font-weight: 600;">
                         <i class="fas fa-shield-alt" style="margin-right: 6px;"></i>관리자 권한 부여를 위해 인증이 필요합니다
                     </p>
                 </div>
                 <div class="input-group">
-                    <label>관리자 이메일</label>
-                    <input type="email" id="admin-verify-email" class="m-input" placeholder="관리자 이메일">
+                    <label for="admin-verify-email">관리자 이메일</label>
+                    <input type="email" id="admin-verify-email" name="username" class="m-input" placeholder="관리자 이메일" autocomplete="username">
                 </div>
                 <div class="input-group">
-                    <label>관리자 비밀번호</label>
-                    <input type="password" id="admin-verify-password" class="m-input" placeholder="관리자 비밀번호">
+                    <label for="admin-verify-password">관리자 비밀번호</label>
+                    <input type="password" id="admin-verify-password" name="password" class="m-input" placeholder="관리자 비밀번호" autocomplete="current-password">
                 </div>
                 <input type="hidden" id="admin-verify-teacher-id">
                 <input type="hidden" id="admin-verify-new-role">
-                <button class="btn-save-main" onclick="confirmAdminVerifyAndChangeRole()">인증 및 권한 변경</button>
+                <button type="button" class="btn-save-main" onclick="confirmAdminVerifyAndChangeRole()">인증 및 권한 변경</button>
+                </form>
             </div>
         </div>
     </div>
@@ -1819,16 +1832,18 @@
                 <button class="btn-close-x" onclick="closeModal('admin-teacher-login-modal')"><i class="fas fa-times"></i></button>
             </div>
             <div class="modal-body-scrollable custom-scroll" style="padding: 20px;">
+                <form autocomplete="on" onsubmit="event.preventDefault(); if(typeof confirmAdminTeacherLogin==='function')confirmAdminTeacherLogin(); return false;">
                 <p style="margin-bottom: 20px; color: var(--gray);">관리자의 이메일과 비밀번호를 입력해주세요.</p>
                 <div class="input-group">
-                    <label>이메일</label>
-                    <input type="email" id="admin-login-email" class="m-input" placeholder="관리자 이메일">
+                    <label for="admin-login-email">이메일</label>
+                    <input type="email" id="admin-login-email" name="username" class="m-input" placeholder="관리자 이메일" autocomplete="username">
                 </div>
                 <div class="input-group">
-                    <label>비밀번호</label>
-                    <input type="password" id="admin-login-password" class="m-input" placeholder="관리자 비밀번호">
+                    <label for="admin-login-password">비밀번호</label>
+                    <input type="password" id="admin-login-password" name="password" class="m-input" placeholder="관리자 비밀번호" autocomplete="current-password">
                 </div>
-                <button class="btn-save-main" onclick="confirmAdminTeacherLogin()">인증</button>
+                <button type="submit" class="btn-save-main">인증</button>
+                </form>
             </div>
         </div>
     </div>
@@ -1956,7 +1971,7 @@
                     <input type="text" id="my-info-phone" class="m-input" placeholder="010-0000-0000" maxlength="13" oninput="formatPhoneNumber(this)">
                 </div>
                 <div class="form-group">
-                    <label>이메일 (구글 인증)</label>
+                    <label>이메일</label>
                     <div id="my-info-email-display" style="padding:10px 14px;background:#f0fdf4;border:1px solid #86efac;border-radius:10px;font-size:13px;color:#166534;font-weight:600;display:none;">
                         <i class="fas fa-check-circle" style="margin-right:4px;"></i> <span id="my-info-email-text"></span>
                     </div>
@@ -1965,7 +1980,7 @@
                     </div>
                     <button type="button" onclick="startGoogleAuthForMyInfo()" style="margin-top:8px;width:100%;padding:10px 14px;background:white;border:1.5px solid var(--border);border-radius:10px;cursor:pointer;font-size:13px;font-weight:600;color:#334155;display:flex;align-items:center;justify-content:center;gap:8px;transition:all 0.15s;" onmouseover="this.style.borderColor='var(--primary)';this.style.color='var(--primary)'" onmouseout="this.style.borderColor='';this.style.color='#334155'">
                         <svg width="16" height="16" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
-                        다른 계정으로 변경
+                        구글 계정으로 이메일 변경
                     </button>
                 </div>
                 <div class="form-group">

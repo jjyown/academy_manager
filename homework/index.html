@@ -12,15 +12,18 @@
 	<script>
 		// 로컬/정적 배포 공통 환경변수 로더
 		(async () => {
+			if (window.__academyHomeworkEnvLoaderRan) return;
+			window.__academyHomeworkEnvLoaderRan = true;
 			if (window.location.protocol === 'file:') {
 				window.env = {};
 				return;
 			}
+			window.env = window.env || {};
+			try {
+				if (window.localStorage && window.localStorage.getItem('academy_skip_local_env_fetch') === '1') return;
+			} catch (_) {}
 			const h = window.location.hostname;
-			if (h !== 'localhost' && h !== '127.0.0.1') {
-				window.env = window.env || {};
-				return;
-			}
+			if (h !== 'localhost' && h !== '127.0.0.1' && h !== '[::1]') return;
 			const parseEnvText = (text) => {
 				const env = {};
 				String(text || '').split('\n').forEach((line) => {
@@ -31,24 +34,13 @@
 				});
 				return env;
 			};
-			const candidates = [
-				'/homework/.env.local',
-				'/homework/env.local',
-				'../.env.local',
-				'../env.local',
-				'.env.local',
-				'env.local'
-			];
-			window.env = window.env || {};
-			for (const fileName of candidates) {
-				try {
-					const response = await fetch(fileName, { cache: 'no-store' });
-					if (!response.ok) continue;
-					const text = await response.text();
-					window.env = parseEnvText(text);
-					return;
-				} catch (_) {}
-			}
+			try {
+				const response = await fetch('env.local', { cache: 'no-store' });
+				if (!response.ok) return;
+				const text = await response.text();
+				window.env = parseEnvText(text);
+				console.log('[env-loader] 숙제 페이지: env.local 로드');
+			} catch (_) {}
 		})();
 	</script>
 	<style>
@@ -767,13 +759,10 @@
 		</div>
 	</div>
 
-	<!-- 플로팅 버튼들 -->
+	<!-- 플로팅 버튼 -->
 	<div class="floating-submit-wrap">
 		<button class="floating-submit-btn" onclick="goToUploadFromStatus()">
 			<i class="fas fa-paper-plane"></i> 숙제 제출하기
-		</button>
-		<button class="floating-submit-btn" onclick="goToInstantGrade()" style="background:var(--brand-gradient);">
-			<i class="fas fa-camera"></i> 즉시 채점
 		</button>
 	</div>
 </div>
@@ -938,32 +927,34 @@
 <!-- ===== Admin Login Modal ===== -->
 <div id="admin-login-modal" class="hw-modal">
 	<div class="hw-modal-box">
+		<form id="hw-admin-login-form" autocomplete="on" onsubmit="event.preventDefault(); handleAdminLogin(); return false;">
 		<div class="hw-modal-header">
 			<h2><i class="fas fa-user-shield" style="margin-right:8px;color:var(--yellow);"></i>관리자 로그인</h2>
-			<button class="hw-modal-close" onclick="closeAdminLoginModal()"><i class="fas fa-times"></i></button>
+			<button type="button" class="hw-modal-close" onclick="closeAdminLoginModal()"><i class="fas fa-times"></i></button>
 		</div>
 		<p style="font-size:13px;color:var(--text-sec);line-height:1.6;margin-bottom:16px;">관리자 계정으로 로그인합니다.</p>
 		<div class="form-group">
-			<label class="form-label">이메일</label>
+			<label class="form-label" for="admin-email">이메일</label>
 			<div class="form-input-wrap">
 				<i class="fas fa-envelope form-icon"></i>
-				<input type="email" id="admin-email" class="form-input" placeholder="이메일을 입력하세요" autocomplete="email">
+				<input type="email" id="admin-email" name="email" class="form-input" placeholder="이메일을 입력하세요" autocomplete="email">
 			</div>
 		</div>
 		<div class="form-group">
-			<label class="form-label">비밀번호</label>
+			<label class="form-label" for="admin-password">비밀번호</label>
 			<div class="form-input-wrap">
 				<i class="fas fa-lock form-icon"></i>
-				<input type="password" id="admin-password" class="form-input" placeholder="비밀번호를 입력하세요" autocomplete="current-password">
+				<input type="password" id="admin-password" name="password" class="form-input" placeholder="비밀번호를 입력하세요" autocomplete="current-password">
 			</div>
 		</div>
 		<div id="admin-login-alert" class="landing-alert" style="margin-bottom:10px;"></div>
 		<div class="btn-row">
-			<button class="btn-secondary" onclick="closeAdminLoginModal()">취소</button>
-			<button class="btn-primary" id="admin-login-btn" onclick="handleAdminLogin()">
+			<button type="button" class="btn-secondary" onclick="closeAdminLoginModal()">취소</button>
+			<button type="submit" class="btn-primary" id="admin-login-btn">
 				<i class="fas fa-unlock"></i> 로그인
 			</button>
 		</div>
+		</form>
 	</div>
 </div>
 
@@ -989,13 +980,31 @@
 // ============================================================
 // 설정
 // ============================================================
+/** localStorage·수동 입력 시 흔한 Supabase 호스트 오타 교정(잘못된 프로젝트 → Invalid login credentials) */
+function normalizeSupabaseProjectUrl(url) {
+	const u = String(url || '').trim().replace(/\/+$/, '');
+	if (!u) return u;
+	const lower = u.toLowerCase();
+	const fixes = [
+		['https://jzcrpdeomjmtfekcgqu.supabase.co', 'https://jzcrpdeomjmytfekcgqu.supabase.co'],
+		['https://izcrpdeominmtfekcgqu.supabase.co', 'https://jzcrpdeomjmytfekcgqu.supabase.co']
+	];
+	for (const [bad, good] of fixes) {
+		if (lower === bad) {
+			console.warn('[supabase] URL 오타 교정:', bad, '→', good);
+			return good;
+		}
+	}
+	return u;
+}
+
 function resolveRuntimeSupabaseConfig() {
 	const env = (typeof window !== 'undefined' && window.env) ? window.env : {};
 	const ls = (typeof window !== 'undefined' && window.localStorage) ? window.localStorage : null;
 	const fromStorageUrl = ls ? (ls.getItem('academy_supabase_url') || ls.getItem('REACT_APP_SUPABASE_URL')) : '';
 	const fromStorageKey = ls ? (ls.getItem('academy_supabase_anon_key') || ls.getItem('REACT_APP_SUPABASE_ANON_KEY')) : '';
 	return {
-		url: String(
+		url: normalizeSupabaseProjectUrl(
 			env.REACT_APP_SUPABASE_URL ||
 			fromStorageUrl ||
 			'https://jzcrpdeomjmytfekcgqu.supabase.co'
@@ -1018,6 +1027,7 @@ const { createClient } = supabase;
 const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 	realtime: { params: { eventsPerSecond: 0 } },
 	auth: {
+		flowType: 'pkce',
 		autoRefreshToken: false,
 		persistSession: false,
 		detectSessionInUrl: false
@@ -1533,58 +1543,6 @@ function goToUploadFromStatus() {
 	showUploadPage(false, uploadDueDate);
 }
 
-// 즉시 채점 모드
-function goToInstantGrade() {
-	if (!currentStudent || !currentTeacher) {
-		showAlert('학생 정보가 없습니다.', 'warning');
-		return;
-	}
-
-	// 파일 선택 다이얼로그
-	const input = document.createElement('input');
-	input.type = 'file';
-	input.accept = 'image/*';
-	input.capture = 'environment';
-	input.onchange = async (e) => {
-		const file = e.target.files[0];
-		if (!file) return;
-
-		showAlert('채점 중입니다...', 'info');
-
-		try {
-			const GRADING_SERVER_URL = localStorage.getItem('grading_server_url') || (_isLocal ? 'https://academymanager-production.up.railway.app' : '');
-			const formData = new FormData();
-			formData.append('student_id', String(currentStudent.id));
-			formData.append('teacher_id', currentStudent.owner_user_id);
-			formData.append('mode', 'auto_search');
-			formData.append('image', file);
-
-			const res = await fetch(GRADING_SERVER_URL + '/api/grade', {
-				method: 'POST',
-				body: formData,
-			});
-
-			const result = await res.json();
-
-			if (result.total_score !== undefined) {
-				let msg = `채점 완료!\n\n`;
-				msg += `점수: ${result.total_score}/${result.max_score}점\n`;
-				msg += `정답: ${result.correct_count}  오답: ${result.wrong_count}  확인필요: ${result.uncertain_count}\n\n`;
-				if (result.graded_images?.length > 0) {
-					msg += `채점 이미지가 구글 드라이브에 저장되었습니다.`;
-				}
-				showAlert(msg, 'success');
-			} else {
-				showAlert('채점에 실패했습니다. 다시 시도해주세요.', 'error');
-			}
-		} catch (err) {
-			console.error('[즉시채점] 실패:', err);
-			showAlert('채점 서버에 연결할 수 없습니다.', 'error');
-		}
-	};
-	input.click();
-}
-
 // 월 이동
 function moveCalMonth(delta) {
 	calMonth += delta;
@@ -1994,7 +1952,15 @@ async function handleAdminLogin() {
 			password: password
 		});
 
-		if (authError) throw new Error('로그인 실패: ' + authError.message);
+		if (authError) {
+			const m = String(authError.message || '');
+			const low = m.toLowerCase();
+			let hint = '';
+			if (low.includes('invalid login') || low.includes('invalid credential') || low.includes('email not confirmed')) {
+				hint = ' (비밀번호·이메일 확인, Supabase Auth에서 사용자 삭제 여부 확인. 저장된 URL 오타 시 개발자도구 → Application → Local Storage에서 academy_supabase_url 등을 삭제 후 재시도)';
+			}
+			throw new Error('로그인 실패: ' + m + hint);
+		}
 		if (!authData.user) throw new Error('로그인에 실패했습니다.');
 
 		adminUser = authData.user;
@@ -2006,11 +1972,10 @@ async function handleAdminLogin() {
 			.single();
 		if (roleErr || roleRow?.role !== 'admin') {
 			await db.auth.signOut();
-			throw new Error('관리자 권한이 없습니다. 원장(관리자) 계정으로 로그인해주세요.');
+			throw new Error('관리자 권한이 없습니다. 원장(관리자) 계정으로 로그인해주세요. (users.role=admin 확인)');
 		}
 
-		// 선생님 정보 조회
-		// 선생님 정보 조회 (owner_user_id = auth user id)
+		// 선생님 정보 조회 (owner_user_id = auth user id) — 선생님 행을 모두 지우면 여기서 실패
 		const { data: teacherList, error: tErr } = await db
 			.from('teachers')
 			.select('id, name, phone')
@@ -2019,7 +1984,10 @@ async function handleAdminLogin() {
 
 		if (tErr) throw tErr;
 		const teacher = (teacherList && teacherList.length > 0) ? teacherList[0] : null;
-		if (!teacher) throw new Error('등록된 선생님 계정이 아닙니다.');
+		if (!teacher) {
+			await db.auth.signOut();
+			throw new Error('이 원장 계정에 연결된 선생님(teachers) 행이 없습니다. 메인 관리 앱에서 선생님을 한 명 이상 등록한 뒤 다시 시도하세요.');
+		}
 
 		adminTeacher = teacher;
 		isAdminMode = true;

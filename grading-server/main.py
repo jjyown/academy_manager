@@ -84,11 +84,12 @@ async def _recover_orphaned_grading():
             )
             logger.warning(f"[Recovery] 고아 채점 {len(stuck_ids)}건 복구: {stuck_ids}")
 
+        # 운영 DB에 updated_at이 없을 수 있음(PostgREST 400) → created_at 기준
         stuck_subs = await run_query(
             sb.table("homework_submissions")
             .select("id")
             .eq("grading_status", "grading")
-            .lt("updated_at", cutoff)
+            .lt("created_at", cutoff)
             .execute
         )
         stuck_sub_ids = [r["id"] for r in (stuck_subs.data or [])]
