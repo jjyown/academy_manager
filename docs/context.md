@@ -14,6 +14,7 @@
 ## 최근 의사결정 로그
 | 날짜 | 결정 | 이유 | 영향 범위 |
 |---|---|---|---|
+| 2026-04-05 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | grading-server/__pycache__/config.cpython-312.pyc, grading-server/grading/__pycache__/grader.cpython-312.pyc, grading-server/grading/__pycache__/hml_parser.cpython-312.pyc, grading-server/integrations/__pycache__/drive.cpython-312.pyc, grading-server/integrations/__pycache__/supabase_client.cpython-312.pyc 외 3개 |
 | 2026-04-05 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | auth.js, docs/checklist.md, docs/context.md, docs/enterprise_workflow.md, docs/plan.md 외 10개 |
 | 2026-04-05 | Railway 로그(`logs.1775321035441.csv`): `homework_submissions`에 `updated_at` 없음 → 고아 제출 복구가 PostgREST **400**(Postgres `42703`) | 운영 DB는 `homework_submissions`에 `updated_at` 컬럼이 없고 힌트는 `created_at`. 시작 시 `_recover_orphaned_grading`만 실패하고 나머지 API는 정상 | `grading-server/main.py`(stuck_subs 필터를 `created_at`으로 변경) |
 | 2026-04-04 | 메인 앱 콘솔: env fetch는 루프백만·`unload` 제거·비밀번호 필드 `<form>` 래핑 | 배포 URL에서 `.env` 404는 기능과 무관한 빨간 로그만 유발. `unload`는 브라우저 정책 경고. 비밀번호 필드는 폼 내부가 권장(DOM 경고·비밀번호 관리자) | `index.html`, `script.js`, `auth.js` |
