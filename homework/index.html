@@ -444,12 +444,40 @@
 		.cal-dow.sat { color: var(--blue); }
 		.cal-cell {
 			aspect-ratio: 1; display: flex; flex-direction: column;
-			align-items: center; justify-content: center;
+			align-items: center; justify-content: flex-start;
+			padding-top: 4px;
 			border-radius: 10px; cursor: pointer;
 			transition: all var(--transition);
 			position: relative; font-size: 13px; font-weight: 500;
 			color: var(--text-sec);
 		}
+		.cal-day-num {
+			font-size: 13px; font-weight: 600; line-height: 1.1;
+		}
+		.cal-cell-meta {
+			display: flex; flex-wrap: wrap; align-items: center; justify-content: center;
+			gap: 3px; margin-top: auto; padding-bottom: 4px; min-height: 16px; width: 100%;
+		}
+		.cal-assign-badge {
+			font-size: 9px; font-weight: 800; line-height: 1.1;
+			background: rgba(245, 158, 11, 0.22);
+			color: #fbbf24;
+			border-radius: 5px; padding: 2px 5px;
+			max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+		}
+		.cal-assign-badge.dot-only {
+			width: 7px; height: 7px; padding: 0; border-radius: 50%;
+			background: #f59e0b; color: transparent;
+		}
+		.cal-status-icon {
+			font-size: 11px; font-weight: 800; line-height: 1;
+		}
+		.cal-status-icon.s-ontime { color: var(--green); }
+		.cal-status-icon.s-late { color: var(--yellow); }
+		.cal-status-icon.s-missed { color: var(--red); }
+		.cal-status-icon.s-manual { color: var(--teal); }
+		.cal-status-icon.s-submitted { color: var(--green); }
+		.cal-status-icon.s-pending { color: var(--gray); font-size: 9px; }
 		.cal-cell:hover { background: rgba(255,255,255,0.06); }
 		.cal-cell.empty { cursor: default; }
 		.cal-cell.empty:hover { background: transparent; }
@@ -461,23 +489,7 @@
 			background: var(--primary-light);
 			color: var(--primary); font-weight: 700;
 		}
-		/* Status marks */
-		.cal-cell.hw-ontime::after,
-		.cal-cell.hw-late::after,
-		.cal-cell.hw-missed::after,
-		.cal-cell.hw-manual::after,
-		.cal-cell.hw-submitted::after {
-			position: absolute;
-			bottom: 3px;
-			font-size: 12px;
-			font-weight: 800;
-			line-height: 1;
-		}
-		.cal-cell.hw-ontime::after { content: '\2713'; color: var(--green); }
-		.cal-cell.hw-late::after { content: '\25b3'; color: var(--yellow); }
-		.cal-cell.hw-missed::after { content: '\2717'; color: var(--red); }
-		.cal-cell.hw-manual::after { content: '\2713'; color: var(--teal); }
-		.cal-cell.hw-submitted::after { content: '\2713'; color: var(--green); }
+		/* 제출 상태는 .cal-status-icon으로 표시(배정 뱃지와 동시 표시) */
 		.cal-cell.hw-missed { background: rgba(248,113,113,0.06); }
 		.cal-cell.hw-scheduled {
 			border-bottom: 2px solid rgba(129,140,248,0.25);
@@ -512,6 +524,35 @@
 		.cal-stat-num.gray { color: var(--gray); }
 		.cal-stat-label {
 			font-size: 10px; color: var(--text-sec); margin-top: 2px;
+		}
+
+		.floating-submit-btn:disabled {
+			opacity: 0.42; cursor: not-allowed; filter: grayscale(0.3);
+		}
+		.textbook-check-wrap, .upload-assign-check-wrap {
+			display: flex; flex-direction: column; gap: 8px; margin-top: 8px;
+			max-height: 200px; overflow-y: auto;
+			padding: 4px 0;
+		}
+		.upload-tb-label, .upload-assign-label {
+			display: flex; align-items: flex-start; gap: 10px;
+			padding: 10px 12px; border-radius: 10px;
+			background: var(--bg-elevated); border: 1px solid var(--border);
+			cursor: pointer; font-size: 13px; line-height: 1.45;
+		}
+		.upload-tb-label input, .upload-assign-label input {
+			margin-top: 3px; flex-shrink: 0;
+		}
+		.detail-assign-block {
+			margin-top: 12px; padding: 12px; border-radius: 10px;
+			background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.25);
+		}
+		.detail-assign-block h4 {
+			margin: 0 0 8px; font-size: 12px; font-weight: 700; color: #fbbf24;
+		}
+		.detail-assign-row {
+			font-size: 12px; color: var(--text-sec); margin-bottom: 6px; padding-left: 8px;
+			border-left: 3px solid rgba(245, 158, 11, 0.4);
 		}
 
 		/* Admin mode */
@@ -827,9 +868,12 @@
 
 	<!-- 플로팅 버튼 -->
 	<div class="floating-submit-wrap">
-		<button class="floating-submit-btn" onclick="goToUploadFromStatus()">
+		<button type="button" class="floating-submit-btn" id="btn-floating-submit-hw" onclick="goToUploadFromStatus()">
 			<i class="fas fa-paper-plane"></i> 숙제 제출하기
 		</button>
+		<div id="floating-submit-hint" style="text-align:center;font-size:11px;color:var(--text-sec);margin-top:8px;line-height:1.4;">
+			달력에서 제출할 날짜를 선택한 뒤 눌러주세요.
+		</div>
 	</div>
 </div>
 
@@ -857,17 +901,16 @@
 
 	<div class="upload-container">
 		<!-- 교재 선택 -->
-		<div class="section-card">
+		<div class="section-card" id="upload-textbook-card">
 			<div class="section-title">
 				<i class="fas fa-book"></i>
 				<span>교재 선택</span>
-				<span style="margin-left:auto;font-size:11px;color:var(--gray);font-weight:500;">선택사항</span>
+				<span style="margin-left:auto;font-size:11px;color:var(--gray);font-weight:500;">복수 선택 가능</span>
 			</div>
-			<select id="textbook-select" style="width:100%;padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:var(--bg-elevated);color:var(--text);font-size:14px;outline:none;cursor:pointer;appearance:none;-webkit-appearance:none;background-image:url('data:image/svg+xml;utf8,<svg fill=\'%2394a3b8\' viewBox=\'0 0 24 24\' xmlns=\'http://www.w3.org/2000/svg\'><path d=\'M7 10l5 5 5-5z\'/></svg>');background-repeat:no-repeat;background-position:right 12px center;background-size:20px;">
-				<option value="">-- 자동 감지 (선택 안 함) --</option>
-			</select>
+			<div id="textbook-check-wrap" class="textbook-check-wrap"></div>
+			<div id="textbook-multi-hint" style="font-size:11px;color:var(--gray);margin-top:8px;line-height:1.55;display:none;"></div>
 			<div style="font-size:11px;color:var(--gray);margin-top:8px;line-height:1.5;">
-				교재를 선택하면 더 정확한 채점이 가능합니다. 선택하지 않으면 자동으로 감지합니다.
+				채점 서버에는 <strong>대표 교재 1종</strong>만 전달됩니다(복수 선택 시 맨 위 체크 항목). 배정 과제를 여러 개 제출하면 과제마다 해당 배정의 교재가 우선 적용됩니다.
 			</div>
 		</div>
 
@@ -1117,9 +1160,7 @@ let selectedFiles = [];
 let availableTextbooks = [];
 // 업로드 페이지에서 선택된 "배정 due_date"(= 제출 날짜)
 let uploadDueDate = null; // YYYY-MM-DD
-// 선택된 배정 과제(grading_assignments)
-let uploadSelectedGradingAssignmentId = null; // number
-let uploadSelectedAnswerKeyId = null; // number | null
+/** 미제출 배정 목록(해당 제출일) */
 let uploadAvailableGradingAssignments = []; // API returned for uploadDueDate (already-filtered: 미제출)
 // 학생 포털(인증코드)에서 입력된 값을 저장해, currentStudent에 student_code가
 // 비어있는 상태에서도 Edge upload-homework에 student_code를 반드시 전달한다.
@@ -1192,9 +1233,49 @@ function getDateDisplay(dateStr) {
 	}
 }
 
-function getZipFilename(studentName) {
+/** 동일 날 여러 배정 제출 시 Drive 파일명 충돌 방지용 접미사(선택) */
+function getZipFilename(studentName, assignmentIdSuffix) {
 	const now = new Date();
-	return `과제-${now.getFullYear()}년-${now.getMonth()+1}월-${now.getDate()}일-${studentName}.zip`;
+	const base = `과제-${now.getFullYear()}년-${now.getMonth()+1}월-${now.getDate()}일-${studentName}`;
+	const suf = assignmentIdSuffix != null && String(assignmentIdSuffix).trim() !== ''
+		? `-b${String(assignmentIdSuffix).trim()}`
+		: '';
+	return `${base}${suf}.zip`;
+}
+
+function getAssignmentsForCalendarDate(dateStr) {
+	if (!dateStr || !calAssignments || !calAssignments.length) return [];
+	return calAssignments.filter((a) => String(a.due_date || '').slice(0, 10) === dateStr);
+}
+
+function statusIconForCalCell(ds) {
+	if (!ds || !ds.status) return null;
+	const st = ds.status;
+	if (st === 'on_time') return { cls: 's-ontime', ch: '\u2713' };
+	if (st === 'late') return { cls: 's-late', ch: '\u25b3' };
+	if (st === 'missed') return { cls: 's-missed', ch: '\u2717' };
+	if (st === 'manual') return { cls: 's-manual', ch: '\u2713' };
+	if (st === 'submitted') return { cls: 's-submitted', ch: '\u2713' };
+	if (st === 'pending' && ds.scheduleTime) return { cls: 's-pending', ch: '\u2022' };
+	return null;
+}
+
+function updateFloatingSubmitBtnState() {
+	const btn = document.getElementById('btn-floating-submit-hw');
+	const hint = document.getElementById('floating-submit-hint');
+	if (!btn) return;
+	if (isAdminMode) {
+		btn.disabled = false;
+		btn.style.opacity = '1';
+		btn.title = '';
+		if (hint) hint.style.display = 'none';
+		return;
+	}
+	const ok = !!calSelectedDate;
+	btn.disabled = !ok;
+	btn.style.opacity = ok ? '1' : '0.45';
+	btn.title = ok ? '' : '달력에서 제출할 날짜를 먼저 선택하세요';
+	if (hint) hint.style.display = ok ? 'none' : 'block';
 }
 
 function normalizeHomeworkPortalCode(value) {
@@ -1443,27 +1524,80 @@ async function selectStudent(student) {
 }
 
 async function loadTextbookList() {
-	const select = document.getElementById('textbook-select');
-	if (!select) return;
-	select.innerHTML = '<option value="">-- 자동 감지 (선택 안 함) --</option>';
+	const wrap = document.getElementById('textbook-check-wrap');
+	if (!wrap) return;
+	wrap.innerHTML = '<div style="font-size:12px;color:var(--text-sec);">불러오는 중…</div>';
 
 	const teacherId = currentTeacher?.owner_user_id || currentStudent?.owner_user_id;
-	if (!teacherId) return;
+	if (!teacherId) {
+		wrap.innerHTML = '';
+		return;
+	}
 
 	try {
 		const res = await fetch(`${GRADING_SERVER_URL_HW}/api/answer-keys?teacher_id=${teacherId}`);
 		const result = await res.json();
 		availableTextbooks = result.data || [];
+		wrap.innerHTML = '';
 
-		availableTextbooks.forEach(tb => {
+		const noneLbl = document.createElement('label');
+		noneLbl.className = 'upload-tb-label';
+		noneLbl.innerHTML = '<input type="checkbox" class="upload-tb-chk upload-tb-none" value="" data-none="1" checked> <span>자동 감지 (교재 미지정)</span>';
+		wrap.appendChild(noneLbl);
+
+		availableTextbooks.forEach((tb) => {
 			if (!tb.parsed || tb.total_questions === 0) return;
-			const opt = document.createElement('option');
-			opt.value = tb.id;
-			opt.textContent = `${tb.title} (${tb.total_questions}문제)`;
-			select.appendChild(opt);
+			const lbl = document.createElement('label');
+			lbl.className = 'upload-tb-label';
+			lbl.innerHTML = `<input type="checkbox" class="upload-tb-chk" value="${tb.id}"> <span>${escapeHtml(tb.title)} (${tb.total_questions}문제)</span>`;
+			wrap.appendChild(lbl);
 		});
+
+		wrap.querySelectorAll('.upload-tb-chk').forEach((cb) => {
+			cb.addEventListener('change', () => {
+				if (cb.classList.contains('upload-tb-none') && cb.checked) {
+					wrap.querySelectorAll('.upload-tb-chk:not(.upload-tb-none)').forEach((x) => { x.checked = false; });
+				} else if (!cb.classList.contains('upload-tb-none') && cb.checked) {
+					const n = wrap.querySelector('.upload-tb-none');
+					if (n) n.checked = false;
+				}
+				if (![...wrap.querySelectorAll('.upload-tb-chk')].some((x) => x.checked)) {
+					const n2 = wrap.querySelector('.upload-tb-none');
+					if (n2) n2.checked = true;
+				}
+				updateUploadTextbookMultiHint();
+			});
+		});
+		updateUploadTextbookMultiHint();
 	} catch (e) {
 		console.warn('교재 목록 로드 실패:', e);
+		wrap.innerHTML = '<div style="font-size:12px;color:var(--red);">교재 목록을 불러오지 못했습니다.</div>';
+	}
+}
+
+function getCheckedTextbookKeyIds() {
+	const wrap = document.getElementById('textbook-check-wrap');
+	if (!wrap) return [];
+	return [...wrap.querySelectorAll('.upload-tb-chk:checked')]
+		.filter((cb) => !cb.classList.contains('upload-tb-none') && cb.value)
+		.map((cb) => parseInt(cb.value, 10))
+		.filter((n) => Number.isFinite(n));
+}
+
+function countCheckedAssignments() {
+	return document.querySelectorAll('.upload-assign-chk:checked').length;
+}
+
+function updateUploadTextbookMultiHint() {
+	const el = document.getElementById('textbook-multi-hint');
+	if (!el) return;
+	const n = countCheckedAssignments();
+	if (n > 1) {
+		el.style.display = 'block';
+		el.textContent = '배정 과제를 여러 개 선택한 경우, 각 제출 요청에는 해당 과제의 배정 교재가 적용되며 아래 교재 체크는 무시됩니다.';
+	} else {
+		el.style.display = 'none';
+		el.textContent = '';
 	}
 }
 
@@ -1757,6 +1891,10 @@ function goBackFromStatus() {
 }
 
 function goToUploadFromStatus() {
+	if (!isAdminMode && !calSelectedDate) {
+		showToast('달력에서 제출할 날짜를 먼저 선택한 뒤 「숙제 제출하기」를 눌러주세요.', 'warning');
+		return;
+	}
 	document.getElementById('page-status').style.display = 'none';
 	uploadDueDate = calSelectedDate || getTodayString();
 	showUploadPage(false, uploadDueDate);
@@ -1850,6 +1988,7 @@ async function loadCalendarData() {
 	} else {
 		showDateDetail(calSelectedDate);
 	}
+	updateFloatingSubmitBtnState();
 }
 
 // 날짜별 상태 계산
@@ -1977,7 +2116,34 @@ function renderCalendar() {
 		}
 
 		cell.className = cls;
-		cell.textContent = d;
+		cell.textContent = '';
+		const numEl = document.createElement('span');
+		numEl.className = 'cal-day-num';
+		numEl.textContent = String(d);
+		cell.appendChild(numEl);
+
+		const dayAssigns = getAssignmentsForCalendarDate(dateStr);
+		const meta = document.createElement('div');
+		meta.className = 'cal-cell-meta';
+		if (dayAssigns.length > 0) {
+			const badge = document.createElement('span');
+			badge.className = 'cal-assign-badge' + (dayAssigns.length === 1 ? ' dot-only' : '');
+			if (dayAssigns.length > 1) badge.textContent = String(dayAssigns.length);
+			const titles = dayAssigns.map((x) => x.title || '과제').join(' · ');
+			badge.title = titles;
+			cell.title = titles;
+			meta.appendChild(badge);
+		} else {
+			cell.title = '';
+		}
+		const iconSpec = ds ? statusIconForCalCell(ds) : null;
+		if (iconSpec) {
+			const ic = document.createElement('span');
+			ic.className = 'cal-status-icon ' + iconSpec.cls;
+			ic.textContent = iconSpec.ch;
+			meta.appendChild(ic);
+		}
+		if (meta.childNodes.length) cell.appendChild(meta);
 
 		if (!isFuture) {
 			cell.onclick = () => selectCalDate(dateStr);
@@ -2021,6 +2187,7 @@ function selectCalDate(dateStr) {
 	calSelectedDate = dateStr;
 	renderCalendar();
 	showDateDetail(dateStr);
+	updateFloatingSubmitBtnState();
 }
 
 function showDateDetail(dateStr) {
@@ -2039,6 +2206,36 @@ function showDateDetail(dateStr) {
 		schedDiv.className = 'detail-schedule-info';
 		schedDiv.innerHTML = `<i class="fas fa-clock"></i> 제출 마감: ${ds.scheduleTime}`;
 		listEl.appendChild(schedDiv);
+	}
+
+	// 선생님 배정 과제(해당 일) — 학생 모드에서만
+	const dayAssignsDetail = getAssignmentsForCalendarDate(dateStr);
+	if (!isAdminMode && calAssignmentsLoaded && dayAssignsDetail.length > 0) {
+		const ab = document.createElement('div');
+		ab.className = 'detail-assign-block';
+		const h = document.createElement('h4');
+		h.innerHTML = '<i class="fas fa-clipboard-list"></i> 배정된 과제';
+		ab.appendChild(h);
+		const sortedA = [...dayAssignsDetail].sort((a, b) => {
+			const ta = a?.due_time ? String(a.due_time) : '99:59:59';
+			const tb = b?.due_time ? String(b.due_time) : '99:59:59';
+			return ta.localeCompare(tb);
+		});
+		sortedA.forEach((a) => {
+			const row = document.createElement('div');
+			row.className = 'detail-assign-row';
+			const dt = _formatDueTimeToHHMM(a?.due_time);
+			const book = a.answer_keys
+				? [a.answer_keys.title, a.answer_keys.subject].filter(Boolean).join(' · ')
+				: '';
+			const pr = a.page_range ? ` · p.${escapeHtml(String(a.page_range))}` : '';
+			row.innerHTML =
+				`<strong>${escapeHtml(a.title || '과제')}</strong>${pr}` +
+				(dt ? ` · 마감 ${escapeHtml(dt)}` : '') +
+				(book ? `<br><span style="opacity:.9">${escapeHtml(book)}</span>` : '');
+			ab.appendChild(row);
+		});
+		listEl.appendChild(ab);
 	}
 
 	// 제출 기록
@@ -2434,8 +2631,6 @@ async function executeAdminAction() {
 // ============================================================
 function hideUploadAssignmentSelectionUI() {
 	uploadDueDate = uploadDueDate || getTodayString();
-	uploadSelectedGradingAssignmentId = null;
-	uploadSelectedAnswerKeyId = null;
 	uploadAvailableGradingAssignments = [];
 
 	const card = document.getElementById('upload-assignment-card');
@@ -2465,8 +2660,6 @@ async function loadUploadAssignmentSelection() {
 	const dueDate = uploadDueDate || getTodayString();
 	uploadDueDate = dueDate;
 
-	uploadSelectedGradingAssignmentId = null;
-	uploadSelectedAnswerKeyId = null;
 	uploadAvailableGradingAssignments = [];
 	desc.textContent = '';
 	wrap.innerHTML = '';
@@ -2544,54 +2737,36 @@ async function loadUploadAssignmentSelection() {
 		}
 
 		card.style.display = 'block';
-		desc.textContent = `이 날짜(${getDateDisplay(dueDate)})의 미제출 배정 과제를 선택하세요.`;
+		desc.textContent = `이 날짜(${getDateDisplay(dueDate)})의 미제출 배정 과제를 체크하세요. (여러 개면 같은 파일로 순서대로 제출됩니다)`;
 
-		const optsHtml = available.map((a) => {
+		const box = document.createElement('div');
+		box.className = 'upload-assign-check-wrap';
+		available.forEach((a) => {
 			const dueTime = _formatDueTimeToHHMM(a?.due_time);
 			const answerKey = a?.answer_keys?.title || '';
 			const answerSub = a?.answer_keys?.subject ? ` · ${a.answer_keys.subject}` : '';
 			const label = [a.title, answerKey ? `(${answerKey}${answerSub})` : null, dueTime ? `· 마감 ${dueTime}` : null]
 				.filter(Boolean)
 				.join(' ');
-			return `<option value="${a.id}">${escapeHtml(label)}</option>`;
-		}).join('');
+			const lbl = document.createElement('label');
+			lbl.className = 'upload-assign-label';
+			lbl.innerHTML = `<input type="checkbox" class="upload-assign-chk" value="${a.id}" checked> <span>${escapeHtml(label)}</span>`;
+			box.appendChild(lbl);
+		});
+		wrap.appendChild(box);
 
-		wrap.innerHTML = `
-			<select id="upload-assignment-select" style="width:100%;padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:var(--bg-elevated);color:var(--text);font-size:14px;outline:none;cursor:pointer;">
-				${optsHtml}
-			</select>
-		`;
-
-		const sel = document.getElementById('upload-assignment-select');
-		if (sel) {
-			uploadSelectedGradingAssignmentId = parseInt(sel.value, 10);
-			const picked = available.find((x) => String(x.id) === String(uploadSelectedGradingAssignmentId));
-			uploadSelectedAnswerKeyId = picked?.answer_key_id != null ? Number(picked.answer_key_id) : null;
-			// answer_key_id 기반으로 교재 선택 UI를 자동 동기화
-			const textbookSel = document.getElementById('textbook-select');
-			if (textbookSel && uploadSelectedAnswerKeyId != null) {
-				textbookSel.value = String(uploadSelectedAnswerKeyId);
-			}
-
-			sel.onchange = () => {
-				uploadSelectedGradingAssignmentId = sel.value ? parseInt(sel.value, 10) : null;
-				const p = available.find((x) => String(x.id) === String(uploadSelectedGradingAssignmentId));
-				uploadSelectedAnswerKeyId = p?.answer_key_id != null ? Number(p.answer_key_id) : null;
-				const textbookSel2 = document.getElementById('textbook-select');
-				if (textbookSel2) {
-					textbookSel2.value = uploadSelectedAnswerKeyId != null ? String(uploadSelectedAnswerKeyId) : '';
-				}
+		box.querySelectorAll('.upload-assign-chk').forEach((cb) => {
+			cb.addEventListener('change', () => {
 				updateSubmitButton();
-			};
-		}
-
+				updateUploadTextbookMultiHint();
+			});
+		});
+		updateUploadTextbookMultiHint();
 		updateSubmitButton();
 	} catch (e) {
 		console.warn('[upload] assignment selection load error:', e);
 		// 선택 UI 실패 시에도 업로드 페이지 자체는 유지(기존 동선 호환)
 		card.style.display = 'none';
-		uploadSelectedGradingAssignmentId = null;
-		uploadSelectedAnswerKeyId = null;
 		uploadAvailableGradingAssignments = [];
 		updateSubmitButton();
 	}
@@ -2615,7 +2790,7 @@ function showUploadPage(isRestore, dueDateStr) {
 	document.getElementById('upload-date').textContent = getDateDisplay(uploadDueDate);
 
 	// 제출 정보
-	document.getElementById('zip-filename').textContent = getZipFilename(currentStudent.name);
+	document.getElementById('zip-filename').textContent = getZipFilename(currentStudent.name) + ' (배정 여러 개면 과제별로 파일명이 달라질 수 있음)';
 	document.getElementById('info-teacher').textContent = currentTeacher ? currentTeacher.name + ' 선생님' : '미배정';
 
 	// Drive 연결 상태 (중앙 드라이브 사용이므로 항상 연결됨 표시)
@@ -2635,13 +2810,14 @@ function showUploadPage(isRestore, dueDateStr) {
 	// 스크롤 맨 위로
 	window.scrollTo(0, 0);
 
+	loadTextbookList().catch((e) => console.warn('[upload] 교재 목록:', e));
+
 	// 업로드용 배정(미제출) 선택 UI 로드
 	if (!isAdminMode) {
 		loadUploadAssignmentSelection().catch((e) => {
 			console.warn('[upload] 배정 선택 로드 실패:', e);
 		});
 	} else {
-		// 관리자 모드면 선택 강제하지 않음
 		hideUploadAssignmentSelectionUI();
 		updateSubmitButton();
 	}
@@ -2756,8 +2932,8 @@ function updateSubmitButton() {
 		const card = document.getElementById('upload-assignment-card');
 		const isVisible = !!card && card.style.display !== 'none';
 		const hasPickable = (uploadAvailableGradingAssignments || []).length > 0;
-		// 선택 UI가 보이면 "미제출이 있는 경우에만" 선택값이 필요
-		assignmentOk = isVisible ? (hasPickable && uploadSelectedGradingAssignmentId != null) : true;
+		const nChk = countCheckedAssignments();
+		assignmentOk = isVisible ? (hasPickable && nChk > 0) : true;
 	}
 
 	btn.disabled = !(hasFiles && assignmentOk);
@@ -2799,6 +2975,17 @@ document.addEventListener('DOMContentLoaded', function() {
 	});
 });
 
+/** 단일 제출 건의 answer_key_id (Edge는 1개만). 복수 배정 시에는 각 행의 배정 교재 우선. */
+function buildAnswerKeyIdForUpload(assignmentRow, numAssignmentsSelected) {
+	const n = Math.max(1, numAssignmentsSelected);
+	if (n === 1) {
+		const tbs = getCheckedTextbookKeyIds();
+		if (tbs.length > 0) return String(tbs[0]);
+	}
+	if (assignmentRow && assignmentRow.answer_key_id != null) return String(assignmentRow.answer_key_id);
+	return '';
+}
+
 // ============================================================
 // 숙제 제출
 // ============================================================
@@ -2818,8 +3005,8 @@ async function handleSubmit() {
 		const card = document.getElementById('upload-assignment-card');
 		const isVisible = !!card && card.style.display !== 'none';
 		const hasPickable = (uploadAvailableGradingAssignments || []).length > 0;
-		if (isVisible && hasPickable && uploadSelectedGradingAssignmentId == null) {
-			showToast('배정 과제를 먼저 선택하세요.', 'warning');
+		if (isVisible && hasPickable && countCheckedAssignments() === 0) {
+			showToast('제출할 배정 과제를 하나 이상 체크해주세요.', 'warning');
 			return;
 		}
 	}
@@ -2866,27 +3053,23 @@ async function handleSubmit() {
 			progressPercent.textContent = pct + '%';
 		});
 
-		const zipFileName = getZipFilename(currentStudent.name);
-
-		// 2단계: Edge Function으로 업로드
-		progressLabel.textContent = '구글 드라이브에 업로드 중...';
-		progressBar.style.width = '65%';
-		progressPercent.textContent = '65%';
-
-		const formData = new FormData();
-		formData.append('file', zipBlob, zipFileName);
-		formData.append('teacher_id', currentStudent.teacher_id);
-		formData.append('student_id', String(currentStudent.id));
-		formData.append('student_name', currentStudent.name);
-		formData.append('owner_user_id', currentStudent.owner_user_id);
-		const submissionDate = uploadDueDate || getTodayString();
-		formData.append('submission_date', submissionDate);
-
-		// 배정 선택값(선택사항)
-		if (uploadSelectedGradingAssignmentId != null) {
-			formData.append('grading_assignment_id', String(uploadSelectedGradingAssignmentId));
+		const checkedIds = [...document.querySelectorAll('.upload-assign-chk:checked')]
+			.map((cb) => parseInt(cb.value, 10))
+			.filter((n) => Number.isFinite(n));
+		const orderedAssignments = (uploadAvailableGradingAssignments || []).filter((a) =>
+			checkedIds.includes(Number(a.id))
+		);
+		const assignCard = document.getElementById('upload-assignment-card');
+		const cardShown = assignCard && assignCard.style.display !== 'none';
+		let jobs = [];
+		if (isAdminMode || !cardShown || orderedAssignments.length === 0) {
+			jobs = [{ id: null, row: null }];
+		} else {
+			jobs = orderedAssignments.map((row) => ({ id: row.id, row }));
 		}
-		// Edge upload-homework: 학생 포털은 Supabase 세션이 없으므로 DB student_code와 일치 검증
+		const nJobs = jobs.length;
+		const numForKey = orderedAssignments.length > 0 ? orderedAssignments.length : 1;
+
 		let portalCodeToSend = '';
 		if (currentStudent.student_code != null && currentStudent.student_code !== '') {
 			portalCodeToSend = String(currentStudent.student_code);
@@ -2894,30 +3077,56 @@ async function handleSubmit() {
 			portalCodeToSend = lastPortalStudentCodeNormalized;
 			console.warn('[handleSubmit] currentStudent.student_code 비어있음 → fallback student_code 사용');
 		}
-		if (portalCodeToSend) {
-			formData.append('student_code', portalCodeToSend);
-		}
 
-		// 교재 선택 정보 포함 (선택사항 - 미선택 시 자동 감지)
-		const selectedTextbook = document.getElementById('textbook-select')?.value;
-		if (selectedTextbook) {
-			formData.append('answer_key_id', selectedTextbook);
-		} else if (uploadSelectedAnswerKeyId != null) {
-			formData.append('answer_key_id', String(uploadSelectedAnswerKeyId));
-		}
+		let result = null;
+		for (let ji = 0; ji < nJobs; ji++) {
+			const job = jobs[ji];
+			const zipFileName = getZipFilename(currentStudent.name, job.id != null ? job.id : '');
 
-		const { data: fnData, error: fnError } = await db.functions.invoke('upload-homework', {
-			body: formData,
-		});
+			progressLabel.textContent =
+				nJobs > 1
+					? `업로드 ${ji + 1}/${nJobs} — 구글 드라이브에 전송 중...`
+					: '구글 드라이브에 업로드 중...';
+			const p65 = 65 + Math.round((ji / Math.max(nJobs, 1)) * 20);
+			progressBar.style.width = p65 + '%';
+			progressPercent.textContent = p65 + '%';
+
+			const formData = new FormData();
+			formData.append('file', zipBlob, zipFileName);
+			formData.append('teacher_id', currentStudent.teacher_id);
+			formData.append('student_id', String(currentStudent.id));
+			formData.append('student_name', currentStudent.name);
+			formData.append('owner_user_id', currentStudent.owner_user_id);
+			const submissionDate = uploadDueDate || getTodayString();
+			formData.append('submission_date', submissionDate);
+
+			if (job.id != null) {
+				formData.append('grading_assignment_id', String(job.id));
+			}
+			if (portalCodeToSend) {
+				formData.append('student_code', portalCodeToSend);
+			}
+
+			const ak = buildAnswerKeyIdForUpload(job.row, numForKey);
+			if (ak) {
+				formData.append('answer_key_id', ak);
+			}
+
+			const { data: fnData, error: fnError } = await db.functions.invoke('upload-homework', {
+				body: formData,
+			});
+
+			if (fnError) {
+				throw new Error(
+					(nJobs > 1 ? `[${ji + 1}/${nJobs}] ` : '') +
+						(fnError.message || '업로드에 실패했습니다.')
+				);
+			}
+			result = fnData;
+		}
 
 		progressBar.style.width = '90%';
 		progressPercent.textContent = '90%';
-
-		if (fnError) {
-			throw new Error(fnError.message || '업로드에 실패했습니다.');
-		}
-
-		const result = fnData;
 
 		// DB 저장 실패 경고 (드라이브 업로드는 성공)
 		if (result?.dbSaved === false) {

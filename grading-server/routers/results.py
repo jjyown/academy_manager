@@ -1,11 +1,14 @@
 """채점 결과/문항 관리 라우터"""
+import asyncio
 import io
 import logging
+import time
 import zipfile
 from typing import Any
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+from fastapi.responses import Response
 
 from config import CENTRAL_GRADED_RESULT_FOLDER
 from integrations.supabase_client import (
@@ -13,12 +16,95 @@ from integrations.supabase_client import (
     get_grading_results_by_teacher, get_grading_results_by_student,
     update_grading_result, get_student, update_submission_grading_status,
 )
-from integrations.drive import delete_file
+from integrations.drive import delete_file, download_file_central
 from grading.confirm_drive_publish import publish_graded_images_on_confirm
 from progress import clear_old_progress, get_progress, get_all_active
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["results"])
+
+# 숙제 제출 ZIP → 추출 이미지 (선생님 확정 전 미리보기용, submission_id 기준 캐시)
+_SOURCE_IMAGES_CACHE: dict[int, tuple[float, list[bytes]]] = {}
+_SOURCE_CACHE_TTL_SEC = 600.0
+_source_images_lock = asyncio.Lock()
+
+
+def _media_type_for_image(b: bytes) -> str:
+    if len(b) >= 8 and b[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if len(b) >= 2 and b[:2] == b"\xff\xd8":
+        return "image/jpeg"
+    if len(b) >= 6 and b[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    if len(b) >= 12 and b[:4] == b"RIFF" and b[8:12] == b"WEBP":
+        return "image/webp"
+    return "application/octet-stream"
+
+
+def _zip_drive_id_from_submission(sub: dict) -> str:
+    return (
+        (sub.get("zip_drive_id") or sub.get("drive_file_id") or sub.get("central_drive_file_id") or "")
+        .strip()
+    )
+
+
+async def _load_submission_zip_images(submission_id: int) -> list[bytes]:
+    now = time.monotonic()
+    async with _source_images_lock:
+        hit = _SOURCE_IMAGES_CACHE.get(submission_id)
+        if hit and (now - hit[0]) < _SOURCE_CACHE_TTL_SEC:
+            return hit[1]
+
+    sb = get_supabase()
+    sub_res = await run_query(
+        sb.table("homework_submissions").select("*").eq("id", submission_id).limit(1).execute
+    )
+    if not sub_res.data:
+        raise HTTPException(404, "숙제 제출을 찾을 수 없습니다.")
+    submission = sub_res.data[0]
+    zip_drive_id = _zip_drive_id_from_submission(submission)
+    if not zip_drive_id:
+        raise HTTPException(400, "제출 파일(Drive) 정보가 없습니다.")
+
+    central_token = await get_central_admin_token()
+    if not central_token:
+        raise HTTPException(503, "중앙 드라이브 연결을 확인해주세요.")
+
+    try:
+        zip_data = download_file_central(central_token, zip_drive_id)
+    except Exception as e:
+        logger.error(f"[SourcePreview] Drive 다운로드 실패 sid={submission_id}: {e}")
+        raise HTTPException(502, f"원본 다운로드 실패: {str(e)[:120]}")
+
+    if not zip_data:
+        raise HTTPException(400, "원본 ZIP이 비어 있습니다.")
+
+    from file_utils import extract_images_from_zip
+
+    images = extract_images_from_zip(zip_data)
+    if not images:
+        raise HTTPException(400, "ZIP에서 이미지를 추출하지 못했습니다.")
+
+    async with _source_images_lock:
+        _SOURCE_IMAGES_CACHE[submission_id] = (time.monotonic(), images)
+    return images
+
+
+async def _result_submission_images(result_id: int) -> list[bytes]:
+    sb = get_supabase()
+    res = await run_query(
+        sb.table("grading_results")
+        .select("homework_submission_id")
+        .eq("id", result_id)
+        .limit(1)
+        .execute
+    )
+    if not res.data:
+        raise HTTPException(404, "채점 결과를 찾을 수 없습니다.")
+    sid = res.data[0].get("homework_submission_id")
+    if not sid:
+        raise HTTPException(400, "숙제 제출과 연결되지 않은 결과입니다.")
+    return await _load_submission_zip_images(int(sid))
 
 ALLOWED_ITEM_UPDATE_FIELDS = {
     "is_correct",
@@ -135,8 +221,48 @@ async def list_results(teacher_id: str, status: str = ""):
             s_res = await run_query(sb.table("students").select("id, name, grade, school").in_("id", student_ids).execute)
             for s in (s_res.data or []):
                 student_map[s["id"]] = s
+
+        submission_ids: list[int] = []
+        for r in results:
+            sid = r.get("homework_submission_id")
+            if sid is None:
+                continue
+            try:
+                submission_ids.append(int(sid))
+            except (TypeError, ValueError):
+                continue
+        submission_ids = sorted(set(submission_ids))
+        sub_map: dict[int, dict[str, Any]] = {}
+        if submission_ids:
+            hs_res = await run_query(
+                sb.table("homework_submissions")
+                .select("id, central_drive_file_url, central_drive_file_id, zip_drive_id, drive_file_id")
+                .in_("id", submission_ids)
+                .execute
+            )
+            for row in (hs_res.data or []):
+                try:
+                    sub_map[int(row["id"])] = row
+                except (TypeError, ValueError, KeyError):
+                    continue
+
         for r in results:
             r["students"] = student_map.get(r.get("student_id"), {})
+            sid = r.get("homework_submission_id")
+            if sid is None:
+                continue
+            try:
+                sid_i = int(sid)
+            except (TypeError, ValueError):
+                continue
+            sub = sub_map.get(sid_i)
+            if not sub:
+                continue
+            zurl = (sub.get("central_drive_file_url") or "").strip()
+            zfid = _zip_drive_id_from_submission(sub)
+            r["homework_submission_zip_url"] = zurl or None
+            r["homework_submission_zip_drive_file_id"] = zfid or None
+
         return {"data": results}
     except Exception as e:
         logger.error(f"결과 조회 실패: {e}")
@@ -246,6 +372,35 @@ async def save_annotations(result_id: int, request: Request):
 async def list_student_results(student_id: int):
     results = await get_grading_results_by_student(student_id)
     return {"data": results}
+
+
+@router.get("/results/{result_id}/source-pages-count")
+async def get_source_pages_count(result_id: int):
+    """숙제 제출 ZIP에서 추출한 원본 페이지 수(확정 전 채점 이미지 미생성 시 미리보기용)."""
+    try:
+        images = await _result_submission_images(result_id)
+        return {"success": True, "count": len(images)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[SourcePreview] count 실패 result={result_id}: {e}")
+        raise HTTPException(500, detail=f"원본 페이지 수 조회 실패: {str(e)[:200]}")
+
+
+@router.get("/results/{result_id}/source-image/{page_index}")
+async def get_source_preview_image(result_id: int, page_index: int):
+    """원본 제출 이미지 1장(JPEG/PNG 등). `source-pages-count`와 같은 순서."""
+    try:
+        images = await _result_submission_images(result_id)
+        if page_index < 0 or page_index >= len(images):
+            raise HTTPException(404, "해당 페이지가 없습니다.")
+        body = images[page_index]
+        return Response(content=body, media_type=_media_type_for_image(body))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[SourcePreview] image 실패 result={result_id} page={page_index}: {e}")
+        raise HTTPException(500, detail=f"원본 이미지 조회 실패: {str(e)[:200]}")
 
 
 # ---- 문항 ----
@@ -516,7 +671,7 @@ async def _full_regrade_from_submission(
         raise HTTPException(404, "원본 숙제 제출을 찾을 수 없습니다. 숙제를 다시 제출해주세요.")
     submission = sub_res.data[0]
 
-    zip_drive_id = submission.get("zip_drive_id") or submission.get("drive_file_id") or ""
+    zip_drive_id = _zip_drive_id_from_submission(submission)
     if not zip_drive_id:
         raise HTTPException(400, "원본 파일 정보가 없습니다. 숙제를 다시 제출해주세요.")
 

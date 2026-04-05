@@ -14,9 +14,15 @@
 ## 최근 의사결정 로그
 | 날짜 | 결정 | 이유 | 영향 범위 |
 |---|---|---|---|
+| 2026-04-06 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/checklist.md, docs/context.md, docs/plan.md, grading-server/routers/results.py, grading/index.html 외 1개 |
 | 2026-04-06 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/context.md, docs/plan.md, grading-server/README.md, grading-server/integrations/supabase_client.py |
+| 2026-04-06 | 학생 숙제 UI: 달력에 배정 뱃지·일별 상세에 배정 목록·날짜 미선택 시 제출 버튼 비활성 | 제출 날짜 혼선 방지·배정 가시성 | `homework/index.html` |
+| 2026-04-06 | 복수 미제출 배정: 체크 후 동일 ZIP으로 Edge 순차 제출·ZIP 파일명에 배정 id | DB·Drive는 제출 건당 1행·1파일(기존 스키마 유지) | `homework/index.html` `getZipFilename` |
+| 2026-04-06 | 교재 복수 체크 UI 단, `answer_key_id`는 API 1개만 → 단일 배정 시 첫 체크 교재만 전달 | 기술 제약 명시가 운영 분쟁을 줄임 | `homework/index.html` |
 | 2026-04-06 | 채점관리 PIN 패널: 비밀번호를 `<form onsubmit preventDefault>`로 감싸고 숨은 `username` 필드로 선생님 식별자 동기화 | DOM 비밀번호·폼 권고 및 비밀번호 관리자 힌트 정렬 | `grading/index.html` |
 | 2026-04-06 | **`grading_assignments` insert**: 응답 `data` 비면 `teacher_id`+`title` 재조회 폴백 · 성공 로그로 배포 확인 | insert 본문 누락·구배포 구분 | `integrations/supabase_client.py` `create_assignment` |
+| 2026-04-06 | **숙제 상세 폴백**: `GET /api/results`에 제출 ZIP의 `homework_submission_zip_url`·drive file id를 붙여, 미리보기 API 미배포(404)여도 Drive에서 원본 열기 가능 | 구버전 Railway와 신규 정적 페이지 혼용 시에도 검토 동선 유지 | `grading-server/routers/results.py`, `grading/index.html` |
+| 2026-04-06 | **숙제 검토 UX**: 확정 전에는 채점본 Drive URL이 없으므로 `source-pages-count` / `source-image/{i}`로 ZIP 원본 페이지를 서버에서 추출·캐시해 선생님 상세에 표시 · 숙제 연결 상세는「과제 검토」로 점수 블록 단순화 | 검토 단계에서 원본 없이는 운영 불가 · 점수 미사용 과제는 UI 노이즈 제거 | `grading-server/routers/results.py`, `grading/index.html` |
 | 2026-04-06 | **`grading_assignments` 저장**: `insert().select()` / `update().select()` 제거 → `execute()`만 사용 · update 응답 비면 `get_assignment` 재조회 | supabase-py 2.x에 `.select` 체인 없음; **Railway 미재배포 시 구증상 지속** | `integrations/supabase_client.py` `create_assignment`, `update_assignment` |
 | 2026-04-05 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | GRADING_SETUP.sql, SUPABASE_GRADING_CONFIRM_DRIVE_20260405.sql, docs/sql/grading_confirm_drive.sql, grading-server/.env.example, grading-server/auth.py 외 11개 |
 | 2026-04-05 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/checklist.md, docs/context.md, docs/plan.md, grading-server/README.md, homework/index.html 외 2개 |

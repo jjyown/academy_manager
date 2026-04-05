@@ -141,10 +141,33 @@
 - 파일: `grading-server/integrations/supabase_client.py`, `grading-server/README.md`(운영 트러블슈팅)
 - 검증: `python -m compileall grading-server` · **최신 커밋으로 Railway Redeploy** 후 과제 배정 · 로그/동작 확인
 
+### 학생 숙제 포털: 달력 배정 표시·날짜 필수 제출·복수 배정/교재 — 2026-04-06
+- 상태: [x] 완료
+- **교육·UX**: 제출은 **달력에서 날짜 선택 → 숙제 제출하기**가 기본 동선. 미선택 시 플로팅 버튼 비활성·토스트 안내.
+- **UI**: 월별 달력에 배정이 있는 날 **뱃지(1건·점 / 2건 이상·숫자)**, 셀 `title`에 과제명. 상세 카드에 **배정 목록** 블록.
+- **복수 배정**: 미제출 배정을 **체크박스**로 선택, **동일 ZIP**으로 `upload-homework`를 배정 수만큼 순차 호출. Drive 파일명 충돌 방지를 위해 ZIP명에 `grading_assignment_id` 접미사(`getZipFilename(..., id)`).
+- **교재**: 체크박스 복수 선택 가능. Edge·채점 API는 `answer_key_id` 1개만 → **단일 배정 제출**일 때만 체크한 교재 중 **첫 번째**를 전달, **복수 배정**일 때는 각 배정의 `answer_key_id`만 사용(도움말 문구).
+- 파일: `homework/index.html`
+
 ### 채점관리 PIN 로그인: 비밀번호 `<form>` + 숨은 username — 2026-04-06
 - 상태: [x] 완료
 - 브라우저 `[DOM] Password field is not contained in a form` 완화 · `submit`으로 Enter 입장 유지 · `grading-login-username-ac`에 이메일/이름 동기화
 - 파일: `grading/index.html`
+
+### 숙제 검토: 확정 전 원본 이미지 미리보기 + 과제 체크 UI — 2026-04-06
+- 상태: [x] 완료(코드) · **Railway `grading-server` 재배포** 후 상세 화면에서 원본 로드 확인
+- 원인: `homework_submission_id` 연결 건은 정책상 AI 단계에서 채점본 Drive 업로드를 생략해, 확정 전에는 `central_graded_image_urls`가 비어 선생님 화면에 검토용 이미지가 없었음.
+- 구현: `GET /api/results/{id}/source-pages-count` · `GET /api/results/{id}/source-image/{page_index}` — 제출 ZIP을 Drive에서 받아 추출한 **원본 페이지**(10분 캐시). 프론트는 채점 URL이 비었을 때 위 API로 `<img>` 소스 구성. 숙제 연결 상세는 점수 카드 대신「과제 검토」·통계 행 숨김. 문항 비어 있을 때 교재·재채점 안내.
+- 부가: 전체 재채점 시 `central_drive_file_id` 폴백(`_zip_drive_id_from_submission`와 동일 규칙).
+- 파일: `grading-server/routers/results.py`, `grading/index.html`
+- 검증: `python -m compileall grading-server` PASS
+- 다음 단계: 재배포 후 숙제 채점 상세에서 원본 미리보기·캡션·문항 안내 스모크
+
+### 숙제 상세: 구버전 서버(404) + Drive ZIP 폴백 — 2026-04-06
+- 상태: [x] 완료(코드)
+- 증상: `source-pages-count` 404 시 이미지 영역이 비고 콘솔에 실패만 남음.
+- 구현: `GET /api/results` 목록에 `homework_submission_zip_url`·`homework_submission_zip_drive_file_id` 병합(제출 행 일괄 조회). 프론트는 미리보기 실패 시 **Google Drive에서 ZIP 열기** 링크 표시 · 404 시 세션 1회 토스트(재배포 안내).
+- 파일: `grading-server/routers/results.py`, `grading/index.html`
 
 ## 문의 답변 기록 — 2026-04-03
 - 상태: [x] 완료
@@ -1801,6 +1824,7 @@
 - [ ] 다음 작업자가 바로 이어서 할 수 있게 문서가 갱신되었다.
 
 ## 변경 이력
+- 2026-04-06 - AUTO-20260406(staged 6개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-04-06 - AUTO-20260406(staged 4개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-04-05 - AUTO-20260405(staged 16개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-04-05 - AUTO-20260405(staged 7개 파일 기준 문서 연동 자동기록): 연동 자동 기록

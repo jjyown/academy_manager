@@ -545,13 +545,16 @@
 		<div id="grading-login-pin-panel" style="display:none;text-align:left;">
 			<p style="color:var(--text-sec); font-size:13px; margin-bottom:10px;">비밀번호로 입장합니다.</p>
 			<p id="grading-login-hint" style="font-size:12px;color:var(--text-sec);margin:0 0 16px;line-height:1.45;min-height:2.8em;"></p>
-			<div class="form-group">
-				<label class="form-label">비밀번호</label>
-				<input class="input" id="login-password" type="password" placeholder="비밀번호 입력" autocomplete="current-password" onkeydown="if(event.key==='Enter') handleLogin()">
-			</div>
-			<button type="button" class="btn btn-primary" style="width:100%;padding:14px;font-size:15px;margin-top:4px;" onclick="handleLogin()">
-				<i class="fas fa-sign-in-alt" style="margin-right:6px;"></i> 입장
-			</button>
+			<form id="grading-login-form" autocomplete="on" onsubmit="event.preventDefault(); handleLogin(); return false;">
+				<input type="text" id="grading-login-username-ac" name="username" autocomplete="username" tabindex="-1" aria-hidden="true" value="" style="position:fixed;left:0;top:0;width:1px;height:1px;opacity:0;pointer-events:none;z-index:-1;border:0;padding:0;margin:0;">
+				<div class="form-group">
+					<label class="form-label" for="login-password">비밀번호</label>
+					<input class="input" id="login-password" name="password" type="password" placeholder="비밀번호 입력" autocomplete="current-password">
+				</div>
+				<button type="submit" class="btn btn-primary" style="width:100%;padding:14px;font-size:15px;margin-top:4px;">
+					<i class="fas fa-sign-in-alt" style="margin-right:6px;"></i> 입장
+				</button>
+			</form>
 		</div>
 		<p id="login-error" style="color:var(--red);font-size:12px;margin-top:12px;display:none;"></p>
 	</div>
@@ -777,14 +780,14 @@
 		<!-- 상태 배너 (채점중/실패/검토필요 시 표시) -->
 		<div id="detail-status-banner" style="display:none;" class="detail-status-banner"></div>
 
-		<!-- 점수 요약 -->
-		<div class="card">
+		<!-- 점수 요약 (숙제 제출 연결 건은 .detail-homework-check 로 점수 블록 단순화) -->
+		<div class="card" id="detail-score-card">
 			<div style="display:flex;gap:12px;">
 				<div class="score-card" style="flex:1;">
 					<div class="score-big" id="detail-score">-</div>
-					<div class="score-sub">총점</div>
+					<div class="score-sub" id="detail-score-sub">총점</div>
 				</div>
-				<div style="flex:1;">
+				<div style="flex:1;" id="detail-score-stats">
 					<div class="stat-row">
 						<div class="stat-item"><div class="stat-num" style="color:var(--green);" id="detail-correct">0</div><div class="stat-label">정답</div></div>
 						<div class="stat-item"><div class="stat-num" style="color:var(--red);" id="detail-wrong">0</div><div class="stat-label">오답</div></div>
@@ -849,6 +852,7 @@
 					<div class="empty-image" id="image-empty-state">
 						<i class="fas fa-image"></i>
 						<p>채점 이미지가 없습니다</p>
+						<div id="image-empty-zip-link" style="display:none;margin-top:12px;text-align:center;font-size:13px;line-height:1.5;max-width:320px;"></div>
 					</div>
 					<img id="graded-image" src="" alt="채점 이미지" onload="initCanvas()" style="display:none;">
 					<canvas id="annotation-canvas"></canvas>
@@ -858,6 +862,7 @@
 					<span class="page-indicator" id="image-page-indicator">1 / 1</span>
 					<button onclick="nextImage()" id="btn-next-img" disabled><i class="fas fa-chevron-right"></i></button>
 				</div>
+				<p id="graded-image-caption" style="display:none;font-size:12px;color:var(--teal);margin:8px 0 0;padding:0 4px;line-height:1.4;"></p>
 				</div>
 			</div>
 			<div class="split-right">
@@ -1390,6 +1395,19 @@ function updateLoginGateHint() {
 	const nm = gradingLoginTeacher.name || '선생님';
 	el.style.color = 'var(--text-sec)';
 	el.textContent = `입장 계정: ${nm} — 위 비밀번호는 해당 계정의 채점 관리 비밀번호입니다.`;
+	syncGradingLoginUsernameAutocomplete();
+}
+
+/** Chrome 비밀번호 관리자용: 비밀번호 필드와 짝이 되는 username(숨김) */
+function syncGradingLoginUsernameAutocomplete() {
+	const input = document.getElementById('grading-login-username-ac');
+	if (!input) return;
+	if (!gradingLoginTeacher) {
+		input.value = '';
+		return;
+	}
+	const t = gradingLoginTeacher;
+	input.value = String(t.email || t.google_email || t.name || t.id || '').trim();
 }
 
 function resolveGradingLoginTeacherFromList(list) {
@@ -2692,7 +2710,20 @@ async function openDetail(resultId) {
 
 	const detailTitle = (result.students?.name || '?') + ' 채점 상세';
 	document.getElementById('detail-title').textContent = detailTitle;
-	document.getElementById('detail-score').textContent = result.total_score + '/' + result.max_score;
+	const hwCheck = !!result.homework_submission_id;
+	const pageDetail = document.getElementById('page-detail');
+	if (pageDetail) pageDetail.classList.toggle('detail-homework-check', hwCheck);
+	const scoreSubEl = document.getElementById('detail-score-sub');
+	const statsWrap = document.getElementById('detail-score-stats');
+	if (hwCheck) {
+		document.getElementById('detail-score').textContent = '과제 검토';
+		if (scoreSubEl) scoreSubEl.textContent = '제출·문항 확인 (점수는 사용하지 않음)';
+		if (statsWrap) statsWrap.style.display = 'none';
+	} else {
+		document.getElementById('detail-score').textContent = result.total_score + '/' + result.max_score;
+		if (scoreSubEl) scoreSubEl.textContent = '총점';
+		if (statsWrap) statsWrap.style.display = '';
+	}
 	document.getElementById('detail-correct').textContent = result.correct_count;
 	document.getElementById('detail-wrong').textContent = result.wrong_count;
 	document.getElementById('detail-uncertain').textContent = result.uncertain_count;
@@ -2732,9 +2763,36 @@ async function openDetail(resultId) {
 	} catch(e) { console.warn('교재 목록 로드 실패:', e); }
 	if (result.answer_key_id) keySelect.value = String(result.answer_key_id);
 
-	// 채점 이미지 (중앙 드라이브 우선). 숙제 제출 건은 확정 전에는 URL이 비어 있을 수 있음.
+	// 채점 이미지 (중앙 드라이브 우선). 숙제 제출 건은 확정 전 Drive 채점본이 없음 → 미리보기 API(신규 서버) 또는 Drive ZIP 링크 폴백.
 	window.currentDetailResultForImage = result;
+	window._gradingSourcePreview = false;
+	const zUrlRaw = (result.homework_submission_zip_url || '').trim();
+	const zFid = (result.homework_submission_zip_drive_file_id || '').trim();
+	window._submissionZipOpenUrl = zUrlRaw || (zFid ? `https://drive.google.com/file/d/${zFid}/view` : '');
 	currentImageUrls = result.central_graded_image_urls || result.teacher_graded_image_urls || [];
+	if (!currentImageUrls.length && result.homework_submission_id) {
+		try {
+			const cntRes = await fetch(`${GRADING_SERVER_URL}/api/results/${resultId}/source-pages-count`);
+			if (cntRes.status === 404) {
+				try {
+					if (!sessionStorage.getItem('grading_source_preview_404')) {
+						sessionStorage.setItem('grading_source_preview_404', '1');
+						showToast('채점 서버가 구버전이면 페이지 미리보기가 안 됩니다. 아래 Drive 링크로 ZIP을 열거나 Railway에 최신 grading-server를 배포해 주세요.', 'warning');
+					}
+				} catch (e) { /* ignore */ }
+			} else if (cntRes.ok) {
+				const cntJson = await cntRes.json();
+				const n = parseInt(cntJson.count, 10) || 0;
+				if (n > 0) {
+					window._gradingSourcePreview = true;
+					currentImageUrls = Array.from({ length: n }, (_, i) =>
+						`${GRADING_SERVER_URL}/api/results/${resultId}/source-image/${i}`);
+				}
+			}
+		} catch (e) {
+			console.warn('제출 원본 미리보기 URL 구성 실패:', e);
+		}
+	}
 	currentImageIdx = 0;
 	loadCurrentImage();
 
@@ -2754,6 +2812,13 @@ async function openDetail(resultId) {
 	const firstUncertain = _findNextUncertainIdx(0);
 	selectedItemIdx = firstUncertain >= 0 ? firstUncertain : -1;
 	renderQuestionGrid();
+	if (!currentItems.length && result.homework_submission_id &&
+			result.status !== 'grading' && result.status !== 'regrading') {
+		const grid = document.getElementById('detail-grid');
+		if (grid) {
+			grid.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-sec);font-size:13px;line-height:1.55;">AI 문항이 비어 있습니다. 위에서 <strong>교재</strong>를 맞춘 뒤 <strong>재채점</strong>을 눌러 주세요. 제출 원본은 왼쪽 이미지에서 확인할 수 있습니다.</div>';
+		}
+	}
 	renderAnswerPanel();
 
 	// 키보드 단축키 활성화
@@ -5761,21 +5826,53 @@ function loadCurrentImage() {
 		img.style.display = 'none';
 		emptyState.style.display = 'flex';
 		nav.style.display = 'none';
+		const zipBox = document.getElementById('image-empty-zip-link');
+		if (zipBox) {
+			zipBox.style.display = 'none';
+			zipBox.innerHTML = '';
+		}
 		const hint = emptyState.querySelector('p');
 		if (hint && window.currentDetailResultForImage) {
 			const r = window.currentDetailResultForImage;
 			if (r.status !== 'confirmed' && r.homework_submission_id) {
-				hint.textContent = '확정 전에는 채점 이미지가 드라이브에 없습니다. 문항을 수정한 뒤「확정」하면 최종 이미지가 저장되고 학생·학부모 조회에 반영됩니다.';
+				hint.textContent = '페이지 미리보기가 안 되면 아래 링크에서 제출 ZIP을 여세요. (채점 서버 최신 배포 시 이 영역에 사진이 바로 뜹니다.) 확정 후에는 채점 표시가 반영된 이미지가 학생·학부모에게 보입니다.';
 			} else {
 				hint.textContent = '채점 이미지가 없습니다';
 			}
+		}
+		const openZip = window._submissionZipOpenUrl;
+		if (zipBox && openZip) {
+			zipBox.style.display = 'block';
+			const a = document.createElement('a');
+			a.href = openZip;
+			a.target = '_blank';
+			a.rel = 'noopener noreferrer';
+			a.textContent = '제출 원본(ZIP) — Google Drive에서 열기';
+			a.style.color = 'var(--gold, #d4a853)';
+			a.style.textDecoration = 'underline';
+			zipBox.appendChild(a);
 		}
 		return;
 	}
 
 	emptyState.style.display = 'none';
+	const zipBoxShown = document.getElementById('image-empty-zip-link');
+	if (zipBoxShown) {
+		zipBoxShown.style.display = 'none';
+		zipBoxShown.innerHTML = '';
+	}
 	const hintEl = emptyState.querySelector('p');
 	if (hintEl) hintEl.textContent = '채점 이미지가 없습니다';
+	const cap = document.getElementById('graded-image-caption');
+	if (cap) {
+		if (window._gradingSourcePreview && window.currentDetailResultForImage &&
+				window.currentDetailResultForImage.status !== 'confirmed') {
+			cap.style.display = 'block';
+			cap.textContent = '제출 원본 미리보기입니다. ⭕/✘ 표시는 확정 후 생성됩니다.';
+		} else {
+			cap.style.display = 'none';
+		}
+	}
 	img.style.display = 'block';
 	let imgUrl = currentImageUrls[currentImageIdx];
 	const ucMatch = imgUrl && imgUrl.match(/drive\.google\.com\/uc\?id=([^&]+)/);
