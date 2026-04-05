@@ -9,6 +9,7 @@ from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Uploa
 
 from config import (
     CENTRAL_GRADED_RESULT_FOLDER,
+    CENTRAL_INSTANT_GRADE_FOLDER,
     USE_GRADING_AGENT,
     GRADING_TIMEOUT_BASE_SECONDS,
     GRADING_TIMEOUT_PER_IMAGE_SECONDS,
@@ -37,6 +38,21 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["grading"])
 
 
+def _sanitize_instant_folder_label(raw: str, student_name: str) -> str:
+    """Drive 폴더명으로 쓸 문자열(빈 값이면 학생명+일시)."""
+    s = (raw or "").strip()
+    for ch in r'\/:*?"<>|':
+        s = s.replace(ch, "_")
+    s = s.replace("\n", " ").strip()[:120]
+    if s:
+        return s
+    now = datetime.now()
+    fallback = f"{student_name}_{now:%Y%m%d_%H%M}"
+    for ch in r'\/:*?"<>|':
+        fallback = fallback.replace(ch, "_")
+    return fallback[:120] or "즉시채점"
+
+
 @router.post("/grade")
 async def grade_homework(
     background_tasks: BackgroundTasks,
@@ -46,7 +62,9 @@ async def grade_homework(
     answer_key_id: int = Form(None),
     mode: str = Form("assigned"),
     homework_submission_id: int = Form(None),
-    image: UploadFile = File(None),
+    image: UploadFile | None = File(None),
+    images: list[UploadFile] | None = File(None),
+    instant_folder_label: str = Form(""),
     zip_drive_id: str = Form(""),
 ):
     student = await get_student(student_id)
@@ -118,13 +136,36 @@ async def grade_homework(
                     answer_key_id = answer_key.get("id")
                     logger.warning(f"[StudentBooks] 학생 #{student_id} 교재 {len(book_keys)}개 중 과제 매칭 없음 → 첫 번째 교재 #{answer_key_id} 선택")
 
+    mode_norm = (mode or "assigned").strip().lower()
+    if mode_norm == "instant" and not answer_key:
+        raise HTTPException(400, "즉시 채점에서는 채점할 교재를 선택해주세요.")
+
+    student_name = student.get("name", "학생")
+    now = datetime.now()
+    if mode_norm == "instant":
+        central_result_folder_name = CENTRAL_INSTANT_GRADE_FOLDER
+        safe_label = _sanitize_instant_folder_label(instant_folder_label, student_name)
+        result_drive_sub_path = [f"{now.year}년", f"{now.month}월", f"{now.day}일", safe_label]
+        logger.info(f"[Grade] 즉시채점 Drive 경로: {CENTRAL_INSTANT_GRADE_FOLDER}/{'/'.join(result_drive_sub_path)}")
+    else:
+        central_result_folder_name = CENTRAL_GRADED_RESULT_FOLDER
+        result_drive_sub_path = [f"{now.year}년", f"{now.month}월", f"{now.day}일", student_name]
+
     image_bytes_list = []
-    if image:
-        img_data = await image.read()
-        if image.filename and image.filename.endswith(".zip"):
-            image_bytes_list = extract_images_from_zip(img_data)
-        else:
-            image_bytes_list = [img_data]
+    upload_parts: list[UploadFile] = []
+    if image is not None:
+        upload_parts.append(image)
+    if images:
+        upload_parts.extend(list(images))
+
+    if upload_parts:
+        for uf in upload_parts:
+            img_data = await uf.read()
+            fn = (uf.filename or "").lower()
+            if fn.endswith(".zip"):
+                image_bytes_list.extend(extract_images_from_zip(img_data))
+            else:
+                image_bytes_list.append(img_data)
     elif zip_drive_id:
         zip_data = download_file_central(central_token, zip_drive_id)
         logger.info(f"[Grade] Drive ZIP 다운로드 완료: {len(zip_data)} bytes")
@@ -164,6 +205,8 @@ async def grade_homework(
         image_bytes_list=image_bytes_list,
         mode=mode,
         homework_submission_id=homework_submission_id,
+        central_result_folder_name=central_result_folder_name,
+        result_drive_sub_path=result_drive_sub_path,
     )
 
     return {
@@ -235,6 +278,8 @@ async def _run_grading_background(
     image_bytes_list: list[bytes],
     mode: str,
     homework_submission_id: int | None,
+    central_result_folder_name: str,
+    result_drive_sub_path: list[str],
 ):
     timeout_seconds = _get_grading_timeout_seconds(len(image_bytes_list))
     run_ctx = {
@@ -263,6 +308,8 @@ async def _run_grading_background(
                 mode=mode,
                 homework_submission_id=homework_submission_id,
                 run_ctx=run_ctx,
+                central_result_folder_name=central_result_folder_name,
+                result_drive_sub_path=result_drive_sub_path,
             ),
             timeout=timeout_seconds,
         )
@@ -356,6 +403,8 @@ async def _execute_grading(
     mode: str,
     homework_submission_id: int | None,
     run_ctx: dict,
+    central_result_folder_name: str,
+    result_drive_sub_path: list[str],
 ) -> dict:
     all_items = []
     central_graded_urls = []
@@ -366,16 +415,15 @@ async def _execute_grading(
     page_info_parts = []
     total_images = len(image_bytes_list)
 
-    now = datetime.now()
     student_name = student.get("name", "학생")
-    result_sub_path = [f"{now.year}년", f"{now.month}월", f"{now.day}일", student_name]
+    result_sub_path = list(result_drive_sub_path)
 
     if not answer_key:
         logger.warning(f"배정된 교재 없음 (student: {student_id}) → 확인 요청 상태로 전환")
         for idx, img_bytes in enumerate(image_bytes_list):
             filename = f"원본_{idx+1}.jpg"
             uploaded = upload_to_central(
-                central_token, CENTRAL_GRADED_RESULT_FOLDER, result_sub_path, filename, img_bytes
+                central_token, central_result_folder_name, result_sub_path, filename, img_bytes
             )
             central_graded_urls.append(uploaded["url"])
             central_graded_ids.append(uploaded["id"])
@@ -583,7 +631,7 @@ async def _execute_grading(
 
                 filename = f"풀이_{idx+1}.jpg"
                 central_uploaded = upload_to_central(
-                    central_token, CENTRAL_GRADED_RESULT_FOLDER, result_sub_path, filename, img_bytes
+                    central_token, central_result_folder_name, result_sub_path, filename, img_bytes
                 )
                 central_graded_urls.append(central_uploaded["url"])
                 central_graded_ids.append(central_uploaded["id"])
@@ -622,7 +670,7 @@ async def _execute_grading(
 
             filename = f"채점_{idx+1}.jpg"
             central_uploaded = upload_to_central(
-                central_token, CENTRAL_GRADED_RESULT_FOLDER, result_sub_path, filename, graded_img
+                central_token, central_result_folder_name, result_sub_path, filename, graded_img
             )
             central_graded_urls.append(central_uploaded["url"])
             central_graded_ids.append(central_uploaded["id"])
@@ -655,7 +703,7 @@ async def _execute_grading(
             try:
                 filename = f"실패_{idx+1}.jpg"
                 fallback = upload_to_central(
-                    central_token, CENTRAL_GRADED_RESULT_FOLDER, result_sub_path, filename, img_bytes
+                    central_token, central_result_folder_name, result_sub_path, filename, img_bytes
                 )
                 central_graded_urls.append(fallback["url"])
                 central_graded_ids.append(fallback["id"])

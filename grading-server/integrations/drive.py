@@ -11,6 +11,7 @@ from config import (
     CENTRAL_ROOT_FOLDER_LEGACY_ALIASES,
     CENTRAL_GRADING_MATERIAL_FOLDER,
     CENTRAL_GRADED_RESULT_FOLDER,
+    CENTRAL_INSTANT_GRADE_FOLDER,
     CENTRAL_SUBMIT_FOLDER,
     CENTRAL_PAGE_IMAGES_FOLDER,
     CENTRAL_GRADE_LEVEL_FOLDERS,
@@ -111,6 +112,7 @@ def _ensure_homework_structure_with_service(service) -> str:
         _find_or_create_folder(service, grade_name, material_id)
     _find_or_create_folder(service, CENTRAL_SUBMIT_FOLDER, root_id)
     _find_or_create_folder(service, CENTRAL_GRADED_RESULT_FOLDER, root_id)
+    _find_or_create_folder(service, CENTRAL_INSTANT_GRADE_FOLDER, root_id)
     return root_id
 
 

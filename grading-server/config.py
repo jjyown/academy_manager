@@ -49,6 +49,8 @@ CENTRAL_ROOT_FOLDER_LEGACY_ALIASES = tuple(
 )
 CENTRAL_GRADING_MATERIAL_FOLDER = os.getenv("CENTRAL_GRADING_MATERIAL_FOLDER", "교재")
 CENTRAL_GRADED_RESULT_FOLDER = os.getenv("CENTRAL_GRADED_RESULT_FOLDER", "채점 결과")
+# 숙제 관리 / 즉시채점 / {년}년 / {월}월 / {일}일 / {선생님 입력 폴더명}
+CENTRAL_INSTANT_GRADE_FOLDER = os.getenv("CENTRAL_INSTANT_GRADE_FOLDER", "즉시채점")
 CENTRAL_SUBMIT_FOLDER = os.getenv("CENTRAL_SUBMIT_FOLDER", "제출 과제 원본")
 # 교재 파싱 시 페이지 이미지 저장 위치: 숙제 관리 / 교재 / 이 이름 / {교재제목}
 CENTRAL_PAGE_IMAGES_FOLDER = os.getenv("CENTRAL_PAGE_IMAGES_FOLDER", "교재 페이지 이미지")

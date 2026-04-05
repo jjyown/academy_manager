@@ -83,6 +83,15 @@
 - 검증: `python -m compileall grading-server` 권장 · Railway 재배포 후 기동 로그에서 고아 복구 400 재발 여부 확인.
 - 다음 단계: 장기적으로는 `homework_submissions.updated_at` 트리거 추가 vs 코드만 `created_at` 유지 중 운영 정책 확정.
 
+## 즉시 채점 다중 이미지·교재·드라이브 경로 — 2026-04-05
+- 상태: [x] 완료
+- 구현 요약:
+  - 프론트: 즉시 채점을 모달로 전환 — 여러 이미지 드래그·다중 선택, 교재(정답지) 셀렉트, 저장 폴더명 입력(비우면 학생명·일시 자동). `POST /api/grade`에 `mode=instant`, `answer_key_id`, `instant_folder_label`, 반복 필드 `images`.
+  - 백엔드: 다중 `images` + 기존 단일 `image` 병합. `mode=instant`일 때 중앙 드라이브 경로 `숙제 관리 / 즉시채점 / {년}년/{월}월/{일}일/{폴더명}`(`CENTRAL_INSTANT_GRADE_FOLDER`, 기본 `즉시채점`). 즉시 모드는 교재 필수.
+  - 백그라운드 응답(`status=grading`)을 성공 토스트로 처리(기존 `total_score`만 성공으로 보던 오류 수정).
+- 구현 파일: `grading/index.html`, `grading-server/routers/grading.py`, `grading-server/routers/results.py`(재채점 경로 인자), `grading-server/config.py`, `grading-server/integrations/drive.py`, `grading-server/.env.example`, `grading-server/README.md`
+- 검증: `python -m compileall grading-server` PASS · Railway 재배포 후 즉시 채점 스모크(다중 이미지·Drive 폴더 생성).
+
 ## 문의 답변 기록 — 2026-04-03
 - 상태: [x] 완료
 - 정리: 숙제 “배정”은 `grading_assignments`, 학생 “제출(배정연결)”은 `homework_submissions.grading_assignment_id`, 채점 결과는 `grading_results`에서 확인
@@ -1738,6 +1747,7 @@
 - [ ] 다음 작업자가 바로 이어서 할 수 있게 문서가 갱신되었다.
 
 ## 변경 이력
+- 2026-04-05 - AUTO-20260405(staged 10개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-04-05 - AUTO-20260405(staged 8개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-04-05 - AUTO-20260405(staged 15개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-04-04 - AUTO-20260404(staged 4개 파일 기준 문서 연동 자동기록): 연동 자동 기록

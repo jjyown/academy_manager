@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 
+from config import CENTRAL_GRADED_RESULT_FOLDER
 from integrations.supabase_client import (
     get_supabase, run_query, get_central_admin_token, get_answer_key,
     get_grading_results_by_teacher, get_grading_results_by_student,
@@ -552,6 +553,10 @@ async def _full_regrade_from_submission(
 
     answer_key = await get_answer_key(answer_key_id)
 
+    now = datetime.now()
+    sn = (student or {}).get("name", "학생")
+    regrade_drive_path = [f"{now.year}년", f"{now.month}월", f"{now.day}일", sn]
+
     background_tasks.add_task(
         _run_grading_background,
         result_id=result_id,
@@ -564,6 +569,8 @@ async def _full_regrade_from_submission(
         image_bytes_list=image_bytes_list,
         mode=result.get("mode", "assigned"),
         homework_submission_id=submission_id,
+        central_result_folder_name=CENTRAL_GRADED_RESULT_FOLDER,
+        result_drive_sub_path=regrade_drive_path,
     )
 
     logger.info(f"[FullRegrade] result #{result_id}: 전체 재채점 시작 (이미지 {len(image_bytes_list)}장)")

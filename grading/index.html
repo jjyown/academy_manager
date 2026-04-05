@@ -265,8 +265,11 @@
 	/* 파일 드래그앤드롭 */
 	.file-drop-zone { border:2px dashed var(--border); border-radius:12px; padding:24px 16px; text-align:center; cursor:pointer; transition:all 0.2s; background:var(--bg); }
 	.file-drop-zone:hover { border-color:var(--primary); background:rgba(129,140,248,0.04); }
-	.file-drop-zone.drag-over { border-color:var(--primary); background:rgba(129,140,248,0.1); transform:scale(1.01); }
-	.file-drop-zone.has-file { border-style:solid; border-color:var(--primary); background:rgba(129,140,248,0.06); }
+		.file-drop-zone.drag-over { border-color:var(--primary); background:rgba(129,140,248,0.1); transform:scale(1.01); }
+		.file-drop-zone.has-file { border-style:solid; border-color:var(--primary); background:rgba(129,140,248,0.06); }
+		.instant-grade-chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; max-height:120px; overflow-y:auto; }
+		.instant-grade-chip { font-size:11px; padding:4px 8px; border-radius:8px; background:var(--card); border:1px solid var(--border); display:inline-flex; align-items:center; gap:6px; }
+		.instant-grade-chip button { border:none; background:none; color:var(--red); cursor:pointer; padding:0 2px; font-size:14px; line-height:1; }
 
 	/* 학생 검색 드롭다운 */
 	.stu-drop-item { padding:10px 14px; cursor:pointer; font-size:13px; border-bottom:1px solid var(--border); transition:background 0.1s; }
@@ -564,7 +567,7 @@
 		<button type="button" class="tab-btn active" data-main-tab="homework-mgmt" onclick="switchMainTab('homework-mgmt', event)">📚 숙제 관리</button>
 		<button type="button" class="tab-btn" data-main-tab="students" onclick="switchMainTab('students', event)">👨‍🎓 학생</button>
 		<button type="button" class="tab-btn" data-main-tab="keys" onclick="switchMainTab('keys', event)">📚 교재 관리</button>
-		<button type="button" class="tab-btn tab-btn-instant" onclick="openInstantGradeCamera(event)" title="카메라로 촬영한 숙제 이미지를 바로 채점합니다">📷 즉시 채점</button>
+		<button type="button" class="tab-btn tab-btn-instant" onclick="openInstantGradeCamera(event)" title="여러 이미지 드래그·교재 선택 후 바로 채점">📷 즉시 채점</button>
 	</div>
 
 	<!-- 숙제 관리: 배정 / 제출 / 채점 (각 탭 동일: 학생 목록 + 월별 제출 달력) + 내부용 레거시 날짜 달력(숨김) -->
@@ -1233,6 +1236,47 @@
 	</div>
 </div>
 
+<!-- 즉시 채점: 다중 이미지 + 교재 + 드라이브 폴더명 -->
+<div class="modal-overlay" id="instant-grade-modal">
+	<div class="modal-box" style="max-width:520px;">
+		<div class="modal-title"><i class="fas fa-camera" style="color:var(--primary);"></i> 즉시 채점</div>
+		<p style="font-size:12px;color:var(--text-sec);margin:-6px 0 12px;line-height:1.45;">
+			드라이브 <strong>숙제 관리 / 즉시채점 / 년·월·일 / 아래 이름</strong> 폴더에 채점 이미지가 저장됩니다.
+		</p>
+		<div class="form-group">
+			<label class="form-label">채점할 교재 (정답지)</label>
+			<select class="input" id="instant-grade-key">
+				<option value="">불러오는 중…</option>
+			</select>
+		</div>
+		<div class="form-group">
+			<label class="form-label">저장 폴더·파일 이름</label>
+			<input class="input" id="instant-folder-label" placeholder="예: 김민재_4월5일_중간대비" maxlength="120">
+			<p style="font-size:11px;color:var(--text-sec);margin:6px 0 0;">비우면 학생명·날짜로 자동 지정됩니다.</p>
+		</div>
+		<div class="form-group">
+			<label class="form-label">숙제 이미지 (여러 장)</label>
+			<input type="file" id="instant-grade-file-input" accept="image/*,.heic,.heif" multiple style="display:none;" onchange="onInstantGradeFilesPicked(this)">
+			<div class="file-drop-zone" id="instant-grade-drop"
+				onclick="if(!event.target.closest('button')) document.getElementById('instant-grade-file-input').click()"
+				ondragover="event.preventDefault(); this.classList.add('drag-over');"
+				ondragleave="this.classList.remove('drag-over');"
+				ondrop="event.preventDefault(); this.classList.remove('drag-over'); onInstantGradeDrop(event);">
+				<i class="fas fa-images" style="font-size:26px;color:var(--primary);margin-bottom:8px;"></i>
+				<p style="margin:0;font-size:13px;font-weight:600;">이미지를 여기에 드래그하거나 클릭하여 선택</p>
+				<p style="margin:4px 0 0;font-size:11px;color:var(--text-sec);">여러 파일을 한 번에 선택·드롭할 수 있습니다.</p>
+			</div>
+			<div class="instant-grade-chips" id="instant-grade-chips"></div>
+		</div>
+		<div style="display:flex;gap:8px;margin-top:16px;">
+			<button type="button" class="btn btn-primary" style="flex:1;" onclick="submitInstantGrade()" id="instant-grade-submit-btn">
+				<i class="fas fa-play" style="margin-right:4px;"></i> 채점 시작
+			</button>
+			<button type="button" class="btn btn-outline" style="flex:1;" onclick="closeModal('instant-grade-modal')">취소</button>
+		</div>
+	</div>
+</div>
+
 <script src="/js/invoke-verify-teacher-pin.js"></script>
 <script>
 // ============================================================
@@ -1779,12 +1823,65 @@ function showToast(msg, type = 'info', duration = 3000) {
 }
 function hideToast(el) { if (el && el.parentNode) el.remove(); }
 
-/** 학생 숙제 제출 페이지에 있던 즉시 채점: 카메라/갤러리 이미지 → POST /api/grade (mode=auto_search) */
-function openInstantGradeCamera(ev) {
-	if (ev) {
-		ev.preventDefault();
-		ev.stopPropagation();
+/** 즉시 채점: 다중 이미지 + 교재 선택 → POST /api/grade (mode=instant), 드라이브: 숙제관리/즉시채점/년/월/일/폴더명 */
+let _instantGradeFiles = [];
+
+function _isImageLikeFile(f) {
+	if (!f || !f.name) return false;
+	const t = (f.type || '').toLowerCase();
+	if (t.startsWith('image/')) return true;
+	return /\.(jpe?g|png|gif|webp|bmp|heic|heif)$/i.test(f.name);
+}
+
+function onInstantGradeDrop(ev) {
+	const dt = ev.dataTransfer;
+	if (!dt || !dt.files) return;
+	addInstantGradeFileList(dt.files);
+}
+
+function onInstantGradeFilesPicked(input) {
+	if (input.files && input.files.length) addInstantGradeFileList(input.files);
+	input.value = '';
+}
+
+function addInstantGradeFileList(fileList) {
+	for (const f of Array.from(fileList || [])) {
+		if (_isImageLikeFile(f)) _instantGradeFiles.push(f);
 	}
+	renderInstantGradeChips();
+}
+
+function removeInstantGradeFile(idx) {
+	_instantGradeFiles.splice(idx, 1);
+	renderInstantGradeChips();
+}
+
+function renderInstantGradeChips() {
+	const el = document.getElementById('instant-grade-chips');
+	if (!el) return;
+	if (!_instantGradeFiles.length) {
+		el.innerHTML = '';
+		return;
+	}
+	el.innerHTML = _instantGradeFiles.map((f, i) =>
+		`<span class="instant-grade-chip">${escapeHtml(f.name)}<button type="button" aria-label="삭제" onclick="removeInstantGradeFile(${i})">×</button></span>`
+	).join('');
+}
+
+function fillInstantGradeKeySelect() {
+	const sel = document.getElementById('instant-grade-key');
+	if (!sel) return;
+	const keys = allAnswerKeys || [];
+	if (!keys.length) {
+		sel.innerHTML = '<option value="">등록된 교재가 없습니다 (교재 관리에서 등록)</option>';
+		return;
+	}
+	sel.innerHTML = '<option value="">채점할 교재를 선택하세요</option>' +
+		keys.map(k => `<option value="${k.id}">${escapeHtml(k.title || '')}${k.subject ? ' (' + escapeHtml(k.subject) + ')' : ''}</option>`).join('');
+}
+
+async function openInstantGradeCamera(ev) {
+	if (ev) { ev.preventDefault(); ev.stopPropagation(); }
 	if (!currentTeacher) {
 		showToast('선생님 로그인이 필요합니다.', 'error');
 		return;
@@ -1804,38 +1901,80 @@ function openInstantGradeCamera(ev) {
 		showToast('채점 서버 URL이 비어 있습니다. localStorage grading_server_url을 설정하세요.', 'error');
 		return;
 	}
-	const input = document.createElement('input');
-	input.type = 'file';
-	input.accept = 'image/*';
-	input.capture = 'environment';
-	input.onchange = async (e) => {
-		const file = e.target.files && e.target.files[0];
-		if (!file) return;
-		const busy = showToast('채점 중입니다...', 'info', 0);
-		try {
-			const formData = new FormData();
-			formData.append('student_id', String(hwSelectedStudentId));
-			formData.append('teacher_id', ownerForApi);
-			formData.append('mode', 'auto_search');
-			formData.append('image', file);
-			const res = await fetch(`${gradeBase}/api/grade`, { method: 'POST', body: formData });
-			const result = await res.json().catch(() => ({}));
-			hideToast(busy);
-			if (res.ok && result.total_score !== undefined) {
-				let msg = `채점 완료 · ${result.total_score}/${result.max_score}점 (정${result.correct_count} 오${result.wrong_count} ?${result.uncertain_count != null ? result.uncertain_count : 0})`;
-				if (result.graded_images && result.graded_images.length > 0) msg += ' · 드라이브 저장';
-				showToast(msg, 'success', 5500);
-			} else {
-				const detail = result.detail || result.error || result.message;
-				showToast('채점 실패: ' + (typeof detail === 'string' ? detail : (res.status ? `HTTP ${res.status}` : '다시 시도해주세요.')), 'error', 5000);
-			}
-		} catch (err) {
-			hideToast(busy);
-			console.error('[즉시채점]', err);
-			showToast('채점 서버에 연결할 수 없습니다.', 'error');
+	_instantGradeFiles = [];
+	renderInstantGradeChips();
+	const labelEl = document.getElementById('instant-folder-label');
+	if (labelEl) labelEl.value = '';
+	document.getElementById('instant-grade-modal').classList.add('show');
+	try {
+		await loadAnswerKeys();
+	} catch (e) {}
+	fillInstantGradeKeySelect();
+}
+
+async function submitInstantGrade() {
+	if (!hwSelectedStudentId) {
+		showToast('학생을 먼저 선택해주세요.', 'warning');
+		return;
+	}
+	const keyId = document.getElementById('instant-grade-key').value;
+	if (!keyId) {
+		showToast('채점할 교재를 선택해주세요.', 'warning');
+		return;
+	}
+	if (!_instantGradeFiles.length) {
+		showToast('이미지를 한 장 이상 추가해주세요.', 'warning');
+		return;
+	}
+	const ownerForApi = gradingOwnerId();
+	const gradeBase = String(GRADING_SERVER_URL || '').trim().replace(/\/$/, '');
+	const labelEl = document.getElementById('instant-folder-label');
+	const label = labelEl ? String(labelEl.value || '').trim() : '';
+	const formData = new FormData();
+	formData.append('student_id', String(hwSelectedStudentId));
+	formData.append('teacher_id', ownerForApi);
+	formData.append('mode', 'instant');
+	formData.append('answer_key_id', keyId);
+	formData.append('instant_folder_label', label);
+	for (const f of _instantGradeFiles) {
+		formData.append('images', f, f.name);
+	}
+	const btn = document.getElementById('instant-grade-submit-btn');
+	if (btn) btn.disabled = true;
+	const busy = showToast('채점 요청 중…', 'info', 0);
+	try {
+		const res = await fetch(`${gradeBase}/api/grade`, { method: 'POST', body: formData });
+		const result = await res.json().catch(() => ({}));
+		hideToast(busy);
+		if (res.ok && result.status === 'grading' && result.result_id) {
+			showToast('채점이 시작되었습니다. 완료되면 상단 알림에서 확인할 수 있습니다.', 'success', 5500);
+			closeModal('instant-grade-modal');
+			_instantGradeFiles = [];
+			renderInstantGradeChips();
+			return;
 		}
-	};
-	input.click();
+		if (res.ok && result.duplicate) {
+			showToast(result.message || '이미 처리된 제출입니다.', 'info', 4000);
+			return;
+		}
+		if (res.ok && result.total_score !== undefined) {
+			let msg = `채점 완료 · ${result.total_score}/${result.max_score}점 (정${result.correct_count} 오${result.wrong_count} ?${result.uncertain_count != null ? result.uncertain_count : 0})`;
+			if (result.graded_images && result.graded_images.length > 0) msg += ' · 드라이브 저장';
+			showToast(msg, 'success', 5500);
+			closeModal('instant-grade-modal');
+			_instantGradeFiles = [];
+			renderInstantGradeChips();
+			return;
+		}
+		const detail = result.detail || result.error || result.message;
+		showToast('채점 실패: ' + (typeof detail === 'string' ? detail : (res.status ? `HTTP ${res.status}` : '다시 시도해주세요.')), 'error', 5000);
+	} catch (err) {
+		hideToast(busy);
+		console.error('[즉시채점]', err);
+		showToast('채점 서버에 연결할 수 없습니다.', 'error');
+	} finally {
+		if (btn) btn.disabled = false;
+	}
 }
 
 // ============================================================

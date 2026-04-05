@@ -11,6 +11,7 @@
 - [x] 로그인 Enter 체감 속도(2026-04-05): 비밀번호 `onkeydown` 제거(이중 호출 방지)·`signIn`/`confirmTeacher` in-flight 가드·`showMainApp` 로그인 직후 `users.role` 생략·`loadTeachers` 재시도 180ms — `index.html`, `auth.js`, `script.js` · `node --check` PASS
 - [x] 즉시 채점 연결 오류(2026-04-05): `gradingOwnerId` 재귀 버그·로컬에서 `shouldTryRemote`로 즉시 채점 차단 제거 — `grading/index.html`
 - [x] 즉시 채점 UI 이관(2026-04-05): `homework/index.html` 플로팅 제거·`grading/index.html` 상단「교재 관리」우측 버튼·`openInstantGradeCamera` — 실기기 `/api/grade` 스모크 권장
+- [x] 즉시 채점 고도화(2026-04-05): 다중 이미지 드래그·교재 선택·폴더명·`mode=instant`·Drive `즉시채점/년/월/일/이름` — `grading/index.html`, `grading-server`(grade·results·drive·config)·백그라운드 시작 토스트 수정 · Railway 재배포 후 스모크
 - [x] Railway 로그 CSV 분석 + 고아 제출 복구(2026-04-05): `homework_submissions.updated_at` 미존재로 400 → `grading-server/main.py`에서 `created_at` 사용 · 재배포 후 기동 시 `[Recovery]` 로그 스모크
 - [x] 월간 학원 일정 글자색(2026-04-04): `style.css`에서 `.grid-cell.custom-holiday .holiday-name`의 `color !important` 제거 — 줄별 인라인 색 복구
 - [x] 월간 캘린더 「집계중」 고착(2026-04-04): `loadAllTeachersScheduleData` finally에 `renderCalendar(true)` — 디바운스 렌더×로딩 플래그 경합 제거; `_generateScheduleCore`/`updateClassTime`/`setTimetableScope` 보강
@@ -187,6 +188,7 @@
 ## 테스트/검증 결과 기록
 | 날짜 | 작업 | 검증 방법 | 결과 | 비고 |
 |---|---|---|---|---|
+| 2026-04-05 | AUTO-20260405(staged 10개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-04-05 | AUTO-20260405(staged 8개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-04-05 | AUTO-20260405(staged 15개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-04-04 | AUTO-20260404(staged 4개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
