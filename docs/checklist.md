@@ -12,7 +12,13 @@
 - [x] 즉시 채점 연결 오류(2026-04-05): `gradingOwnerId` 재귀 버그·로컬에서 `shouldTryRemote`로 즉시 채점 차단 제거 — `grading/index.html`
 - [x] 즉시 채점 UI 이관(2026-04-05): `homework/index.html` 플로팅 제거·`grading/index.html` 상단「교재 관리」우측 버튼·`openInstantGradeCamera` — 실기기 `/api/grade` 스모크 권장
 - [x] 즉시 채점 고도화(2026-04-05): 다중 이미지 드래그·교재 선택·폴더명·`mode=instant`·Drive `즉시채점/년/월/일/이름` — `grading/index.html`, `grading-server`(grade·results·drive·config)·백그라운드 시작 토스트 수정 · Railway 재배포 후 스모크
+- [x] 채점관리 로그인(2026-04-05): 선생님 선택 UI 제거·비밀번호만·입장 계정 자동(원장·jjyown·단일·첫 행)·세션 복원 시 `gradingLoginTeacher` 정렬 — `grading/index.html`
+- [x] 메인→채점관리 동선(2026-04-05): 메뉴「채점 관리」클릭 시 새 탭 대신 **같은 창** `grading/` 이동 — `js/payment.js` `openGradingPage`
+- [x] 채점관리 자동 입장(2026-04-05): `session-open`·`tryAutoEnterGrading`·로그아웃 시「다시 입장」·OPEN 비활성 시 PIN 폴백 — Railway 재배포·공개 배포 시 `GRADING_ALLOW_OPEN_GRADING_SESSION` 검토
 - [x] Railway 로그 CSV 분석 + 고아 제출 복구(2026-04-05): `homework_submissions.updated_at` 미존재로 400 → `grading-server/main.py`에서 `created_at` 사용 · 재배포 후 기동 시 `[Recovery]` 로그 스모크
+- [x] 채점 확정 게이트 1단계(2026-04-05): AI 완료 시 `grading_results.status` 항상 `review_needed` · `PUT /api/results/{id}/confirm` 시 `homework_submissions.grading_status` → `confirmed` 동기화 · `_recalculate_result_totals`·재채점 완료 시 자동 확정 제거 — `grading-server/routers/grading.py`, `results.py` · `python -m compileall grading-server` · Railway 재배포 후 확정 동선 스모크
+- [x] 채점 확정 게이트 2단계(2026-04-05): **숙제 제출 연결 건** — AI 중 채점본 Drive 업로드 생략 · **확정 시** ZIP 재처리+`grading_items`로 이미지 생성·업로드(`confirm_drive_publish.py`) · Supabase에 `SUPABASE_GRADING_CONFIRM_DRIVE_20260405.sql` 적용 필수 · 즉시 채점(제출 ID 없음)은 기존처럼 AI 중 업로드
+- [x] 채점 확정 게이트 3단계(2026-04-05): 학생·학부모 화면에서 확정 채점 이미지·점수·문항(`GET /api/public-portal-grading/...` + `grading_status`·세션 인증코드) · 관리자 모드는 채점 블록 생략 · 운영 시 `CORS_ORIGINS`·Railway 스모크 권장
 - [x] 월간 학원 일정 글자색(2026-04-04): `style.css`에서 `.grid-cell.custom-holiday .holiday-name`의 `color !important` 제거 — 줄별 인라인 색 복구
 - [x] 월간 캘린더 「집계중」 고착(2026-04-04): `loadAllTeachersScheduleData` finally에 `renderCalendar(true)` — 디바운스 렌더×로딩 플래그 경합 제거; `_generateScheduleCore`/`updateClassTime`/`setTimetableScope` 보강
 - [x] 선생님 선택→메인 체감 속도(2026-04-04): `loadAndCleanData`∥`fetchSchedulesForOwnerPaged`, owner `schedules` 단일 패치→`loadAllTeachersScheduleData(prefetched)` + `skipOwnerPagedHydrate`, `autoMarkAbsentForPastSchedules`는 idle 지연·이중 rAF로 100ms 제거
@@ -188,6 +194,8 @@
 ## 테스트/검증 결과 기록
 | 날짜 | 작업 | 검증 방법 | 결과 | 비고 |
 |---|---|---|---|---|
+| 2026-04-05 | AUTO-20260405(staged 7개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
+| 2026-04-05 | 채점 확정 게이트 3단계(UI: 학부모·학생 숙제 + `public-portal-grading` API) | `python -m compileall grading-server` · `node --check parent-portal/report.js` | PASS(코드) | 배포 후 CORS·실제 이미지 로드 스모크 권장 |
 | 2026-04-05 | AUTO-20260405(staged 10개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-04-05 | AUTO-20260405(staged 8개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-04-05 | AUTO-20260405(staged 15개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |

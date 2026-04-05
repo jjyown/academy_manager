@@ -83,6 +83,24 @@
 - 검증: `python -m compileall grading-server` 권장 · Railway 재배포 후 기동 로그에서 고아 복구 400 재발 여부 확인.
 - 다음 단계: 장기적으로는 `homework_submissions.updated_at` 트리거 추가 vs 코드만 `created_at` 유지 중 운영 정책 확정.
 
+## 채점관리 PIN 없이 자동 입장 — 2026-04-05
+- 상태: [x] 완료
+- 구현: `POST /api/grading-auth/session-open` — 서비스 롤로 `teachers` 조회 후 원장·canonical 이메일·단일·첫 행 우선으로 JWT 발급. `GRADING_ALLOW_OPEN_GRADING_SESSION`(기본 true)이 false면 403 → 프론트는 비밀번호 패널로 폴백. `GRADING_SESSION_SECRET` 미설정 시 503 → 로컬은 토큰 없이 기존 폴백.
+- 프론트: 최초 로드 시 `tryAutoEnterGrading()`. 로그아웃 후에는「다시 입장」만 표시.
+- 파일: `grading-server/config.py`, `grading-server/routers/grading_auth.py`, `grading/index.html`, `grading-server/.env.example`, `grading-server/README.md`
+- 보안: 채점 URL이 인터넷에 열려 있으면 `GRADING_ALLOW_OPEN_GRADING_SESSION=false` 권장.
+
+## 메인 메뉴 → 채점관리 같은 창 이동 — 2026-04-05
+- 상태: [x] 완료
+- 구현: `openGradingPage`에서 `window.open(..., '_blank')` 제거 → `window.location.assign`으로 `/grading/` 이동.
+- 파일: `js/payment.js`
+
+## 채점관리 로그인: 선생님 선택 제거 — 2026-04-05
+- 상태: [x] 완료
+- 구현 요약: 입장 UI는 비밀번호만 표시. `teachers` 목록 로드 후 입장 계정은 **원장(`is_central_admin`) → `jjyown@gmail.com` 일치 행 → 단일 행 → 목록 첫 행** 순으로 자동 결정. 힌트 문구로 어떤 계정 PIN인지 표시. 세션 복원 시 `gradingLoginTeacher`를 복원된 `currentTeacher`와 정렬.
+- 구현 파일: `grading/index.html`
+- 검증: 로그인·로그아웃·새로고침 후 세션 복원·숙제/교재 API 스모크 권장.
+
 ## 즉시 채점 다중 이미지·교재·드라이브 경로 — 2026-04-05
 - 상태: [x] 완료
 - 구현 요약:
@@ -91,6 +109,28 @@
   - 백그라운드 응답(`status=grading`)을 성공 토스트로 처리(기존 `total_score`만 성공으로 보던 오류 수정).
 - 구현 파일: `grading/index.html`, `grading-server/routers/grading.py`, `grading-server/routers/results.py`(재채점 경로 인자), `grading-server/config.py`, `grading-server/integrations/drive.py`, `grading-server/.env.example`, `grading-server/README.md`
 - 검증: `python -m compileall grading-server` PASS · Railway 재배포 후 즉시 채점 스모크(다중 이미지·Drive 폴더 생성).
+
+## AI 채점 초안 → 선생님 검토·확정(운영 게이트) — 2026-04-05
+- 상태: [x] 1단계(상태·동기화) · [x] 2단계(숙제 제출 연결 건: 확정 시 Drive 반영) · [x] 3단계(학생/학부모 화면에서 확정 채점·이미지 노출 UI)
+- 전문가 토의 요약:
+  - **교육·운영**: 공식으로 보이는 채점 결과는 AI 출력 직후가 아니라 **선생님이 ○/△/×·코멘트를 검토한 뒤 확정**한 시점이어야 분쟁·신뢰 측면에서 안전하다.
+  - **백엔드**: DB에 `grading_results.status`와 `homework_submissions.grading_status`가 모두 있으므로, **「확정」API 한 번에 제출 쪽도 `confirmed`로 맞추는 것**이 데이터 일관성에 유리하다. 문항만 고쳤다고 자동 `confirmed`로 올리면 게이트가 무력화된다.
+  - **UX**: 선생님 화면에서는 AI 완료를 **초안**으로 인지시키고, 확정 전까지 학부모·학생에게는 상세 채점을 숨기는 정책이 요구사항과 맞다(3단계에서 API·RLS·UI 정렬).
+- 1단계 구현 요약:
+  - AI 파이프라인 종료 시 `grading_results.status`는 **항상 `review_needed`**. `PUT /api/results/{id}/confirm` 시 제출 `grading_status` → `confirmed` 동기화. 재계산·재채점 시 자동 확정 금지.
+- 2단계 구현 요약(숙제 제출 `homework_submission_id` 있을 때):
+  - AI 채점 중에는 **채점 결과 이미지를 Drive에 올리지 않음**(`central_graded_*` 비움). 문항은 DB에 저장하고 `grading_items.source_image_index`로 원본 ZIP 페이지와 대응.
+  - 채점 시작 시 `grading_results.drive_publish_folder` / `drive_publish_sub_path`에 업로드 예정 경로 스냅샷 저장.
+  - **`PUT /api/results/{id}/confirm`**: 제출 ZIP을 다시 내려받아 전처리 후, **현재 DB 문항(선생님 수정 반영)**으로 `create_graded_image` → `upload_to_central`. 기존 채점 파일 ID가 있으면 삭제 후 교체.
+  - **즉시 채점 등 제출 ID 없음**: 기존과 같이 AI 단계에서 Drive 업로드(서버에 원본이 남지 않음).
+  - **필수 SQL**: `SUPABASE_GRADING_CONFIRM_DRIVE_20260405.sql`(또는 `GRADING_SETUP.sql` 하단 동일 ALTER) Supabase 적용 후 운영.
+- 3단계 구현 요약:
+  - 백엔드: `GET /api/public-portal-grading/student-results`·`GET /api/public-portal-grading/results/{id}/items` — `student_code`/`parent_code` 정규화 일치 시에만 `confirmed` 결과·문항(공개 필드만). JWT 스킵 경로(`auth.py` `SKIP_SUPABASE_JWT_PATH_PREFIXES`).
+  - 학부모 포털: 조회 성공 시 `sessionStorage.pp_portal_code` 저장 · `homework_submissions`에 `grading_status` 포함 · 월 로드 시 공개 API로 `homework_submission_id` 맵 · 일별 상세에서 확정 시 점수·`central_graded_image_urls`(Drive `uc`→`lh3`)·문항 모달. `review_needed` 안내 문구. 관리자 모드는 인증코드 없음 → 채점 블록 생략.
+  - 학생 숙제: `hw_portal_student_code`로 동일 API · `grading_status` select · 제출 현황 상세에 동일 UI.
+- 구현 파일: 위 3단계 + `grading-server/routers/grading.py`, `grading-server/routers/results.py`, `grading-server/grading/confirm_drive_publish.py`, `grading-server/grading/panel_scores.py`, `grading/index.html`, `SUPABASE_GRADING_CONFIRM_DRIVE_20260405.sql`, `GRADING_SETUP.sql`
+- 검증: `python -m compileall grading-server` · `node --check parent-portal/report.js` · SQL 적용 · Railway 재배포 후: 제출 채점 → 상세에 이미지 없음 안내 → 문항 수정 → 확정 → Drive 폴더에 `채점_*.jpg` · `grading_results.central_graded_image_urls` 채움 · 포털/숙제에서 확정 건 점수·이미지·문항 확인.
+- 다음 단계: 배포 도메인이 `CORS_ORIGINS`에 포함되는지 운영 확인 · 실제 기기에서 이미지 로드·모달 스모크.
 
 ## 문의 답변 기록 — 2026-04-03
 - 상태: [x] 완료
@@ -1747,6 +1787,7 @@
 - [ ] 다음 작업자가 바로 이어서 할 수 있게 문서가 갱신되었다.
 
 ## 변경 이력
+- 2026-04-05 - AUTO-20260405(staged 7개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-04-05 - AUTO-20260405(staged 10개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-04-05 - AUTO-20260405(staged 8개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-04-05 - AUTO-20260405(staged 15개 파일 기준 문서 연동 자동기록): 연동 자동 기록

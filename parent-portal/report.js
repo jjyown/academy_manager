@@ -84,6 +84,8 @@ let hwAssignmentsLoaded = false; // API 호출 성공 여부(0건이어도 true)
 let hwDateStatus = {};
 let hwSelectedDate = null;
 let hwLoaded = false;
+/** 제출 id → 확정 채점 요약 (public-portal-grading API) */
+let hwGradingBySubmissionId = {};
 
 // ========== Utilities ==========
 
@@ -312,6 +314,7 @@ function goBackToLanding() {
 		}
 		currentStudent = null;
 		sessionStorage.removeItem('pp_current_student');
+		try { sessionStorage.removeItem('pp_portal_code'); } catch (_) {}
 		window.scrollTo(0, 0);
 	}, 200);
 }
@@ -500,6 +503,7 @@ function logoutAdmin() {
 	adminStudents = [];
 	currentStudent = null;
 	sessionStorage.removeItem('pp_current_student');
+	try { sessionStorage.removeItem('pp_portal_code'); } catch (_) {}
 
 	document.getElementById('page-admin-students').style.display = 'none';
 	document.getElementById('page-dashboard').style.display = 'none';
@@ -544,6 +548,9 @@ async function handleSearch() {
 		}
 
 		currentStudent = data;
+		try {
+			sessionStorage.setItem('pp_portal_code', normalizeParentPortalCode(code));
+		} catch (_) {}
 		setParentVerified();
 		await initDashboard();
 	} catch (err) {
@@ -1215,6 +1222,166 @@ function formatFileSize(bytes) {
 	return size.toFixed(i === 0 ? 0 : 1) + ' ' + units[i];
 }
 
+function getPpPortalVerificationCode() {
+	if (typeof isAdminMode !== 'undefined' && isAdminMode) return '';
+	try {
+		return sessionStorage.getItem('pp_portal_code') || '';
+	} catch (_) {
+		return '';
+	}
+}
+
+/** Drive `uc?id=` 링크를 썸네일용 lh3 URL로 (채점 UI와 동일 패턴) */
+function portalDriveImageDisplayUrl(url) {
+	if (!url || typeof url !== 'string') return '';
+	const m = url.match(/drive\.google\.com\/uc\?id=([^&]+)/);
+	if (m) return `https://lh3.googleusercontent.com/d/${m[1]}=w1200`;
+	const m2 = url.match(/\/file\/d\/([^/]+)/);
+	if (m2) return `https://lh3.googleusercontent.com/d/${m2[1]}=w1200`;
+	return url;
+}
+
+async function fetchHwPortalGradingMap() {
+	hwGradingBySubmissionId = {};
+	const vcode = getPpPortalVerificationCode();
+	if (!GRADING_SERVER_URL_HW || !vcode || !currentStudent || currentStudent.id == null) return;
+	try {
+		const base = GRADING_SERVER_URL_HW.replace(/\/$/, '');
+		const url = new URL(`${base}/api/public-portal-grading/student-results`);
+		url.searchParams.set('student_id', String(currentStudent.id));
+		url.searchParams.set('verification_code', vcode);
+		const res = await fetch(url.toString());
+		const body = await res.json().catch(() => ({}));
+		if (!res.ok) return;
+		for (const r of body.data || []) {
+			if (r.homework_submission_id != null) {
+				hwGradingBySubmissionId[String(r.homework_submission_id)] = r;
+			}
+		}
+	} catch (e) {
+		console.warn('[parent-portal] grading map fetch failed:', e);
+	}
+}
+
+function appendPortalGradingBlock(container, grading, verificationCode) {
+	if (!grading) return;
+	const wrap = document.createElement('div');
+	wrap.className = 'hw-detail-grading';
+
+	const head = document.createElement('div');
+	head.className = 'hw-grading-head';
+	head.innerHTML = '<i class="fas fa-check-double"></i> 확정 채점';
+	wrap.appendChild(head);
+
+	if (grading.total_score != null && grading.max_score != null) {
+		const score = document.createElement('div');
+		score.className = 'hw-grading-score';
+		score.innerHTML = `<i class="fas fa-chart-simple"></i> 점수: <strong>${escapeHtml(String(grading.total_score))}</strong> / ${escapeHtml(String(grading.max_score))}`;
+		wrap.appendChild(score);
+	}
+
+	const countParts = [];
+	if (grading.correct_count != null) countParts.push(`맞음 ${grading.correct_count}`);
+	if (grading.wrong_count != null) countParts.push(`틀림 ${grading.wrong_count}`);
+	if (grading.unanswered_count != null) countParts.push(`미응답 ${grading.unanswered_count}`);
+	if (countParts.length) {
+		const c = document.createElement('div');
+		c.className = 'hw-grading-counts';
+		c.textContent = countParts.join(' · ');
+		wrap.appendChild(c);
+	}
+
+	const imgs = grading.central_graded_image_urls;
+	if (Array.isArray(imgs) && imgs.length) {
+		const row = document.createElement('div');
+		row.className = 'hw-grading-images';
+		imgs.forEach((rawUrl, j) => {
+			const u = portalDriveImageDisplayUrl(rawUrl);
+			if (!u) return;
+			const a = document.createElement('a');
+			a.className = 'hw-grading-img-link';
+			a.href = u;
+			a.target = '_blank';
+			a.rel = 'noopener noreferrer';
+			const img = document.createElement('img');
+			img.className = 'hw-grading-thumb';
+			img.alt = `채점 ${j + 1}`;
+			img.loading = 'lazy';
+			img.src = u;
+			a.appendChild(img);
+			row.appendChild(a);
+		});
+		if (row.childNodes.length) wrap.appendChild(row);
+	}
+
+	if (verificationCode && grading.id != null) {
+		const btn = document.createElement('button');
+		btn.type = 'button';
+		btn.className = 'hw-grading-items-btn';
+		btn.innerHTML = '<i class="fas fa-list-ol"></i> 문항별 결과';
+		btn.addEventListener('click', () => openPortalGradingItemsModal(grading.id, verificationCode));
+		wrap.appendChild(btn);
+	}
+
+	container.appendChild(wrap);
+}
+
+async function openPortalGradingItemsModal(resultId, verificationCode) {
+	document.getElementById('pp-grading-items-modal')?.remove();
+
+	const overlay = document.createElement('div');
+	overlay.id = 'pp-grading-items-modal';
+	overlay.className = 'pp-grading-modal-overlay';
+	overlay.innerHTML = `
+		<div class="pp-grading-modal">
+			<div class="pp-grading-modal-head">
+				<span>문항별 결과</span>
+				<button type="button" class="pp-grading-modal-close" aria-label="닫기">&times;</button>
+			</div>
+			<div class="pp-grading-modal-body"><p class="pp-grading-loading">불러오는 중…</p></div>
+		</div>`;
+	document.body.appendChild(overlay);
+
+	const close = () => overlay.remove();
+	overlay.querySelector('.pp-grading-modal-close')?.addEventListener('click', close);
+	overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+
+	const bodyEl = overlay.querySelector('.pp-grading-modal-body');
+	if (!GRADING_SERVER_URL_HW) {
+		bodyEl.innerHTML = '<p class="pp-grading-err">채점 서버 URL이 설정되지 않았습니다</p>';
+		return;
+	}
+	try {
+		const base = GRADING_SERVER_URL_HW.replace(/\/$/, '');
+		const url = new URL(`${base}/api/public-portal-grading/results/${resultId}/items`);
+		url.searchParams.set('verification_code', verificationCode);
+		const res = await fetch(url.toString());
+		const data = await res.json().catch(() => ({}));
+		if (!res.ok) {
+			bodyEl.innerHTML = `<p class="pp-grading-err">${escapeHtml(data.detail || data.error || `HTTP ${res.status}`)}</p>`;
+			return;
+		}
+		const items = data.data || [];
+		if (!items.length) {
+			bodyEl.innerHTML = '<p class="pp-grading-empty">문항 데이터가 없습니다</p>';
+			return;
+		}
+		let rows = '';
+		for (const it of items) {
+			const qn = it.question_label || `#${it.question_number}`;
+			const corr = it.is_correct === true ? '○' : it.is_correct === false ? '×' : '—';
+			rows += `<tr><td>${escapeHtml(String(qn))}</td><td>${escapeHtml(corr)}</td><td>${escapeHtml(String(it.student_answer ?? ''))}</td><td>${escapeHtml(String(it.correct_answer ?? ''))}</td></tr>`;
+		}
+		bodyEl.innerHTML = `
+			<table class="pp-grading-items-table">
+				<thead><tr><th>문항</th><th>정오</th><th>학생 답</th><th>정답</th></tr></thead>
+				<tbody>${rows}</tbody>
+			</table>`;
+	} catch (e) {
+		bodyEl.innerHTML = `<p class="pp-grading-err">${escapeHtml(String(e.message || e))}</p>`;
+	}
+}
+
 async function loadHomeworkData() {
 	if (!currentStudent) return;
 
@@ -1232,7 +1399,7 @@ async function loadHomeworkData() {
 	try {
 		const subPromise = supabaseClient
 			.from('homework_submissions')
-			.select('id, submission_date, file_name, file_size, status, created_at')
+			.select('id, submission_date, file_name, file_size, status, created_at, grading_status')
 			.eq('student_id', currentStudent.id)
 			.gte('submission_date', startDate)
 			.lte('submission_date', endDate)
@@ -1269,11 +1436,14 @@ async function loadHomeworkData() {
 			hwAssignments = [];
 			hwAssignmentsLoaded = false;
 		}
+
+		await fetchHwPortalGradingMap();
 	} catch (e) {
 		console.error('Homework fetch error:', e);
 		hwSubmissions = [];
 		hwAssignments = [];
 		hwAssignmentsLoaded = false;
+		hwGradingBySubmissionId = {};
 	}
 
 	computeHwDateStatuses();
@@ -1534,6 +1704,17 @@ function showHwDateDetail(dateStr) {
 				`;
 			}
 			bodyEl.appendChild(item);
+
+			const gs = String(sub.grading_status || '');
+			if (gs === 'confirmed') {
+				const g = hwGradingBySubmissionId[String(sub.id)];
+				if (g) appendPortalGradingBlock(bodyEl, g, getPpPortalVerificationCode());
+			} else if (gs === 'review_needed') {
+				const pending = document.createElement('div');
+				pending.className = 'hw-detail-grading-pending';
+				pending.innerHTML = '<i class="fas fa-pen-to-square"></i> 선생님 검토·수정 중입니다. 확정 후 점수와 채점 이미지가 표시됩니다.';
+				bodyEl.appendChild(pending);
+			}
 		});
 	}
 }

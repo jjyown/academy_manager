@@ -53,7 +53,10 @@ python main.py
 | POST | /api/assignments | 과제 배정 |
 | POST | /api/evaluations/generate | 종합평가 생성 |
 | POST | /api/grading-auth/session | 채점 관리 로그인 후 단기 JWT 발급(PIN·Edge 검증) |
+| POST | /api/grading-auth/session-open | PIN 없이 JWT 발급(선택, `GRADING_ALLOW_OPEN_GRADING_SESSION=true`일 때만 — 공개 배포 시 비활성화 권장) |
 | GET | /api/homework-submissions | 숙제 제출 목록(세션 JWT 또는 개발 폴백) |
+| GET | /api/public-portal-grading/student-results | 학생·학부모 포털용: 인증코드(`student_code`/`parent_code`) 검증 후 `confirmed` 채점만(공개 필드) |
+| GET | /api/public-portal-grading/results/{id}/items | 동일 인증코드로 해당 결과가 `confirmed`일 때 문항 일부 필드만 |
 
 ## 환경변수
 

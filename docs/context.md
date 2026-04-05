@@ -14,7 +14,15 @@
 ## 최근 의사결정 로그
 | 날짜 | 결정 | 이유 | 영향 범위 |
 |---|---|---|---|
+| 2026-04-05 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/checklist.md, docs/context.md, docs/plan.md, grading-server/README.md, homework/index.html 외 2개 |
+| 2026-04-05 | **채점 확정 게이트(1단계)**: AI 종료 후 `grading_results.status`는 항상 `review_needed` · 확정 API에서 `homework_submissions.grading_status`도 `confirmed`로 동기화 · 문항 재계산·재채점으로 자동 `confirmed` 금지 | 학원 운영에서 공식 결과는 선생님 검토·확정 이후여야 하며, DB 상태가 그 의도를 반영해야 함 | `grading-server/routers/grading.py`, `grading-server/routers/results.py` |
+| 2026-04-05 | **Drive 채점 이미지(2단계, 숙제 제출 연결)**: `homework_submission_id`가 있으면 AI 단계에서는 채점본 Drive 업로드 생략 · 확정 시 ZIP 재로드·현재 `grading_items`로 이미지 렌더 후 업로드 · `source_image_index`·`drive_publish_*` 컬럼 필요 | 선생님 수정이 반영된 최종본만 드라이브·학부모 공개 근거로 남기기 위함 | `grading.py`, `results.py`, `grading/confirm_drive_publish.py`, `SUPABASE_GRADING_CONFIRM_DRIVE_20260405.sql` |
+| 2026-04-05 | **즉시 채점(제출 ID 없음)**: 원본이 서버에 보존되지 않으므로 채점 이미지는 기존처럼 AI 파이프라인 중 Drive 업로드 유지 | 기술 제약(세션 종료 후 바이트 재생성 불가) | `grading.py` `defer_drive = homework_submission_id is not None` |
+| 2026-04-05 | **학생/학부모 확정 채점 노출(3단계)**: JWT 없이 `GET /api/public-portal-grading/student-results`·`.../results/{id}/items` + 인증코드 검증 · `homework`·`parent-portal`에서 `grading_status===confirmed`일 때 점수·Drive 이미지(`uc`→`lh3`)·문항 모달 · `review_needed` 안내 | 내부 `GET /api/results/student/{id}`는 JWT 전제 유지, 공개 포털은 코드 기반 최소 필드만 | `grading-server/routers/public_portal_grading.py`, `grading-server/auth.py`, `grading-server/main.py`, `parent-portal/report.js`·`index.html`, `homework/index.html` |
 | 2026-04-05 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/checklist.md, docs/context.md, docs/plan.md, grading-server/.env.example, grading-server/README.md 외 5개 |
+| 2026-04-05 | 채점관리: PIN 없이 자동 입장(`session-open` + 프론트 `tryAutoEnterGrading`) | 운영 편의. 공개 URL이면 `GRADING_ALLOW_OPEN_GRADING_SESSION=false`로 PIN 강제 | `grading_auth.py`, `config.py`, `grading/index.html` |
+| 2026-04-05 | 메인 메뉴「채점 관리」: 새 탭이 아니라 **같은 창**에서 `grading/` 이동 | 메인에서 누르면 바로 채점 화면으로 넘어가는 동선(`location.assign`) | `js/payment.js` `openGradingPage` |
+| 2026-04-05 | 채점관리 입장: 선생님 드롭다운 제거·계정 자동 결정 | 운영에서 선택 단계 불필요. PIN은 자동 선택된 `teachers` 행 기준(`verify-teacher-pin` 동일). 다중 선생님 시 원장·canonical 이메일 우선 | `grading/index.html` |
 | 2026-04-05 | 즉시 채점: 다중 이미지·교재 필수·드라이브 `즉시채점/년/월/일/폴더명` | 선생님이 교재와 저장 이름을 명시하고 여러 장을 한 번에 올리도록. 일반 채점 결과는 기존 `채점 결과/년/월/일/학생명` 유지 | `grading/index.html`, `grading-server/routers/grading.py`, `config`·`drive`, `results.py` 재채점 인자 |
 | 2026-04-05 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | grading-server/__pycache__/config.cpython-312.pyc, grading-server/grading/__pycache__/grader.cpython-312.pyc, grading-server/grading/__pycache__/hml_parser.cpython-312.pyc, grading-server/integrations/__pycache__/drive.cpython-312.pyc, grading-server/integrations/__pycache__/supabase_client.cpython-312.pyc 외 3개 |
 | 2026-04-05 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | auth.js, docs/checklist.md, docs/context.md, docs/enterprise_workflow.md, docs/plan.md 외 10개 |
