@@ -284,6 +284,20 @@ async def get_grading_items(result_id: int) -> list[dict]:
     return res.data or []
 
 
+async def get_grading_items_for_confirm(result_id: int) -> list[dict]:
+    """확정 시 Drive 이미지 생성용: 페이지(source_image_index) 순 → 문항 순."""
+    sb = get_supabase()
+    res = await run_query(
+        sb.table("grading_items")
+        .select("*")
+        .eq("result_id", result_id)
+        .order("source_image_index")
+        .order("question_number")
+        .execute
+    )
+    return res.data or []
+
+
 async def update_grading_item(item_id: int, data: dict) -> dict:
     sb = get_supabase()
     res = await run_query(sb.table("grading_items").update(data).eq("id", item_id).execute)

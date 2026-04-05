@@ -14,6 +14,7 @@
 ## 최근 의사결정 로그
 | 날짜 | 결정 | 이유 | 영향 범위 |
 |---|---|---|---|
+| 2026-04-05 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | GRADING_SETUP.sql, SUPABASE_GRADING_CONFIRM_DRIVE_20260405.sql, docs/sql/grading_confirm_drive.sql, grading-server/.env.example, grading-server/auth.py 외 11개 |
 | 2026-04-05 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/checklist.md, docs/context.md, docs/plan.md, grading-server/README.md, homework/index.html 외 2개 |
 | 2026-04-05 | **채점 확정 게이트(1단계)**: AI 종료 후 `grading_results.status`는 항상 `review_needed` · 확정 API에서 `homework_submissions.grading_status`도 `confirmed`로 동기화 · 문항 재계산·재채점으로 자동 `confirmed` 금지 | 학원 운영에서 공식 결과는 선생님 검토·확정 이후여야 하며, DB 상태가 그 의도를 반영해야 함 | `grading-server/routers/grading.py`, `grading-server/routers/results.py` |
 | 2026-04-05 | **Drive 채점 이미지(2단계, 숙제 제출 연결)**: `homework_submission_id`가 있으면 AI 단계에서는 채점본 Drive 업로드 생략 · 확정 시 ZIP 재로드·현재 `grading_items`로 이미지 렌더 후 업로드 · `source_image_index`·`drive_publish_*` 컬럼 필요 | 선생님 수정이 반영된 최종본만 드라이브·학부모 공개 근거로 남기기 위함 | `grading.py`, `results.py`, `grading/confirm_drive_publish.py`, `SUPABASE_GRADING_CONFIRM_DRIVE_20260405.sql` |

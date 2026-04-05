@@ -20,7 +20,11 @@ _bearer_scheme = HTTPBearer(auto_error=False)
 PUBLIC_PATHS = {"/health", "/docs", "/openapi.json", "/redoc"}
 
 # Supabase 사용자 JWT 대신 별도 인증(채점 세션 JWT·쿼리 폴백)을 쓰는 API — 미들웨어에서 Bearer 요구 제외
-SKIP_SUPABASE_JWT_PATH_PREFIXES = ("/api/grading-auth", "/api/homework-submissions")
+SKIP_SUPABASE_JWT_PATH_PREFIXES = (
+    "/api/grading-auth",
+    "/api/homework-submissions",
+    "/api/public-portal-grading",
+)
 
 
 def path_skips_supabase_jwt(path: str) -> bool:

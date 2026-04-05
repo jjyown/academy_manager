@@ -2495,7 +2495,7 @@ window.openHomeworkPage = function() {
 window.openGradingPage = function() {
     const hasOrigin = window.location.origin && window.location.origin !== 'null';
     const targetUrl = hasOrigin ? `${window.location.origin}/grading/` : './grading/';
-    window.open(targetUrl, '_blank');
+    window.location.assign(targetUrl);
 }
 
 window.openParentPortal = function() {

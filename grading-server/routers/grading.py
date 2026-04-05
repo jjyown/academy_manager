@@ -417,16 +417,32 @@ async def _execute_grading(
 
     student_name = student.get("name", "학생")
     result_sub_path = list(result_drive_sub_path)
+    # 숙제 제출(ZIP) 연결 건: 채점 이미지는 선생님 확정 시에만 Drive 업로드(검토·수정 반영 후).
+    defer_drive = homework_submission_id is not None
+    try:
+        await update_grading_result(
+            result_id,
+            {
+                "drive_publish_folder": central_result_folder_name,
+                "drive_publish_sub_path": result_sub_path,
+            },
+        )
+    except Exception as snap_e:
+        logger.warning(
+            f"[Grade] drive_publish 스냅샷 저장 실패(Supabase에 컬럼 추가 필요 시 "
+            f"SUPABASE_GRADING_CONFIRM_DRIVE_*.sql 적용): {snap_e}"
+        )
 
     if not answer_key:
         logger.warning(f"배정된 교재 없음 (student: {student_id}) → 확인 요청 상태로 전환")
-        for idx, img_bytes in enumerate(image_bytes_list):
-            filename = f"원본_{idx+1}.jpg"
-            uploaded = upload_to_central(
-                central_token, central_result_folder_name, result_sub_path, filename, img_bytes
-            )
-            central_graded_urls.append(uploaded["url"])
-            central_graded_ids.append(uploaded["id"])
+        if not defer_drive:
+            for idx, img_bytes in enumerate(image_bytes_list):
+                filename = f"원본_{idx+1}.jpg"
+                uploaded = upload_to_central(
+                    central_token, central_result_folder_name, result_sub_path, filename, img_bytes
+                )
+                central_graded_urls.append(uploaded["url"])
+                central_graded_ids.append(uploaded["id"])
 
         await update_grading_result(result_id, {
             "status": "review_needed",
@@ -629,12 +645,13 @@ async def _execute_grading(
                 logger.info(f"[Grade] 이미지 {idx+1}: 풀이 노트 (답 미인식) → 원본 저장")
                 page_info_parts.append(f"풀이노트 {solution_only_count}")
 
-                filename = f"풀이_{idx+1}.jpg"
-                central_uploaded = upload_to_central(
-                    central_token, central_result_folder_name, result_sub_path, filename, img_bytes
-                )
-                central_graded_urls.append(central_uploaded["url"])
-                central_graded_ids.append(central_uploaded["id"])
+                if not defer_drive:
+                    filename = f"풀이_{idx+1}.jpg"
+                    central_uploaded = upload_to_central(
+                        central_token, central_result_folder_name, result_sub_path, filename, img_bytes
+                    )
+                    central_graded_urls.append(central_uploaded["url"])
+                    central_graded_ids.append(central_uploaded["id"])
                 continue
 
             if is_solution_only and ocr_answers:
@@ -663,18 +680,6 @@ async def _execute_grading(
             elif grade_result.get("page_info"):
                 page_info_parts.append(grade_result["page_info"])
 
-            graded_img = create_graded_image(
-                img_bytes, grade_result["items"],
-                grade_result["total_score"], grade_result["max_score"]
-            )
-
-            filename = f"채점_{idx+1}.jpg"
-            central_uploaded = upload_to_central(
-                central_token, central_result_folder_name, result_sub_path, filename, graded_img
-            )
-            central_graded_urls.append(central_uploaded["url"])
-            central_graded_ids.append(central_uploaded["id"])
-
             db_fields = {
                 "result_id", "question_number", "question_label", "question_type",
                 "student_answer", "correct_answer", "is_correct",
@@ -685,6 +690,7 @@ async def _execute_grading(
             for item in grade_result["items"]:
                 item["result_id"] = result_id
                 db_item = {k: v for k, v in item.items() if k in db_fields}
+                db_item["source_image_index"] = idx
                 all_items.append(db_item)
 
             total_correct += grade_result["correct_count"]
@@ -695,20 +701,32 @@ async def _execute_grading(
             total_score += grade_result["total_score"]
             max_score += grade_result["max_score"]
 
+            if not defer_drive:
+                graded_img = create_graded_image(
+                    img_bytes, grade_result["items"],
+                    grade_result["total_score"], grade_result["max_score"]
+                )
+                filename = f"채점_{idx+1}.jpg"
+                central_uploaded = upload_to_central(
+                    central_token, central_result_folder_name, result_sub_path, filename, graded_img
+                )
+                central_graded_urls.append(central_uploaded["url"])
+                central_graded_ids.append(central_uploaded["id"])
+
         except Exception as img_err:
             failed_images.append(idx + 1)
             logger.error(f"[Grade] 이미지 {idx+1}/{total_images} 채점 실패 (계속 진행): {img_err}", exc_info=True)
             page_info_parts.append(f"이미지{idx+1} 실패")
-            # 실패한 이미지의 원본이라도 저장 시도
-            try:
-                filename = f"실패_{idx+1}.jpg"
-                fallback = upload_to_central(
-                    central_token, central_result_folder_name, result_sub_path, filename, img_bytes
-                )
-                central_graded_urls.append(fallback["url"])
-                central_graded_ids.append(fallback["id"])
-            except Exception:
-                logger.warning(f"[Grade] 실패 이미지 {idx+1} 원본 저장도 실패")
+            if not defer_drive:
+                try:
+                    filename = f"실패_{idx+1}.jpg"
+                    fallback = upload_to_central(
+                        central_token, central_result_folder_name, result_sub_path, filename, img_bytes
+                    )
+                    central_graded_urls.append(fallback["url"])
+                    central_graded_ids.append(fallback["id"])
+                except Exception:
+                    logger.warning(f"[Grade] 실패 이미지 {idx+1} 원본 저장도 실패")
 
     if failed_images:
         logger.warning(f"[Grade] 총 {len(failed_images)}장 실패: {failed_images}")
@@ -719,11 +737,9 @@ async def _execute_grading(
         await create_grading_items(all_items)
 
     combined_page_info = " / ".join(page_info_parts) if page_info_parts else ""
-    # 실패 이미지가 있으면 무조건 review_needed + 에러 메시지 기록
-    if failed_images:
-        status = "review_needed"
-    else:
-        status = "confirmed" if total_uncertain == 0 else "review_needed"
+    # 선생님이 채점관리에서 검토·확정하기 전까지는 확정(confirmed)하지 않음(AI는 초안).
+    # 숙제 제출 연결 건(defer_drive)은 채점 이미지를 확정 API에서만 Drive에 반영한다.
+    status = "review_needed"
 
     error_message = ""
     if failed_images:
@@ -760,11 +776,11 @@ async def _execute_grading(
             notif_message += f" - {score_text}"
         if failed_images:
             notif_message += f" [이미지 {len(failed_images)}장 실패]"
-        elif status == "review_needed":
-            notif_message += " [검토 필요]"
+        else:
+            notif_message += " [AI 초안 — 검토 후 확정해주세요]"
 
         notif_type = "grading_failed" if failed_images else "grading_complete"
-        notif_title = "채점 완료 (일부 실패)" if failed_images else "채점 완료"
+        notif_title = "채점 완료 (일부 실패)" if failed_images else "AI 채점 초안 완료"
 
         await create_notification({
             "teacher_id": teacher_id,

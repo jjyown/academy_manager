@@ -361,3 +361,8 @@ DO $$ BEGIN
   END IF;
 END $$;
 ALTER TABLE grading_feedback ENABLE ROW LEVEL SECURITY;
+
+-- 확정 시 Drive 반영(2026-04-05): 상세는 SUPABASE_GRADING_CONFIRM_DRIVE_20260405.sql
+ALTER TABLE grading_items ADD COLUMN IF NOT EXISTS source_image_index INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE grading_results ADD COLUMN IF NOT EXISTS drive_publish_folder TEXT;
+ALTER TABLE grading_results ADD COLUMN IF NOT EXISTS drive_publish_sub_path JSONB;

@@ -15,6 +15,11 @@ GRADING_SESSION_TTL_HOURS = int(os.getenv("GRADING_SESSION_TTL_HOURS", "12"))
 # 운영 단일 원장(jjyown@gmail.com 등): 모든 선생님 채점 세션 JWT의 sub·응답 owner_user_id를 이 UUID로 고정.
 # 비우면 기존대로 teachers.owner_user_id 사용. 설정 시 채점관리 프론트의 과제 API teacher_id와 반드시 동일해야 함.
 GRADING_CANONICAL_OWNER_USER_ID = os.getenv("GRADING_CANONICAL_OWNER_USER_ID", "").strip()
+# session-open 시 teachers 행 자동 선택용(이메일 일치 우선). 프론트 CANONICAL_GRADING_OWNER_EMAIL과 맞출 것.
+GRADING_CANONICAL_OWNER_EMAIL = os.getenv("GRADING_CANONICAL_OWNER_EMAIL", "jjyown@gmail.com").strip()
+# True: PIN 없이 POST /api/grading-auth/session-open 으로 채점 세션 발급 허용(내부망·단일 학원 전제). 보안 필요 시 false.
+_GRADING_OPEN_RAW = os.getenv("GRADING_ALLOW_OPEN_GRADING_SESSION", "true").strip().lower()
+GRADING_ALLOW_OPEN_GRADING_SESSION = _GRADING_OPEN_RAW not in ("false", "0", "no", "off")
 
 # JWT 검증용 시크릿 (Supabase Dashboard → Settings → API → JWT Secret)
 # 설정하지 않으면 인증이 비활성화됩니다 (개발 모드)

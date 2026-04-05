@@ -14,6 +14,7 @@ from integrations.supabase_client import (
     update_grading_result, get_student, update_submission_grading_status,
 )
 from integrations.drive import delete_file
+from grading.confirm_drive_publish import publish_graded_images_on_confirm
 from progress import clear_old_progress, get_progress, get_all_active
 
 logger = logging.getLogger(__name__)
@@ -146,8 +147,34 @@ async def list_results(teacher_id: str, status: str = ""):
 async def confirm_result(result_id: int):
     try:
         sb = get_supabase()
-        res = await run_query(sb.table("grading_results").update({"status": "confirmed"}).eq("id", result_id).execute)
+        prev = await run_query(
+            sb.table("grading_results").select("*").eq("id", result_id).limit(1).execute
+        )
+        if not prev.data:
+            raise HTTPException(status_code=404, detail="채점 결과를 찾을 수 없습니다")
+        result_row = prev.data[0]
+        submission_id = result_row.get("homework_submission_id")
+
+        update_payload: dict = {"status": "confirmed"}
+        if submission_id:
+            # 숙제 제출 연결 건: 확정 시점에 최종 문항(선생님 수정 반영)으로 채점 이미지 생성 후 Drive 업로드
+            ids, urls = await publish_graded_images_on_confirm(result_row)
+            update_payload["central_graded_drive_ids"] = ids
+            update_payload["central_graded_image_urls"] = urls
+
+        res = await run_query(
+            sb.table("grading_results").update(update_payload).eq("id", result_id).execute
+        )
+
+        if submission_id:
+            try:
+                await update_submission_grading_status(int(submission_id), "confirmed")
+            except Exception as sub_e:
+                logger.warning(f"[Confirm] submission #{submission_id} 상태 동기화 실패: {sub_e}")
+
         return {"data": res.data}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"결과 확정 실패: {e}")
         raise HTTPException(status_code=500, detail=f"결과 확정 실패: {str(e)[:200]}")
@@ -312,7 +339,12 @@ async def _recalculate_result_totals(result_id: int):
             and item.get("is_correct") is True
         )
         total_score = round(mc_earned + essay_earned, 1)
-        status = "confirmed" if uncertain == 0 else "review_needed"
+        cur_res = await run_query(
+            sb.table("grading_results").select("status").eq("id", result_id).limit(1).execute
+        )
+        cur_status = (cur_res.data or [{}])[0].get("status") or "review_needed"
+        # 이미 확정된 건은 유지. 그 외에는 문항 수정만으로 자동 확정하지 않음(선생님「확정」버튼 필요).
+        new_status = cur_status if cur_status == "confirmed" else "review_needed"
 
         await update_grading_result(result_id, {
             "correct_count": correct,
@@ -322,7 +354,7 @@ async def _recalculate_result_totals(result_id: int):
             "total_questions": len(items),
             "total_score": total_score,
             "max_score": 100.0,
-            "status": status,
+            "status": new_status,
         })
         logger.info(f"[Recalc] result #{result_id} 재계산 완료: "
                      f"{correct}맞/{wrong}틀/{uncertain}보류/{unanswered}미풀이, "
@@ -428,7 +460,8 @@ async def regrade_result(result_id: int, request: Request, background_tasks: Bac
             regraded_count += 1
 
         total_score = round(correct * mc_per_score + essay_earned, 1)
-        status = "confirmed" if uncertain == 0 else "review_needed"
+        # 재채점 후에도 선생님 검토·확정 전 단계로 둠
+        status = "review_needed"
 
         await update_grading_result(result_id, {
             "correct_count": correct,

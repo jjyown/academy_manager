@@ -528,24 +528,28 @@
 </head>
 <body>
 
-<!-- 로그인 페이지 -->
+<!-- 로그인 페이지: 기본은 PIN 없이 자동 입장(session-open 또는 토큰 없는 개발 폴백) -->
 <div id="page-login" style="display:none; min-height:100vh; align-items:center; justify-content:center; padding:20px;">
 	<div style="max-width:380px; width:100%; text-align:center;">
 		<div style="font-size:48px; margin-bottom:16px;">📝</div>
 		<h1 style="font-size:22px; font-weight:800; margin-bottom:4px;">하이로드 수학 채점 관리</h1>
-		<p style="color:var(--text-sec); font-size:13px; margin-bottom:28px;">선생님을 선택하고 비밀번호를 입력하세요</p>
-		<div style="text-align:left;">
+		<div id="grading-login-boot" style="display:block;padding:12px 0 8px;">
+			<p style="color:var(--text-sec); font-size:13px; margin:0;">채점 관리를 여는 중입니다…</p>
+		</div>
+		<div id="grading-reenter-panel" style="display:none;padding:8px 0 4px;">
+			<p style="color:var(--text-sec); font-size:13px; margin:0 0 12px;">로그아웃되었습니다.</p>
+			<button type="button" class="btn btn-primary" style="width:100%;padding:14px;font-size:15px;" onclick="sessionStorage.removeItem('grading_post_logout'); tryAutoEnterGrading();">
+				<i class="fas fa-sign-in-alt" style="margin-right:6px;"></i> 다시 입장
+			</button>
+		</div>
+		<div id="grading-login-pin-panel" style="display:none;text-align:left;">
+			<p style="color:var(--text-sec); font-size:13px; margin-bottom:10px;">비밀번호로 입장합니다.</p>
+			<p id="grading-login-hint" style="font-size:12px;color:var(--text-sec);margin:0 0 16px;line-height:1.45;min-height:2.8em;"></p>
 			<div class="form-group">
-				<label class="form-label">선생님 선택</label>
-				<select class="input" id="login-teacher-select" onchange="onLoginTeacherSelected()">
-					<option value="">선생님을 선택해주세요</option>
-				</select>
-			</div>
-			<div class="form-group" id="login-password-section" style="display:none;">
 				<label class="form-label">비밀번호</label>
-				<input class="input" id="login-password" type="password" placeholder="비밀번호 입력" onkeydown="if(event.key==='Enter') handleLogin()">
+				<input class="input" id="login-password" type="password" placeholder="비밀번호 입력" autocomplete="current-password" onkeydown="if(event.key==='Enter') handleLogin()">
 			</div>
-			<button class="btn btn-primary" style="width:100%;padding:14px;font-size:15px;margin-top:4px;" onclick="handleLogin()">
+			<button type="button" class="btn btn-primary" style="width:100%;padding:14px;font-size:15px;margin-top:4px;" onclick="handleLogin()">
 				<i class="fas fa-sign-in-alt" style="margin-right:6px;"></i> 입장
 			</button>
 		</div>
@@ -1324,6 +1328,8 @@ async function resolveGradingOwnerUserIdFallback() {
 }
 
 let teacherList = [];
+/** 로그인 시 PIN 검증에 쓰는 단일 행(선택 UI 제거 — 원장·canonical·단일·첫 행 순으로 자동 결정) */
+let gradingLoginTeacher = null;
 let currentResults = [];
 let currentItems = [];
 let currentResultId = null;
@@ -1366,8 +1372,55 @@ let currentImageUrls = [];  // 채점 이미지 URL 목록
 let currentImageIdx = 0;    // 현재 표시 중인 이미지 인덱스
 
 // ============================================================
-// 인증 (선생님 선택 + 비밀번호)
+// 인증 (비밀번호만 — 입장 계정은 목록에서 자동 결정)
 // ============================================================
+function updateLoginGateHint() {
+	const el = document.getElementById('grading-login-hint');
+	if (!el) return;
+	if (!teacherList || teacherList.length === 0) {
+		el.textContent = '선생님 목록을 불러오지 못했습니다. 새로고침하거나 채점 서버·Supabase 연결을 확인해주세요.';
+		el.style.color = 'var(--red)';
+		return;
+	}
+	if (!gradingLoginTeacher) {
+		el.textContent = '입장할 계정을 결정하지 못했습니다. 새로고침해주세요.';
+		el.style.color = 'var(--red)';
+		return;
+	}
+	const nm = gradingLoginTeacher.name || '선생님';
+	el.style.color = 'var(--text-sec)';
+	el.textContent = `입장 계정: ${nm} — 위 비밀번호는 해당 계정의 채점 관리 비밀번호입니다.`;
+}
+
+function resolveGradingLoginTeacherFromList(list) {
+	teacherList = list || [];
+	if (!teacherList.length) {
+		gradingLoginTeacher = null;
+		return;
+	}
+	if (teacherList.length === 1) {
+		gradingLoginTeacher = teacherList[0];
+		return;
+	}
+	const admins = teacherList.filter(t => t.is_central_admin === true);
+	if (admins.length) {
+		gradingLoginTeacher = admins[0];
+		return;
+	}
+	const em = (CANONICAL_GRADING_OWNER_EMAIL || '').toLowerCase().trim();
+	if (em) {
+		const byEmail = teacherList.find(t => {
+			const e = String(t.email || '').toLowerCase();
+			const g = String(t.google_email || '').toLowerCase();
+			return e === em || g === em;
+		});
+		if (byEmail) {
+			gradingLoginTeacher = byEmail;
+			return;
+		}
+	}
+	gradingLoginTeacher = teacherList[0];
+}
 function mapVerifyTeacherPinFailureToMessage(verifyResult) {
 	if (!verifyResult || verifyResult.ok) return '';
 	const code = String(verifyResult.error || '').trim();
@@ -1411,9 +1464,13 @@ async function verifyTeacherPinWithServer(teacherId, pin, options = {}) {
 }
 
 async function loadTeacherList() {
-	const sel = document.getElementById('login-teacher-select');
-	sel.innerHTML = '<option value="">선생님 목록 불러오는 중...</option>';
-	sel.disabled = true;
+	const hint = document.getElementById('grading-login-hint');
+	if (hint && !sessionStorage.getItem('grading_teacher')) {
+		hint.textContent = '선생님 목록을 불러오는 중…';
+		hint.style.color = 'var(--text-sec)';
+	}
+
+	const TEACHER_SELECT = 'id,name,phone,owner_user_id,teacher_role,created_at,email,google_email,is_central_admin';
 
 	// 로컬 개발 환경에서는 사용자 지정 URL이 없으면 원격 채점 서버 호출(CORS)을 건너뛴다.
 	const serverPromise = (async () => {
@@ -1439,10 +1496,16 @@ async function loadTeacherList() {
 
 	const supabasePromise = (async () => {
 		try {
-			const { data, error } = await db
+			let { data, error } = await db
 				.from('teachers')
-				.select('id, name, phone, owner_user_id, teacher_role, created_at')
+				.select(TEACHER_SELECT)
 				.order('created_at');
+			if (error && /column|does not exist/i.test(String(error.message || ''))) {
+				({ data, error } = await db
+					.from('teachers')
+					.select('id, name, phone, owner_user_id, teacher_role, created_at, email, google_email')
+					.order('created_at'));
+			}
 			if (!error && data && data.length > 0) {
 				return { source: 'supabase-client', data };
 			}
@@ -1450,9 +1513,14 @@ async function loadTeacherList() {
 			console.warn('[채점관리] Supabase 클라이언트 실패:', e.message);
 		}
 		try {
-			const res = await fetch(`${SUPABASE_URL}/rest/v1/teachers?select=id,name,phone,owner_user_id,teacher_role,created_at&order=created_at.asc`, {
+			let res = await fetch(`${SUPABASE_URL}/rest/v1/teachers?select=${encodeURIComponent(TEACHER_SELECT)}&order=created_at.asc`, {
 				headers: { 'apikey': SUPABASE_ANON_KEY, 'Content-Type': 'application/json' }
 			});
+			if (!res.ok) {
+				res = await fetch(`${SUPABASE_URL}/rest/v1/teachers?select=id,name,phone,owner_user_id,teacher_role,created_at,email,google_email&order=created_at.asc`, {
+					headers: { 'apikey': SUPABASE_ANON_KEY, 'Content-Type': 'application/json' }
+				});
+			}
 			if (res.ok) {
 				const data = await res.json();
 				if (data && data.length > 0) return { source: 'supabase-rest', data };
@@ -1463,53 +1531,150 @@ async function loadTeacherList() {
 		return null;
 	})();
 
-	const updateDropdown = (list) => {
-		teacherList = list;
-		sel.disabled = false;
-		sel.innerHTML = '<option value="">선생님을 선택해주세요</option>' +
-			list.map(t => `<option value="${t.id}">${escapeHtml(t.name)}${t.phone ? ' (' + t.phone.slice(-4) + ')' : ''}</option>`).join('');
+	const applyList = (list) => {
+		resolveGradingLoginTeacherFromList(list);
+		updateLoginGateHint();
 	};
 
 	let resolved = false;
-	// 먼저 도착하는 결과로 즉시 UI 업데이트
 	const race = [serverPromise, supabasePromise].map(p =>
 		p.then(result => {
 			if (result && !resolved) {
 				resolved = true;
 				console.log(`[채점관리] ${result.source}에서 선생님 로드 성공:`, result.data.length, '명');
-				updateDropdown(result.data);
+				applyList(result.data);
 			}
 		})
 	);
 
 	await Promise.allSettled(race);
 
-	// 병렬 호출 후에도 서버 결과가 있으면 더 신뢰할 수 있으므로 최종 반영
 	const serverResult = await serverPromise;
 	if (serverResult && serverResult.data.length > 0) {
-		updateDropdown(serverResult.data);
+		applyList(serverResult.data);
 	}
 
 	if (!teacherList || teacherList.length === 0) {
-		sel.disabled = false;
-		sel.innerHTML = '<option value="">선생님 목록 로드 실패 - 새로고침해주세요</option>';
+		resolveGradingLoginTeacherFromList([]);
+		updateLoginGateHint();
 		console.error('[채점관리] 선생님 목록 로드 실패 - 채점 서버가 실행 중인지 확인하세요');
 	}
 }
 
-function onLoginTeacherSelected() {
-	const tid = document.getElementById('login-teacher-select').value;
-	document.getElementById('login-password-section').style.display = tid ? 'block' : 'none';
+function showGradingPinPanel() {
+	const boot = document.getElementById('grading-login-boot');
+	const re = document.getElementById('grading-reenter-panel');
+	const pin = document.getElementById('grading-login-pin-panel');
+	if (boot) boot.style.display = 'none';
+	if (re) re.style.display = 'none';
+	if (pin) pin.style.display = 'block';
+	updateLoginGateHint();
+}
+
+function showGradingReenterOnlyUi() {
+	const boot = document.getElementById('grading-login-boot');
+	const re = document.getElementById('grading-reenter-panel');
+	const pin = document.getElementById('grading-login-pin-panel');
+	if (boot) boot.style.display = 'none';
+	if (pin) pin.style.display = 'none';
+	if (re) re.style.display = 'block';
+	const h = document.getElementById('grading-login-hint');
+	if (h) {
+		h.textContent = '';
+	}
+}
+
+/**
+ * PIN 입력 없이 입장: (1) session-open 성공 시 JWT 저장 (2) 실패·503 시 토큰 없이 개발 폴백
+ * (3) 403(자동 입장 비활성) 시 비밀번호 패널 표시
+ */
+async function tryAutoEnterGrading() {
+	const boot = document.getElementById('grading-login-boot');
+	const re = document.getElementById('grading-reenter-panel');
+	const pin = document.getElementById('grading-login-pin-panel');
+	if (re) re.style.display = 'none';
+	if (pin) pin.style.display = 'none';
+	if (boot) boot.style.display = 'block';
+
+	await loadTeacherList();
+
+	if (!gradingLoginTeacher) {
+		if (boot) boot.style.display = 'none';
+		showGradingPinPanel();
+		const h = document.getElementById('grading-login-hint');
+		if (h) {
+			h.textContent = '선생님 목록을 불러오지 못했습니다. 새로고침하거나 연결을 확인해주세요.';
+			h.style.color = 'var(--red)';
+		}
+		return;
+	}
+
+	const base = String(GRADING_SERVER_URL || '').trim().replace(/\/$/, '');
+	if (shouldTryRemoteGradingServer && base) {
+		try {
+			const res = await fetch(`${base}/api/grading-auth/session-open`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: '{}',
+			});
+			const data = await res.json().catch(() => ({}));
+			if (res.ok && data.access_token && data.teacher) {
+				let trow = data.teacher;
+				const m = (teacherList || []).find(x => String(x.id) === String(trow.id));
+				if (m) trow = { ...m, ...trow };
+				const owner = String(data.owner_user_id || '').trim()
+					|| await resolveGradingOwnerUserIdFallback()
+					|| String(trow.owner_user_id || '').trim();
+				const teacherPayload = { ...trow, _gradingApiOwner: owner };
+				sessionStorage.setItem('grading_session_token', data.access_token);
+				currentTeacher = teacherPayload;
+				gradingLoginTeacher = trow;
+				sessionStorage.setItem('grading_teacher', JSON.stringify(teacherPayload));
+				sessionStorage.removeItem('grading_post_logout');
+				document.getElementById('login-error').style.display = 'none';
+				if (boot) boot.style.display = 'none';
+				showPage('main');
+				goToday();
+				await loadAllData();
+				return;
+			}
+			if (res.status === 403) {
+				if (boot) boot.style.display = 'none';
+				sessionStorage.removeItem('grading_session_token');
+				const detail = data.detail;
+				const h = document.getElementById('grading-login-hint');
+				showGradingPinPanel();
+				if (h && typeof detail === 'string') {
+					h.textContent = detail;
+					h.style.color = 'var(--text-sec)';
+				}
+				return;
+			}
+		} catch (e) {
+			console.warn('[채점관리] session-open 요청 실패, 토큰 없이 시도:', e);
+		}
+	}
+
+	sessionStorage.removeItem('grading_session_token');
+	if (boot) boot.style.display = 'none';
+	const apiOwner = await resolveGradingOwnerUserIdFallback();
+	const owner = apiOwner || String(gradingLoginTeacher.owner_user_id || '').trim();
+	const teacherPayload = { ...gradingLoginTeacher, _gradingApiOwner: owner };
+	currentTeacher = teacherPayload;
+	sessionStorage.setItem('grading_teacher', JSON.stringify(teacherPayload));
+	sessionStorage.removeItem('grading_post_logout');
 	document.getElementById('login-error').style.display = 'none';
-	if (tid) document.getElementById('login-password').value = '';
+	showPage('main');
+	goToday();
+	await loadAllData();
 }
 
 async function handleLogin() {
-	const tid = document.getElementById('login-teacher-select').value;
-	if (!tid) { showToast('선생님을 선택해주세요', 'error'); return; }
-
-	const teacher = teacherList.find(t => String(t.id) === String(tid));
-	if (!teacher) { showToast('선생님 정보를 찾을 수 없습니다', 'error'); return; }
+	if (!gradingLoginTeacher) {
+		showToast('입장 가능한 선생님 계정을 찾을 수 없습니다. 새로고침해주세요.', 'error');
+		return;
+	}
+	const teacher = gradingLoginTeacher;
 
 	const password = document.getElementById('login-password').value.trim();
 	if (!password) { showToast('비밀번호를 입력해주세요', 'error'); return; }
@@ -1564,6 +1729,7 @@ async function handleLogin() {
 	const teacherPayload = { ...teacher, _gradingApiOwner: apiOwner };
 	currentTeacher = teacherPayload;
 	sessionStorage.setItem('grading_teacher', JSON.stringify(teacherPayload));
+	sessionStorage.removeItem('grading_post_logout');
 	document.getElementById('login-error').style.display = 'none';
 	showPage('main');
 	goToday();
@@ -1587,12 +1753,14 @@ function handleLogout() {
 	sessionStorage.removeItem('grading_teacher');
 	sessionStorage.removeItem('grading_session_token');
 	sessionStorage.removeItem('grading_nav');
+	sessionStorage.setItem('grading_post_logout', '1');
 	currentTeacher = null;
 	currentResults = [];
 	currentItems = [];
 	currentResultId = null;
 	stopProgressPolling();
 	showPage('login');
+	showGradingReenterOnlyUi();
 }
 
 // ============================================================
@@ -2564,7 +2732,8 @@ async function openDetail(resultId) {
 	} catch(e) { console.warn('교재 목록 로드 실패:', e); }
 	if (result.answer_key_id) keySelect.value = String(result.answer_key_id);
 
-	// 채점 이미지 (중앙 드라이브 우선)
+	// 채점 이미지 (중앙 드라이브 우선). 숙제 제출 건은 확정 전에는 URL이 비어 있을 수 있음.
+	window.currentDetailResultForImage = result;
 	currentImageUrls = result.central_graded_image_urls || result.teacher_graded_image_urls || [];
 	currentImageIdx = 0;
 	loadCurrentImage();
@@ -5592,10 +5761,21 @@ function loadCurrentImage() {
 		img.style.display = 'none';
 		emptyState.style.display = 'flex';
 		nav.style.display = 'none';
+		const hint = emptyState.querySelector('p');
+		if (hint && window.currentDetailResultForImage) {
+			const r = window.currentDetailResultForImage;
+			if (r.status !== 'confirmed' && r.homework_submission_id) {
+				hint.textContent = '확정 전에는 채점 이미지가 드라이브에 없습니다. 문항을 수정한 뒤「확정」하면 최종 이미지가 저장되고 학생·학부모 조회에 반영됩니다.';
+			} else {
+				hint.textContent = '채점 이미지가 없습니다';
+			}
+		}
 		return;
 	}
 
 	emptyState.style.display = 'none';
+	const hintEl = emptyState.querySelector('p');
+	if (hintEl) hintEl.textContent = '채점 이미지가 없습니다';
 	img.style.display = 'block';
 	let imgUrl = currentImageUrls[currentImageIdx];
 	const ucMatch = imgUrl && imgUrl.match(/drive\.google\.com\/uc\?id=([^&]+)/);
@@ -5915,12 +6095,9 @@ function fixDriveUrl(url) {
 // ============================================================
 document.addEventListener('DOMContentLoaded', async () => {
 	const saved = sessionStorage.getItem('grading_teacher');
-	const hasSession = !!saved;
+	const postLogout = sessionStorage.getItem('grading_post_logout') === '1';
 
-	if (!hasSession) {
-		document.getElementById('page-login').style.display = 'flex';
-		await loadTeacherList();
-	} else {
+	if (saved && !postLogout) {
 		try {
 			const teacher = JSON.parse(saved);
 			currentTeacher = teacher;
@@ -5944,16 +6121,29 @@ document.addEventListener('DOMContentLoaded', async () => {
 						...match,
 						_gradingApiOwner: teacher._gradingApiOwner || match.owner_user_id || '',
 					};
+					gradingLoginTeacher = match;
+					sessionStorage.setItem('grading_teacher', JSON.stringify(currentTeacher));
 				} else {
 					sessionStorage.removeItem('grading_teacher');
+					sessionStorage.removeItem('grading_session_token');
 					currentTeacher = null;
 					showPage('login');
 					document.getElementById('page-login').style.display = 'flex';
+					await tryAutoEnterGrading();
 				}
 			}
 		} catch(e) {
 			sessionStorage.removeItem('grading_teacher');
+			sessionStorage.removeItem('grading_session_token');
 			document.getElementById('page-login').style.display = 'flex';
+			await tryAutoEnterGrading();
+		}
+	} else {
+		document.getElementById('page-login').style.display = 'flex';
+		if (postLogout) {
+			showGradingReenterOnlyUi();
+		} else {
+			await tryAutoEnterGrading();
 		}
 	}
 
