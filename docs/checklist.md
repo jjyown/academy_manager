@@ -1,6 +1,6 @@
 # 출석관리앱 체크리스트
 
-- 문서 기준일: 2026-04-05
+- 문서 기준일: 2026-04-06
 ## 문의 답변 처리
 - [x] 메인 앱 콘솔 빨강/노랑 완화(2026-04-04): `index.html`(env는 루프백만 fetch·비밀번호 구간 `<form>`·`autocomplete`/숨은 `username`·복구·선생님 비번 변경·강제초기화·선생님 인증 모달), `script.js`(`unload` 제거·username 동기화·`openModal` teacher-password), `auth.js`(`initializeAuth` debug·`openAdminPasswordUpdateModal` 이메일→username), `qr-attendance.js`(QR 모달)
 - [x] 숙제·학부모 관리자 로그인(2026-04-04): `homework/index.html`·`parent-portal/report.js`·`parent-portal/index.html` — `auth.flowType: pkce`, `normalizeSupabaseProjectUrl`(오타 호스트 교정), 인증 실패·`teachers` 없음 메시지 구분, 관리자 모달 `<form>` 래핑 · `node --check parent-portal/report.js` 권장
@@ -194,6 +194,9 @@
 ## 테스트/검증 결과 기록
 | 날짜 | 작업 | 검증 방법 | 결과 | 비고 |
 |---|---|---|---|---|
+| 2026-04-06 | AUTO-20260406(staged 4개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
+| 2026-04-06 | 채점관리 PIN 로그인 `<form>` 래핑 | 수동: `grading/index.html` DOM 구조 확인 | PASS(코드) | 브라우저 콘솔 DOM 경고 감소 기대 |
+| 2026-04-06 | 과제 배정 API `insert().select` 제거(supabase-py 2.x) | `python -m compileall grading-server` | PASS(코드) | Railway 배포 후 `POST /api/assignments` 스모크 |
 | 2026-04-05 | AUTO-20260405(staged 16개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-04-05 | AUTO-20260405(staged 7개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-04-05 | 채점 확정 게이트 3단계(UI: 학부모·학생 숙제 + `public-portal-grading` API) | `python -m compileall grading-server` · `node --check parent-portal/report.js` | PASS(코드) | 배포 후 CORS·실제 이미지 로드 스모크 권장 |

@@ -1,6 +1,6 @@
 # 출석관리앱 컨텍스트 노트
 
-- 문서 기준일: 2026-04-05
+- 문서 기준일: 2026-04-06
 ## 제품/운영 컨텍스트
 - 대상 사용자: 교사(관리), 학생(조회)
 - 핵심 데이터: 학생, 반, 수업, 날짜, 출석상태, 수정자, 수정시각
@@ -14,6 +14,10 @@
 ## 최근 의사결정 로그
 | 날짜 | 결정 | 이유 | 영향 범위 |
 |---|---|---|---|
+| 2026-04-06 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/context.md, docs/plan.md, grading-server/README.md, grading-server/integrations/supabase_client.py |
+| 2026-04-06 | 채점관리 PIN 패널: 비밀번호를 `<form onsubmit preventDefault>`로 감싸고 숨은 `username` 필드로 선생님 식별자 동기화 | DOM 비밀번호·폼 권고 및 비밀번호 관리자 힌트 정렬 | `grading/index.html` |
+| 2026-04-06 | **`grading_assignments` insert**: 응답 `data` 비면 `teacher_id`+`title` 재조회 폴백 · 성공 로그로 배포 확인 | insert 본문 누락·구배포 구분 | `integrations/supabase_client.py` `create_assignment` |
+| 2026-04-06 | **`grading_assignments` 저장**: `insert().select()` / `update().select()` 제거 → `execute()`만 사용 · update 응답 비면 `get_assignment` 재조회 | supabase-py 2.x에 `.select` 체인 없음; **Railway 미재배포 시 구증상 지속** | `integrations/supabase_client.py` `create_assignment`, `update_assignment` |
 | 2026-04-05 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | GRADING_SETUP.sql, SUPABASE_GRADING_CONFIRM_DRIVE_20260405.sql, docs/sql/grading_confirm_drive.sql, grading-server/.env.example, grading-server/auth.py 외 11개 |
 | 2026-04-05 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/checklist.md, docs/context.md, docs/plan.md, grading-server/README.md, homework/index.html 외 2개 |
 | 2026-04-05 | **채점 확정 게이트(1단계)**: AI 종료 후 `grading_results.status`는 항상 `review_needed` · 확정 API에서 `homework_submissions.grading_status`도 `confirmed`로 동기화 · 문항 재계산·재채점으로 자동 `confirmed` 금지 | 학원 운영에서 공식 결과는 선생님 검토·확정 이후여야 하며, DB 상태가 그 의도를 반영해야 함 | `grading-server/routers/grading.py`, `grading-server/routers/results.py` |

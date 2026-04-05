@@ -1,6 +1,6 @@
 # 출석관리앱 작업 계획서
 
-- 문서 기준일: 2026-04-05
+- 문서 기준일: 2026-04-06
 ## 프로젝트 목표
 - 학생/수업 기준으로 출석 상태를 정확히 기록하고 조회한다.
 - 교사 권한으로만 수정 가능하도록 접근 제어를 적용한다.
@@ -131,6 +131,20 @@
 - 구현 파일: 위 3단계 + `grading-server/routers/grading.py`, `grading-server/routers/results.py`, `grading-server/grading/confirm_drive_publish.py`, `grading-server/grading/panel_scores.py`, `grading/index.html`, `SUPABASE_GRADING_CONFIRM_DRIVE_20260405.sql`, `GRADING_SETUP.sql`
 - 검증: `python -m compileall grading-server` · `node --check parent-portal/report.js` · SQL 적용 · Railway 재배포 후: 제출 채점 → 상세에 이미지 없음 안내 → 문항 수정 → 확정 → Drive 폴더에 `채점_*.jpg` · `grading_results.central_graded_image_urls` 채움 · 포털/숙제에서 확정 건 점수·이미지·문항 확인.
 - 다음 단계: 배포 도메인이 `CORS_ORIGINS`에 포함되는지 운영 확인 · 실제 기기에서 이미지 로드·모달 스모크.
+
+### 숙제 과제 배정 POST 400 — supabase-py 2.x `insert().select` — 2026-04-06
+- 상태: [x] 완료(코드) · 운영은 **Railway grading-server 재배포**로 반드시 맞출 것
+- 증상: `POST /api/assignments` 시 `'SyncQueryRequestBuilder' object has no attribute 'select'`
+- 원인: `supabase==2.7.2` / `postgrest`에서 `insert(...).select(...)` 체인 미지원. **프론트·문서만 푸시하고 API 서버가 구버전이면 동일 메시지가 계속 난다.**
+- 구현: `create_assignment`는 `insert(...).execute()`만 사용 · insert 응답 `data` 비면 `teacher_id`+`title`로 최신 1건 재조회 폴백 · 성공 시 로그 `grading_assignments insert ok id=... (api=insert.execute` 로 배포 여부 확인 가능
+- `update_assignment`: `.select` 제거 · 응답 비면 `get_assignment` 폴백
+- 파일: `grading-server/integrations/supabase_client.py`, `grading-server/README.md`(운영 트러블슈팅)
+- 검증: `python -m compileall grading-server` · **최신 커밋으로 Railway Redeploy** 후 과제 배정 · 로그/동작 확인
+
+### 채점관리 PIN 로그인: 비밀번호 `<form>` + 숨은 username — 2026-04-06
+- 상태: [x] 완료
+- 브라우저 `[DOM] Password field is not contained in a form` 완화 · `submit`으로 Enter 입장 유지 · `grading-login-username-ac`에 이메일/이름 동기화
+- 파일: `grading/index.html`
 
 ## 문의 답변 기록 — 2026-04-03
 - 상태: [x] 완료
@@ -1787,6 +1801,7 @@
 - [ ] 다음 작업자가 바로 이어서 할 수 있게 문서가 갱신되었다.
 
 ## 변경 이력
+- 2026-04-06 - AUTO-20260406(staged 4개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-04-05 - AUTO-20260405(staged 16개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-04-05 - AUTO-20260405(staged 7개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-04-05 - AUTO-20260405(staged 10개 파일 기준 문서 연동 자동기록): 연동 자동 기록

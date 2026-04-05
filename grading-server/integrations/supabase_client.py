@@ -106,28 +106,62 @@ async def get_assignments_by_teacher(teacher_id: str) -> list[dict]:
 
 async def create_assignment(data: dict) -> dict:
     sb = get_supabase()
-    # Prefer: return=representation — insert 직후 행 전체(due_time 등) 반환
-    res = await run_query(sb.table("grading_assignments").insert(data).select("*").execute)
+    # supabase-py 2.x: insert(...).select(...) 체인 금지 → AttributeError:
+    # 'SyncQueryRequestBuilder' object has no attribute 'select'
+    # 배포가 오래된 인스턴스면 동일 증상이 남음 → Railway에서 최신 커밋 재배포 필요.
+    res = await run_query(sb.table("grading_assignments").insert(data).execute)
     if getattr(res, "error", None) and res.error:
         logger.error("grading_assignments insert 실패: %s data=%s", res.error, data)
         raise RuntimeError(str(res.error))
-    if not res.data:
-        logger.error("grading_assignments insert 응답 data 비어 있음 data=%s", data)
-        raise RuntimeError("과제 배정 저장 응답이 비어 있습니다. Supabase에 due_time 컬럼이 있는지 확인하세요.")
-    return res.data[0]
+    if res.data and len(res.data) > 0:
+        row = res.data[0]
+        logger.info(
+            "grading_assignments insert ok id=%s teacher_id=%s (api=insert.execute, no chained select)",
+            row.get("id"),
+            data.get("teacher_id"),
+        )
+        return row
+
+    # 일부 환경에서 representation 본문이 비는 경우 대비(서비스 롤은 드묾)
+    logger.warning(
+        "grading_assignments insert 응답 data 비어 있음 → teacher/title 기준 재조회 시도 data_keys=%s",
+        list(data.keys()),
+    )
+    tid = data.get("teacher_id")
+    title = data.get("title")
+    if tid is not None and title is not None:
+        refetch = await run_query(
+            sb.table("grading_assignments")
+            .select("*")
+            .eq("teacher_id", tid)
+            .eq("title", title)
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute
+        )
+        if refetch.data and len(refetch.data) > 0:
+            logger.info("grading_assignments refetch ok id=%s", refetch.data[0].get("id"))
+            return refetch.data[0]
+
+    logger.error("grading_assignments insert 후 복구 실패 data=%s", data)
+    raise RuntimeError(
+        "과제 배정 저장 응답이 비어 있습니다. Supabase 스키마(due_time 등)를 확인하고, "
+        "서버가 최신 코드인지(Railway 재배포) 확인하세요."
+    )
 
 
 async def update_assignment(assignment_id: int, data: dict) -> dict:
     sb = get_supabase()
     res = await run_query(
-        sb.table("grading_assignments").update(data).eq("id", assignment_id).select("*").execute
+        sb.table("grading_assignments").update(data).eq("id", assignment_id).execute
     )
     if getattr(res, "error", None) and res.error:
         logger.error("grading_assignments update 실패: %s id=%s data=%s", res.error, assignment_id, data)
         raise RuntimeError(str(res.error))
-    if not res.data:
-        return {}
-    return res.data[0]
+    if res.data and len(res.data) > 0:
+        return res.data[0]
+    row = await get_assignment(assignment_id)
+    return row or {}
 
 
 async def delete_assignment(assignment_id: int) -> bool:

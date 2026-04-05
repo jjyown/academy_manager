@@ -40,6 +40,12 @@ python main.py
 4. Environment Variables에 .env 값 입력
 5. Deploy
 
+## 과제 배정 `POST /api/assignments` 400 — `'SyncQueryRequestBuilder' object has no attribute 'select'`
+
+- **원인**: 예전 코드가 `supabase-py` 2.x에서 지원하지 않는 `insert(...).select(...)` 체인을 사용함. 현재 저장소는 `insert(...).execute()`만 사용하도록 수정됨.
+- **조치**: GitHub에 해당 수정이 반영된 커밋이 올라갔는지 확인한 뒤, **Railway에서 grading-server 서비스를 최신 커밋으로 재배포**(Redeploy)한다. 프론트만 배포하고 API 서버를 올리지 않으면 증상이 그대로 남는다.
+- **배포 확인**: 재배포 후 과제 배정을 한 번 시도하고, Railway 로그에 `grading_assignments insert ok id=... (api=insert.execute` 가 보이면 신규 코드가 동작 중인 것이다.
+
 ## API 엔드포인트
 
 | Method | Path | 설명 |
