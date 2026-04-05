@@ -234,9 +234,10 @@ async def list_results(teacher_id: str, status: str = ""):
         submission_ids = sorted(set(submission_ids))
         sub_map: dict[int, dict[str, Any]] = {}
         if submission_ids:
+            # zip_drive_id는 API 폼 파라미터명일 뿐 DB 컬럼이 없는 배포가 많음 → 존재하는 컬럼만 select
             hs_res = await run_query(
                 sb.table("homework_submissions")
-                .select("id, central_drive_file_url, central_drive_file_id, zip_drive_id, drive_file_id")
+                .select("id, central_drive_file_url, central_drive_file_id, drive_file_id")
                 .in_("id", submission_ids)
                 .execute
             )

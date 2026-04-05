@@ -18,6 +18,8 @@
 - [x] Railway 로그 CSV 분석 + 고아 제출 복구(2026-04-05): `homework_submissions.updated_at` 미존재로 400 → `grading-server/main.py`에서 `created_at` 사용 · 재배포 후 기동 시 `[Recovery]` 로그 스모크
 - [x] 채점 확정 게이트 1단계(2026-04-05): AI 완료 시 `grading_results.status` 항상 `review_needed` · `PUT /api/results/{id}/confirm` 시 `homework_submissions.grading_status` → `confirmed` 동기화 · `_recalculate_result_totals`·재채점 완료 시 자동 확정 제거 — `grading-server/routers/grading.py`, `results.py` · `python -m compileall grading-server` · Railway 재배포 후 확정 동선 스모크
 - [x] 채점 확정 게이트 2단계(2026-04-05): **숙제 제출 연결 건** — AI 중 채점본 Drive 업로드 생략 · **확정 시** ZIP 재처리+`grading_items`로 이미지 생성·업로드(`confirm_drive_publish.py`) · Supabase에 `SUPABASE_GRADING_CONFIRM_DRIVE_20260405.sql` 적용 필수 · 즉시 채점(제출 ID 없음)은 기존처럼 AI 중 업로드
+- [x] `GET /api/results` 500: `homework_submissions`에 없는 `zip_drive_id` 컬럼 select 제거(2026-04-06) · `results.py`, `confirm_drive_publish.py` · Railway 재배포
+- [x] 채점 상세 문항 그리드: 빈 안내 문구 세로 깨짐 수정 — `.question-grid-empty` 전열 spanning(2026-04-06) · `grading/index.html`
 - [x] 숙제 채점 상세: `GET /api/results`에 ZIP Drive URL·file id 병합 + 미리보기 404 시 세션 토스트·Drive 링크(2026-04-06) — 구버전 서버에서도 원본 열기 가능 · `results.py`, `grading/index.html`
 - [x] 숙제 채점 상세: 확정 전 원본 미리보기 API + 과제 검토 UI(2026-04-06): `GET /api/results/{id}/source-pages-count`·`source-image/{i}` · ZIP 캐시 10분 · `central_drive_file_id` 재채점 폴백 · `grading/index.html` 과제 검토·문항 빈 안내 — **Railway 재배포** 후 스모크
 - [x] 채점 확정 게이트 3단계(2026-04-05): 학생·학부모 화면에서 확정 채점 이미지·점수·문항(`GET /api/public-portal-grading/...` + `grading_status`·세션 인증코드) · 관리자 모드는 채점 블록 생략 · 운영 시 `CORS_ORIGINS`·Railway 스모크 권장
@@ -196,6 +198,7 @@
 ## 테스트/검증 결과 기록
 | 날짜 | 작업 | 검증 방법 | 결과 | 비고 |
 |---|---|---|---|---|
+| 2026-04-06 | AUTO-20260406(staged 6개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-04-06 | AUTO-20260406(staged 6개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-04-06 | AUTO-20260406(staged 4개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-04-06 | 학생 숙제: 달력 배정 뱃지·복수 배정 체크·순차 제출·교재 체크박스 | `homework/index.html` 정적 검토 | PASS(코드) | 실제 기기에서 복수 배정·Drive 파일명 스모크 |

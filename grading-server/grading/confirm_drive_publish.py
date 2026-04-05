@@ -89,7 +89,7 @@ async def publish_graded_images_on_confirm(result_row: dict) -> tuple[list[str],
     sb = get_supabase()
     sub_res = await run_query(
         sb.table("homework_submissions")
-        .select("zip_drive_id, drive_file_id, central_drive_file_id")
+        .select("drive_file_id, central_drive_file_id")
         .eq("id", int(submission_id))
         .limit(1)
         .execute
@@ -98,8 +98,7 @@ async def publish_graded_images_on_confirm(result_row: dict) -> tuple[list[str],
         raise HTTPException(404, "연결된 숙제 제출을 찾을 수 없습니다.")
     sub = sub_res.data[0]
     zip_drive_id = (
-        sub.get("zip_drive_id")
-        or sub.get("drive_file_id")
+        sub.get("drive_file_id")
         or sub.get("central_drive_file_id")
         or ""
     )

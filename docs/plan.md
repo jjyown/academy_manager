@@ -169,6 +169,18 @@
 - 구현: `GET /api/results` 목록에 `homework_submission_zip_url`·`homework_submission_zip_drive_file_id` 병합(제출 행 일괄 조회). 프론트는 미리보기 실패 시 **Google Drive에서 ZIP 열기** 링크 표시 · 404 시 세션 1회 토스트(재배포 안내).
 - 파일: `grading-server/routers/results.py`, `grading/index.html`
 
+### 채점 상세: 빈 문항 안내 글자 세로 깨짐 — 2026-04-06
+- 상태: [x] 완료
+- 원인: `.question-grid`가 `minmax(50px,1fr)` 열이라 안내용 단일 `div`가 첫 열(최소 50px)에만 배치되어 한 글자씩 줄바꿈됨.
+- 구현: `.question-grid-empty { grid-column: 1 / -1; … }` + 빈 문항 HTML에 클래스 부여.
+- 파일: `grading/index.html`
+
+### `GET /api/results` 500 — homework_submissions `zip_drive_id` 컬럼 가정 — 2026-04-06
+- 상태: [x] 완료(코드) · **Railway 재배포** 필수
+- 원인: 목록 병합·확정 ZIP 조회에서 `zip_drive_id`를 select했으나, 운영 스키마에는 종종 해당 컬럼이 없음(API 폼 이름과 혼동). PostgREST가 실패 → 예외 → 500.
+- 구현: `central_drive_file_url`, `central_drive_file_id`, `drive_file_id`만 조회 · `confirm_drive_publish` 동일.
+- 파일: `grading-server/routers/results.py`, `grading-server/grading/confirm_drive_publish.py`
+
 ## 문의 답변 기록 — 2026-04-03
 - 상태: [x] 완료
 - 정리: 숙제 “배정”은 `grading_assignments`, 학생 “제출(배정연결)”은 `homework_submissions.grading_assignment_id`, 채점 결과는 `grading_results`에서 확인
@@ -1824,6 +1836,7 @@
 - [ ] 다음 작업자가 바로 이어서 할 수 있게 문서가 갱신되었다.
 
 ## 변경 이력
+- 2026-04-06 - AUTO-20260406(staged 6개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-04-06 - AUTO-20260406(staged 6개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-04-06 - AUTO-20260406(staged 4개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-04-05 - AUTO-20260405(staged 16개 파일 기준 문서 연동 자동기록): 연동 자동 기록
