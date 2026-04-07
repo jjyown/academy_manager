@@ -1,6 +1,6 @@
 # 출석관리앱 작업 계획서
 
-- 문서 기준일: 2026-04-06
+- 문서 기준일: 2026-04-07
 ## 프로젝트 목표
 - 학생/수업 기준으로 출석 상태를 정확히 기록하고 조회한다.
 - 교사 권한으로만 수정 가능하도록 접근 제어를 적용한다.
@@ -180,6 +180,13 @@
 - 원인: 목록 병합·확정 ZIP 조회에서 `zip_drive_id`를 select했으나, 운영 스키마에는 종종 해당 컬럼이 없음(API 폼 이름과 혼동). PostgREST가 실패 → 예외 → 500.
 - 구현: `central_drive_file_url`, `central_drive_file_id`, `drive_file_id`만 조회 · `confirm_drive_publish` 동일.
 - 파일: `grading-server/routers/results.py`, `grading-server/grading/confirm_drive_publish.py`
+
+### 재석확인(출석) 알림 모달 제거 — 2026-04-07
+- 상태: [x] 완료
+- 요청: 출석은 다른 앱으로 대체 → 이 앱은 **개인 일정 확인** 용도로만 사용
+- 구현: `index.html`에서 `attendance-check-modal`(재석확인 알림 모달) DOM 제거 · `qr-attendance.js`에서 재석확인 큐 등록/알림/스누즈/일괄처리 전부 no-op 처리(`DISABLE_ATTENDANCE_CHECK_MODAL=true`)
+- 파일: `index.html`, `qr-attendance.js`
+- 검증: `node --check qr-attendance.js` PASS
 
 ## 문의 답변 기록 — 2026-04-03
 - 상태: [x] 완료
@@ -1836,6 +1843,7 @@
 - [ ] 다음 작업자가 바로 이어서 할 수 있게 문서가 갱신되었다.
 
 ## 변경 이력
+- 2026-04-07 - AUTO-20260407(staged 7개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-04-06 - AUTO-20260406(staged 6개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-04-06 - AUTO-20260406(staged 6개 파일 기준 문서 연동 자동기록): 연동 자동 기록
 - 2026-04-06 - AUTO-20260406(staged 4개 파일 기준 문서 연동 자동기록): 연동 자동 기록

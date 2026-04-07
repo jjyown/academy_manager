@@ -2068,40 +2068,6 @@
         </div>
     </div>
 
-    <!-- 학생 재석 확인 알림 모달 -->
-    <div id="attendance-check-modal" class="modal" style="display: none; z-index: 10000;">
-        <div class="modal-card att-check-card">
-            <div class="att-check-header">
-                <div class="att-check-header-content">
-                    <span class="att-check-icon">🔔</span>
-                    <div>
-                        <h2 id="attendance-check-title">수업 시간 확인</h2>
-                        <p id="attendance-check-subtitle"></p>
-                    </div>
-                </div>
-            </div>
-            <div class="att-check-toolbar">
-                <label class="att-check-select-all">
-                    <input type="checkbox" id="att-check-select-all" onchange="toggleAllAttCheck(this.checked)">
-                    <span>전체 선택</span>
-                </label>
-                <span class="att-check-count" id="att-check-count">0명 선택</span>
-            </div>
-            <div class="modal-body-scrollable custom-scroll att-check-body">
-                <div id="attendance-check-list" class="att-check-list"></div>
-            </div>
-            <div class="att-check-footer">
-                <div class="att-check-actions">
-                    <button class="att-check-btn present" onclick="handleAttendanceCheckSelected('present')"><i class="fas fa-check"></i> 출석</button>
-                    <button class="att-check-btn late" onclick="handleAttendanceCheckSelected('late')"><i class="fas fa-clock"></i> 지각</button>
-                    <button class="att-check-btn absent" onclick="handleAttendanceCheckSelected('absent')"><i class="fas fa-times"></i> 결석</button>
-                    <button class="att-check-btn makeup" onclick="handleAttendanceCheckSelected('makeup')"><i class="fas fa-redo"></i> 보강</button>
-                </div>
-                <button class="att-check-btn-later" onclick="snoozeAttendanceCheck()">나중에 (5분 후 재알림)</button>
-            </div>
-        </div>
-    </div>
-
     <!-- Footer -->
     <footer class="app-footer">
         <div class="footer-content">

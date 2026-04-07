@@ -1,6 +1,6 @@
 # 출석관리앱 컨텍스트 노트
 
-- 문서 기준일: 2026-04-06
+- 문서 기준일: 2026-04-07
 ## 제품/운영 컨텍스트
 - 대상 사용자: 교사(관리), 학생(조회)
 - 핵심 데이터: 학생, 반, 수업, 날짜, 출석상태, 수정자, 수정시각
@@ -14,9 +14,11 @@
 ## 최근 의사결정 로그
 | 날짜 | 결정 | 이유 | 영향 범위 |
 |---|---|---|---|
+| 2026-04-07 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/checklist.md, docs/context.md, docs/enterprise_workflow.md, docs/plan.md, index.html 외 2개 |
 | 2026-04-06 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/checklist.md, docs/context.md, docs/plan.md, grading-server/grading/confirm_drive_publish.py, grading-server/routers/results.py 외 1개 |
 | 2026-04-06 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/checklist.md, docs/context.md, docs/plan.md, grading-server/routers/results.py, grading/index.html 외 1개 |
 | 2026-04-06 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/context.md, docs/plan.md, grading-server/README.md, grading-server/integrations/supabase_client.py |
+| 2026-04-07 | **출석 대체 운영**: 재석확인 알림 모달 DOM 제거 + 재석확인 큐/팝업/스누즈 no-op 처리 | 출석은 외부 앱으로 대체, 본 앱은 개인 일정 확인용으로만 사용 | `index.html`, `qr-attendance.js` |
 | 2026-04-06 | 학생 숙제 UI: 달력에 배정 뱃지·일별 상세에 배정 목록·날짜 미선택 시 제출 버튼 비활성 | 제출 날짜 혼선 방지·배정 가시성 | `homework/index.html` |
 | 2026-04-06 | 복수 미제출 배정: 체크 후 동일 ZIP으로 Edge 순차 제출·ZIP 파일명에 배정 id | DB·Drive는 제출 건당 1행·1파일(기존 스키마 유지) | `homework/index.html` `getZipFilename` |
 | 2026-04-06 | 교재 복수 체크 UI 단, `answer_key_id`는 API 1개만 → 단일 배정 시 첫 체크 교재만 전달 | 기술 제약 명시가 운영 분쟁을 줄임 | `homework/index.html` |

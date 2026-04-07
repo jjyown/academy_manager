@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 import re
 import sys
+from zoneinfo import ZoneInfo
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,7 +32,12 @@ def sync_doc_date(target_date: str) -> int:
 
 
 def main() -> int:
-    today = date.today().isoformat()
+    # 작업일 기준 "오늘"은 KST(Asia/Seoul)로 고정한다.
+    # (UTC 기준으로 전날로 찍히는 문제 방지)
+    try:
+        today = datetime.now(ZoneInfo("Asia/Seoul")).date().isoformat()
+    except Exception:
+        today = date.today().isoformat()
     changed = sync_doc_date(today)
     print(f"[sync-doc-dates] 완료 (today={today}, changed_files={changed})")
     return 0

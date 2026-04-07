@@ -1,6 +1,6 @@
 # 출석관리앱 체크리스트
 
-- 문서 기준일: 2026-04-06
+- 문서 기준일: 2026-04-07
 ## 문의 답변 처리
 - [x] 메인 앱 콘솔 빨강/노랑 완화(2026-04-04): `index.html`(env는 루프백만 fetch·비밀번호 구간 `<form>`·`autocomplete`/숨은 `username`·복구·선생님 비번 변경·강제초기화·선생님 인증 모달), `script.js`(`unload` 제거·username 동기화·`openModal` teacher-password), `auth.js`(`initializeAuth` debug·`openAdminPasswordUpdateModal` 이메일→username), `qr-attendance.js`(QR 모달)
 - [x] 숙제·학부모 관리자 로그인(2026-04-04): `homework/index.html`·`parent-portal/report.js`·`parent-portal/index.html` — `auth.flowType: pkce`, `normalizeSupabaseProjectUrl`(오타 호스트 교정), 인증 실패·`teachers` 없음 메시지 구분, 관리자 모달 `<form>` 래핑 · `node --check parent-portal/report.js` 권장
@@ -22,6 +22,7 @@
 - [x] 채점 상세 문항 그리드: 빈 안내 문구 세로 깨짐 수정 — `.question-grid-empty` 전열 spanning(2026-04-06) · `grading/index.html`
 - [x] 숙제 채점 상세: `GET /api/results`에 ZIP Drive URL·file id 병합 + 미리보기 404 시 세션 토스트·Drive 링크(2026-04-06) — 구버전 서버에서도 원본 열기 가능 · `results.py`, `grading/index.html`
 - [x] 숙제 채점 상세: 확정 전 원본 미리보기 API + 과제 검토 UI(2026-04-06): `GET /api/results/{id}/source-pages-count`·`source-image/{i}` · ZIP 캐시 10분 · `central_drive_file_id` 재채점 폴백 · `grading/index.html` 과제 검토·문항 빈 안내 — **Railway 재배포** 후 스모크
+- [x] 재석확인(출석) 알림 모달 제거(2026-04-07): `attendance-check-modal` DOM 삭제 + 재석확인 큐/팝업/스누즈 no-op — `index.html`, `qr-attendance.js`
 - [x] 채점 확정 게이트 3단계(2026-04-05): 학생·학부모 화면에서 확정 채점 이미지·점수·문항(`GET /api/public-portal-grading/...` + `grading_status`·세션 인증코드) · 관리자 모드는 채점 블록 생략 · 운영 시 `CORS_ORIGINS`·Railway 스모크 권장
 - [x] 월간 학원 일정 글자색(2026-04-04): `style.css`에서 `.grid-cell.custom-holiday .holiday-name`의 `color !important` 제거 — 줄별 인라인 색 복구
 - [x] 월간 캘린더 「집계중」 고착(2026-04-04): `loadAllTeachersScheduleData` finally에 `renderCalendar(true)` — 디바운스 렌더×로딩 플래그 경합 제거; `_generateScheduleCore`/`updateClassTime`/`setTimetableScope` 보강
@@ -198,6 +199,7 @@
 ## 테스트/검증 결과 기록
 | 날짜 | 작업 | 검증 방법 | 결과 | 비고 |
 |---|---|---|---|---|
+| 2026-04-07 | AUTO-20260407(staged 7개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-04-06 | AUTO-20260406(staged 6개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-04-06 | AUTO-20260406(staged 6개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-04-06 | AUTO-20260406(staged 4개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |

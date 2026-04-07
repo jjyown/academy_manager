@@ -154,6 +154,10 @@ const pendingAttendanceChecks = new Map();
 // 활성 타이머: timeKey → { early: timeoutId|null, start: timeoutId|null } (5분 전 + 정각)
 const pendingTimersDetail = new Map();
 
+// 출석을 다른 앱으로 대체하는 운영(개인 일정 확인 용도 등)에서는
+// 재석확인 팝업(알림 모달) 기능을 완전히 비활성화한다.
+const DISABLE_ATTENDANCE_CHECK_MODAL = true;
+
 function normalizeAttendanceTimeKey(value) {
     if (typeof window.normalizeScheduleTimeKey === 'function') {
         const normalized = window.normalizeScheduleTimeKey(value);
@@ -211,6 +215,7 @@ function prunePendingAttendanceChecksAgainstCurrentSchedules() {
 
 // 재석 확인 대기 큐에 등록
 function registerPendingAttendanceCheck(studentId, studentName, teacherId, scheduleStart, dateStr) {
+    if (DISABLE_ATTENDANCE_CHECK_MODAL) return;
     const timeKey = normalizeAttendanceTimeKey(scheduleStart); // "HH:MM"
     if (!timeKey) return;
     if (!pendingAttendanceChecks.has(timeKey)) {
@@ -420,6 +425,18 @@ async function saveEmergencyAttendanceAfterAllClassesEnded(opts) {
 // phase: 'early' 수업 5분 전 | 'start' 수업 시작 정각 | 기타(스누즈 등)
 // ★ 체크박스 선택 + 상태 버튼 방식
 function showAttendanceCheckNotification(timeKey, phase) {
+    if (DISABLE_ATTENDANCE_CHECK_MODAL) {
+        // 혹시 남아있는 타이머/큐가 있어도 화면 팝업은 띄우지 않는다.
+        try {
+            const key = normalizeAttendanceTimeKey(timeKey);
+            if (key) {
+                pendingAttendanceChecks.delete(key);
+                clearAttendanceCheckTimersForTimeKey(key);
+                clearSnoozeForTimeKey(key);
+            }
+        } catch (_) {}
+        return;
+    }
     timeKey = normalizeAttendanceTimeKey(timeKey);
     if (!timeKey) return;
     const snoozeUntil = Number(snoozeUntilByTimeKey.get(timeKey) || 0);
@@ -501,6 +518,7 @@ function showAttendanceCheckNotification(timeKey, phase) {
 
 // 체크박스 전체 선택/해제
 window.toggleAllAttCheck = function(checked) {
+    if (DISABLE_ATTENDANCE_CHECK_MODAL) return;
     document.querySelectorAll('.att-check-cb').forEach(cb => {
         if (!cb.closest('.att-check-item.done')) cb.checked = checked;
     });
@@ -509,6 +527,7 @@ window.toggleAllAttCheck = function(checked) {
 
 // 선택 카운트 업데이트
 window.updateAttCheckCount = function() {
+    if (DISABLE_ATTENDANCE_CHECK_MODAL) return;
     const total = document.querySelectorAll('.att-check-cb').length;
     const checked = document.querySelectorAll('.att-check-cb:checked').length;
     const countEl = document.getElementById('att-check-count');
@@ -611,6 +630,7 @@ async function _processAttendanceCheck(timeKey, idx, status) {
 
 // ★ 선택된 학생들을 일괄 처리
 window.handleAttendanceCheckSelected = async function(status) {
+    if (DISABLE_ATTENDANCE_CHECK_MODAL) return;
     const checkedBoxes = document.querySelectorAll('.att-check-cb:checked');
     if (checkedBoxes.length === 0) {
         showToast('처리할 학생을 선택해주세요.', 'warning');
@@ -703,6 +723,7 @@ window.handleSingleAttendanceCheck = async function(timeKey, idx, status) {
 
 // 레거시 호환: handleAttendanceCheckAll
 window.handleAttendanceCheckAll = async function(status) {
+    if (DISABLE_ATTENDANCE_CHECK_MODAL) return;
     // 전체 선택 후 처리
     document.querySelectorAll('.att-check-cb').forEach(cb => { if (!cb.closest('.done')) cb.checked = true; });
     await handleAttendanceCheckSelected(status);
@@ -724,6 +745,7 @@ function clearSnoozeForTimeKey(timeKey) {
 }
 
 window.snoozeAttendanceCheck = function() {
+    if (DISABLE_ATTENDANCE_CHECK_MODAL) return;
     // 아직 처리되지 않은 항목이 있는 timeKey들을 수집
     const pendingKeys = [];
     for (const [key, items] of pendingAttendanceChecks.entries()) {
