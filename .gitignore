@@ -4,6 +4,9 @@
 .env*.local
 grading-server/.env
 
+# MCP 설정 (PAT 평문 포함)
+.mcp.json
+
 # 빌드
 dist/
 build/
