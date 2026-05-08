@@ -1,6 +1,6 @@
 # 출석관리앱 컨텍스트 노트
 
-- 문서 기준일: 2026-04-11
+- 문서 기준일: 2026-05-09
 ## 제품/운영 컨텍스트
 - 대상 사용자: 교사(관리), 학생(조회)
 - 핵심 데이터: 학생, 반, 수업, 날짜, 출석상태, 수정자, 수정시각
@@ -14,6 +14,7 @@
 ## 최근 의사결정 로그
 | 날짜 | 결정 | 이유 | 영향 범위 |
 |---|---|---|---|
+| 2026-05-09 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | grading-server/__pycache__/auth.cpython-312.pyc, grading-server/__pycache__/config.cpython-312.pyc, grading-server/integrations/__pycache__/drive.cpython-312.pyc, grading-server/integrations/__pycache__/supabase_client.cpython-312.pyc, grading-server/routers/__pycache__/grading.cpython-312.pyc 외 4개 |
 | 2026-04-11 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | qa-artifacts/geometry_formula_practice_easy.pdf |
 | 2026-04-07 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/checklist.md, docs/context.md, docs/enterprise_workflow.md, docs/plan.md, index.html 외 2개 |
 | 2026-04-06 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/checklist.md, docs/context.md, docs/plan.md, grading-server/grading/confirm_drive_publish.py, grading-server/routers/results.py 외 1개 |
