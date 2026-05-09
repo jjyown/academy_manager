@@ -1467,7 +1467,11 @@ async function fetchPublicHolidays(year) {
             '';
     }
     if (!apiKey || apiKey === 'YOUR_API_KEY_HERE') {
-        console.warn('[공휴일] API 키가 설정되지 않았습니다. 하드코딩 데이터를 사용합니다.');
+        // 키 미설정은 의도된 fallback (하드코딩 공휴일 사용) — 세션당 한 번만 안내
+        if (!window._holidayKeyWarnedOnce) {
+            window._holidayKeyWarnedOnce = true;
+            console.info('[공휴일] data.go.kr API 키가 설정되지 않아 내장 공휴일 데이터를 사용합니다. (정상 동작)');
+        }
         return null;
     }
 
