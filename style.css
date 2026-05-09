@@ -3016,6 +3016,215 @@ textarea:focus:not(:focus-visible) {
 [data-theme="charcoal"] .student-eval-admissions-title { color: #e2e8f0; }
 [data-theme="night"] .student-eval-admissions-content,
 [data-theme="charcoal"] .student-eval-admissions-content { color: #cbd5e1; }
+
+/* ==========================================================
+ * 종합평가 → 학부모 발송용 전문가 양식 이미지 리포트
+ * 화면에는 안 보이고(off-screen) html2canvas 캡처용으로만 렌더.
+ * 인쇄·이미지 변환 시 색상 정확성을 위해 그림자·복잡 그라디언트 최소화.
+ * ========================================================== */
+.eval-report-render-host {
+    position: fixed;
+    left: -10000px;
+    top: 0;
+    z-index: -1;
+    pointer-events: none;
+}
+.eval-report-card {
+    width: 820px;
+    background: #ffffff;
+    color: #0f172a;
+    font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    box-sizing: border-box;
+    padding: 0;
+    border: 1px solid #e2e8f0;
+}
+.eval-report-header {
+    background: #4f46e5;
+    color: #ffffff;
+    padding: 28px 36px 24px;
+    border-bottom: 4px solid #312e81;
+}
+.eval-report-brand-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+.eval-report-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 800;
+    font-size: 18px;
+    letter-spacing: -0.3px;
+}
+.eval-report-brand-mark {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    background: #ffffff;
+    color: #4f46e5;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 900;
+    font-size: 18px;
+    letter-spacing: -1px;
+}
+.eval-report-doc-type {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    background: rgba(255, 255, 255, 0.18);
+    padding: 4px 10px;
+    border-radius: 4px;
+}
+.eval-report-title-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+}
+.eval-report-title {
+    font-size: 26px;
+    font-weight: 800;
+    letter-spacing: -0.6px;
+    line-height: 1.2;
+}
+.eval-report-month {
+    font-size: 14px;
+    font-weight: 600;
+    opacity: 0.92;
+}
+.eval-report-student-bar {
+    background: #f8fafc;
+    border-bottom: 1px solid #e2e8f0;
+    padding: 16px 36px;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+}
+.eval-report-student-name {
+    font-size: 20px;
+    font-weight: 800;
+    color: #0f172a;
+    letter-spacing: -0.4px;
+}
+.eval-report-student-meta {
+    font-size: 13px;
+    color: #475569;
+    font-weight: 500;
+}
+.eval-report-student-meta span {
+    margin-right: 8px;
+}
+.eval-report-stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: #e2e8f0;
+    border-bottom: 1px solid #e2e8f0;
+}
+.eval-report-stat {
+    background: #ffffff;
+    padding: 16px 12px;
+    text-align: center;
+}
+.eval-report-stat-value {
+    font-size: 22px;
+    font-weight: 800;
+    color: #4f46e5;
+    line-height: 1.1;
+    margin-bottom: 4px;
+}
+.eval-report-stat-label {
+    font-size: 11px;
+    color: #64748b;
+    font-weight: 600;
+}
+.eval-report-body {
+    padding: 24px 36px 12px;
+}
+.eval-report-section {
+    margin-bottom: 18px;
+    padding-bottom: 18px;
+    border-bottom: 1px dashed #e2e8f0;
+}
+.eval-report-section:last-of-type {
+    border-bottom: none;
+    padding-bottom: 0;
+}
+.eval-report-section-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+.eval-report-section-num {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    background: #4f46e5;
+    color: #ffffff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    font-size: 13px;
+    flex-shrink: 0;
+}
+.eval-report-section-title {
+    font-size: 16px;
+    font-weight: 800;
+    color: #1e293b;
+    letter-spacing: -0.3px;
+}
+.eval-report-section-body {
+    font-size: 13.5px;
+    color: #334155;
+    line-height: 1.78;
+    padding-left: 38px;
+    white-space: pre-wrap;
+    word-break: keep-all;
+}
+.eval-report-footer {
+    background: #f1f5f9;
+    border-top: 1px solid #e2e8f0;
+    padding: 14px 36px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11px;
+    color: #64748b;
+}
+.eval-report-footer-left {
+    font-weight: 700;
+    color: #475569;
+}
+.eval-report-footer-stamp {
+    display: inline-block;
+    border: 1.5px solid #4f46e5;
+    color: #4f46e5;
+    border-radius: 4px;
+    padding: 3px 10px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    font-size: 10px;
+}
+.eval-report-watermark {
+    position: relative;
+}
+.eval-report-watermark::before {
+    content: "CONFIDENTIAL";
+    position: absolute;
+    right: 36px;
+    top: 110px;
+    font-size: 86px;
+    font-weight: 900;
+    color: rgba(79, 70, 229, 0.04);
+    letter-spacing: -3px;
+    pointer-events: none;
+}
 [data-theme="night"] .student-eval-ai-persist,
 [data-theme="charcoal"] .student-eval-ai-persist {
     border-color: rgba(148, 163, 184, 0.25);

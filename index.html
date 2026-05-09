@@ -15,6 +15,8 @@
     <!-- QR 코드 라이브러리 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script src="https://unpkg.com/html5-qrcode@2.3.8"></script>
+    <!-- 종합평가 리포트 → 이미지 변환 (html2canvas) -->
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
     <!-- Google Identity Services (OAuth 2.0) -->
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <!-- 환경 변수 로더 (로컬 .env / Vercel은 파일 없음 → supabase-config.js 폴백) -->
@@ -1191,6 +1193,9 @@
                         </button>
                         <button type="button" class="eval-ai-btn eval-ai-btn--secondary" id="student-eval-refine-toggle-btn" onclick="toggleStudentEvalRefinePanel()">
                             <i class="fas fa-pen-to-square"></i> 수정·재생성
+                        </button>
+                        <button type="button" class="eval-ai-btn eval-ai-btn--secondary" id="student-eval-export-image-btn" onclick="exportStudentEvalAsImage()" title="현재 평가 내용을 학부모 발송용 전문가 양식 리포트 이미지로 저장">
+                            <i class="fas fa-image"></i> 이미지 리포트
                         </button>
                         <button type="button" class="eval-parent-toggle" id="student-eval-parent-toggle-btn" onclick="toggleStudentEvalParentVisible()" title="학부모 포털에서 이 달 평가 문구 공개 여부">
                             <i class="fas fa-eye-slash" id="student-eval-parent-toggle-icon"></i>

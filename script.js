@@ -8716,6 +8716,276 @@ window.saveOwnerEvalAiStyleNoteFromModal = async function() {
     if (ok) ta.value = '';
 };
 
+// ========== 종합평가 → 학부모 발송용 전문가 양식 이미지 리포트 ==========
+
+const ACADEMY_NAME = '하이로드 수학';
+const ACADEMY_BRAND_MARK = 'HR';
+
+/**
+ * AI가 생성한 4섹션 텍스트("01. **학습 총평:** ...") 를 파싱해
+ * 각 섹션의 제목·본문으로 분해.
+ */
+function _parseEvalSections(rawText) {
+    const text = String(rawText || '').trim();
+    if (!text) return [];
+    // 01. **학습 총평:** ... 또는 01. 학습 총평: ...
+    const re = /(?:^|\n)\s*(\d{1,2})\.\s*\*?\*?([^*\n:]+?)\*?\*?\s*[:：]\s*([\s\S]*?)(?=(?:\n\s*\d{1,2}\.\s)|$)/g;
+    const out = [];
+    let m;
+    while ((m = re.exec(text)) !== null) {
+        const num = m[1].padStart(2, '0');
+        const title = String(m[2] || '').trim();
+        const body = String(m[3] || '').trim();
+        if (title && body) out.push({ num, title, body });
+    }
+    // 파싱 실패 시 한 섹션으로 통째 표시
+    if (out.length === 0) {
+        out.push({ num: '01', title: '종합 평가', body: text });
+    }
+    return out;
+}
+
+function _esc(s) {
+    return String(s || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+/**
+ * 학생 이번 달 출결·숙제·시험 통계 간단 조회 (옵션 — 실패해도 리포트는 생성)
+ */
+async function _gatherEvalStats(studentId, evalMonth) {
+    const stats = { attendanceRate: '-', testAvg: '-', testCount: '-', hwSubmit: '-' };
+    try {
+        if (!studentId || !evalMonth) return stats;
+        const [yy, mm] = String(evalMonth).split('-').map(Number);
+        const lastDay = new Date(yy, mm, 0).getDate();
+        const startDate = `${evalMonth}-01`;
+        const endDate = `${evalMonth}-${String(lastDay).padStart(2, '0')}`;
+
+        // 출결률 (해당 월)
+        try {
+            const { data: attRows } = await supabase
+                .from('attendance_records')
+                .select('status')
+                .eq('student_id', String(studentId))
+                .gte('attendance_date', startDate)
+                .lte('attendance_date', endDate);
+            if (attRows && attRows.length) {
+                const ok = attRows.filter((r) => ['present', 'late', 'makeup', 'etc'].includes(r.status)).length;
+                stats.attendanceRate = Math.round((ok / attRows.length) * 100) + '%';
+            }
+        } catch (e) { /* 무시 */ }
+
+        // 시험 점수 (해당 월)
+        try {
+            if (typeof window.getStudentTestScoresByMonth === 'function') {
+                const scores = await window.getStudentTestScoresByMonth(studentId, evalMonth);
+                if (scores && scores.length) {
+                    stats.testCount = `${scores.length}회`;
+                    const pcts = scores
+                        .filter((s) => Number(s.maxScore) > 0)
+                        .map((s) => (Number(s.score) / Number(s.maxScore)) * 100);
+                    if (pcts.length) {
+                        const avg = pcts.reduce((a, b) => a + b, 0) / pcts.length;
+                        stats.testAvg = Math.round(avg) + '점';
+                    }
+                }
+            }
+        } catch (e) { /* 무시 */ }
+
+        // 숙제 제출 (해당 월)
+        try {
+            const { data: hwRows } = await supabase
+                .from('homework_submissions')
+                .select('status, submission_date')
+                .eq('student_id', String(studentId))
+                .gte('submission_date', startDate)
+                .lte('submission_date', endDate);
+            if (hwRows && hwRows.length) {
+                const okDays = new Set();
+                hwRows.forEach((r) => {
+                    if (r.status !== 'failed' && r.status !== 'deleted' && r.submission_date) {
+                        okDays.add(r.submission_date);
+                    }
+                });
+                stats.hwSubmit = `${okDays.size}일`;
+            }
+        } catch (e) { /* 무시 */ }
+    } catch (e) {
+        console.warn('[_gatherEvalStats]', e);
+    }
+    return stats;
+}
+
+/**
+ * 평가 텍스트 + 학생 정보로 리포트 DOM 빌드.
+ * 화면에는 안 보이는 off-screen 컨테이너에 렌더해 html2canvas 로 캡처.
+ */
+function _buildEvalReportDom(opts) {
+    const {
+        academyName, academyMark,
+        studentName, grade, school,
+        evalMonth, evalText, stats, today
+    } = opts;
+
+    const sections = _parseEvalSections(evalText);
+    const sectionsHtml = sections.map((s) => `
+        <div class="eval-report-section">
+            <div class="eval-report-section-head">
+                <span class="eval-report-section-num">${_esc(s.num)}</span>
+                <span class="eval-report-section-title">${_esc(s.title)}</span>
+            </div>
+            <div class="eval-report-section-body">${_esc(s.body)}</div>
+        </div>`).join('');
+
+    const studentMetaParts = [];
+    if (grade) studentMetaParts.push(`<span><i class="fas fa-graduation-cap"></i> ${_esc(grade)}</span>`);
+    if (school) studentMetaParts.push(`<span><i class="fas fa-school"></i> ${_esc(school)}</span>`);
+
+    const card = document.createElement('div');
+    card.className = 'eval-report-card eval-report-watermark';
+    card.innerHTML = `
+        <div class="eval-report-header">
+            <div class="eval-report-brand-row">
+                <div class="eval-report-brand">
+                    <span class="eval-report-brand-mark">${_esc(academyMark)}</span>
+                    <span>${_esc(academyName)}</span>
+                </div>
+                <span class="eval-report-doc-type">Monthly Report</span>
+            </div>
+            <div class="eval-report-title-row">
+                <div class="eval-report-title">월간 학업 성취 리포트</div>
+                <div class="eval-report-month">${_esc(evalMonth)}</div>
+            </div>
+        </div>
+        <div class="eval-report-student-bar">
+            <span class="eval-report-student-name">${_esc(studentName || '학생')}</span>
+            <span class="eval-report-student-meta">${studentMetaParts.join('')}</span>
+        </div>
+        <div class="eval-report-stats">
+            <div class="eval-report-stat">
+                <div class="eval-report-stat-value">${_esc(stats.attendanceRate)}</div>
+                <div class="eval-report-stat-label">출석률</div>
+            </div>
+            <div class="eval-report-stat">
+                <div class="eval-report-stat-value">${_esc(stats.testCount)}</div>
+                <div class="eval-report-stat-label">시험 응시</div>
+            </div>
+            <div class="eval-report-stat">
+                <div class="eval-report-stat-value">${_esc(stats.testAvg)}</div>
+                <div class="eval-report-stat-label">평균 득점</div>
+            </div>
+            <div class="eval-report-stat">
+                <div class="eval-report-stat-value">${_esc(stats.hwSubmit)}</div>
+                <div class="eval-report-stat-label">숙제 제출</div>
+            </div>
+        </div>
+        <div class="eval-report-body">
+            ${sectionsHtml}
+        </div>
+        <div class="eval-report-footer">
+            <span class="eval-report-footer-left">${_esc(academyName)} · 학부모용 안내</span>
+            <span>작성일: ${_esc(today)}</span>
+            <span class="eval-report-footer-stamp">CONFIDENTIAL</span>
+        </div>`;
+    return card;
+}
+
+/**
+ * 종합평가 모달의 textarea 내용을 학부모용 전문가 양식 PNG 이미지로 저장.
+ */
+window.exportStudentEvalAsImage = async function() {
+    const btn = document.getElementById('student-eval-export-image-btn');
+    const prev = btn ? btn.innerHTML : '';
+    if (typeof html2canvas === 'undefined') {
+        showToast('이미지 라이브러리(html2canvas)가 로드되지 않았습니다. 새로고침 후 다시 시도해주세요.', 'error');
+        return;
+    }
+
+    const ta = document.getElementById('student-eval-textarea');
+    const evalText = (ta && ta.value || '').trim();
+    if (!evalText) {
+        showToast('먼저 종합 평가 내용을 작성하거나 AI로 생성해주세요.', 'warning');
+        return;
+    }
+    const studentId = (ta.dataset && ta.dataset.studentId) || '';
+    const evalMonth = (ta.dataset && ta.dataset.evalMonth) || new Date().toISOString().slice(0, 7);
+    if (!studentId) {
+        showToast('학생 정보를 찾을 수 없습니다. 모달을 다시 열어주세요.', 'warning');
+        return;
+    }
+    // 학생 정보는 students 전역에서 조회 (가장 신뢰할 수 있는 소스)
+    let studentName = '학생', grade = '', school = '';
+    try {
+        const stu = (typeof students !== 'undefined' ? students : []).find((x) => String(x.id) === String(studentId));
+        if (stu) {
+            studentName = stu.name || '학생';
+            grade = stu.grade || '';
+            school = stu.school || '';
+        }
+    } catch (e) { /* 무시 */ }
+
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 이미지 생성 중...';
+    }
+    let host = null;
+    try {
+        const stats = await _gatherEvalStats(studentId, evalMonth);
+        const today = new Date().toISOString().slice(0, 10);
+
+        host = document.createElement('div');
+        host.className = 'eval-report-render-host';
+        const card = _buildEvalReportDom({
+            academyName: ACADEMY_NAME,
+            academyMark: ACADEMY_BRAND_MARK,
+            studentName,
+            grade, school,
+            evalMonth,
+            evalText,
+            stats,
+            today,
+        });
+        host.appendChild(card);
+        document.body.appendChild(host);
+
+        // 폰트·이미지 로딩 짧게 대기
+        await new Promise((r) => setTimeout(r, 80));
+
+        const canvas = await html2canvas(card, {
+            scale: 2,                 // 고해상도(retina) 출력
+            backgroundColor: '#ffffff',
+            useCORS: true,
+            logging: false,
+            windowWidth: card.scrollWidth,
+            windowHeight: card.scrollHeight,
+        });
+
+        const dataUrl = canvas.toDataURL('image/png');
+        const a = document.createElement('a');
+        const fileSafeName = String(studentName).replace(/[^\w가-힣]/g, '_');
+        a.download = `${ACADEMY_NAME}_${fileSafeName}_${evalMonth}_종합평가.png`;
+        a.href = dataUrl;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+
+        showToast('학부모 발송용 리포트 이미지가 다운로드 폴더에 저장되었습니다.', 'success');
+    } catch (e) {
+        console.error('[exportStudentEvalAsImage]', e);
+        showToast('이미지 생성 실패: ' + (e.message || ''), 'error');
+    } finally {
+        if (host) host.remove();
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = prev;
+        }
+    }
+};
+
 // ========== 입시 정보·트렌드 지식 베이스 (admissions_knowledge) ==========
 
 window.toggleAdmissionsManualPanel = function() {
