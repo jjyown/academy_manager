@@ -488,8 +488,17 @@
                     <div class="tt-academic-event-list">${evList}</div>
                 </div>`;
             }).join('');
+            const collapsed = _isAcademicSectionCollapsed();
+            if (collapsed) sec.classList.add('is-collapsed');
             sec.innerHTML = `<div class="tt-academic-title">
-                <span><i class="fas fa-graduation-cap"></i> 학사일정 ${dateStr}</span>
+                <button class="tt-academic-collapse-btn" type="button"
+                    aria-label="학사일정 접기/펴기" title="접기/펴기"
+                    onclick="toggleAcademicSectionCollapsed()">
+                    <i class="fas fa-graduation-cap" aria-hidden="true"></i>
+                    학사일정 ${dateStr}
+                    <span class="tt-academic-toggle-count">(${events.length}건)</span>
+                    <i class="fas fa-chevron-down tt-academic-collapse-icon" aria-hidden="true"></i>
+                </button>
                 <span class="tt-academic-hint">우측 [+ 추가] 버튼으로 사이드바에 핀</span>
             </div><div class="tt-academic-list">${html}</div>`;
             // 핀 버튼 이벤트 위임
@@ -933,6 +942,25 @@
         }
     });
 
+    // ── 학사일정 섹션 접기/펴기 (day-detail / day-settings 공통) ──
+    const LS_ACADEMIC_COLLAPSED = 'academic_section_collapsed';
+    function _isAcademicSectionCollapsed() {
+        try { return localStorage.getItem(LS_ACADEMIC_COLLAPSED) === '1'; }
+        catch (e) { return false; }
+    }
+    function _setAcademicSectionCollapsed(v) {
+        try { localStorage.setItem(LS_ACADEMIC_COLLAPSED, v ? '1' : '0'); } catch (e) {}
+    }
+    window.toggleAcademicSectionCollapsed = function () {
+        const next = !_isAcademicSectionCollapsed();
+        _setAcademicSectionCollapsed(next);
+        // 두 섹션 모두 갱신 (열려 있는 쪽만 효과)
+        ['tt-academic-section', 'dset-academic-section'].forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.classList.toggle('is-collapsed', next);
+        });
+    };
+
     // ── 날짜 설정 모달 (day-settings-modal) — 학사일정 + 핀 섹션 ──
     async function renderDaySettingsAcademicSection(dateStr) {
         const sec = document.getElementById('dset-academic-section');
@@ -945,6 +973,9 @@
             return;
         }
         sec.style.display = 'block';
+        // 접힘 상태 적용
+        if (_isAcademicSectionCollapsed()) sec.classList.add('is-collapsed');
+        else sec.classList.remove('is-collapsed');
         listEl.innerHTML = '<div class="dset-academic-loading">학사일정 불러오는 중...</div>';
 
         try {

@@ -1032,8 +1032,14 @@
 
                 <!-- 학사일정 (NEIS) — 이 날짜의 구독 학교 학사일정 + 핀 추가 -->
                 <div id="dset-academic-section" class="dset-academic-section" style="display:none;">
-                    <div class="dset-section-label">
-                        <i class="fas fa-graduation-cap"></i> 학사일정 (구독 학교)
+                    <div class="dset-academic-header">
+                        <button type="button" class="dset-academic-toggle"
+                            onclick="toggleAcademicSectionCollapsed()"
+                            aria-label="학사일정 접기/펴기" title="접기/펴기">
+                            <i class="fas fa-graduation-cap" aria-hidden="true"></i>
+                            <span>학사일정 (구독 학교)</span>
+                            <i class="fas fa-chevron-down dset-academic-chevron" aria-hidden="true"></i>
+                        </button>
                         <span class="dset-academic-hint">[+ 추가] 클릭 시 우측 사이드바에 핀</span>
                     </div>
                     <div id="dset-academic-list" class="dset-academic-list"></div>

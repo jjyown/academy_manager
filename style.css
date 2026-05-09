@@ -828,6 +828,42 @@ textarea:focus:not(:focus-visible) {
     font-size: 12px;
     color: var(--text, #0f172a);
 }
+.tt-academic-section.is-collapsed .tt-academic-list { display: none; }
+.tt-academic-section.is-collapsed { padding-bottom: 6px; }
+.tt-academic-section.is-collapsed .tt-academic-collapse-icon {
+    transform: rotate(-90deg);
+}
+
+/* 접기 토글 버튼 — 시간표 모달 */
+.tt-academic-collapse-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: transparent;
+    border: none;
+    padding: 4px 8px;
+    margin: -2px 0 -2px -8px;
+    border-radius: 6px;
+    font-size: 11px; font-weight: 700;
+    color: var(--text-sec, #64748b);
+    cursor: pointer;
+    transition: background 0.12s;
+}
+.tt-academic-collapse-btn:hover {
+    background: rgba(99, 102, 241, 0.06);
+    color: var(--primary, #6366f1);
+}
+.tt-academic-collapse-btn > i:first-child {
+    color: var(--primary, #6366f1);
+}
+.tt-academic-toggle-count {
+    font-weight: 600;
+    color: var(--gray, #94a3b8);
+    font-size: 10px;
+}
+.tt-academic-collapse-icon {
+    margin-left: 2px;
+    font-size: 10px;
+    transition: transform 0.18s;
+}
 .tt-academic-title {
     font-size: 11px; font-weight: 700;
     color: var(--text-sec, #64748b);
@@ -941,12 +977,43 @@ textarea:focus:not(:focus-visible) {
     padding-top: 14px;
     border-top: 1px solid var(--border, #e5e7eb);
 }
-.dset-academic-section .dset-section-label {
-    display: flex; align-items: center; gap: 6px;
+.dset-academic-header {
+    display: flex; align-items: center; gap: 8px;
     flex-wrap: wrap;
+    margin-bottom: 8px;
+}
+.dset-academic-toggle {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px;
+    margin: 0;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    font-size: 12px; font-weight: 700;
+    color: var(--text, #0f172a);
+    cursor: pointer;
+    transition: all 0.12s;
+}
+.dset-academic-toggle:hover {
+    background: rgba(99, 102, 241, 0.06);
+    border-color: rgba(99, 102, 241, 0.2);
+}
+.dset-academic-toggle > i:first-child {
+    color: var(--primary, #6366f1);
+    font-size: 12px;
+}
+.dset-academic-chevron {
+    margin-left: 4px;
+    font-size: 10px;
+    transition: transform 0.18s;
+    color: var(--gray, #94a3b8);
+}
+.dset-academic-section.is-collapsed .dset-academic-list { display: none; }
+.dset-academic-section.is-collapsed .dset-academic-hint { display: none; }
+.dset-academic-section.is-collapsed .dset-academic-chevron {
+    transform: rotate(-90deg);
 }
 .dset-academic-hint {
-    margin-left: auto;
     font-size: 10px;
     font-weight: 500;
     color: var(--gray, #94a3b8);
