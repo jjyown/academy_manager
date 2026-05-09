@@ -60,7 +60,8 @@ let currentStudent = null;
 let teacherAuthList = [];
 let authorizedTeacher = null;
 let pendingEvaluationSave = false;
-let currentTab = 'attendance';
+// 출결 탭은 학부모 포털에서 비노출 (별도 앱으로 대체) — 기본은 숙제 탭
+let currentTab = 'homework';
 
 // ========== Admin State ==========
 let isAdminMode = false;
@@ -592,11 +593,9 @@ async function initDashboard() {
 
 	showDashboard();
 
-	// Load data
-	switchTab('attendance');
+	// Load data — 출결은 학부모 포털에서 비노출(loadQuickStats / loadMonthlyAttendance 호출하지 않음)
+	switchTab('homework');
 	await Promise.all([
-		loadQuickStats(),
-		loadMonthlyAttendance(),
 		loadEvaluationState(monthStr)
 	]);
 }
@@ -1763,11 +1762,9 @@ document.addEventListener('DOMContentLoaded', () => {
 				const monthStr = getCurrentMonthStr();
 				document.getElementById('month-selector').value = monthStr;
 				document.getElementById('eval-month-selector').value = monthStr;
-				// 데이터 로드
-				switchTab('attendance');
+				// 데이터 로드 — 출결 비노출
+				switchTab('homework');
 				Promise.all([
-					loadQuickStats(),
-					loadMonthlyAttendance(),
 					loadEvaluationState(monthStr)
 				]).catch(e => console.error('[복원] 데이터 로드 실패:', e));
 			}

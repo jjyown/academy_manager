@@ -693,7 +693,7 @@
 			<i class="fas fa-graduation-cap"></i>
 		</div>
 		<h1 class="landing-title">학부모 포털</h1>
-		<p class="landing-subtitle">하이로드 수학에서 우리 아이의 출결 현황과<br>선생님 메모를 간편하게 확인하세요</p>
+		<p class="landing-subtitle">하이로드 수학에서 우리 아이의 숙제·종합평가와<br>선생님 메모를 간편하게 확인하세요</p>
 	</div>
 
 	<div class="landing-form">
@@ -796,40 +796,13 @@
 	</div>
 
 	<div class="dash-container">
-		<!-- Quick Stats -->
-		<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;padding:0 4px;">
-			<span style="font-size:12px;font-weight:700;color:var(--text-sec);">최근 30일 요약</span>
-			<span style="font-size:10px;color:var(--gray);"><i class="fas fa-clock" style="margin-right:3px;"></i>자동 업데이트</span>
-		</div>
-		<div class="quick-stats" id="quick-stats">
-			<div class="qs-item">
-				<div class="qs-icon" style="color:var(--primary);">📊</div>
-				<div class="qs-value" id="qs-rate" style="color:var(--primary);">-</div>
-				<div class="qs-label">출석률</div>
-			</div>
-			<div class="qs-item">
-				<div class="qs-icon" style="color:var(--green);">✅</div>
-				<div class="qs-value" id="qs-present" style="color:var(--green);">-</div>
-				<div class="qs-label">출석</div>
-			</div>
-			<div class="qs-item">
-				<div class="qs-icon" style="color:var(--yellow);">⏰</div>
-				<div class="qs-value" id="qs-late" style="color:var(--yellow);">-</div>
-				<div class="qs-label">지각</div>
-			</div>
-			<div class="qs-item">
-				<div class="qs-icon" style="color:var(--red);">❌</div>
-				<div class="qs-value" id="qs-absent" style="color:var(--red);">-</div>
-				<div class="qs-label">결석</div>
-			</div>
-		</div>
+		<!-- 출결 기능은 별도 앱으로 이전됨 — 학부모 포털에는 노출하지 않음 (관련 코드는 향후 복원 대비해 report.js 에 보존) -->
+		<!-- 출결용 hidden month-selector: 종합평가 month 동기화 코드 호환성을 위해 유지 -->
+		<input type="month" id="month-selector" style="display:none;">
 
 		<!-- Tabs -->
 		<div class="dash-tabs">
-			<button class="dash-tab active" onclick="switchTab('attendance')">
-				<i class="fas fa-calendar-check"></i> 출결
-			</button>
-			<button class="dash-tab" onclick="switchTab('homework')">
+			<button class="dash-tab active" onclick="switchTab('homework')">
 				<i class="fas fa-book"></i> 숙제
 			</button>
 			<button class="dash-tab" onclick="switchTab('eval')">
@@ -837,58 +810,8 @@
 			</button>
 		</div>
 
-		<!-- TAB: Attendance -->
-		<div id="tab-attendance" class="tab-panel active">
-			<div class="section-card">
-				<div class="section-title">
-					<i class="fas fa-calendar-check"></i>
-					<span>출결 현황</span>
-				</div>
-				<div class="month-nav">
-					<button class="month-arrow" onclick="handlePrevMonth()"><i class="fas fa-chevron-left"></i></button>
-					<input type="month" id="month-selector" class="month-input" onchange="handleMonthChange()" style="display:none;">
-					<span id="att-month-label" style="flex:1;text-align:center;font-size:15px;font-weight:700;">2026년 2월</span>
-					<button class="month-arrow" onclick="handleNextMonth()"><i class="fas fa-chevron-right"></i></button>
-				</div>
-				<div class="hw-cal-grid" id="att-cal-grid">
-					<div class="hw-cal-dow sun">일</div>
-					<div class="hw-cal-dow">월</div>
-					<div class="hw-cal-dow">화</div>
-					<div class="hw-cal-dow">수</div>
-					<div class="hw-cal-dow">목</div>
-					<div class="hw-cal-dow">금</div>
-					<div class="hw-cal-dow sat">토</div>
-				</div>
-				<div class="hw-stats" id="att-stats">
-					<div class="hw-stat">
-						<div class="hw-stat-num" id="ms-rate" style="color:var(--primary);">-</div>
-						<div class="hw-stat-label">출석률</div>
-					</div>
-					<div class="hw-stat">
-						<div class="hw-stat-num" id="ms-present" style="color:var(--green);">-</div>
-						<div class="hw-stat-label">출석</div>
-					</div>
-					<div class="hw-stat">
-						<div class="hw-stat-num" id="ms-late" style="color:var(--yellow);">-</div>
-						<div class="hw-stat-label">지각</div>
-					</div>
-					<div class="hw-stat">
-						<div class="hw-stat-num" id="ms-absent" style="color:var(--red);">-</div>
-						<div class="hw-stat-label">결석</div>
-					</div>
-				</div>
-			</div>
-			<div class="section-card" id="att-detail-card" style="display:none;">
-				<div class="section-title" id="att-detail-title">
-					<i class="fas fa-clipboard-list"></i>
-					<span>-</span>
-				</div>
-				<div id="att-detail-body"></div>
-			</div>
-		</div>
-
 		<!-- TAB: Homework -->
-		<div id="tab-homework" class="tab-panel">
+		<div id="tab-homework" class="tab-panel active">
 			<div class="section-card">
 				<div class="section-title">
 					<i class="fas fa-book"></i>
