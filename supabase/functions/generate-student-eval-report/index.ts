@@ -6,6 +6,10 @@ const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
 const GEMINI_EVAL_MODEL = Deno.env.get("GEMINI_EVAL_MODEL") ?? "gemini-2.0-flash";
+/** 입시 전문가 사전 분석 단계 모델 — 비싸지 않은 모델로도 충분. 환경변수로 별도 설정 가능 */
+const GEMINI_ADMISSIONS_MODEL = Deno.env.get("GEMINI_ADMISSIONS_MODEL") ?? GEMINI_EVAL_MODEL;
+/** Stage 1 (입시 전문가 사전 분석) 비활성화 옵션 — 환경변수로 끌 수 있음 */
+const ADMISSIONS_STAGE_DISABLED = (Deno.env.get("ADMISSIONS_STAGE_DISABLED") ?? "").toLowerCase() === "true";
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -65,6 +69,95 @@ function stripHtml(s: string): string {
     .replace(/<[^>]+>/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/**
+ * Stage 1: 입시 전문가 사전 분석.
+ * 학부모용 글을 만들기 전, 한국 대입(수시·정시·내신·모의고사) 관점으로
+ * 학생 데이터를 구조화 분석한 raw 텍스트를 반환합니다.
+ * Stage 2 (종합평가 본문 작성)에 컨텍스트로 주입돼 솔루션·역량 진단의 근거가 됨.
+ *
+ * 호출 실패 시 빈 문자열을 반환하여 Stage 2 가 단독으로 동작하도록 폴백합니다.
+ */
+async function runAdmissionsExpertAnalysis(args: {
+  studentName: string;
+  grade: string;
+  school: string;
+  evalMonth: string;
+  attendanceBlock: string;
+  homeworkBlock: string;
+  scoreBlock: string;
+  memoBlock: string;
+}): Promise<string> {
+  if (ADMISSIONS_STAGE_DISABLED) return "";
+  if (!GEMINI_API_KEY) return "";
+
+  const expertSystem = `당신은 한국 대학입시(수능·내신·수시·정시·학생부종합전형)에 정통한 20년 경력 입시 전문 컨설턴트입니다. 이 단계는 학부모에게 직접 전달되는 글이 아니라, 후속 단계의 종합평가 작성자가 참고할 **내부 분석 노트**를 만드는 단계입니다.
+
+[역할]
+- 한국 입시 맥락(학년별 우선순위·내신·모의고사·수능 트랙)을 기준으로 학생의 현재 위치와 다음 한 달의 학습 우선순위를 진단합니다.
+- 학년이 명확하면 그에 맞는 입시 단계(예: 고1 내신·진로 탐색 / 고2 모의고사·내신 균형 / 고3·N수 수능·수시 마무리 / 중등 내신·기초학력 / 초등 학습 습관)를 적용합니다.
+- 학년이 비어있거나 모호하면 "학년 미상 — 일반 학습 관점" 으로만 다룹니다(임의로 추정 금지).
+
+[금지]
+- 데이터에 없는 점수·출결·기록을 지어내지 않습니다.
+- 확정적 진단/병리 라벨링/특정 대학 합격 가능성 단언 금지.
+- 학부모에게 보일 수 있는 톤(존댓말·감성)으로 쓰지 마세요. 이건 내부 노트입니다.
+
+[출력 형식 — 정확히 이 5개 헤더, 마크다운 없이 일반 텍스트]
+[A. 입시 단계 위치] 학년 기준 현재 입시 트랙·우선순위 1~2줄.
+[B. 강점 신호] 데이터에서 읽히는 강점(점수·제출·기록)을 근거와 함께 bullet(- )로 1~3개. 근거가 약하면 "근거 약함" 표시.
+[C. 약점·리스크] 같은 형식, 데이터 근거 명시. 추정 금지.
+[D. 다음 달 학습 우선순위] bullet 2~4개. 입시 관점에서 효과 큰 순서.
+[E. 작성자 가이드] 후속 종합평가에서 학부모에게 전달할 때 강조하면 좋을 포인트·피해야 할 표현 1~3줄.
+
+총 길이는 1200자 이내. 한국어.`;
+
+  const expertUser = `[학생 식별]
+- 이름: ${args.studentName}
+- 학년: ${args.grade || "(미상)"}
+- 학교: ${args.school || "(미상)"}
+- 대상 월: ${args.evalMonth}
+
+[출결 요약]
+${args.attendanceBlock}
+
+[숙제 제출 요약]
+${args.homeworkBlock}
+
+[수업·메모 기록(원문)]
+${args.memoBlock}
+
+[시험·점수(해당 월)]
+${args.scoreBlock}`;
+
+  try {
+    const url =
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_ADMISSIONS_MODEL}:generateContent?key=${encodeURIComponent(GEMINI_API_KEY)}`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: expertSystem + "\n\n" + expertUser }] }],
+        generationConfig: {
+          temperature: 0.4,
+          maxOutputTokens: 2048,
+        },
+      }),
+    });
+    if (!res.ok) {
+      console.warn("[admissions-expert] Gemini HTTP", res.status, await res.text());
+      return "";
+    }
+    const json = await res.json();
+    const text =
+      json?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text || "").join("") ||
+      "";
+    return String(text || "").trim().slice(0, 4000);
+  } catch (e) {
+    console.warn("[admissions-expert] error", e);
+    return "";
+  }
 }
 
 function flattenMemoMap(
@@ -273,6 +366,23 @@ serve(async (req: Request) => {
     const memoBlock = [...personal, ...shared].join("\n") || "(해당 월 메모 없음)";
     const scoreBlock = scoreLines.length ? scoreLines.join("\n") : "(해당 월 시험 점수 없음)";
 
+    // ── Stage 1: 입시 전문가 사전 분석 ─────────────────────────────
+    // refine 모드는 사용자가 이미 초안을 손보는 단계라 사전 분석을 건너뛰어
+    // 응답 시간·비용을 아낍니다. generate 모드에서만 호출.
+    let admissionsAnalysis = "";
+    if (mode === "generate") {
+      admissionsAnalysis = await runAdmissionsExpertAnalysis({
+        studentName: String(stu.name || ""),
+        grade: String(stu.grade || ""),
+        school: String(stu.school || ""),
+        evalMonth,
+        attendanceBlock,
+        homeworkBlock,
+        scoreBlock,
+        memoBlock,
+      });
+    }
+
     let systemInstruction = `당신은 15년 경력의 전문 교육 컨설턴트이자 학원 현장을 잘 아는 베테랑입니다. 아래 제공된 학생 데이터만을 바탕으로 학부모에게 발송할 「월간 학업 성취 리포트」를 작성합니다.
 
 [역할·톤]
@@ -280,6 +390,13 @@ serve(async (req: Request) => {
 - 문장은 한국어 존댓말(~습니다 / ~합니다 체)로 통일합니다.
 - 객관 데이터(출결·숙제 제출·시험 점수)를 먼저 반영한 뒤, 선생님 메모의 정성적 관찰을 자연스럽게 녹입니다.
 - 수치·항목을 기계적으로 나열하지 말고, 접속사와 요약 문장으로 문단이 이어지게 씁니다.
+
+[입시 전문가 사전 분석 — 후속 작성에 반드시 반영]
+- 본 요청에는 별도로 한국 입시 전문 컨설턴트가 사전 작성한 「내부 분석 노트」가 첨부될 수 있습니다(섹션명: [입시 전문가 사전 분석]).
+- 분석 노트는 학부모에게 그대로 전달되는 글이 아니라, 작성자가 「02. 데이터 분석 / 03. 역량 진단 / 04. 솔루션」을 쓸 때 **근거·우선순위·표현 가이드**로 활용해야 합니다.
+- 노트의 "[D. 다음 달 학습 우선순위]" 항목은 「04. 솔루션」의 핵심 줄기로 반영하되, 부모님 입장에서 부담스럽지 않게 풀어쓰세요.
+- 노트의 "[E. 작성자 가이드]"에서 권장한 강조점·피해야 할 표현은 그대로 따릅니다.
+- 단, 학부모용 본문에는 "입시 전문가 분석에 따르면", "내부 노트", "사전 분석" 같은 메타 표현을 절대 쓰지 마세요. 분석은 보이지 않게 녹여 넣습니다.
 
 [학부모에게 보이는 글 — AI·시스템 티 내지 않기]
 - 학부모에게 "상세 메모가 확보되지 않았습니다", "데이터가 부족합니다", "시스템상", "작성 시점에~", "AI가~" 같은 **메타 설명·사과·한계 고백**을 쓰지 마세요. 원장·담임이 직접 보낸 안내문처럼 읽혀야 합니다.
@@ -308,6 +425,10 @@ serve(async (req: Request) => {
         `\n\n[이 학원(로그인 계정)에서 매 요청마다 부여하는 고정 지침 — 반드시 준수]\n${ownerEvalStyleNote}`;
     }
 
+    const admissionsBlock = admissionsAnalysis
+      ? `\n\n[입시 전문가 사전 분석 — 학부모용 글이 아닌 내부 노트, 본문에 직접 인용 금지]\n${admissionsAnalysis}`
+      : "";
+
     let userPrompt = `학생: ${stu.name} (${stu.grade ?? ""}${stu.school ? `, ${stu.school}` : ""})
 대상 월: ${evalMonth}
 
@@ -321,7 +442,7 @@ ${homeworkBlock}
 ${memoBlock}
 
 [시험·점수]
-${scoreBlock}`;
+${scoreBlock}${admissionsBlock}`;
 
     if (mode === "refine") {
       const cur = String(body.currentComment || "").trim();
