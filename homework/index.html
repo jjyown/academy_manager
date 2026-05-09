@@ -418,6 +418,9 @@
 		.cal-nav {
 			display: flex; align-items: center; justify-content: space-between;
 			margin-bottom: 16px;
+			position: sticky; top: 0; z-index: 5;
+			background: var(--card);
+			padding: 4px 0 8px;
 		}
 		.cal-nav-btn {
 			width: 36px; height: 36px;
@@ -524,6 +527,143 @@
 		.cal-stat-num.gray { color: var(--gray); }
 		.cal-stat-label {
 			font-size: 10px; color: var(--text-sec); margin-top: 2px;
+		}
+
+		/* Calendar legend */
+		.cal-legend {
+			display: flex; flex-wrap: wrap; gap: 10px 14px;
+			justify-content: center;
+			margin-top: 10px; padding: 8px 10px;
+			border-radius: 8px;
+			background: rgba(255,255,255,0.02);
+			font-size: 11px; color: var(--text-sec);
+		}
+		.cal-legend-item { display: inline-flex; align-items: center; gap: 4px; }
+		.cal-legend-dot {
+			width: 8px; height: 8px; border-radius: 50%;
+			display: inline-block;
+		}
+		.cal-legend-dot.s-ontime { background: var(--green); }
+		.cal-legend-dot.s-late { background: var(--yellow); }
+		.cal-legend-dot.s-missed { background: var(--red); }
+		.cal-legend-dot.s-manual { background: var(--teal); }
+		.cal-legend-dot.s-pending { background: var(--gray); }
+		.cal-legend-dot.assign { background: #fbbf24; }
+
+		/* Skeleton loading */
+		.cal-grid.is-loading .cal-cell:not(.cal-dow) {
+			background: linear-gradient(90deg,
+				rgba(255,255,255,0.03) 0%,
+				rgba(255,255,255,0.07) 50%,
+				rgba(255,255,255,0.03) 100%);
+			background-size: 200% 100%;
+			animation: shimmer 1.4s ease-in-out infinite;
+			color: transparent !important;
+			cursor: default;
+			pointer-events: none;
+		}
+		.cal-grid.is-loading .cal-cell .cal-day-num,
+		.cal-grid.is-loading .cal-cell .cal-cell-meta { visibility: hidden; }
+		@keyframes shimmer {
+			0% { background-position: 200% 0; }
+			100% { background-position: -200% 0; }
+		}
+		.detail-skeleton {
+			padding: 24px 16px;
+		}
+		.detail-skeleton-line {
+			height: 14px; border-radius: 6px;
+			margin-bottom: 10px;
+			background: linear-gradient(90deg,
+				rgba(255,255,255,0.04) 0%,
+				rgba(255,255,255,0.08) 50%,
+				rgba(255,255,255,0.04) 100%);
+			background-size: 200% 100%;
+			animation: shimmer 1.4s ease-in-out infinite;
+		}
+		.detail-skeleton-line.short { width: 60%; }
+		.detail-skeleton-line.shorter { width: 40%; }
+
+		/* Admin student list search + filter chips */
+		.admin-list-toolbar {
+			display: flex; flex-direction: column; gap: 10px;
+			margin-bottom: 14px;
+		}
+		.admin-search-wrap {
+			position: relative;
+		}
+		.admin-search-wrap > i {
+			position: absolute; left: 12px; top: 50%;
+			transform: translateY(-50%);
+			color: var(--gray); font-size: 13px;
+		}
+		.admin-search-input {
+			width: 100%;
+			padding: 10px 14px 10px 36px;
+			background: var(--bg-elevated);
+			border: 1px solid var(--border);
+			border-radius: 10px;
+			color: var(--text);
+			font-size: 14px;
+			transition: border var(--transition);
+		}
+		.admin-search-input:focus {
+			outline: none;
+			border-color: var(--primary);
+		}
+		.admin-search-hint {
+			position: absolute; right: 10px; top: 50%;
+			transform: translateY(-50%);
+			color: var(--gray); font-size: 10px;
+			padding: 2px 6px; border-radius: 4px;
+			background: rgba(255,255,255,0.05);
+			pointer-events: none;
+		}
+		.admin-filter-chips {
+			display: flex; gap: 6px; overflow-x: auto;
+			-webkit-overflow-scrolling: touch;
+		}
+		.admin-filter-chip {
+			padding: 6px 12px;
+			border-radius: 16px;
+			background: var(--bg-elevated);
+			border: 1px solid var(--border);
+			color: var(--text-sec);
+			font-size: 12px; font-weight: 600;
+			cursor: pointer;
+			white-space: nowrap;
+			transition: all var(--transition);
+		}
+		.admin-filter-chip:hover {
+			background: rgba(255,255,255,0.05);
+			color: var(--text);
+		}
+		.admin-filter-chip.active {
+			background: var(--primary-light);
+			border-color: var(--primary);
+			color: var(--primary);
+		}
+		.admin-empty-search {
+			text-align: center; padding: 40px 20px;
+			color: var(--gray);
+		}
+		.admin-empty-search i {
+			font-size: 28px; opacity: 0.3; display: block; margin-bottom: 10px;
+		}
+
+		/* Toast undo button */
+		.toast-undo-btn {
+			margin-left: 12px;
+			padding: 4px 10px;
+			background: rgba(255,255,255,0.12);
+			border: 1px solid rgba(255,255,255,0.18);
+			border-radius: 6px;
+			color: inherit;
+			font-size: 12px; font-weight: 700;
+			cursor: pointer;
+		}
+		.toast-undo-btn:hover {
+			background: rgba(255,255,255,0.2);
 		}
 
 		.floating-submit-btn:disabled {
@@ -786,6 +926,20 @@
 		</div>
 	</div>
 	<div style="max-width:640px;margin:0 auto;padding:16px 16px 40px;">
+		<div class="admin-list-toolbar">
+			<div class="admin-search-wrap">
+				<i class="fas fa-search"></i>
+				<input id="admin-student-search" class="admin-search-input"
+					placeholder="이름 또는 학교 검색..." autocomplete="off">
+				<span class="admin-search-hint">/</span>
+			</div>
+			<div class="admin-filter-chips" id="admin-filter-chips">
+				<button class="admin-filter-chip active" data-filter="all">전체</button>
+				<button class="admin-filter-chip" data-filter="middle">중등</button>
+				<button class="admin-filter-chip" data-filter="high">고등</button>
+				<button class="admin-filter-chip" data-filter="elementary">초등</button>
+			</div>
+		</div>
 		<div id="admin-student-list" style="display:flex;flex-direction:column;gap:8px;"></div>
 	</div>
 </div>
@@ -848,6 +1002,14 @@
 					<div class="cal-stat-num gray" id="stat-total">0</div>
 					<div class="cal-stat-label">수업일</div>
 				</div>
+			</div>
+			<div class="cal-legend" aria-label="달력 범례">
+				<span class="cal-legend-item"><span class="cal-legend-dot s-ontime"></span>정시</span>
+				<span class="cal-legend-item"><span class="cal-legend-dot s-late"></span>지각</span>
+				<span class="cal-legend-item"><span class="cal-legend-dot s-missed"></span>미제출</span>
+				<span class="cal-legend-item"><span class="cal-legend-dot s-manual"></span>수동확인</span>
+				<span class="cal-legend-item"><span class="cal-legend-dot s-pending"></span>마감전</span>
+				<span class="cal-legend-item"><span class="cal-legend-dot assign"></span>배정</span>
 			</div>
 		</div>
 
@@ -1183,6 +1345,35 @@ function showToast(msg, type) {
 	c.appendChild(t);
 	while(c.children.length > 3) c.firstChild.remove();
 	setTimeout(function(){ if(t.parentElement){t.style.opacity='0';t.style.transform='translateY(-20px)';setTimeout(function(){t.remove()},300);} }, 4000);
+}
+
+// 되돌리기 버튼이 달린 토스트 (6초 윈도우)
+function _showUndoToast(msg, undoCallback) {
+	const c = document.getElementById('toast-container'); if(!c) return;
+	const t = document.createElement('div');
+	t.style.cssText = 'display:flex;align-items:center;gap:10px;padding:13px 16px;border-radius:14px;background:var(--card);box-shadow:0 8px 32px rgba(0,0,0,0.3);pointer-events:auto;animation:toastSlide 0.3s ease;border:1px solid var(--border);';
+	t.innerHTML =
+		'<i class="fas fa-info-circle" style="font-size:16px;color:#113777;flex-shrink:0;"></i>' +
+		'<span style="flex:1;font-size:13px;color:var(--text);line-height:1.4;">' + escapeHtml(msg) + '</span>' +
+		'<button class="toast-undo-btn" type="button"><i class="fas fa-rotate-left"></i> 되돌리기</button>';
+	const closeT = () => {
+		if (!t.parentElement) return;
+		t.style.opacity = '0'; t.style.transform = 'translateY(-20px)';
+		setTimeout(() => t.remove(), 300);
+	};
+	const btn = t.querySelector('.toast-undo-btn');
+	let consumed = false;
+	btn.addEventListener('click', async () => {
+		if (consumed) return;
+		consumed = true;
+		btn.disabled = true;
+		btn.style.opacity = '0.5';
+		try { await undoCallback(); } catch (e) { console.warn('undo failed:', e); }
+		closeT();
+	});
+	c.appendChild(t);
+	while (c.children.length > 3) c.firstChild.remove();
+	setTimeout(() => { if (!consumed) closeT(); }, 6000);
 }
 
 // ============================================================
@@ -1912,6 +2103,19 @@ function moveCalMonth(delta) {
 // 데이터 로드 + 달력 렌더링
 async function loadCalendarData() {
 	if (!currentStudent?.id) return;
+	// 스켈레톤 — 페치 중 빈 셀이 깜빡이는 대신 shimmer 로 로딩 명시
+	const grid = document.getElementById('cal-grid');
+	if (grid) grid.classList.add('is-loading');
+	const detailListEl = document.getElementById('detail-list');
+	if (detailListEl && (!calSelectedDate || detailListEl.dataset.skeleton === '1')) {
+		detailListEl.dataset.skeleton = '1';
+		detailListEl.innerHTML = `
+			<div class="detail-skeleton">
+				<div class="detail-skeleton-line"></div>
+				<div class="detail-skeleton-line short"></div>
+				<div class="detail-skeleton-line shorter"></div>
+			</div>`;
+	}
 	const year = calYear;
 	const month = calMonth;
 	const lastDay = new Date(year, month + 1, 0);
@@ -1979,6 +2183,11 @@ async function loadCalendarData() {
 	computeDateStatuses();
 	renderCalendar();
 	updateCalStats();
+	// 스켈레톤 해제
+	const _grid = document.getElementById('cal-grid');
+	if (_grid) _grid.classList.remove('is-loading');
+	const _detailList = document.getElementById('detail-list');
+	if (_detailList) delete _detailList.dataset.skeleton;
 
 	// 상세 리스트
 	if (!calSelectedDate) {
@@ -2270,7 +2479,7 @@ function showDateDetail(dateStr) {
 				const timeStr = `${String(createdAt.getHours()).padStart(2, '0')}:${String(createdAt.getMinutes()).padStart(2, '0')}`;
 				const sizeStr = formatFileSize(sub.file_size || 0);
 
-				// 정시/지각 뱃지
+				// 정시/지각 뱃지 (지각 시 +Nm 분량 표기)
 				let badgeHtml = '';
 				if (ds.scheduleTime) {
 					const [sh, sm] = ds.scheduleTime.split(':').map(Number);
@@ -2280,7 +2489,14 @@ function showDateDetail(dateStr) {
 					if (ctDateStr < dateStr || subMin <= deadlineMin) {
 						badgeHtml = '<span class="status-badge on-time"><i class="fas fa-check"></i> 정각 제출</span>';
 					} else {
-						badgeHtml = '<span class="status-badge late"><i class="fas fa-clock"></i> 늦게 제출</span>';
+						const overdueMin = ctDateStr > dateStr
+							? (subMin + (24 * 60 - deadlineMin))
+							: (subMin - deadlineMin);
+						let overdueLabel;
+						if (overdueMin < 60) overdueLabel = `+${overdueMin}분`;
+						else if (overdueMin < 24 * 60) overdueLabel = `+${Math.floor(overdueMin / 60)}시간 ${overdueMin % 60}분`;
+						else overdueLabel = `+${Math.floor(overdueMin / (24 * 60))}일`;
+						badgeHtml = `<span class="status-badge late"><i class="fas fa-clock"></i> 늦게 제출 ${overdueLabel}</span>`;
 					}
 				}
 
@@ -2344,7 +2560,7 @@ function closeAdminLoginModal() {
 	document.getElementById('admin-login-modal').classList.remove('active');
 }
 
-// Enter 키 처리
+// Enter 키 + 전역 단축키 처리
 document.addEventListener('DOMContentLoaded', function() {
 	const pw = document.getElementById('admin-password');
 	if (pw) {
@@ -2358,6 +2574,65 @@ document.addEventListener('DOMContentLoaded', function() {
 			if (e.key === 'Enter') document.getElementById('admin-password').focus();
 		});
 	}
+
+	// 학생 목록 검색·필터 바인딩
+	_bindAdminListToolbar();
+
+	// 전역 단축키
+	//   "/" — 학생 검색 포커스 (학생 목록 화면일 때만)
+	//   ←/→ — 달력 월 이동 (제출 현황 화면일 때만, input 포커스 아닐 때)
+	//   T — 오늘로 점프
+	//   Esc — 모달 닫기
+	document.addEventListener('keydown', function(e) {
+		const tag = (e.target && e.target.tagName) || '';
+		const inEditable = ['INPUT', 'TEXTAREA', 'SELECT'].includes(tag) || (e.target && e.target.isContentEditable);
+
+		// Esc — 활성 모달 닫기
+		if (e.key === 'Escape') {
+			const openModal = document.querySelector('.hw-modal.active');
+			if (openModal) {
+				e.preventDefault();
+				openModal.classList.remove('active');
+				return;
+			}
+		}
+
+		// "/" — 학생 검색 포커스
+		if (e.key === '/' && !inEditable) {
+			const studentsPage = document.getElementById('page-admin-students');
+			if (studentsPage && studentsPage.style.display !== 'none') {
+				const inp = document.getElementById('admin-student-search');
+				if (inp) {
+					e.preventDefault();
+					inp.focus();
+					inp.select();
+				}
+			}
+		}
+
+		// 캘린더 단축키 (제출 현황 페이지)
+		if (!inEditable) {
+			const statusPage = document.getElementById('page-status');
+			const onStatus = statusPage && statusPage.style.display !== 'none';
+			if (!onStatus) return;
+			if (e.key === 'ArrowLeft') {
+				e.preventDefault();
+				if (typeof moveCalMonth === 'function') moveCalMonth(-1);
+			} else if (e.key === 'ArrowRight') {
+				e.preventDefault();
+				if (typeof moveCalMonth === 'function') moveCalMonth(1);
+			} else if (e.key === 't' || e.key === 'T') {
+				const now = new Date();
+				if (typeof calYear !== 'undefined' && typeof calMonth !== 'undefined') {
+					if (calYear !== now.getFullYear() || calMonth !== now.getMonth()) {
+						calYear = now.getFullYear();
+						calMonth = now.getMonth();
+						if (typeof loadCalendarData === 'function') loadCalendarData();
+					}
+				}
+			}
+		}
+	});
 });
 
 async function handleAdminLogin() {
@@ -2458,6 +2733,19 @@ async function loadAndShowAdminStudents() {
 	}
 }
 
+// 검색·필터 상태 (메모리 보관)
+let adminListSearchQuery = '';
+let adminListFilterKey = 'all';
+
+function _matchesAdminFilter(student, filterKey) {
+	if (filterKey === 'all') return true;
+	const grade = String(student.grade || '');
+	if (filterKey === 'middle') return /중\s*[1-3]/.test(grade) || grade.includes('중등');
+	if (filterKey === 'high') return /고\s*[1-3]/.test(grade) || grade.includes('고등');
+	if (filterKey === 'elementary') return /초\s*[1-6]/.test(grade) || grade.includes('초등');
+	return true;
+}
+
 function renderAdminStudentList() {
 	const listEl = document.getElementById('admin-student-list');
 
@@ -2470,7 +2758,28 @@ function renderAdminStudentList() {
 		return;
 	}
 
-	listEl.innerHTML = adminStudents.map((s, i) => `
+	const q = adminListSearchQuery.trim().toLowerCase();
+	const filtered = adminStudents
+		.map((s, i) => ({ s, i }))
+		.filter(({ s }) => {
+			if (q) {
+				const hay = `${s.name || ''} ${s.school || ''} ${s.grade || ''}`.toLowerCase();
+				if (!hay.includes(q)) return false;
+			}
+			return _matchesAdminFilter(s, adminListFilterKey);
+		});
+
+	if (filtered.length === 0) {
+		listEl.innerHTML = `
+			<div class="admin-empty-search">
+				<i class="fas fa-search"></i>
+				검색·필터 조건에 맞는 학생이 없습니다.<br>
+				<button class="admin-filter-chip" style="margin-top:10px;" onclick="resetAdminListFilters()">초기화</button>
+			</div>`;
+		return;
+	}
+
+	listEl.innerHTML = filtered.map(({ s, i }) => `
 		<div class="admin-student-item" onclick="selectAdminStudent(${i})">
 			<div class="admin-student-avatar">${escapeHtml(s.name.charAt(0))}</div>
 			<div class="admin-student-info">
@@ -2480,6 +2789,39 @@ function renderAdminStudentList() {
 			<i class="fas fa-chevron-right admin-student-arrow"></i>
 		</div>
 	`).join('');
+}
+
+function resetAdminListFilters() {
+	adminListSearchQuery = '';
+	adminListFilterKey = 'all';
+	const inp = document.getElementById('admin-student-search');
+	if (inp) inp.value = '';
+	const chips = document.querySelectorAll('#admin-filter-chips .admin-filter-chip');
+	chips.forEach(c => c.classList.toggle('active', c.dataset.filter === 'all'));
+	renderAdminStudentList();
+}
+
+function _bindAdminListToolbar() {
+	const inp = document.getElementById('admin-student-search');
+	if (inp && !inp.dataset.bound) {
+		inp.dataset.bound = '1';
+		let t = null;
+		inp.addEventListener('input', (e) => {
+			adminListSearchQuery = e.target.value || '';
+			clearTimeout(t);
+			t = setTimeout(renderAdminStudentList, 80);
+		});
+	}
+	const chips = document.querySelectorAll('#admin-filter-chips .admin-filter-chip');
+	chips.forEach(chip => {
+		if (chip.dataset.bound) return;
+		chip.dataset.bound = '1';
+		chip.addEventListener('click', () => {
+			adminListFilterKey = chip.dataset.filter || 'all';
+			chips.forEach(c => c.classList.toggle('active', c === chip));
+			renderAdminStudentList();
+		});
+	});
 }
 
 async function selectAdminStudent(index) {
@@ -2607,7 +2949,16 @@ async function executeAdminAction() {
 			if (error) throw error;
 			showToast('숙제 완료 처리되었습니다.', 'success');
 		} else {
-			// manual 레코드 삭제
+			// manual 레코드 삭제 — 되돌리기 가능 (6초 윈도우)
+			// 삭제 전 행 스냅샷을 잡아 되돌리기 시 동일 데이터로 재삽입.
+			const { data: snapRows, error: snapErr } = await db
+				.from('homework_submissions')
+				.select('*')
+				.eq('student_id', currentStudent.id)
+				.eq('submission_date', dateStr)
+				.eq('status', 'manual');
+			if (snapErr) throw snapErr;
+
 			const { error } = await db
 				.from('homework_submissions')
 				.delete()
@@ -2615,7 +2966,23 @@ async function executeAdminAction() {
 				.eq('submission_date', dateStr)
 				.eq('status', 'manual');
 			if (error) throw error;
-			showToast('완료 처리가 취소되었습니다.', 'info');
+
+			_showUndoToast('완료 처리가 취소되었습니다.', async () => {
+				if (!snapRows || snapRows.length === 0) return;
+				const restorePayload = snapRows.map(r => {
+					const { id, created_at, updated_at, ...rest } = r || {};
+					return rest;
+				});
+				const { error: undoErr } = await db
+					.from('homework_submissions')
+					.insert(restorePayload);
+				if (undoErr) {
+					showToast('되돌리기 실패: ' + undoErr.message, 'error');
+				} else {
+					showToast('완료 처리가 복원되었습니다.', 'success');
+					await loadCalendarData();
+				}
+			});
 		}
 
 		// 데이터 새로고침
