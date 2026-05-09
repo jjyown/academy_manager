@@ -1088,6 +1088,125 @@ textarea:focus:not(:focus-visible) {
 .am-att-btn.active.absent { background: #fecaca; border-color: var(--red); box-shadow: 0 2px 8px rgba(239,68,68,0.25); }
 .am-att-btn.active.etc { background: #ddd6fe; border-color: #8b5cf6; box-shadow: 0 2px 8px rgba(139,92,246,0.25); }
 
+/* 출석 모달 — 직전 메모 chip (반복 메모 1초 붙여넣기) */
+.memo-recent-chips {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    margin: 6px 0 8px;
+}
+.memo-recent-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 4px 10px;
+    background: rgba(99,102,241,0.08);
+    border: 1px solid rgba(99,102,241,0.18);
+    border-radius: 14px;
+    color: var(--primary, #6366f1);
+    font-size: 11px; font-weight: 500;
+    cursor: pointer;
+    max-width: 220px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    transition: background 0.15s, border-color 0.15s;
+}
+.memo-recent-chip:hover {
+    background: rgba(99,102,241,0.15);
+    border-color: rgba(99,102,241,0.35);
+}
+.memo-recent-chip i { font-size: 9px; opacity: 0.7; }
+.memo-recent-chip-label {
+    font-size: 10px; color: var(--gray, #94a3b8);
+    margin-right: 4px;
+    align-self: center;
+}
+
+/* 학생 카드 — #해시태그 시각화 */
+.student-tag-row {
+    display: flex; flex-wrap: wrap; gap: 4px;
+    margin-top: 4px;
+}
+.student-tag-chip {
+    display: inline-flex; align-items: center;
+    padding: 2px 7px;
+    border-radius: 10px;
+    font-size: 10px; font-weight: 600;
+    cursor: pointer;
+    line-height: 1.4;
+}
+
+/* 이번달 기록 모달 — 검색·필터 chip */
+.hist-toolbar {
+    display: flex; flex-direction: column; gap: 8px;
+    padding: 10px 16px 12px;
+    border-bottom: 1px solid var(--border, #e2e8f0);
+    position: sticky; top: 0; z-index: 4;
+    background: var(--card, #fff);
+}
+.hist-search-input {
+    width: 100%;
+    padding: 8px 12px 8px 32px;
+    background: var(--bg-elevated, #f8fafc);
+    border: 1px solid var(--border, #e2e8f0);
+    border-radius: 8px;
+    font-size: 13px;
+    color: var(--text, #0f172a);
+}
+.hist-search-input:focus { outline: none; border-color: var(--primary, #6366f1); }
+.hist-search-wrap {
+    position: relative;
+}
+.hist-search-wrap > i {
+    position: absolute; left: 10px; top: 50%;
+    transform: translateY(-50%);
+    color: var(--gray, #94a3b8); font-size: 12px;
+    pointer-events: none;
+}
+.hist-tag-chips {
+    display: flex; gap: 6px; flex-wrap: wrap;
+}
+.hist-tag-chip {
+    padding: 3px 9px;
+    border-radius: 12px;
+    background: var(--bg-elevated, #f8fafc);
+    border: 1px solid var(--border, #e2e8f0);
+    color: var(--text-sec, #64748b);
+    font-size: 11px; font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.hist-tag-chip:hover { background: rgba(99,102,241,0.05); }
+.hist-tag-chip.active {
+    background: var(--primary-light, rgba(99,102,241,0.12));
+    border-color: var(--primary, #6366f1);
+    color: var(--primary, #6366f1);
+}
+.hist-count-info {
+    font-size: 11px; color: var(--gray, #94a3b8);
+    margin-left: auto;
+}
+.hist-day-card.is-hidden { display: none; }
+.hist-no-results {
+    padding: 30px 20px; text-align: center;
+    color: var(--gray, #94a3b8); font-size: 13px;
+}
+
+/* 빈 상태 CTA 버튼 */
+.empty-state-cta {
+    display: inline-flex; align-items: center; gap: 6px;
+    margin-top: 14px;
+    padding: 8px 16px;
+    background: var(--primary, #6366f1);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 13px; font-weight: 600;
+    cursor: pointer;
+    transition: filter 0.15s;
+}
+.empty-state-cta:hover { filter: brightness(1.08); }
+.empty-state-cta.secondary {
+    background: var(--bg-elevated, #f8fafc);
+    color: var(--text, #0f172a);
+    border: 1px solid var(--border, #e2e8f0);
+}
+
 /* Collapsible section (일정 변경) */
 .am-collapse-section {
     margin-bottom: 16px;

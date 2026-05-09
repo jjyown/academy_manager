@@ -4611,6 +4611,35 @@ window.openAttendanceModal = async function(sid, dateStr, startTime, ownerTeache
     if (sharedOthersDiv) sharedOthersDiv.innerHTML = othersHtml;
     if (sharedMemoDiv) sharedMemoDiv.innerHTML = mySharedMemo;
 
+    // 직전 수업 메모 chip — 반복 메모 1초 입력 (s.records 에서 dateStr 이전 unique 3개)
+    try {
+        const chipsEl = document.getElementById('memo-recent-chips');
+        if (chipsEl) {
+            const recent = _collectRecentMemos(s, dateStr, 3);
+            if (recent.length === 0) {
+                chipsEl.style.display = 'none';
+                chipsEl.innerHTML = '';
+            } else {
+                chipsEl.style.display = 'flex';
+                chipsEl.innerHTML =
+                    '<span class="memo-recent-chip-label">최근:</span>' +
+                    recent.map((memo) => {
+                        const short = String(memo).replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim().slice(0, 28);
+                        // textContent 처리 위해 이스케이프
+                        const safe = short.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+                        // memoFull 은 click 시 contenteditable 로 적재 — 원본 HTML 보존
+                        const fullSafe = String(memo)
+                            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+                        return `<button type="button" class="memo-recent-chip" data-memo-full="${fullSafe}" onclick="_insertRecentMemoIntoEditor(this)">
+                            <i class="fas fa-arrow-rotate-left" aria-hidden="true"></i>${safe}${short.length === 28 ? '…' : ''}
+                        </button>`;
+                    }).join('');
+            }
+        }
+    } catch (chipErr) {
+        console.warn('[openAttendanceModal] 최근 메모 chip 생성 실패:', chipErr);
+    }
+
     // 탭 초기화 (개인 메모 활성)
     switchMemoTab('private');
 
@@ -7628,6 +7657,94 @@ async function hydrateMonthlyClassMemosForStudent(s, sid, monthPrefix) {
 }
 
 /**
+ * 학생의 최근 수업 메모 N개를 dateStr 이전 시점으로 추려서 반환.
+ * 반복 메모 빠른 입력 chip 용.
+ */
+function _collectRecentMemos(s, dateStr, max = 3) {
+    if (!s) return [];
+    const records = s.records || {};
+    const dates = Object.keys(records).filter(d => d < String(dateStr)).sort().reverse();
+    const seen = new Set();
+    const out = [];
+    for (const d of dates) {
+        const dayRec = records[d];
+        if (!dayRec) continue;
+        const slots = (typeof dayRec === 'object') ? Object.values(dayRec) : [dayRec];
+        for (const slot of slots) {
+            const text = String(slot || '').replace(/<[^>]+>/g, '').trim();
+            if (!text) continue;
+            const key = text.slice(0, 60);
+            if (seen.has(key)) continue;
+            seen.add(key);
+            out.push(slot); // 원본 HTML 보존 — chip 클릭 시 contenteditable 에 그대로 삽입
+            if (out.length >= max) return out;
+        }
+        if (out.length >= max) break;
+    }
+    return out;
+}
+
+/** chip 클릭 시 atomic 메모를 contenteditable 끝에 추가 */
+window._insertRecentMemoIntoEditor = function(btn) {
+    const editor = document.getElementById('att-memo');
+    if (!editor) return;
+    const memoFull = btn.getAttribute('data-memo-full') || '';
+    if (!memoFull) return;
+    // 이스케이프된 HTML 복원
+    const decoded = memoFull
+        .replace(/&quot;/g, '"').replace(/&gt;/g, '>').replace(/&lt;/g, '<').replace(/&amp;/g, '&');
+    // 개행 — 이미 내용이 있으면 줄바꿈 후 append
+    const has = editor.innerHTML.replace(/<br\s*\/?>/gi, '').trim();
+    editor.innerHTML = has
+        ? (editor.innerHTML + '<br>' + decoded)
+        : decoded;
+    // 시각 피드백
+    btn.style.background = 'rgba(99,102,241,0.25)';
+    setTimeout(() => { btn.style.background = ''; }, 220);
+    editor.focus();
+};
+
+/**
+ * s.memo 에서 #해시태그를 추출해 색상 chip 으로 변환.
+ * 같은 태그는 같은 색상이 일관 (해시 → 팔레트 인덱스).
+ */
+const _STUDENT_TAG_PALETTE = [
+    { bg: '#dcfce7', fg: '#166534' }, { bg: '#dbeafe', fg: '#1e40af' },
+    { bg: '#fef3c7', fg: '#92400e' }, { bg: '#fce7f3', fg: '#9f1239' },
+    { bg: '#e0e7ff', fg: '#3730a3' }, { bg: '#cffafe', fg: '#155e75' },
+    { bg: '#fee2e2', fg: '#991b1b' }, { bg: '#f5f3ff', fg: '#5b21b6' },
+];
+function _hashTagToColorIdx(tag) {
+    let h = 0;
+    for (let i = 0; i < tag.length; i++) {
+        h = (h << 5) - h + tag.charCodeAt(i);
+        h |= 0;
+    }
+    return Math.abs(h) % _STUDENT_TAG_PALETTE.length;
+}
+function extractStudentTagsFromMemo(memo) {
+    if (!memo) return [];
+    const out = new Set();
+    const re = /#([\wㄱ-ㅎ가-힣ㅏ-ㅣ]+)/g;
+    let m;
+    while ((m = re.exec(String(memo))) !== null) {
+        const tag = m[1].trim();
+        if (tag) out.add(tag);
+        if (out.size >= 5) break; // 너무 많은 태그 제한
+    }
+    return Array.from(out);
+}
+function renderStudentTagsFromMemo(memo) {
+    const tags = extractStudentTagsFromMemo(memo);
+    if (tags.length === 0) return '';
+    const chips = tags.map(t => {
+        const c = _STUDENT_TAG_PALETTE[_hashTagToColorIdx(t)];
+        return `<span class="student-tag-chip" style="background:${c.bg};color:${c.fg};" title="검색창에 #${t} 입력 시 필터링됩니다">#${t}</span>`;
+    }).join('');
+    return `<div class="student-tag-row">${chips}</div>`;
+}
+
+/**
  * hydrate 이후 `s.records` / `s.shared_records`로 월별 메모 타임라인 HTML 생성
  */
 function buildMonthlyMemoTimelineHtml(s, monthPrefix) {
@@ -7660,7 +7777,11 @@ function buildMonthlyMemoTimelineHtml(s, monthPrefix) {
     }
 
     if (monthlyEvents.length === 0) {
-        return '<div class="hist-list-empty"><i class="fas fa-inbox" style="font-size:28px;margin-bottom:10px;display:block;color:#cbd5e1;"></i>이번 달 메모 기록이 없습니다.</div>';
+        return `<div class="hist-list-empty">
+            <i class="fas fa-inbox" style="font-size:28px;margin-bottom:10px;display:block;color:#cbd5e1;"></i>
+            이번 달 메모 기록이 없습니다.
+            <div style="margin-top:6px;font-size:11px;color:#cbd5e1;">수업 후 출석 모달의 메모 영역에 작성하면 이곳에 누적됩니다.</div>
+        </div>`;
     }
 
     let html = '';
@@ -7684,7 +7805,11 @@ function buildMonthlyMemoTimelineHtml(s, monthPrefix) {
             memosHtml = '<div class="hist-memo-empty">기록 없음</div>';
         }
 
-        html += `<div class="hist-day-card">
+        // 검색·필터용 raw 텍스트 — data-attr 로 카드에 보관
+        const rawText = (String(privateMemo || '') + ' ' + String(sharedMemo || ''))
+            .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+        const rawAttr = rawText.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+        html += `<div class="hist-day-card" data-memo-text="${rawAttr}">
             <div class="hist-day-header">
                 <span class="hist-day-date">${dayNum}일</span>
                 <span class="hist-day-dow">${dow}요일</span>
@@ -7693,6 +7818,82 @@ function buildMonthlyMemoTimelineHtml(s, monthPrefix) {
         </div>`;
     });
     return html;
+}
+
+/**
+ * history-modal 검색·태그 필터 — 모달 내 .hist-day-card 의 data-memo-text 와
+ * 검색어/태그 패턴(정규식)을 매칭해 클라이언트 필터링.
+ *   _activeHistSearch: 현재 검색어 (소문자)
+ *   _activeHistTagPattern: 활성 칩의 data-filter (예: "보강", "시험|테스트|점수")
+ */
+let _activeHistSearch = '';
+let _activeHistTagPattern = '';
+function _applyHistFilter() {
+    const cards = document.querySelectorAll('#history-timeline .hist-day-card');
+    let visible = 0;
+    const q = _activeHistSearch.trim().toLowerCase();
+    let pattern = null;
+    if (_activeHistTagPattern) {
+        try { pattern = new RegExp(_activeHistTagPattern, 'i'); } catch (_) { pattern = null; }
+    }
+    cards.forEach(card => {
+        const txt = card.getAttribute('data-memo-text') || '';
+        let show = true;
+        if (q) show = show && txt.includes(q);
+        if (pattern) show = show && pattern.test(txt);
+        card.classList.toggle('is-hidden', !show);
+        if (show) visible++;
+    });
+    const info = document.getElementById('hist-count-info');
+    if (info) info.textContent = `${visible}/${cards.length}일`;
+    // 결과 0건 안내
+    let noRes = document.getElementById('hist-no-results-msg');
+    if (visible === 0 && cards.length > 0) {
+        if (!noRes) {
+            const tl = document.getElementById('history-timeline');
+            if (tl) {
+                noRes = document.createElement('div');
+                noRes.id = 'hist-no-results-msg';
+                noRes.className = 'hist-no-results';
+                noRes.innerHTML = '<i class="fas fa-search" style="font-size:24px;opacity:0.4;display:block;margin-bottom:8px;"></i>조건에 맞는 메모가 없습니다.';
+                tl.appendChild(noRes);
+            }
+        }
+    } else if (noRes) {
+        noRes.remove();
+    }
+}
+function _resetHistFilter() {
+    _activeHistSearch = '';
+    _activeHistTagPattern = '';
+    const inp = document.getElementById('hist-search-input');
+    if (inp) inp.value = '';
+    document.querySelectorAll('#hist-tag-chips .hist-tag-chip').forEach(c => {
+        c.classList.toggle('active', !c.dataset.filter);
+    });
+}
+function _bindHistFilterToolbarOnce() {
+    const inp = document.getElementById('hist-search-input');
+    if (inp && !inp.dataset.bound) {
+        inp.dataset.bound = '1';
+        let t = null;
+        inp.addEventListener('input', (e) => {
+            _activeHistSearch = e.target.value || '';
+            clearTimeout(t);
+            t = setTimeout(_applyHistFilter, 80);
+        });
+    }
+    const chips = document.querySelectorAll('#hist-tag-chips .hist-tag-chip');
+    chips.forEach(chip => {
+        if (chip.dataset.bound) return;
+        chip.dataset.bound = '1';
+        chip.addEventListener('click', () => {
+            chips.forEach(c => c.classList.remove('active'));
+            chip.classList.add('active');
+            _activeHistTagPattern = chip.dataset.filter || '';
+            _applyHistFilter();
+        });
+    });
 }
 
 /**
@@ -7727,6 +7928,11 @@ window.openHistoryModal = async function(memoOnly) {
     await hydrateMonthlyClassMemosForStudent(s, sid, monthPrefix);
 
     container.innerHTML = buildMonthlyMemoTimelineHtml(s, monthPrefix);
+
+    // 검색·필터 toolbar — 한 번만 바인딩 + 모달 열 때마다 초기화
+    _bindHistFilterToolbarOnce();
+    _resetHistFilter();
+    _applyHistFilter();
 
     const evalSection = document.getElementById('eval-section');
     if (evalSection) evalSection.style.display = memoOnlyMode ? 'none' : '';
@@ -9728,13 +9934,27 @@ window.renderDrawerList = function() {
         filtered = filtered.filter(s => assignedIds.includes(String(s.id)));
     }
     
-    // 검색어 필터링 (이름, 학년, 학교)
+    // 검색어 필터링 — 이름·학년·학교·전화·#태그·메모
+    // 검색어가 #로 시작하면 태그 전용 매칭 (예: "#월수반" → s.memo 의 #월수반 매칭)
     if(searchQuery) {
-        filtered = filtered.filter(s => 
-            s.name.toLowerCase().includes(searchQuery) || 
-            s.grade.toLowerCase().includes(searchQuery) ||
-            (s.school && s.school.toLowerCase().includes(searchQuery))
-        );
+        const isTagQuery = searchQuery.startsWith('#');
+        const tagOnly = isTagQuery ? searchQuery.slice(1).trim() : '';
+        filtered = filtered.filter(s => {
+            if (tagOnly) {
+                const tags = (typeof extractStudentTagsFromMemo === 'function')
+                    ? extractStudentTagsFromMemo(s.memo)
+                    : [];
+                return tags.some(t => t.toLowerCase().includes(tagOnly));
+            }
+            return (
+                (s.name || '').toLowerCase().includes(searchQuery) ||
+                (s.grade || '').toLowerCase().includes(searchQuery) ||
+                (s.school || '').toLowerCase().includes(searchQuery) ||
+                (s.studentPhone || '').toLowerCase().includes(searchQuery) ||
+                (s.parentPhone || '').toLowerCase().includes(searchQuery) ||
+                (s.memo || '').toLowerCase().includes(searchQuery)
+            );
+        });
     }
 
     if (currentStudentSort === 'grade') {
@@ -9755,9 +9975,26 @@ window.renderDrawerList = function() {
     
     const drawerContent = document.getElementById('drawer-content');
     if (filtered.length === 0) {
-        const emptyMsg = searchQuery 
-            ? `<div style="text-align:center;padding:40px 20px;color:#94a3b8;"><i class="fas fa-search" style="font-size:24px;margin-bottom:8px;display:block;opacity:0.4;"></i><p style="font-size:13px;margin:4px 0 0;">"${searchQuery}" 검색 결과가 없습니다</p></div>`
-            : `<div style="text-align:center;padding:40px 20px;color:#94a3b8;"><i class="fas fa-user-plus" style="font-size:24px;margin-bottom:8px;display:block;opacity:0.4;"></i><p style="font-size:13px;margin:4px 0 0;">${showInactiveOnly ? '퇴원/휴원 학생이 없습니다' : '등록된 학생이 없습니다'}</p></div>`;
+        const emptyMsg = searchQuery
+            ? `<div style="text-align:center;padding:40px 20px;color:#94a3b8;">
+                <i class="fas fa-search" style="font-size:24px;margin-bottom:8px;display:block;opacity:0.4;"></i>
+                <p style="font-size:13px;margin:4px 0 0;">"${searchQuery}" 검색 결과가 없습니다</p>
+                <button class="empty-state-cta secondary" type="button" onclick="(function(){var el=document.getElementById('drawer-search-input');if(el){el.value='';el.dispatchEvent(new Event('input',{bubbles:true}));el.focus();}})();">
+                    <i class="fas fa-times" aria-hidden="true"></i> 검색 초기화
+                </button>
+              </div>`
+            : (showInactiveOnly
+                ? `<div style="text-align:center;padding:40px 20px;color:#94a3b8;">
+                    <i class="fas fa-user-slash" style="font-size:24px;margin-bottom:8px;display:block;opacity:0.4;"></i>
+                    <p style="font-size:13px;margin:4px 0 0;">퇴원/휴원 학생이 없습니다</p>
+                  </div>`
+                : `<div style="text-align:center;padding:40px 20px;color:#94a3b8;">
+                    <i class="fas fa-user-plus" style="font-size:24px;margin-bottom:8px;display:block;opacity:0.4;"></i>
+                    <p style="font-size:13px;margin:4px 0 0;">등록된 학생이 없습니다</p>
+                    <button class="empty-state-cta" type="button" onclick="prepareRegister && prepareRegister()">
+                        <i class="fas fa-plus" aria-hidden="true"></i> 첫 학생 등록
+                    </button>
+                  </div>`);
         drawerContent.innerHTML = emptyMsg;
     } else {
         const dupNames = getDuplicateNameSet();
@@ -9848,11 +10085,16 @@ window.renderDrawerList = function() {
             const schoolLabel = s.school ? `<span class="student-school-label">${s.school}</span>` : '';
             const isDup = dupNames.has((s.name || '').trim());
             const dupBadge = isDup ? `<span class="dup-name-badge" title="동명이인"><i class="fas fa-user-group"></i></span>` : '';
+            // s.memo 에서 #해시태그 추출 → 색상 chip 으로 시각화 (드로어 검색에서 #월수반 으로 매칭됨)
+            const tagsHtml = (typeof renderStudentTagsFromMemo === 'function')
+                ? renderStudentTagsFromMemo(s.memo)
+                : '';
             html += `<div class="student-item ${itemClass}${isDup ? ' has-dup-name' : ''}">
                 <div class="student-info" onclick="prepareEdit('${s.id}')">
                     <b>${s.name} ${dupBadge}<span>${s.grade}</span></b>
                     ${schoolLabel}
                     <span>${s.studentPhone || '-'}</span>
+                    ${tagsHtml}
                 </div>
                 <div class="student-quick-actions">
                     <button type="button" class="student-quick-btn eval" onclick="event.stopPropagation(); openHistoryFromStudentList('${s.id}', false)" title="수업 메모·점수·종합평가">

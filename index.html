@@ -879,6 +879,7 @@
                         </button>
                     </div>
                     <div class="am-memo-hint" id="am-memo-hint">나만 볼 수 있는 기록입니다.</div>
+                    <div class="memo-recent-chips" id="memo-recent-chips" style="display:none;" aria-label="최근 메모 빠른 입력"></div>
                     <div class="memo-editor-toolbar">
                         <button type="button" class="color-btn" onclick="applyMemoColor('#ef4444')" style="background:#ef4444;" title="빨강"></button>
                         <button type="button" class="color-btn" onclick="applyMemoColor('#f97316')" style="background:#f97316;" title="주황"></button>
@@ -981,14 +982,29 @@
         </div>
     </div>
 
-    <div id="history-modal" class="modal" style="display: none;">
+    <div id="history-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="hist-title" style="display: none;">
         <div class="modal-card history-card">
             <div class="modal-header">
                 <div>
                     <h2 id="hist-title">학생 이름</h2>
                     <span id="hist-subtitle" class="hist-subtitle"></span>
                 </div>
-                <button class="btn-close-x" onclick="closeModal('history-modal')"><i class="fas fa-times"></i></button>
+                <button class="btn-close-x" onclick="closeModal('history-modal')" aria-label="닫기"><i class="fas fa-times" aria-hidden="true"></i></button>
+            </div>
+            <div class="hist-toolbar">
+                <div class="hist-search-wrap">
+                    <i class="fas fa-search" aria-hidden="true"></i>
+                    <input type="text" id="hist-search-input" class="hist-search-input"
+                        placeholder="메모 내용 검색..." autocomplete="off">
+                </div>
+                <div class="hist-tag-chips" id="hist-tag-chips" role="group" aria-label="빠른 필터">
+                    <button class="hist-tag-chip active" data-filter="">전체</button>
+                    <button class="hist-tag-chip" data-filter="보강">보강</button>
+                    <button class="hist-tag-chip" data-filter="결석">결석</button>
+                    <button class="hist-tag-chip" data-filter="숙제">숙제</button>
+                    <button class="hist-tag-chip" data-filter="시험|테스트|점수">시험·점수</button>
+                    <span class="hist-count-info" id="hist-count-info"></span>
+                </div>
             </div>
             <div class="modal-body custom-scroll">
                 <div id="history-timeline" class="hist-list"></div>
