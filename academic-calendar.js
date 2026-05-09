@@ -87,6 +87,60 @@
         });
     }
 
+    // ── 핀 학사일정 (사용자가 직접 고른 일정만 사이드바에 노출) ──
+    const LS_PINNED = 'academic_pinned_events';
+    function _pinKey(p) {
+        return `${p.schoolAtpt}|${p.schoolCode}|${p.dateStr}|${p.eventName}`;
+    }
+    function getPinnedEvents() {
+        try {
+            const raw = JSON.parse(localStorage.getItem(LS_PINNED) || '[]');
+            return Array.isArray(raw) ? raw : [];
+        } catch (e) { return []; }
+    }
+    function _setPinnedEvents(list) {
+        try { localStorage.setItem(LS_PINNED, JSON.stringify(list || [])); }
+        catch (e) { console.warn('[Academic] pin save failed:', e); }
+    }
+    function isEventPinned(school, dateStr, eventName) {
+        if (!school || !dateStr || !eventName) return false;
+        const target = `${school.atpt}|${school.code}|${dateStr}|${eventName}`;
+        return getPinnedEvents().some((p) => _pinKey(p) === target);
+    }
+    function pinEvent(school, dateStr, evt) {
+        if (!school || !dateStr || !evt || !evt.name) return false;
+        const item = {
+            schoolAtpt: school.atpt,
+            schoolCode: school.code,
+            schoolName: school.name,
+            dateStr,
+            eventName: evt.name,
+            eventContent: evt.content || '',
+            addedAt: Date.now(),
+        };
+        const list = getPinnedEvents();
+        if (list.some((p) => _pinKey(p) === _pinKey(item))) return false;
+        list.push(item);
+        _setPinnedEvents(list);
+        return true;
+    }
+    function unpinEvent(school, dateStr, eventName) {
+        if (!school || !dateStr || !eventName) return false;
+        const target = `${school.atpt}|${school.code}|${dateStr}|${eventName}`;
+        const list = getPinnedEvents();
+        const filtered = list.filter((p) => _pinKey(p) !== target);
+        if (filtered.length === list.length) return false;
+        _setPinnedEvents(filtered);
+        return true;
+    }
+    function togglePinEventInternal(school, dateStr, evt) {
+        if (isEventPinned(school, dateStr, evt.name)) {
+            unpinEvent(school, dateStr, evt.name);
+            return false;
+        }
+        return pinEvent(school, dateStr, evt);
+    }
+
     // ── NEIS API 호출 ────────────────────────────────────────────
     async function searchSchoolsNeis(query) {
         const q = String(query || '').trim();
@@ -399,13 +453,29 @@
                 if (!bySchool.has(key)) bySchool.set(key, { school: e.school, events: [] });
                 bySchool.get(key).events.push(e.event);
             });
-            const html = Array.from(bySchool.values()).map((g) => {
+            const html = Array.from(bySchool.values()).map((g, gi) => {
                 const c = _schoolColor(g.school);
-                const evList = g.events.map((ev) => {
+                const evList = g.events.map((ev, ei) => {
+                    const pinned = isEventPinned(g.school, dateStr, ev.name);
                     const sub = ev.content && ev.content !== ev.name
                         ? ` <span class="tt-academic-event-content">${_escape(ev.content)}</span>`
                         : '';
-                    return `<span class="tt-academic-event">${_escape(ev.name)}${sub}</span>`;
+                    // data-* 로 학교/날짜/이벤트 인덱스 보관 → 클릭 시 핀 토글
+                    return `<span class="tt-academic-event" data-school-idx="${gi}" data-event-idx="${ei}">
+                        <button class="tt-academic-pin-btn ${pinned ? 'is-pinned' : ''}"
+                            type="button"
+                            aria-label="${pinned ? '핀 제거' : '사이드바에 추가'}"
+                            title="${pinned ? '핀 제거' : '사이드바에 추가'}"
+                            data-school-atpt="${_escape(g.school.atpt)}"
+                            data-school-code="${_escape(g.school.code)}"
+                            data-school-name="${_escape(g.school.name)}"
+                            data-date="${_escape(dateStr)}"
+                            data-event-name="${_escape(ev.name)}"
+                            data-event-content="${_escape(ev.content || '')}">
+                            <i class="fas fa-bookmark" aria-hidden="true"></i>
+                        </button>
+                        ${_escape(ev.name)}${sub}
+                    </span>`;
                 }).join('');
                 return `<div class="tt-academic-school" style="background:${c.bg};color:${c.fg};border-color:${c.dot};">
                     <span class="tt-academic-school-name">${_escape(g.school.name)}</span>
@@ -414,7 +484,32 @@
             }).join('');
             sec.innerHTML = `<div class="tt-academic-title">
                 <i class="fas fa-graduation-cap"></i> 학사일정
+                <span class="tt-academic-hint">📌 클릭 시 우측 사이드바에 추가</span>
             </div><div class="tt-academic-list">${html}</div>`;
+            // 핀 버튼 이벤트 위임
+            sec.querySelectorAll('.tt-academic-pin-btn').forEach((btn) => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const school = {
+                        atpt: btn.dataset.schoolAtpt,
+                        code: btn.dataset.schoolCode,
+                        name: btn.dataset.schoolName,
+                    };
+                    const dateStr = btn.dataset.date;
+                    const evt = {
+                        name: btn.dataset.eventName,
+                        content: btn.dataset.eventContent || '',
+                    };
+                    const nowPinned = togglePinEventInternal(school, dateStr, evt);
+                    btn.classList.toggle('is-pinned', nowPinned);
+                    btn.setAttribute('aria-label', nowPinned ? '핀 제거' : '사이드바에 추가');
+                    btn.setAttribute('title', nowPinned ? '핀 제거' : '사이드바에 추가');
+                    // 사이드바 즉시 갱신
+                    if (typeof renderPinnedAcademicEventsSidebar === 'function') {
+                        renderPinnedAcademicEventsSidebar();
+                    }
+                });
+            });
         } catch (e) {
             console.warn('[Academic] day-detail render 실패:', e);
             sec.remove();
@@ -609,7 +704,7 @@
         if (results) results.innerHTML = '';
     }
 
-    // ── 우측 사이드바: 다가오는 학사일정 (오늘 + 60일) ──────────
+    // ── 우측 사이드바: 사용자가 핀한 학사일정만 표시 ────────────
     function _formatDdayShort(daysDiff) {
         if (daysDiff === 0) return '오늘';
         if (daysDiff < 0) return `${-daysDiff}일전`;
@@ -617,6 +712,7 @@
     }
     function _ddayClass(daysDiff) {
         if (daysDiff === 0) return 'is-today';
+        if (daysDiff < 0) return 'is-past';
         if (daysDiff > 30) return 'is-far';
         return '';
     }
@@ -627,136 +723,143 @@
         const dows = ['일', '월', '화', '수', '목', '금', '토'];
         return { mon: parseInt(m[2], 10), day: parseInt(m[3], 10), dow: dows[dayObj.getDay()] };
     }
-    async function renderUpcomingAcademicEvents() {
+    function _renderPinnedAcademicEventsSidebar() {
         const sidebar = document.getElementById('upcoming-events-sidebar');
         const contentEl = document.getElementById('upcoming-events-content');
         if (!sidebar || !contentEl) return;
+        // 헤더 타이틀 갱신 (count 표시)
+        const titleEl = sidebar.querySelector('.upcoming-title');
+        const pinned = getPinnedEvents();
+        if (titleEl) {
+            titleEl.innerHTML = `<i class="fas fa-bookmark" aria-hidden="true"></i> 핀한 학사일정` +
+                (pinned.length > 0 ? ` <span class="upcoming-count-badge">${pinned.length}</span>` : '');
+        }
 
-        const schools = getSubscribedSchools();
-        if (schools.length === 0) {
+        if (pinned.length === 0) {
             contentEl.innerHTML = `
                 <div class="upcoming-empty">
-                    <i class="fas fa-graduation-cap" aria-hidden="true"></i>
-                    <div class="upcoming-empty-title">구독 학교 없음</div>
+                    <i class="fas fa-bookmark" aria-hidden="true"></i>
+                    <div class="upcoming-empty-title">아직 핀한 일정이 없어요</div>
                     <div class="upcoming-empty-desc">
-                        메뉴 → 학사일정 에서 학교 추가 시<br>다가오는 시험·방학을 한 눈에 확인할 수 있습니다.
+                        캘린더 셀 클릭 → 시간표 모달 상단의<br>
+                        <strong>학사일정</strong> 섹션에서 일정 옆 <i class="fas fa-bookmark" style="color:#94a3b8;"></i>
+                        아이콘을 누르면 여기 추가됩니다.
+                    </div>
+                    <div class="upcoming-empty-hint">
+                        💡 학교 추가는 <strong>메뉴 → 학사일정</strong> 에서
                     </div>
                 </div>`;
             return;
         }
 
-        // 오늘 기준 + 60일 — 현재 월 + 다음 월 (필요 시 +2 월)
         const now = new Date();
         now.setHours(0, 0, 0, 0);
-        const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-        const monthsToFetch = new Set();
-        const cur = new Date(now);
-        for (let i = 0; i < 3; i++) {
-            const yyyymm = `${cur.getFullYear()}${String(cur.getMonth() + 1).padStart(2, '0')}`;
-            monthsToFetch.add(yyyymm);
-            cur.setMonth(cur.getMonth() + 1);
-        }
 
-        // 페치 (캐시 활용)
-        const allEvents = []; // { date, dateStr, school, event, daysDiff }
-        const monthlyMaps = new Map();
-        await Promise.all(Array.from(monthsToFetch).map(async (yyyymm) => {
-            const m = await getMonthlyAcademicEvents(yyyymm);
-            monthlyMaps.set(yyyymm, m);
-        }));
-
-        monthlyMaps.forEach((monthMap) => {
-            monthMap.forEach((eventList, dateStr) => {
-                if (dateStr < todayStr) return;
-                const m = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})$/);
-                if (!m) return;
-                const dayObj = new Date(+m[1], +m[2] - 1, +m[3]);
-                const daysDiff = Math.round((dayObj - now) / (1000 * 60 * 60 * 24));
-                if (daysDiff > 60) return; // 60일 안에 들어오는 일정만
-                eventList.forEach((e) => {
-                    allEvents.push({ dateStr, school: e.school, event: e.event, daysDiff });
-                });
-            });
+        // daysDiff 계산
+        const enriched = pinned.map((p) => {
+            const m = String(p.dateStr).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+            const dayObj = m ? new Date(+m[1], +m[2] - 1, +m[3]) : null;
+            const daysDiff = dayObj ? Math.round((dayObj - now) / (1000 * 60 * 60 * 24)) : null;
+            return { ...p, daysDiff };
         });
 
-        if (allEvents.length === 0) {
-            contentEl.innerHTML = `
-                <div class="upcoming-empty">
-                    <i class="fas fa-circle-check" aria-hidden="true"></i>
-                    <div class="upcoming-empty-title">다가오는 학사일정 없음</div>
-                    <div class="upcoming-empty-desc">
-                        구독 학교 ${schools.length}개교의 60일 이내 일정이 없습니다.
+        // 정렬: 다가오는 일정 먼저(오늘 ~ 미래), 지난 일정은 가장 최근부터 뒤에
+        enriched.sort((a, b) => {
+            const aPast = (a.daysDiff || 0) < 0;
+            const bPast = (b.daysDiff || 0) < 0;
+            if (aPast !== bPast) return aPast ? 1 : -1;
+            if (aPast) return (b.daysDiff || 0) - (a.daysDiff || 0); // 지난 일정: 최근 위
+            return (a.daysDiff || 0) - (b.daysDiff || 0); // 미래: 가까운 위
+        });
+
+        const upcoming = enriched.filter((p) => (p.daysDiff || 0) >= 0);
+        const past = enriched.filter((p) => (p.daysDiff || 0) < 0);
+
+        const renderItem = (p) => {
+            const school = {
+                atpt: p.schoolAtpt, code: p.schoolCode, name: p.schoolName,
+                _colorIdx: (() => {
+                    // 구독 학교 목록에서 colorIdx 찾기
+                    const subs = getSubscribedSchools();
+                    const idx = subs.findIndex((s) => s.atpt === p.schoolAtpt && s.code === p.schoolCode);
+                    return idx >= 0 ? subs[idx]._colorIdx : 0;
+                })(),
+            };
+            const c = _schoolColor(school);
+            const sd = _shortDateLabel(p.dateStr);
+            const dday = _formatDdayShort(p.daysDiff != null ? p.daysDiff : 0);
+            const ddayCls = _ddayClass(p.daysDiff != null ? p.daysDiff : 0);
+            const subtitle = p.eventContent && p.eventContent !== p.eventName
+                ? `<div style="font-size:10px;color:#94a3b8;margin-top:1px;">${_escape(p.eventContent)}</div>`
+                : '';
+            return `<div class="upcoming-event-item" style="border-left-color:${c.dot};">
+                <div class="upcoming-event-item-info"
+                    onclick="(typeof window.jumpToCalendarDate === 'function') && window.jumpToCalendarDate('${_escape(p.dateStr)}')"
+                    style="cursor:pointer;">
+                    <div class="upcoming-event-item-school" style="color:${c.fg};">
+                        ${_escape(p.schoolName)}
                     </div>
-                </div>`;
-            return;
-        }
-
-        // 정렬: 가까운 날짜 먼저
-        allEvents.sort((a, b) => {
-            if (a.daysDiff !== b.daysDiff) return a.daysDiff - b.daysDiff;
-            return a.school.name.localeCompare(b.school.name);
-        });
-
-        // 섹션 그룹: 이번 주 / 다음 주 / 다음 달 / 그 이후
-        const sections = {
-            '이번 주': [],
-            '다음 주': [],
-            '이번 달': [],
-            '다음 달': [],
-            '그 이후': [],
+                    <div class="upcoming-event-item-name">${_escape(p.eventName)}</div>
+                    ${subtitle}
+                </div>
+                <div class="upcoming-event-item-date">
+                    <strong>${typeof sd === 'object' ? `${sd.mon}/${sd.day}` : sd}</strong>
+                    ${typeof sd === 'object' ? `<div>(${sd.dow})</div>` : ''}
+                    <span class="upcoming-dday ${ddayCls}">${dday}</span>
+                </div>
+                <button class="upcoming-event-remove" type="button"
+                    aria-label="핀 제거"
+                    title="핀 제거"
+                    data-school-atpt="${_escape(p.schoolAtpt)}"
+                    data-school-code="${_escape(p.schoolCode)}"
+                    data-date="${_escape(p.dateStr)}"
+                    data-event-name="${_escape(p.eventName)}">
+                    <i class="fas fa-xmark" aria-hidden="true"></i>
+                </button>
+            </div>`;
         };
-        const dayOfWeek = now.getDay();
-        const thisWeekEnd = 6 - dayOfWeek; // 이번 주 토요일까지
-        const nextWeekEnd = thisWeekEnd + 7;
-        const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-        const monthEndDiff = Math.round((monthEnd - now) / (1000 * 60 * 60 * 24));
-        const nextMonthEnd = new Date(now.getFullYear(), now.getMonth() + 2, 0);
-        const nextMonthEndDiff = Math.round((nextMonthEnd - now) / (1000 * 60 * 60 * 24));
-
-        allEvents.forEach((ev) => {
-            const d = ev.daysDiff;
-            if (d <= thisWeekEnd) sections['이번 주'].push(ev);
-            else if (d <= nextWeekEnd) sections['다음 주'].push(ev);
-            else if (d <= monthEndDiff) sections['이번 달'].push(ev);
-            else if (d <= nextMonthEndDiff) sections['다음 달'].push(ev);
-            else sections['그 이후'].push(ev);
-        });
 
         let html = '';
-        Object.entries(sections).forEach(([label, evs]) => {
-            if (evs.length === 0) return;
-            html += `<div class="upcoming-section">`;
-            html += `<div class="upcoming-section-label">${_escape(label)} (${evs.length})</div>`;
-            evs.forEach((ev) => {
-                const c = _schoolColor(ev.school);
-                const sd = _shortDateLabel(ev.dateStr);
-                const dday = _formatDdayShort(ev.daysDiff);
-                const ddayCls = _ddayClass(ev.daysDiff);
-                const subtitle = ev.event.content && ev.event.content !== ev.event.name
-                    ? `<div style="font-size:10px;color:#94a3b8;margin-top:1px;">${_escape(ev.event.content)}</div>`
-                    : '';
-                html += `<button class="upcoming-event-item" type="button"
-                    style="border-left-color:${c.dot};"
-                    data-date="${_escape(ev.dateStr)}"
-                    onclick="(typeof window.jumpToCalendarDate === 'function') && window.jumpToCalendarDate('${_escape(ev.dateStr)}')">
-                    <div class="upcoming-event-item-info">
-                        <div class="upcoming-event-item-school" style="color:${c.fg};">
-                            ${_escape(ev.school.name)}
-                        </div>
-                        <div class="upcoming-event-item-name">${_escape(ev.event.name)}</div>
-                        ${subtitle}
-                    </div>
-                    <div class="upcoming-event-item-date">
-                        <strong>${typeof sd === 'object' ? `${sd.mon}/${sd.day}` : sd}</strong>
-                        ${typeof sd === 'object' ? `<div>(${sd.dow})</div>` : ''}
-                        <span class="upcoming-dday ${ddayCls}">${dday}</span>
-                    </div>
-                </button>`;
-            });
-            html += `</div>`;
-        });
+        if (upcoming.length > 0) {
+            html += `<div class="upcoming-section">
+                <div class="upcoming-section-label">다가오는 (${upcoming.length})</div>
+                ${upcoming.map(renderItem).join('')}
+            </div>`;
+        }
+        if (past.length > 0) {
+            html += `<div class="upcoming-section">
+                <div class="upcoming-section-label upcoming-section-past">지난 일정 (${past.length})</div>
+                ${past.map(renderItem).join('')}
+            </div>`;
+        }
         contentEl.innerHTML = html;
+
+        // 핀 제거 버튼 이벤트 위임
+        contentEl.querySelectorAll('.upcoming-event-remove').forEach((btn) => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const school = {
+                    atpt: btn.dataset.schoolAtpt,
+                    code: btn.dataset.schoolCode,
+                };
+                unpinEvent(school, btn.dataset.date, btn.dataset.eventName);
+                _renderPinnedAcademicEventsSidebar();
+                // 만약 시간표 모달이 같은 날짜로 열려있으면 핀 버튼 상태도 갱신
+                const ttSec = document.getElementById('tt-academic-section');
+                if (ttSec) {
+                    const matchPin = ttSec.querySelector(
+                        `.tt-academic-pin-btn[data-school-atpt="${btn.dataset.schoolAtpt}"]`
+                        + `[data-school-code="${btn.dataset.schoolCode}"]`
+                        + `[data-event-name="${btn.dataset.eventName}"]`
+                    );
+                    if (matchPin) matchPin.classList.remove('is-pinned');
+                }
+            });
+        });
     }
+    // 외부 alias (script.js 의 renderCalendar 끝부분에서 호출)
+    function renderUpcomingAcademicEvents() { return _renderPinnedAcademicEventsSidebar(); }
+    function renderPinnedAcademicEventsSidebar() { return _renderPinnedAcademicEventsSidebar(); }
 
     /** 사이드바 접기/펴기 + localStorage 보존 */
     window.toggleUpcomingSidebar = function () {
@@ -780,8 +883,13 @@
     window.renderAcademicBadgesOnCalendar = renderAcademicBadgesOnCalendar;
     window.renderDayDetailAcademicSection = renderDayDetailAcademicSection;
     window.renderUpcomingAcademicEvents = renderUpcomingAcademicEvents;
+    window.renderPinnedAcademicEventsSidebar = renderPinnedAcademicEventsSidebar;
     window.getMonthlyAcademicEvents = getMonthlyAcademicEvents;
     window.getAcademicEventsForDate = getAcademicEventsForDate;
     window.getSubscribedAcademicSchools = getSubscribedSchools;
     window.invalidateAcademicCache = invalidateAcademicCache;
+    window.getPinnedAcademicEvents = getPinnedEvents;
+    window.isAcademicEventPinned = isEventPinned;
+    window.togglePinAcademicEvent = togglePinEventInternal;
+    window.unpinAcademicEvent = unpinEvent;
 })();

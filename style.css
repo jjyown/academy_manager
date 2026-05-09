@@ -849,8 +849,8 @@ textarea:focus:not(:focus-visible) {
     margin-right: 6px;
 }
 .tt-academic-event {
-    display: inline-flex; align-items: center;
-    padding: 2px 8px;
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 8px 2px 4px;
     background: rgba(255,255,255,0.6);
     border-radius: 10px;
     font-weight: 600;
@@ -859,6 +859,40 @@ textarea:focus:not(:focus-visible) {
     margin-left: 4px;
     font-weight: 400;
     opacity: 0.85;
+}
+.tt-academic-pin-btn {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 4px;
+    color: rgba(0,0,0,0.25);
+    font-size: 11px;
+    line-height: 1;
+    display: inline-flex; align-items: center; justify-content: center;
+    transition: all 0.15s;
+}
+.tt-academic-pin-btn:hover {
+    background: rgba(0,0,0,0.06);
+    color: rgba(0,0,0,0.55);
+}
+.tt-academic-pin-btn.is-pinned {
+    color: var(--primary, #6366f1);
+    background: rgba(99,102,241,0.15);
+}
+.tt-academic-pin-btn.is-pinned:hover {
+    background: rgba(239,68,68,0.15);
+    color: #dc2626;
+}
+.tt-academic-hint {
+    margin-left: auto;
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--gray, #94a3b8);
+    white-space: nowrap;
+}
+.tt-academic-title {
+    display: flex; align-items: center; gap: 4px;
 }
 
 /* 학사일정 관리 모달 */
@@ -3686,6 +3720,61 @@ textarea:focus:not(:focus-visible) {
 }
 .upcoming-event-item-date .upcoming-dday.is-far {
     background: #94a3b8;
+}
+.upcoming-event-item-date .upcoming-dday.is-past {
+    background: #cbd5e1;
+    color: #64748b;
+}
+
+/* 사이드바 — 핀 제거 버튼 */
+.upcoming-event-item {
+    position: relative;
+    align-items: stretch;
+}
+.upcoming-event-remove {
+    position: absolute;
+    top: 4px; right: 4px;
+    width: 18px; height: 18px;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    color: #cbd5e1;
+    cursor: pointer;
+    font-size: 10px;
+    display: inline-flex; align-items: center; justify-content: center;
+    transition: all 0.15s;
+    opacity: 0;
+}
+.upcoming-event-item:hover .upcoming-event-remove { opacity: 1; }
+.upcoming-event-remove:hover {
+    background: rgba(239,68,68,0.12);
+    color: #dc2626;
+}
+
+/* 핀 카운트 배지 */
+.upcoming-count-badge {
+    background: var(--primary, #6366f1);
+    color: #fff;
+    border-radius: 8px;
+    padding: 1px 7px;
+    font-size: 10px;
+    font-weight: 800;
+    margin-left: 4px;
+}
+
+/* 빈 상태 hint */
+.upcoming-empty-hint {
+    margin-top: 12px;
+    padding: 8px;
+    background: rgba(99,102,241,0.06);
+    border-radius: 6px;
+    font-size: 10px;
+    color: #6366f1;
+}
+
+/* 지난 일정 섹션 라벨 */
+.upcoming-section-label.upcoming-section-past {
+    color: #cbd5e1;
 }
 
 /* 좁은 화면: 사이드바를 캘린더 아래로 */
