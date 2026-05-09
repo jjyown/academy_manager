@@ -253,7 +253,14 @@
             const monthMap = monthlyMaps.get(yyyymm);
             if (!monthMap) return;
             const events = monthMap.get(ds) || [];
-            if (events.length === 0) return;
+            if (events.length === 0) {
+                // 이전 hover 핸들러 정리
+                if (cell._academicHoverCleanup) {
+                    cell._academicHoverCleanup();
+                    cell._academicHoverCleanup = null;
+                }
+                return;
+            }
 
             // 학교별 그룹화
             const bySchool = new Map(); // key -> { school, events:[] }
@@ -268,12 +275,6 @@
 
             const row = document.createElement('div');
             row.className = 'academic-badge-row';
-
-            // 툴팁 — 모든 학교/이벤트
-            const tooltip = groups.map((g) =>
-                `[${g.school.name}] ${g.events.map((ev) => ev.name).join(', ')}`
-            ).join('\n');
-            row.title = tooltip;
 
             // 화면에 보이는 학교 수 제한
             const visibleGroups = groups.slice(0, MAX_VISIBLE_SCHOOLS);
@@ -311,7 +312,69 @@
             }
 
             cell.appendChild(row);
+
+            // ── 학교 일정 풀 팝오버 (셀 전역 hover) ──────────────
+            // 학생 인원 배지와 동일한 #calendar-tooltip 공유 — 마우스 따라가며 표시
+            const tooltipHtml = _buildAcademicTooltipHtml(ds, groups);
+            const onCellEnter = (e) => {
+                // 학생 인원 배지 위에 진입 시엔 인원 배지의 핸들러가 우선
+                if (e.target && e.target.closest && e.target.closest('.summary-badge')) return;
+                const tt = document.getElementById('calendar-tooltip');
+                if (!tt) return;
+                tt.innerHTML = tooltipHtml;
+                tt.style.display = 'block';
+            };
+            const onCellLeave = () => {
+                const tt = document.getElementById('calendar-tooltip');
+                if (tt) tt.style.display = 'none';
+            };
+            // 학생 배지에서 마우스가 나갔지만 아직 셀 안에 있으면 학사일정 툴팁 복귀
+            const studentBadge = cell.querySelector('.summary-badge.has-events');
+            const onStudentBadgeLeave = () => {
+                // 기존 핸들러가 hide 한 직후 우리가 다시 학사일정으로 채움
+                const tt = document.getElementById('calendar-tooltip');
+                if (!tt) return;
+                tt.innerHTML = tooltipHtml;
+                tt.style.display = 'block';
+            };
+
+            // 이전 hover 핸들러 정리 (재렌더 안전)
+            if (cell._academicHoverCleanup) cell._academicHoverCleanup();
+
+            cell.addEventListener('mouseenter', onCellEnter);
+            cell.addEventListener('mouseleave', onCellLeave);
+            if (studentBadge) studentBadge.addEventListener('mouseleave', onStudentBadgeLeave);
+
+            cell._academicHoverCleanup = () => {
+                cell.removeEventListener('mouseenter', onCellEnter);
+                cell.removeEventListener('mouseleave', onCellLeave);
+                if (studentBadge) studentBadge.removeEventListener('mouseleave', onStudentBadgeLeave);
+            };
         });
+    }
+
+    /** 학사일정 풀 팝오버 HTML — 학생 인원 툴팁 시각 톤과 맞춤 */
+    function _buildAcademicTooltipHtml(dateStr, groups) {
+        const head = `<div style="font-weight:700;margin-bottom:8px;display:flex;align-items:center;gap:6px;">
+            <i class="fas fa-graduation-cap" style="font-size:11px;opacity:0.7;"></i>
+            ${_escape(dateStr)} 학사일정
+        </div>`;
+        const body = groups.map((g) => {
+            const c = _schoolColor(g.school);
+            const eventsHtml = g.events.map((ev) => {
+                const sub = ev.content && ev.content !== ev.name
+                    ? ` <span style="opacity:0.65;font-weight:500;">· ${_escape(ev.content)}</span>`
+                    : '';
+                return `<div style="margin-top:2px;">${_escape(ev.name)}${sub}</div>`;
+            }).join('');
+            return `<div style="margin-bottom:6px;">
+                <span style="background:${c.bg};color:${c.fg};padding:2px 8px;border-radius:5px;font-weight:700;font-size:11px;display:inline-block;margin-bottom:2px;">
+                    ${_escape(g.school.name)}
+                </span>
+                <div style="margin-left:2px;font-size:12px;line-height:1.45;">${eventsHtml}</div>
+            </div>`;
+        }).join('');
+        return head + body;
     }
 
     // ── 시간표 모달 학사일정 섹션 ──────────────────────────────
