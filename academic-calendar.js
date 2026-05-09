@@ -205,7 +205,19 @@
         return m.get(dateStr) || [];
     }
 
+    // ── 학교명 약어 (송도중학교 → 송도중) ──────────────────────
+    function _abbreviateSchoolName(name, maxLen) {
+        const max = maxLen || 5;
+        let abbr = String(name || '')
+            .replace(/등학교$/, '')   // 초등학교/고등학교 → 초/고
+            .replace(/학교$/, '');     // 중학교/대학교 → 중/대
+        if (abbr.length > max) abbr = abbr.slice(0, max) + '…';
+        return abbr;
+    }
+
     // ── 캘린더 셀 배지 렌더 ─────────────────────────────────────
+    // 학교가 여러 개면 각 행에 [학교칩 + 이벤트명] 형식으로 분리 표시.
+    // 셀 공간 제약상 최대 2학교까지 보이고 나머지는 "+N건 더" 표시.
     let _badgeRenderToken = 0;
     async function renderAcademicBadgesOnCalendar() {
         const grid = document.getElementById('calendar-grid');
@@ -216,7 +228,6 @@
         const schools = getSubscribedSchools();
         if (schools.length === 0) return;
 
-        // 그리드 안에 보이는 모든 dateStr 모음 → 월별 그룹
         const cells = Array.from(grid.querySelectorAll('.grid-cell[data-date]'));
         if (cells.length === 0) return;
         const monthsToFetch = new Set();
@@ -231,8 +242,9 @@
             const m = await getMonthlyAcademicEvents(yyyymm);
             monthlyMaps.set(yyyymm, m);
         }));
-        // 다른 render 가 시작됐으면 abort
         if (myToken !== _badgeRenderToken) return;
+
+        const MAX_VISIBLE_SCHOOLS = 2;
 
         cells.forEach((cell) => {
             const ds = cell.dataset.date || '';
@@ -242,38 +254,62 @@
             if (!monthMap) return;
             const events = monthMap.get(ds) || [];
             if (events.length === 0) return;
-            // 동일 학교 중복 제거 (1셀당 학교당 1개 dot)
-            const seenSchool = new Set();
-            const uniques = [];
+
+            // 학교별 그룹화
+            const bySchool = new Map(); // key -> { school, events:[] }
             events.forEach((e) => {
                 const k = `${e.school.atpt}-${e.school.code}`;
-                if (seenSchool.has(k)) return;
-                seenSchool.add(k);
-                uniques.push(e);
+                if (!bySchool.has(k)) {
+                    bySchool.set(k, { school: e.school, events: [] });
+                }
+                bySchool.get(k).events.push(e.event);
             });
+            const groups = Array.from(bySchool.values());
+
             const row = document.createElement('div');
             row.className = 'academic-badge-row';
-            const tooltip = events.map((e) =>
-                `${e.school.name}: ${e.event.name}${e.event.content && e.event.content !== e.event.name ? ' (' + e.event.content + ')' : ''}`
+
+            // 툴팁 — 모든 학교/이벤트
+            const tooltip = groups.map((g) =>
+                `[${g.school.name}] ${g.events.map((ev) => ev.name).join(', ')}`
             ).join('\n');
             row.title = tooltip;
-            uniques.slice(0, 4).forEach((e) => {
-                const c = _schoolColor(e.school);
-                const dot = document.createElement('span');
-                dot.className = 'academic-badge-dot';
-                dot.style.background = c.dot;
-                dot.setAttribute('aria-label', `${e.school.name} 학사일정`);
-                row.appendChild(dot);
+
+            // 화면에 보이는 학교 수 제한
+            const visibleGroups = groups.slice(0, MAX_VISIBLE_SCHOOLS);
+            const hiddenCount = groups.length - visibleGroups.length;
+
+            visibleGroups.forEach((g) => {
+                const c = _schoolColor(g.school);
+                const item = document.createElement('div');
+                item.className = 'academic-badge-item';
+
+                const schoolChip = document.createElement('span');
+                schoolChip.className = 'academic-badge-school';
+                schoolChip.style.background = c.bg;
+                schoolChip.style.color = c.fg;
+                schoolChip.textContent = _abbreviateSchoolName(g.school.name, 5);
+                item.appendChild(schoolChip);
+
+                const eventText = document.createElement('span');
+                eventText.className = 'academic-badge-event-text';
+                eventText.style.color = c.fg;
+                const firstName = g.events[0].name || '';
+                eventText.textContent = g.events.length > 1
+                    ? `${firstName} +${g.events.length - 1}`
+                    : firstName;
+                item.appendChild(eventText);
+
+                row.appendChild(item);
             });
-            // 첫 이벤트명 짧게
-            if (events.length > 0) {
-                const label = document.createElement('span');
-                label.className = 'academic-badge-label';
-                const first = events[0].event.name || '학사일정';
-                label.textContent = events.length > 1 ? `${first} 외 ${events.length - 1}` : first;
-                label.style.color = _schoolColor(events[0].school).fg;
-                row.appendChild(label);
+
+            if (hiddenCount > 0) {
+                const more = document.createElement('div');
+                more.className = 'academic-badge-more';
+                more.textContent = `+ ${hiddenCount}개 학교 더`;
+                row.appendChild(more);
             }
+
             cell.appendChild(row);
         });
     }

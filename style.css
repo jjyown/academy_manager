@@ -671,25 +671,40 @@ textarea:focus:not(:focus-visible) {
    학사일정 (NEIS) 연동 UI
    ============================================================ */
 
-/* 메인 캘린더 셀 — 학사일정 배지 */
+/* 메인 캘린더 셀 — 학사일정 배지 (학교별 1줄, 학교칩 + 이벤트명) */
 .academic-badge-row {
-    display: flex; align-items: center; gap: 3px;
-    flex-wrap: wrap;
-    margin-top: 2px; padding: 0 4px;
+    display: flex; flex-direction: column; gap: 2px;
+    margin-top: 3px; padding: 0 4px 2px;
+    overflow: hidden;
     pointer-events: none;
+    max-width: 100%;
 }
-.academic-badge-dot {
-    display: inline-block;
-    width: 7px; height: 7px;
-    border-radius: 50%;
+.academic-badge-item {
+    display: flex; align-items: center; gap: 4px;
+    font-size: 10px; line-height: 1.25;
+    min-width: 0;
+}
+.academic-badge-school {
     flex-shrink: 0;
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 9px; font-weight: 800;
+    line-height: 1.4;
+    letter-spacing: -0.2px;
 }
-.academic-badge-label {
-    font-size: 10px; font-weight: 600;
-    line-height: 1.2;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    flex: 1; min-width: 0;
-    margin-left: 1px;
+.academic-badge-event-text {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 600;
+}
+.academic-badge-more {
+    font-size: 9px;
+    color: var(--gray, #94a3b8);
+    font-weight: 600;
+    padding-left: 2px;
 }
 
 /* 시간표 모달 — 학사일정 섹션 */
