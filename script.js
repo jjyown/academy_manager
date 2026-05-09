@@ -8811,6 +8811,19 @@ window.deleteScheduleEntryInModal = async function (idx) {
             showToast('DB 삭제에 실패했습니다. 네트워크·권한을 확인하세요.', 'error');
             return;
         }
+    } else if (e.id == null && typeof deleteHolidayFromDatabaseByMatch === 'function') {
+        // 로컬 entry에 DB id가 없는 경우: name+date+teacher_id 매칭으로 폴백 삭제
+        const tidForRow = e.scheduleType === 'personal' ? (currentTeacherId || 'no-teacher') : 'academy';
+        try {
+            const removed = await deleteHolidayFromDatabaseByMatch(tidForRow, dateStr, e.name);
+            if (removed === 0) {
+                console.warn('[deleteScheduleEntryInModal] DB 매칭 행 없음 (이미 삭제됐거나 owner 불일치):', { tidForRow, dateStr, name: e.name });
+            }
+        } catch (err) {
+            console.error('스케줄 DB 삭제(폴백) 실패:', err);
+            showToast('DB 삭제에 실패했습니다. 네트워크·권한을 확인하세요.', 'error');
+            return;
+        }
     }
     entries.splice(Number(idx), 1);
     if (entries.length) customHolidays[dateStr] = entries;
@@ -8977,6 +8990,16 @@ window.deleteScheduleFromModal = async function () {
                 await deleteHolidayFromDatabaseById(e.id);
             } catch (dbError) {
                 console.error('스케줄 DB 삭제 실패:', dbError);
+            }
+        } else if (e.id == null && typeof deleteHolidayFromDatabaseByMatch === 'function') {
+            const tidForRow = e.scheduleType === 'personal' ? (currentTeacherId || 'no-teacher') : 'academy';
+            try {
+                const removed = await deleteHolidayFromDatabaseByMatch(tidForRow, dateStr, e.name);
+                if (removed === 0) {
+                    console.warn('[deleteScheduleFromModal] DB 매칭 행 없음:', { tidForRow, dateStr, name: e.name });
+                }
+            } catch (dbError) {
+                console.error('스케줄 DB 삭제(폴백) 실패:', dbError);
             }
         }
     }

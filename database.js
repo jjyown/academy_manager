@@ -1197,6 +1197,37 @@ window.deleteHolidayFromDatabase = async function(teacherId, date) {
     }
 }
 
+/**
+ * id 폴백: 로컬 entry에 DB id가 없을 때(과거 버전·DB 로드 실패 시 localStorage 폴백 등)
+ * (teacher_id, holiday_date, holiday_name) 정확 매칭으로 삭제. 영향 행 수를 반환.
+ */
+window.deleteHolidayFromDatabaseByMatch = async function(teacherId, date, name) {
+    try {
+        const ownerId = _getOwnerId();
+        if (!ownerId) throw new Error('로그인이 필요합니다');
+        const tid = String(teacherId || '').trim();
+        const ds = String(date || '').trim();
+        const nm = String(name || '').trim();
+        if (!tid || !ds || !nm) {
+            console.warn('[deleteHolidayFromDatabaseByMatch] 인자 부족:', { teacherId, date, name });
+            return 0;
+        }
+        const { data, error } = await supabase
+            .from('holidays')
+            .delete()
+            .eq('owner_user_id', ownerId)
+            .eq('teacher_id', tid)
+            .eq('holiday_date', ds)
+            .eq('holiday_name', nm)
+            .select('id');
+        if (error) throw error;
+        return Array.isArray(data) ? data.length : 0;
+    } catch (error) {
+        console.error('[deleteHolidayFromDatabaseByMatch] 에러:', error);
+        throw error;
+    }
+}
+
 
 // ========== 결제(Payments) 관련 함수 ==========
 
