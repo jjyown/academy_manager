@@ -1131,6 +1131,47 @@ textarea:focus:not(:focus-visible) {
     line-height: 1.4;
 }
 
+/* 이번달 기록 모달 — 월 네비게이션 */
+.hist-month-nav {
+    display: flex; align-items: center; gap: 6px;
+    margin-top: 6px; flex-wrap: wrap;
+}
+.hist-nav-btn {
+    width: 28px; height: 28px;
+    background: var(--bg-elevated, #f8fafc);
+    border: 1px solid var(--border, #e2e8f0);
+    border-radius: 6px;
+    cursor: pointer;
+    color: var(--text-sec, #64748b);
+    font-size: 11px;
+    display: inline-flex; align-items: center; justify-content: center;
+    transition: all 0.15s;
+}
+.hist-nav-btn:hover {
+    background: rgba(99,102,241,0.08);
+    color: var(--primary, #6366f1);
+    border-color: var(--primary, #6366f1);
+}
+.hist-month-picker {
+    padding: 4px 8px;
+    background: var(--bg-elevated, #f8fafc);
+    border: 1px solid var(--border, #e2e8f0);
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--text, #0f172a);
+    cursor: pointer;
+    color-scheme: light dark;
+}
+.hist-month-picker:focus {
+    outline: none;
+    border-color: var(--primary, #6366f1);
+}
+.hist-subtitle.in-nav {
+    font-size: 12px;
+    color: var(--gray, #94a3b8);
+    margin-left: 4px;
+}
+
 /* 이번달 기록 모달 — 검색·필터 chip */
 .hist-toolbar {
     display: flex; flex-direction: column; gap: 8px;

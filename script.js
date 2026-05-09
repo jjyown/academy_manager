@@ -7897,55 +7897,50 @@ function _bindHistFilterToolbarOnce() {
 }
 
 /**
- * 월별 학습 기록 모달(`history-modal`).
- * @param {boolean} [memoOnly=false] true면 수업관리「이번달 기록」경로 — 날짜별 메모만 보이고 종합평가 블록은 숨김.
+ * history-modal 의 현재 표시 월 상태 — 월 네비게이션을 위해 전역 추적.
  */
-window.openHistoryModal = async function(memoOnly) {
-    const sid = document.getElementById('att-student-id').value;
+const _histState = { sid: null, year: 0, month: 0, memoOnly: false };
+
+/**
+ * 주어진 월의 메모 + 종합평가를 history-modal 에 로드/렌더링.
+ * 월 변경(prev/next/picker) 시에도 동일 헬퍼 사용.
+ */
+async function _renderHistoryForMonth(year, month) {
+    const sid = _histState.sid;
+    if (!sid) return;
     const s = students.find(x => String(x.id) === String(sid));
-    if(!s) return;
-    const curYear = currentDate.getFullYear();
-    const curMonth = currentDate.getMonth() + 1;
-    const memoOnlyMode = memoOnly === true;
-    document.getElementById('history-modal').style.display = 'flex';
-    document.getElementById('hist-title').textContent = `${s.name} (${s.grade})${s.school ? ' · ' + s.school : ''}`;
-    document.getElementById('hist-subtitle').textContent = `${curYear}년 ${curMonth}월 학습 기록`;
+    if (!s) return;
+
+    _histState.year = year;
+    _histState.month = month;
+
+    const monthPrefix = `${year}-${String(month).padStart(2, '0')}`;
+    const subtitle = document.getElementById('hist-subtitle');
+    if (subtitle) subtitle.textContent = `${year}년 ${month}월`;
+    const picker = document.getElementById('hist-month-picker');
+    if (picker) picker.value = monthPrefix;
+
     const container = document.getElementById('history-timeline');
-    container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--gray);">로딩 중...</div>';
-    const statsEl = document.getElementById('hist-stats');
-    const overviewEl = document.getElementById('hist-overview');
-    if (statsEl) {
-        statsEl.innerHTML = '';
-        statsEl.style.display = 'none';
-    }
-    if (overviewEl) {
-        overviewEl.innerHTML = '';
-        overviewEl.style.display = 'none';
-    }
-    const monthPrefix = `${curYear}-${String(curMonth).padStart(2, '0')}`;
+    if (container) container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--gray);">로딩 중...</div>';
     historyActionContext = { studentId: String(sid), monthPrefix };
 
     await hydrateMonthlyClassMemosForStudent(s, sid, monthPrefix);
 
-    container.innerHTML = buildMonthlyMemoTimelineHtml(s, monthPrefix);
+    if (container) container.innerHTML = buildMonthlyMemoTimelineHtml(s, monthPrefix);
 
-    // 검색·필터 toolbar — 한 번만 바인딩 + 모달 열 때마다 초기화
+    // 검색·필터 — 월 바뀌면 매번 초기화 + 카운트 갱신
     _bindHistFilterToolbarOnce();
     _resetHistFilter();
     _applyHistFilter();
 
-    const evalSection = document.getElementById('eval-section');
-    if (evalSection) evalSection.style.display = memoOnlyMode ? 'none' : '';
+    if (_histState.memoOnly) return;
 
-    if (memoOnlyMode) {
-        return;
-    }
-
+    // 종합평가 섹션 — 월별 분리 저장이라 매번 재로드
     const evalMonthLabel = document.getElementById('eval-current-month');
     const evalTextarea = document.getElementById('eval-textarea-main');
     const evalCharCount = document.getElementById('eval-char-main');
     const evalSaveBtn = document.getElementById('eval-save-btn');
-    if (evalMonthLabel) evalMonthLabel.textContent = `${curYear}년 ${curMonth}월`;
+    if (evalMonthLabel) evalMonthLabel.textContent = `${year}년 ${month}월`;
     if (evalTextarea) {
         evalTextarea.value = '';
         evalTextarea.dataset.studentId = sid;
@@ -7959,7 +7954,6 @@ window.openHistoryModal = async function(memoOnly) {
         evalSaveBtn.innerHTML = '<i class="fas fa-save"></i> 저장';
         evalSaveBtn.classList.remove('saved');
     }
-
     try {
         if (typeof window.getStudentEvaluation === 'function') {
             const evalData = await window.getStudentEvaluation(sid, monthPrefix);
@@ -7969,8 +7963,63 @@ window.openHistoryModal = async function(memoOnly) {
             }
         }
     } catch (e) {
-        console.error('[openHistoryModal] 종합평가 로드 실패:', e);
+        console.error('[history] 종합평가 로드 실패:', e);
     }
+}
+
+/** 이전 달 이동 */
+window.goPrevHistMonth = function() {
+    let { year, month } = _histState;
+    if (!year || !month) return;
+    month -= 1;
+    if (month < 1) { month = 12; year -= 1; }
+    _renderHistoryForMonth(year, month);
+};
+
+/** 다음 달 이동 */
+window.goNextHistMonth = function() {
+    let { year, month } = _histState;
+    if (!year || !month) return;
+    month += 1;
+    if (month > 12) { month = 1; year += 1; }
+    _renderHistoryForMonth(year, month);
+};
+
+/** input[type=month] 직접 선택 */
+window.setHistMonth = function(ymStr) {
+    if (!ymStr) return;
+    const m = String(ymStr).match(/^(\d{4})-(\d{1,2})$/);
+    if (!m) return;
+    _renderHistoryForMonth(parseInt(m[1], 10), parseInt(m[2], 10));
+};
+
+/**
+ * 월별 학습 기록 모달(`history-modal`).
+ * @param {boolean} [memoOnly=false] true면 수업관리「이번달 기록」경로 — 날짜별 메모만 보이고 종합평가 블록은 숨김.
+ */
+window.openHistoryModal = async function(memoOnly) {
+    const sid = document.getElementById('att-student-id').value;
+    const s = students.find(x => String(x.id) === String(sid));
+    if(!s) return;
+    const memoOnlyMode = memoOnly === true;
+
+    document.getElementById('history-modal').style.display = 'flex';
+    document.getElementById('hist-title').textContent = `${s.name} (${s.grade})${s.school ? ' · ' + s.school : ''}`;
+
+    const statsEl = document.getElementById('hist-stats');
+    const overviewEl = document.getElementById('hist-overview');
+    if (statsEl) { statsEl.innerHTML = ''; statsEl.style.display = 'none'; }
+    if (overviewEl) { overviewEl.innerHTML = ''; overviewEl.style.display = 'none'; }
+
+    const evalSection = document.getElementById('eval-section');
+    if (evalSection) evalSection.style.display = memoOnlyMode ? 'none' : '';
+
+    // 초기 월 = currentDate 기준
+    _histState.sid = String(sid);
+    _histState.memoOnly = memoOnlyMode;
+    const initialYear = currentDate.getFullYear();
+    const initialMonth = currentDate.getMonth() + 1;
+    await _renderHistoryForMonth(initialYear, initialMonth);
 }
 // ★ 종합평가 저장
 window.saveEvalFromHistory = async function() {
