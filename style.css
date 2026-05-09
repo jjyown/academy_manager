@@ -1153,6 +1153,52 @@ textarea:focus:not(:focus-visible) {
     margin-left: auto;
     text-transform: none; letter-spacing: 0;
 }
+.academic-refresh-btn {
+    margin-left: 6px;
+    padding: 4px 10px;
+    background: var(--bg-elevated, #f8fafc);
+    border: 1px solid var(--border, #e2e8f0);
+    border-radius: 6px;
+    color: var(--primary, #6366f1);
+    cursor: pointer;
+    font-size: 11px; font-weight: 700;
+    display: inline-flex; align-items: center; gap: 4px;
+    transition: all 0.15s;
+    text-transform: none; letter-spacing: 0;
+}
+.academic-refresh-btn:hover:not(:disabled) {
+    background: rgba(99, 102, 241, 0.08);
+    border-color: var(--primary, #6366f1);
+}
+.academic-refresh-btn:disabled,
+.academic-refresh-btn.is-loading {
+    opacity: 0.6;
+    cursor: wait;
+}
+.academic-refresh-btn.is-loading > i {
+    animation: academicSpin 0.8s linear infinite;
+}
+@keyframes academicSpin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+.academic-cache-info {
+    margin-top: 10px;
+    padding: 8px 10px;
+    background: rgba(99, 102, 241, 0.06);
+    border: 1px dashed rgba(99, 102, 241, 0.22);
+    border-radius: 6px;
+    font-size: 11px;
+    color: var(--text-sec, #64748b);
+    line-height: 1.5;
+    display: flex; gap: 6px;
+}
+.academic-cache-info > i {
+    color: var(--primary, #6366f1);
+    font-size: 11px;
+    flex-shrink: 0;
+    margin-top: 2px;
+}
 .academic-search-row {
     display: flex; gap: 8px;
     margin-bottom: 8px;

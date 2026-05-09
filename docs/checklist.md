@@ -1,6 +1,6 @@
 # 출석관리앱 체크리스트
 
-- 문서 기준일: 2026-05-09
+- 문서 기준일: 2026-05-10
 ## 문의 답변 처리
 - [x] 메인 앱 콘솔 빨강/노랑 완화(2026-04-04): `index.html`(env는 루프백만 fetch·비밀번호 구간 `<form>`·`autocomplete`/숨은 `username`·복구·선생님 비번 변경·강제초기화·선생님 인증 모달), `script.js`(`unload` 제거·username 동기화·`openModal` teacher-password), `auth.js`(`initializeAuth` debug·`openAdminPasswordUpdateModal` 이메일→username), `qr-attendance.js`(QR 모달)
 - [x] 숙제·학부모 관리자 로그인(2026-04-04): `homework/index.html`·`parent-portal/report.js`·`parent-portal/index.html` — `auth.flowType: pkce`, `normalizeSupabaseProjectUrl`(오타 호스트 교정), 인증 실패·`teachers` 없음 메시지 구분, 관리자 모달 `<form>` 래핑 · `node --check parent-portal/report.js` 권장
@@ -199,6 +199,7 @@
 ## 테스트/검증 결과 기록
 | 날짜 | 작업 | 검증 방법 | 결과 | 비고 |
 |---|---|---|---|---|
+| 2026-05-10 | AUTO-20260510(staged 2개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-05-09 | AUTO-20260509(staged 2개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-05-09 | AUTO-20260509(staged 3개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |
 | 2026-05-09 | AUTO-20260509(staged 2개 파일 기준 문서 연동 자동기록) | 통합 문서 연동 스크립트 실행 + 문서 기준일/삽입 결과 확인 | PASS | 연동 자동 기록 |

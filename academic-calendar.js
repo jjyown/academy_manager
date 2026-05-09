@@ -599,8 +599,21 @@
                             <i class="fas fa-bookmark" aria-hidden="true"></i>
                             구독 중인 학교
                             <span class="academic-count" id="academic-sub-count">0</span>
+                            <button type="button" class="academic-refresh-btn" id="academic-refresh-btn"
+                                onclick="window.refreshAcademicCacheNow()"
+                                title="NEIS API에서 모든 구독 학교 일정 즉시 새로고침"
+                                aria-label="학사일정 즉시 새로고침">
+                                <i class="fas fa-rotate" aria-hidden="true"></i>
+                                <span>새로고침</span>
+                            </button>
                         </div>
                         <div id="academic-subscribed-list" class="academic-subscribed-list"></div>
+                        <div class="academic-cache-info">
+                            <i class="fas fa-circle-info" aria-hidden="true"></i>
+                            학사일정은 24시간마다 자동 갱신됩니다.
+                            새 시험일정이 등록되었는데 안 보이면
+                            <strong>새로고침</strong> 버튼을 눌러주세요.
+                        </div>
                     </section>
                 </div>
             </div>`;
@@ -1050,6 +1063,40 @@
     }
 
     // ── 외부 노출 ───────────────────────────────────────────────
+    /** 캐시 비우고 메인 캘린더·시간표·사이드바 즉시 재페치 */
+    window.refreshAcademicCacheNow = async function () {
+        const btn = document.getElementById('academic-refresh-btn');
+        if (btn) {
+            btn.disabled = true;
+            btn.classList.add('is-loading');
+        }
+        try {
+            invalidateAcademicCache();
+            // 시각적 토스트
+            if (typeof window.showToast === 'function') {
+                window.showToast('학사일정 캐시 무효화 — 새 데이터 가져오는 중...', 'info');
+            }
+            // 메인 캘린더 배지 + 사이드바 즉시 재렌더 (캐시 비었으니 NEIS 재호출)
+            const tasks = [];
+            if (typeof renderAcademicBadgesOnCalendar === 'function') tasks.push(renderAcademicBadgesOnCalendar());
+            if (typeof _renderPinnedAcademicEventsSidebar === 'function') tasks.push(_renderPinnedAcademicEventsSidebar());
+            await Promise.allSettled(tasks);
+            if (typeof window.showToast === 'function') {
+                window.showToast('학사일정이 최신 데이터로 갱신되었습니다.', 'success');
+            }
+        } catch (e) {
+            console.warn('[Academic] 새로고침 실패:', e);
+            if (typeof window.showToast === 'function') {
+                window.showToast('학사일정 새로고침 실패: ' + (e.message || ''), 'error');
+            }
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.classList.remove('is-loading');
+            }
+        }
+    };
+
     window.openAcademicCalendarModal = openAcademicCalendarModal;
     window.renderAcademicBadgesOnCalendar = renderAcademicBadgesOnCalendar;
     window.renderDayDetailAcademicSection = renderDayDetailAcademicSection;
