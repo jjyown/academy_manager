@@ -9003,6 +9003,7 @@ async function loadAndCleanData() {
             // Supabase 데이터를 앱 형식으로 변환
             students = supabaseStudents.map(s => {
                 const metaFromMemo = parseStudentMetaFromMemo(s.memo || '');
+                const weeklyPatternFromMemo = parseWeeklyPatternFromMemo(s.memo || '');
                 return ({
                 id: s.id,
                 name: s.name,
@@ -9016,7 +9017,8 @@ async function loadAndCleanData() {
                 defaultFee: s.default_fee || 0,
                 specialLectureFee: s.special_lecture_fee || 0,
                 defaultTextbookFee: s.default_textbook_fee || 0,
-                memo: stripStudentMetaFromMemo(s.memo || ''),
+                memo: stripWeeklyPatternFromMemo(stripStudentMetaFromMemo(s.memo || '')),
+                weeklyPattern: weeklyPatternFromMemo,
                 registerDate: s.register_date || '',
                 parentCode: s.parent_code || '',
                 studentCode: s.student_code || '',
@@ -11139,6 +11141,7 @@ window.toggleCodeSection = function() {
 window.prepareRegister = function() {
     document.getElementById('reg-title').textContent = "학생 등록";
     ['edit-id', 'reg-name', 'reg-school', 'reg-student-phone', 'reg-parent-phone', 'reg-guardian-name', 'reg-memo', 'reg-default-fee', 'reg-special-fee', 'reg-default-textbook-fee', 'reg-enroll-start-date', 'reg-enroll-end-date'].forEach(id => document.getElementById(id).value = "");
+    _resetWeeklyPatternUI();
     clearStudentRequiredMarks();
     // 학년 드롭다운 초기화
     const gradeSelect = document.getElementById('reg-grade');
@@ -11174,6 +11177,7 @@ window.prepareEdit = function(id) {
     document.getElementById('reg-special-fee').value = s.specialLectureFee ? s.specialLectureFee.toLocaleString() : "";
     document.getElementById('reg-default-textbook-fee').value = s.defaultTextbookFee ? s.defaultTextbookFee.toLocaleString() : "";
     document.getElementById('reg-memo').value = s.memo || "";
+    _populateWeeklyPatternUI(s.weeklyPattern || null);
     if (s.registerDate) {
         document.getElementById('reg-register-date').value = s.registerDate;
     } else {
@@ -11271,6 +11275,179 @@ function buildMemoWithStudentMeta(memoText, meta) {
     return baseMemo ? `${baseMemo}\n${metaLine}` : metaLine;
 }
 
+// ============================================================
+// 주간 기본 일정 (학생 메모 메타에 임베드 — 마이그레이션 0)
+//   marker: [학생주간일정]days=1,3,5|start=16:00|duration=100
+//   요일: 0=일,1=월,...,6=토
+// ============================================================
+const _WEEKLY_PATTERN_MARKER = '[학생주간일정]';
+
+function parseWeeklyPatternFromMemo(memoText) {
+    const lines = String(memoText || '').split('\n');
+    const line = lines.find((l) => l.startsWith(_WEEKLY_PATTERN_MARKER));
+    if (!line) return null;
+    const payload = line.slice(_WEEKLY_PATTERN_MARKER.length);
+    const map = {};
+    payload.split('|').forEach((part) => {
+        const idx = part.indexOf('=');
+        if (idx >= 0) map[part.slice(0, idx).trim()] = part.slice(idx + 1).trim();
+    });
+    const days = String(map.days || '')
+        .split(',')
+        .map((n) => parseInt(n, 10))
+        .filter((n) => !Number.isNaN(n) && n >= 0 && n <= 6);
+    const duration = parseInt(map.duration || '0', 10) || 0;
+    const start = String(map.start || '').trim();
+    if (days.length === 0 || !start || !duration) return null;
+    return { days, start, duration };
+}
+
+function stripWeeklyPatternFromMemo(memoText) {
+    return String(memoText || '')
+        .split('\n')
+        .filter((l) => !l.startsWith(_WEEKLY_PATTERN_MARKER))
+        .join('\n')
+        .trim();
+}
+
+function buildMemoWithWeeklyPattern(memoText, pattern) {
+    const stripped = stripWeeklyPatternFromMemo(memoText || '').trim();
+    if (!pattern || !Array.isArray(pattern.days) || pattern.days.length === 0
+        || !pattern.start || !pattern.duration) {
+        return stripped;
+    }
+    const sortedDays = [...new Set(pattern.days)].sort((a, b) => a - b);
+    const line = `${_WEEKLY_PATTERN_MARKER}days=${sortedDays.join(',')}`
+        + `|start=${pattern.start}|duration=${pattern.duration}`;
+    return stripped ? `${stripped}\n${line}` : line;
+}
+
+/** 학생 등록 모달의 주간 패턴 UI → 객체 변환 (불완전하면 null) */
+function _readWeeklyPatternFromUI() {
+    const checks = document.querySelectorAll('#reg-weekly-days input[type="checkbox"]:checked');
+    const days = Array.from(checks)
+        .map((c) => parseInt(c.value, 10))
+        .filter((n) => !Number.isNaN(n) && n >= 0 && n <= 6);
+    const startEl = document.getElementById('reg-weekly-start');
+    const durEl = document.getElementById('reg-weekly-duration');
+    const start = (startEl?.value || '').trim();
+    const duration = parseInt(durEl?.value || '0', 10) || 0;
+    if (days.length === 0 || !start || !duration) return null;
+    return { days, start, duration };
+}
+
+function _resetWeeklyPatternUI() {
+    document.querySelectorAll('#reg-weekly-days input[type="checkbox"]')
+        .forEach((c) => { c.checked = false; });
+    const startEl = document.getElementById('reg-weekly-start');
+    const durEl = document.getElementById('reg-weekly-duration');
+    if (startEl) startEl.value = '';
+    if (durEl) durEl.value = '';
+}
+
+function _populateWeeklyPatternUI(pattern) {
+    document.querySelectorAll('#reg-weekly-days input[type="checkbox"]')
+        .forEach((c) => {
+            c.checked = !!(pattern && Array.isArray(pattern.days)
+                && pattern.days.includes(parseInt(c.value, 10)));
+        });
+    const startEl = document.getElementById('reg-weekly-start');
+    const durEl = document.getElementById('reg-weekly-duration');
+    if (startEl) startEl.value = pattern?.start || '';
+    if (durEl) durEl.value = pattern?.duration ? String(pattern.duration) : '';
+}
+
+/**
+ * 학생 1명에 대해 주간 패턴 기반 미래 N주치 일정을 자동 생성.
+ *   - 휴일(getHolidayInfo) skip
+ *   - 같은 (teacher, student, date, start) 이미 있으면 skip
+ *   - 과거(오늘 이전) 자동 skip — fromDate 기본 = 오늘
+ *   - DB(saveSchedulesToDatabaseBatch) 까지 동기화
+ * 반환: { count, skippedHoliday, skippedExisting }
+ */
+async function applyStudentWeeklyPattern(studentId, options) {
+    const opts = options || {};
+    const days = Array.isArray(opts.days) ? opts.days : [];
+    const startTime = String(opts.startTime || '').trim();
+    const durationMin = parseInt(opts.durationMin || 0, 10) || 0;
+    const weeks = parseInt(opts.weeks || 12, 10) || 12;
+    const excludeHolidays = opts.excludeHolidays !== false;
+
+    const result = { count: 0, skippedHoliday: 0, skippedExisting: 0 };
+    if (!studentId || days.length === 0 || !startTime || !durationMin) return result;
+
+    const student = students.find((s) => String(s.id) === String(studentId));
+    if (!student) return result;
+
+    // 담당 선생님 결정 — 학생에 배정된 teacher_id 우선, 없으면 currentTeacherId
+    const targetTeacherId = String(
+        (typeof getAssignedTeacherId === 'function' && getAssignedTeacherId(String(studentId)))
+        || student.teacher_id
+        || currentTeacherId
+        || ''
+    ).trim();
+    if (!targetTeacherId) {
+        console.warn('[applyStudentWeeklyPattern] 대상 선생님 미확정 — 패턴 적용 생략');
+        return result;
+    }
+
+    if (!teacherScheduleData[targetTeacherId]) teacherScheduleData[targetTeacherId] = {};
+    if (!teacherScheduleData[targetTeacherId][studentId]) teacherScheduleData[targetTeacherId][studentId] = {};
+    if (typeof assignStudentToTeacher === 'function') {
+        try { assignStudentToTeacher(studentId); } catch (e) {}
+    }
+
+    // 시작 = 오늘 (fromDate 옵션 있으면 그날부터)
+    const start = opts.fromDate ? new Date(opts.fromDate) : new Date();
+    start.setHours(0, 0, 0, 0);
+
+    const scheduleBatch = [];
+    for (let i = 0; i < weeks * 7; i++) {
+        const cur = new Date(start);
+        cur.setDate(start.getDate() + i);
+        if (!days.includes(cur.getDay())) continue;
+        const off = cur.getTimezoneOffset() * 60000;
+        const dStr = new Date(cur.getTime() - off).toISOString().split('T')[0];
+        if (excludeHolidays && typeof getHolidayInfo === 'function' && getHolidayInfo(dStr)) {
+            result.skippedHoliday++;
+            continue;
+        }
+        const entries = (typeof getScheduleEntries === 'function')
+            ? getScheduleEntries(targetTeacherId, String(studentId), dStr)
+            : [];
+        const exists = entries.some((item) => item.start === startTime);
+        if (exists) { result.skippedExisting++; continue; }
+        const updated = (typeof upsertScheduleEntry === 'function')
+            ? upsertScheduleEntry(entries, { start: startTime, duration: durationMin })
+            : { list: [{ start: startTime, duration: durationMin }] };
+        if (typeof setScheduleEntries === 'function') {
+            setScheduleEntries(targetTeacherId, String(studentId), dStr, updated.list);
+        }
+        scheduleBatch.push({
+            teacherId: targetTeacherId, studentId, date: dStr,
+            startTime, duration: durationMin
+        });
+        result.count++;
+    }
+
+    if (typeof saveData === 'function') saveData();
+    if (typeof persistTeacherScheduleLocal === 'function') persistTeacherScheduleLocal();
+
+    if (scheduleBatch.length) {
+        try {
+            if (typeof saveSchedulesToDatabaseBatch === 'function') {
+                await saveSchedulesToDatabaseBatch(scheduleBatch);
+            } else if (typeof saveScheduleToDatabase === 'function') {
+                await Promise.allSettled(scheduleBatch.map((item) => saveScheduleToDatabase(item)));
+            }
+        } catch (dbErr) {
+            console.warn('[applyStudentWeeklyPattern] DB 동기화 실패(로컬은 반영됨):', dbErr);
+        }
+    }
+
+    return result;
+}
+
 function isStudentSchemaColumnError(error) {
     const msg = String((error && (error.message || error.details || error.hint)) || '').toLowerCase();
     return msg.includes('guardian_name') || msg.includes('enrollment_start_date') || msg.includes('enrollment_end_date');
@@ -11319,7 +11496,10 @@ window.handleStudentSave = async function() {
     const defaultFee = document.getElementById('reg-default-fee').value;
     const specialLectureFee = document.getElementById('reg-special-fee').value;
     const defaultTextbookFee = document.getElementById('reg-default-textbook-fee').value;
-    const memo = document.getElementById('reg-memo').value.trim();
+    const userMemo = document.getElementById('reg-memo').value.trim();
+    const weeklyPatternFromUI = _readWeeklyPatternFromUI();
+    // 메모에 [학생주간일정] 메타 라인 임베드 (DB 마이그레이션 0)
+    const memo = buildMemoWithWeeklyPattern(userMemo, weeklyPatternFromUI);
     const regDate = document.getElementById('reg-register-date').value.trim();
 
     clearStudentRequiredMarks();
@@ -11470,10 +11650,15 @@ window.handleStudentSave = async function() {
             }
             
             if (updatedStudent) {
-                // 메모리 업데이트
+                // 메모리 업데이트 — memo 는 사용자 입력만 (메타 마커 제거)
                 const idx = students.findIndex(s => String(s.id) === String(id));
                 if (idx > -1) {
-                    students[idx] = { ...students[idx], ...localData };
+                    students[idx] = {
+                        ...students[idx],
+                        ...localData,
+                        memo: userMemo,
+                        weeklyPattern: weeklyPatternFromUI,
+                    };
                 }
                 console.log('학생 수정 완료:', updatedStudent);
             } else {
@@ -11503,28 +11688,62 @@ window.handleStudentSave = async function() {
             if (addedStudent) {
                 // Supabase에서 생성된 ID 사용
                 const newStudentId = addedStudent.id;
-                
-                // 메모리에 추가
-                students.push({ 
-                    id: newStudentId, 
-                    ...localData, 
-                    status: addedStudent.status || 'active', 
-                    events: [], 
-                    attendance: {}, 
-                    records: {}, 
-                    payments: {} 
+
+                // 메모리에 추가 — memo 는 사용자 입력만 + weeklyPattern 별도
+                students.push({
+                    id: newStudentId,
+                    ...localData,
+                    memo: userMemo,
+                    weeklyPattern: weeklyPatternFromUI,
+                    status: addedStudent.status || 'active',
+                    events: [],
+                    attendance: {},
+                    records: {},
+                    payments: {}
                 });
-                
+
                 console.log('학생 추가 완료:', addedStudent);
             } else {
                 throw new Error('학생 추가 실패');
             }
         }
-        
+
         // 로컬 저장소 동기화
         saveData();
         saveTeacherScheduleData();
-        
+
+        // 주간 패턴 자동 일정 생성 — 미래 12주치 (휴일/중복/과거 skip)
+        let savedStudentId = id;
+        if (!savedStudentId) {
+            // 신규 학생: 방금 추가된 학생 (마지막 push)
+            const last = students[students.length - 1];
+            if (last) savedStudentId = last.id;
+        }
+        if (weeklyPatternFromUI && savedStudentId) {
+            try {
+                const genResult = await applyStudentWeeklyPattern(savedStudentId, {
+                    days: weeklyPatternFromUI.days,
+                    startTime: weeklyPatternFromUI.start,
+                    durationMin: weeklyPatternFromUI.duration,
+                    weeks: 12,
+                    excludeHolidays: true,
+                });
+                if (genResult.count > 0) {
+                    showToast(
+                        `주간 일정 ${genResult.count}건 자동 생성됨` +
+                        (genResult.skippedExisting > 0 ? ` · 중복 ${genResult.skippedExisting}건 제외` : '') +
+                        (genResult.skippedHoliday > 0 ? ` · 휴일 ${genResult.skippedHoliday}건 제외` : ''),
+                        'success'
+                    );
+                } else if (genResult.skippedExisting > 0 || genResult.skippedHoliday > 0) {
+                    showToast('이미 등록된 일정만 있어 추가 생성된 일정이 없습니다.', 'info');
+                }
+            } catch (genErr) {
+                console.error('[handleStudentSave] 주간 일정 자동 생성 실패:', genErr);
+                showToast('주간 일정 자동 생성 실패: ' + (genErr.message || ''), 'warning');
+            }
+        }
+
         closeModal('register-modal');
         renderDrawerList();
         renderCalendar();

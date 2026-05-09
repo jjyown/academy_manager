@@ -668,6 +668,103 @@ textarea:focus:not(:focus-visible) {
 }
 
 /* ============================================================
+   학생 등록 모달 — 주간 기본 일정
+   ============================================================ */
+.weekly-pattern-section {
+    background: rgba(99, 102, 241, 0.04);
+    border: 1px solid rgba(99, 102, 241, 0.18);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-top: 8px;
+}
+.weekly-pattern-section label {
+    display: flex; align-items: center; gap: 6px;
+    font-weight: 700;
+}
+.weekly-pattern-hint-inline {
+    margin-left: auto;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-sec, #64748b);
+}
+.weekly-day-chips {
+    display: flex; gap: 6px; flex-wrap: wrap;
+    margin-top: 8px;
+}
+.weekly-day-chip {
+    cursor: pointer;
+    user-select: none;
+    margin: 0;
+}
+.weekly-day-chip > input[type="checkbox"] {
+    position: absolute;
+    opacity: 0; pointer-events: none;
+    width: 0; height: 0;
+}
+.weekly-day-chip > span {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 36px; height: 32px;
+    padding: 0 10px;
+    background: var(--card, #fff);
+    border: 1px solid var(--border, #e2e8f0);
+    border-radius: 8px;
+    font-size: 13px; font-weight: 700;
+    color: var(--text-sec, #64748b);
+    transition: all 0.15s;
+}
+.weekly-day-chip:hover > span {
+    border-color: var(--primary, #6366f1);
+    color: var(--primary, #6366f1);
+}
+.weekly-day-chip > input[type="checkbox"]:checked + span {
+    background: var(--primary, #6366f1);
+    border-color: var(--primary, #6366f1);
+    color: #fff;
+    box-shadow: 0 2px 6px rgba(99, 102, 241, 0.3);
+}
+.weekly-day-chip-sat > input[type="checkbox"]:checked + span {
+    background: #2563eb; border-color: #2563eb;
+    box-shadow: 0 2px 6px rgba(37, 99, 235, 0.3);
+}
+.weekly-day-chip-sun > input[type="checkbox"]:checked + span {
+    background: #dc2626; border-color: #dc2626;
+    box-shadow: 0 2px 6px rgba(220, 38, 38, 0.3);
+}
+.weekly-day-chip-sat > span { color: #2563eb; }
+.weekly-day-chip-sun > span { color: #dc2626; }
+.weekly-pattern-input-wrap {
+    flex: 1 1 0;
+    display: flex; align-items: center; gap: 6px;
+    min-width: 0;
+}
+.weekly-pattern-input-label {
+    font-size: 11px; font-weight: 600;
+    color: var(--text-sec, #64748b);
+    flex-shrink: 0;
+}
+.weekly-pattern-input-suffix {
+    font-size: 11px;
+    color: var(--text-sec, #64748b);
+    flex-shrink: 0;
+}
+.weekly-pattern-help {
+    margin-top: 8px;
+    padding: 8px 10px;
+    background: rgba(99, 102, 241, 0.06);
+    border-radius: 6px;
+    font-size: 11px;
+    color: var(--text-sec, #64748b);
+    line-height: 1.5;
+    display: flex; gap: 6px;
+}
+.weekly-pattern-help > i {
+    color: var(--primary, #6366f1);
+    font-size: 11px;
+    margin-top: 2px;
+    flex-shrink: 0;
+}
+
+/* ============================================================
    학사일정 (NEIS) 연동 UI
    ============================================================ */
 
