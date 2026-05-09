@@ -609,10 +609,177 @@
         if (results) results.innerHTML = '';
     }
 
+    // ── 우측 사이드바: 다가오는 학사일정 (오늘 + 60일) ──────────
+    function _formatDdayShort(daysDiff) {
+        if (daysDiff === 0) return '오늘';
+        if (daysDiff < 0) return `${-daysDiff}일전`;
+        return `D-${daysDiff}`;
+    }
+    function _ddayClass(daysDiff) {
+        if (daysDiff === 0) return 'is-today';
+        if (daysDiff > 30) return 'is-far';
+        return '';
+    }
+    function _shortDateLabel(dateStr) {
+        const m = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (!m) return dateStr;
+        const dayObj = new Date(+m[1], +m[2] - 1, +m[3]);
+        const dows = ['일', '월', '화', '수', '목', '금', '토'];
+        return { mon: parseInt(m[2], 10), day: parseInt(m[3], 10), dow: dows[dayObj.getDay()] };
+    }
+    async function renderUpcomingAcademicEvents() {
+        const sidebar = document.getElementById('upcoming-events-sidebar');
+        const contentEl = document.getElementById('upcoming-events-content');
+        if (!sidebar || !contentEl) return;
+
+        const schools = getSubscribedSchools();
+        if (schools.length === 0) {
+            contentEl.innerHTML = `
+                <div class="upcoming-empty">
+                    <i class="fas fa-graduation-cap" aria-hidden="true"></i>
+                    <div class="upcoming-empty-title">구독 학교 없음</div>
+                    <div class="upcoming-empty-desc">
+                        메뉴 → 학사일정 에서 학교 추가 시<br>다가오는 시험·방학을 한 눈에 확인할 수 있습니다.
+                    </div>
+                </div>`;
+            return;
+        }
+
+        // 오늘 기준 + 60일 — 현재 월 + 다음 월 (필요 시 +2 월)
+        const now = new Date();
+        now.setHours(0, 0, 0, 0);
+        const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+        const monthsToFetch = new Set();
+        const cur = new Date(now);
+        for (let i = 0; i < 3; i++) {
+            const yyyymm = `${cur.getFullYear()}${String(cur.getMonth() + 1).padStart(2, '0')}`;
+            monthsToFetch.add(yyyymm);
+            cur.setMonth(cur.getMonth() + 1);
+        }
+
+        // 페치 (캐시 활용)
+        const allEvents = []; // { date, dateStr, school, event, daysDiff }
+        const monthlyMaps = new Map();
+        await Promise.all(Array.from(monthsToFetch).map(async (yyyymm) => {
+            const m = await getMonthlyAcademicEvents(yyyymm);
+            monthlyMaps.set(yyyymm, m);
+        }));
+
+        monthlyMaps.forEach((monthMap) => {
+            monthMap.forEach((eventList, dateStr) => {
+                if (dateStr < todayStr) return;
+                const m = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+                if (!m) return;
+                const dayObj = new Date(+m[1], +m[2] - 1, +m[3]);
+                const daysDiff = Math.round((dayObj - now) / (1000 * 60 * 60 * 24));
+                if (daysDiff > 60) return; // 60일 안에 들어오는 일정만
+                eventList.forEach((e) => {
+                    allEvents.push({ dateStr, school: e.school, event: e.event, daysDiff });
+                });
+            });
+        });
+
+        if (allEvents.length === 0) {
+            contentEl.innerHTML = `
+                <div class="upcoming-empty">
+                    <i class="fas fa-circle-check" aria-hidden="true"></i>
+                    <div class="upcoming-empty-title">다가오는 학사일정 없음</div>
+                    <div class="upcoming-empty-desc">
+                        구독 학교 ${schools.length}개교의 60일 이내 일정이 없습니다.
+                    </div>
+                </div>`;
+            return;
+        }
+
+        // 정렬: 가까운 날짜 먼저
+        allEvents.sort((a, b) => {
+            if (a.daysDiff !== b.daysDiff) return a.daysDiff - b.daysDiff;
+            return a.school.name.localeCompare(b.school.name);
+        });
+
+        // 섹션 그룹: 이번 주 / 다음 주 / 다음 달 / 그 이후
+        const sections = {
+            '이번 주': [],
+            '다음 주': [],
+            '이번 달': [],
+            '다음 달': [],
+            '그 이후': [],
+        };
+        const dayOfWeek = now.getDay();
+        const thisWeekEnd = 6 - dayOfWeek; // 이번 주 토요일까지
+        const nextWeekEnd = thisWeekEnd + 7;
+        const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+        const monthEndDiff = Math.round((monthEnd - now) / (1000 * 60 * 60 * 24));
+        const nextMonthEnd = new Date(now.getFullYear(), now.getMonth() + 2, 0);
+        const nextMonthEndDiff = Math.round((nextMonthEnd - now) / (1000 * 60 * 60 * 24));
+
+        allEvents.forEach((ev) => {
+            const d = ev.daysDiff;
+            if (d <= thisWeekEnd) sections['이번 주'].push(ev);
+            else if (d <= nextWeekEnd) sections['다음 주'].push(ev);
+            else if (d <= monthEndDiff) sections['이번 달'].push(ev);
+            else if (d <= nextMonthEndDiff) sections['다음 달'].push(ev);
+            else sections['그 이후'].push(ev);
+        });
+
+        let html = '';
+        Object.entries(sections).forEach(([label, evs]) => {
+            if (evs.length === 0) return;
+            html += `<div class="upcoming-section">`;
+            html += `<div class="upcoming-section-label">${_escape(label)} (${evs.length})</div>`;
+            evs.forEach((ev) => {
+                const c = _schoolColor(ev.school);
+                const sd = _shortDateLabel(ev.dateStr);
+                const dday = _formatDdayShort(ev.daysDiff);
+                const ddayCls = _ddayClass(ev.daysDiff);
+                const subtitle = ev.event.content && ev.event.content !== ev.event.name
+                    ? `<div style="font-size:10px;color:#94a3b8;margin-top:1px;">${_escape(ev.event.content)}</div>`
+                    : '';
+                html += `<button class="upcoming-event-item" type="button"
+                    style="border-left-color:${c.dot};"
+                    data-date="${_escape(ev.dateStr)}"
+                    onclick="(typeof window.jumpToCalendarDate === 'function') && window.jumpToCalendarDate('${_escape(ev.dateStr)}')">
+                    <div class="upcoming-event-item-info">
+                        <div class="upcoming-event-item-school" style="color:${c.fg};">
+                            ${_escape(ev.school.name)}
+                        </div>
+                        <div class="upcoming-event-item-name">${_escape(ev.event.name)}</div>
+                        ${subtitle}
+                    </div>
+                    <div class="upcoming-event-item-date">
+                        <strong>${typeof sd === 'object' ? `${sd.mon}/${sd.day}` : sd}</strong>
+                        ${typeof sd === 'object' ? `<div>(${sd.dow})</div>` : ''}
+                        <span class="upcoming-dday ${ddayCls}">${dday}</span>
+                    </div>
+                </button>`;
+            });
+            html += `</div>`;
+        });
+        contentEl.innerHTML = html;
+    }
+
+    /** 사이드바 접기/펴기 + localStorage 보존 */
+    window.toggleUpcomingSidebar = function () {
+        const el = document.getElementById('upcoming-events-sidebar');
+        if (!el) return;
+        const next = !el.classList.contains('is-collapsed');
+        el.classList.toggle('is-collapsed', next);
+        try { localStorage.setItem('upcoming_sidebar_collapsed', next ? '1' : '0'); } catch (e) {}
+    };
+    // 페이지 진입 시 이전 상태 복원
+    document.addEventListener('DOMContentLoaded', () => {
+        const saved = (() => { try { return localStorage.getItem('upcoming_sidebar_collapsed'); } catch (e) { return null; } })();
+        if (saved === '1') {
+            const el = document.getElementById('upcoming-events-sidebar');
+            if (el) el.classList.add('is-collapsed');
+        }
+    });
+
     // ── 외부 노출 ───────────────────────────────────────────────
     window.openAcademicCalendarModal = openAcademicCalendarModal;
     window.renderAcademicBadgesOnCalendar = renderAcademicBadgesOnCalendar;
     window.renderDayDetailAcademicSection = renderDayDetailAcademicSection;
+    window.renderUpcomingAcademicEvents = renderUpcomingAcademicEvents;
     window.getMonthlyAcademicEvents = getMonthlyAcademicEvents;
     window.getAcademicEventsForDate = getAcademicEventsForDate;
     window.getSubscribedAcademicSchools = getSubscribedSchools;

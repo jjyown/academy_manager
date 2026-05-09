@@ -3497,10 +3497,23 @@ textarea:focus:not(:focus-visible) {
 /* ============================================
    Calendar Grid — Clean Modern Design
    ============================================ */
-.calendar-wrapper {
-    background: white;
+/* 메인 캘린더 + 우측 사이드바 grid */
+.main-grid-layout {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
     margin: 20px auto;
     width: 100%;
+    max-width: 1540px;
+    padding: 0 16px;
+    box-sizing: border-box;
+}
+.calendar-wrapper {
+    background: white;
+    margin: 0;
+    width: 100%;
+    flex: 1 1 auto;
+    min-width: 0;
     max-width: 1200px;
     padding: 0;
     box-sizing: border-box;
@@ -3508,6 +3521,192 @@ textarea:focus:not(:focus-visible) {
     border: 1px solid #e5e7eb;
     box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.03);
     overflow: hidden;
+}
+
+/* 우측 사이드바 — 다가오는 학사일정 */
+.upcoming-events-sidebar {
+    flex: 0 0 300px;
+    max-width: 300px;
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 14px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.03);
+    overflow: hidden;
+    position: sticky;
+    top: 16px;
+    max-height: calc(100vh - 32px);
+    display: flex;
+    flex-direction: column;
+    transition: flex-basis 0.2s, max-width 0.2s;
+}
+.upcoming-events-sidebar.is-collapsed {
+    flex: 0 0 44px;
+    max-width: 44px;
+}
+.upcoming-events-sidebar.is-collapsed .upcoming-title,
+.upcoming-events-sidebar.is-collapsed .upcoming-content {
+    display: none;
+}
+.upcoming-events-sidebar.is-collapsed .upcoming-toggle i {
+    transform: rotate(180deg);
+}
+.upcoming-header {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 8px;
+    padding: 14px 14px 12px;
+    border-bottom: 1px solid #f1f5f9;
+    flex-shrink: 0;
+}
+.upcoming-title {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 800;
+    color: #0f172a;
+    display: flex; align-items: center; gap: 6px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.upcoming-title > i {
+    color: var(--primary, #6366f1);
+    font-size: 12px;
+}
+.upcoming-toggle {
+    flex-shrink: 0;
+    width: 26px; height: 26px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    color: #64748b;
+    cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 11px;
+    transition: all 0.15s;
+}
+.upcoming-toggle:hover { background: #f1f5f9; color: #0f172a; }
+.upcoming-toggle i { transition: transform 0.2s; }
+.upcoming-content {
+    overflow-y: auto;
+    flex: 1 1 auto;
+    padding: 8px 12px 12px;
+    -webkit-overflow-scrolling: touch;
+}
+.upcoming-empty {
+    text-align: center;
+    padding: 30px 12px;
+    color: #94a3b8;
+}
+.upcoming-empty > i {
+    font-size: 28px;
+    color: #6366f1;
+    opacity: 0.35;
+    margin-bottom: 10px;
+    display: block;
+}
+.upcoming-empty-title {
+    font-size: 13px; font-weight: 700;
+    color: #0f172a;
+    margin-bottom: 6px;
+}
+.upcoming-empty-desc {
+    font-size: 11px;
+    color: #64748b;
+    line-height: 1.5;
+}
+.upcoming-section {
+    margin-bottom: 12px;
+}
+.upcoming-section-label {
+    font-size: 10px; font-weight: 800;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin: 8px 0 6px;
+    padding: 0 4px;
+}
+.upcoming-event-item {
+    display: flex; align-items: flex-start; gap: 8px;
+    padding: 8px 10px;
+    margin-bottom: 4px;
+    background: #f8fafc;
+    border-left: 3px solid;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.12s;
+    text-align: left;
+    font-family: inherit;
+}
+.upcoming-event-item:hover { background: #f1f5f9; }
+.upcoming-event-item-info {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+.upcoming-event-item-school {
+    font-size: 10px;
+    font-weight: 800;
+    margin-bottom: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.upcoming-event-item-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: #0f172a;
+    line-height: 1.35;
+    word-break: break-word;
+}
+.upcoming-event-item-date {
+    flex-shrink: 0;
+    text-align: right;
+    font-size: 10px;
+    font-weight: 700;
+    color: #64748b;
+    line-height: 1.3;
+    min-width: 44px;
+}
+.upcoming-event-item-date strong {
+    display: block;
+    font-size: 14px;
+    font-weight: 800;
+    color: #0f172a;
+}
+.upcoming-event-item-date .upcoming-dday {
+    display: inline-block;
+    margin-top: 2px;
+    padding: 1px 5px;
+    border-radius: 8px;
+    background: var(--primary, #6366f1);
+    color: #fff;
+    font-size: 9px;
+    font-weight: 800;
+}
+.upcoming-event-item-date .upcoming-dday.is-today {
+    background: #dc2626;
+}
+.upcoming-event-item-date .upcoming-dday.is-far {
+    background: #94a3b8;
+}
+
+/* 좁은 화면: 사이드바를 캘린더 아래로 */
+@media (max-width: 1100px) {
+    .main-grid-layout {
+        flex-direction: column;
+    }
+    .upcoming-events-sidebar {
+        flex: 1 1 auto;
+        max-width: 100%;
+        position: static;
+        max-height: none;
+    }
+    .upcoming-events-sidebar.is-collapsed {
+        flex: 1 1 auto;
+        max-width: 100%;
+    }
+    .upcoming-events-sidebar.is-collapsed .upcoming-content { display: none; }
+    .upcoming-content {
+        max-height: 50vh;
+    }
 }
 
 .weekday-header {

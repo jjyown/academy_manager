@@ -3581,7 +3581,29 @@ function _renderCalendarImpl() {
             .then(() => window.renderAcademicBadgesOnCalendar())
             .catch((e) => console.warn('[renderCalendar] 학사일정 배지 실패:', e));
     }
+    // 우측 사이드바 (다가오는 학사일정) — 같은 페치 캐시 공유
+    if (typeof window.renderUpcomingAcademicEvents === 'function') {
+        Promise.resolve()
+            .then(() => window.renderUpcomingAcademicEvents())
+            .catch((e) => console.warn('[renderCalendar] 다가오는 학사일정 사이드바 실패:', e));
+    }
 }
+
+/** 사이드바 클릭 시 캘린더를 해당 월로 이동하고 day-detail 모달 열기 */
+window.jumpToCalendarDate = function (dateStr) {
+    if (!dateStr) return;
+    const m = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return;
+    const targetYear = parseInt(m[1], 10);
+    const targetMonth = parseInt(m[2], 10) - 1;
+    if (currentDate.getFullYear() !== targetYear || currentDate.getMonth() !== targetMonth) {
+        currentDate = new Date(targetYear, targetMonth, parseInt(m[3], 10));
+        try { renderCalendar(true); } catch (e) {}
+    }
+    if (typeof window.openDayDetail === 'function') {
+        setTimeout(() => window.openDayDetail(dateStr), 30);
+    }
+};
 
 // 디바운스된 renderCalendar (연속 호출 시 마지막만 실행)
 const _debouncedRender = debounce(_renderCalendarImpl, 50);
