@@ -88,6 +88,8 @@ async function runAdmissionsExpertAnalysis(args: {
   homeworkBlock: string;
   scoreBlock: string;
   memoBlock: string;
+  /** admissions_knowledge 에서 학년대 매칭으로 가져온 입시 정보·트렌드. 없으면 빈 문자열. */
+  knowledgeBlock: string;
 }): Promise<string> {
   if (ADMISSIONS_STAGE_DISABLED) return "";
   if (!GEMINI_API_KEY) return "";
@@ -111,7 +113,12 @@ async function runAdmissionsExpertAnalysis(args: {
 [D. 다음 달 학습 우선순위] bullet 2~4개. 입시 관점에서 효과 큰 순서.
 [E. 작성자 가이드] 후속 종합평가에서 학부모에게 전달할 때 강조하면 좋을 포인트·피해야 할 표현 1~3줄.
 
-총 길이는 1200자 이내. 한국어.`;
+총 길이는 1200자 이내. 한국어.
+
+[중요] 본 요청에는 "[최신 입시 정보·트렌드]" 섹션이 포함될 수 있습니다.
+이는 원장이 운영하는 입시 정보 수집 모듈이 학년대별로 정리해 둔 자료로,
+당신의 분석에 반드시 반영해야 합니다(특히 [A. 입시 단계 위치] / [D. 다음 달 학습 우선순위]).
+단, 학생 데이터에 없는 사실을 "트렌드 자료에 따르면" 하고 가져다 붙이지 마세요 — 트렌드는 우선순위·가이드일 뿐이고 진단 근거는 학생 데이터입니다.`;
 
   const expertUser = `[학생 식별]
 - 이름: ${args.studentName}
@@ -129,7 +136,7 @@ ${args.homeworkBlock}
 ${args.memoBlock}
 
 [시험·점수(해당 월)]
-${args.scoreBlock}`;
+${args.scoreBlock}${args.knowledgeBlock}`;
 
   try {
     const url =
@@ -366,6 +373,50 @@ serve(async (req: Request) => {
     const memoBlock = [...personal, ...shared].join("\n") || "(해당 월 메모 없음)";
     const scoreBlock = scoreLines.length ? scoreLines.join("\n") : "(해당 월 시험 점수 없음)";
 
+    // ── Stage 0: 학년대 매칭으로 admissions_knowledge 로드 ─────────
+    // 학생 학년 문자열을 grade_band 로 정규화 (실패 시 'all').
+    const gradeStr = String(stu.grade || "").trim();
+    let gradeBand = "all";
+    if (gradeStr) {
+      if (/(고\s*1|고1|고등\s*1|1학년.*고)/i.test(gradeStr)) gradeBand = "high1";
+      else if (/(고\s*2|고2|고등\s*2|2학년.*고)/i.test(gradeStr)) gradeBand = "high2";
+      else if (/(고\s*3|고3|고등\s*3|3학년.*고)/i.test(gradeStr)) gradeBand = "high3";
+      else if (/(재수|N수|반수)/i.test(gradeStr)) gradeBand = "retake";
+      else if (/(중\s*[1-3]|중학|중등)/i.test(gradeStr)) gradeBand = "middle";
+      else if (/(초\s*[1-6]|초등)/i.test(gradeStr)) gradeBand = "elementary";
+    }
+
+    // 유효한 최신 행만 (만료 미설정 또는 오늘 이전 만료 안 됨), 학년 매칭 + 'all' 포함
+    const today = new Date().toISOString().slice(0, 10);
+    const { data: knowledgeRows } = await admin
+      .from("admissions_knowledge")
+      .select("topic_key, grade_band, title, content, source, created_at")
+      .eq("owner_user_id", user.id)
+      .in("grade_band", gradeBand === "all" ? ["all"] : [gradeBand, "all"])
+      .or(`valid_until.is.null,valid_until.gte.${today}`)
+      .order("created_at", { ascending: false })
+      .limit(8);
+
+    // 각 topic_key 의 가장 최신 1행만 (중복 제거)
+    const seenTopic = new Set<string>();
+    const knowledgeBlock = ((): string => {
+      if (!knowledgeRows || knowledgeRows.length === 0) return "";
+      const picks: typeof knowledgeRows = [];
+      for (const r of knowledgeRows) {
+        const k = String(r.topic_key || "");
+        if (seenTopic.has(k)) continue;
+        seenTopic.add(k);
+        picks.push(r);
+      }
+      const body = picks.map((r) => {
+        const tag = r.grade_band ? ` (${r.grade_band})` : "";
+        return `── ${r.title}${tag}\n${String(r.content || "").trim()}`;
+      }).join("\n\n");
+      return body
+        ? `\n\n[최신 입시 정보·트렌드 — 원장 입시 정보 수집 모듈에서 가져옴]\n${body}`
+        : "";
+    })();
+
     // ── Stage 1: 입시 전문가 사전 분석 ─────────────────────────────
     // refine 모드는 사용자가 이미 초안을 손보는 단계라 사전 분석을 건너뛰어
     // 응답 시간·비용을 아낍니다. generate 모드에서만 호출.
@@ -380,6 +431,7 @@ serve(async (req: Request) => {
         homeworkBlock,
         scoreBlock,
         memoBlock,
+        knowledgeBlock,
       });
     }
 

@@ -14,6 +14,7 @@
 ## 최근 의사결정 로그
 | 날짜 | 결정 | 이유 | 영향 범위 |
 |---|---|---|---|
+| 2026-05-10 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | database.js, index.html, migrations/0031_admissions_knowledge_20260510.sql, script.js, style.css 외 3개 |
 | 2026-05-10 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | supabase/functions/generate-student-eval-report/index.ts |
 | 2026-05-10 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | parent-portal/index.html, parent-portal/report.js |
 | 2026-05-10 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | database.js, script.js |

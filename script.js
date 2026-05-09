@@ -8716,6 +8716,116 @@ window.saveOwnerEvalAiStyleNoteFromModal = async function() {
     if (ok) ta.value = '';
 };
 
+// ========== 입시 정보·트렌드 지식 베이스 (admissions_knowledge) ==========
+
+window.toggleAdmissionsManualPanel = function() {
+    const wrap = document.getElementById('student-eval-admissions-manual');
+    if (!wrap) return;
+    wrap.style.display = wrap.style.display === 'none' ? 'block' : 'none';
+};
+
+const _ADMISSIONS_BAND_LABEL = {
+    elementary: '초등',
+    middle: '중등',
+    high1: '고1',
+    high2: '고2',
+    high3: '고3',
+    retake: '재수·N수',
+    all: '전체'
+};
+
+async function _renderAdmissionsKnowledgeList() {
+    const listEl = document.getElementById('student-eval-admissions-list');
+    const countEl = document.getElementById('student-eval-admissions-count');
+    if (!listEl) return;
+    if (typeof window.getAdmissionsKnowledgeRows !== 'function') {
+        listEl.innerHTML = '<div class="schedule-list-empty">DB API 미로드</div>';
+        return;
+    }
+    const rows = await window.getAdmissionsKnowledgeRows();
+    if (countEl) countEl.textContent = `${rows.length}건`;
+    if (!rows.length) {
+        listEl.innerHTML = '<div class="schedule-list-empty">아직 저장된 입시 정보가 없습니다. 위 버튼으로 추가하세요.</div>';
+        return;
+    }
+    const esc = (s) => String(s || '')
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    listEl.innerHTML = rows.map((r) => {
+        const band = _ADMISSIONS_BAND_LABEL[r.grade_band] || (r.grade_band || '전체');
+        const created = r.created_at ? String(r.created_at).slice(0, 10) : '';
+        const expiry = r.valid_until ? `~${r.valid_until}` : '만료없음';
+        const src = r.source === 'ai_generated' ? 'AI' : '수동';
+        return `<div class="student-eval-admissions-item">
+            <div class="student-eval-admissions-meta">
+                <span class="student-eval-admissions-band">${esc(band)}</span>
+                <span class="student-eval-admissions-source">${esc(src)}</span>
+                <span class="student-eval-admissions-date">${esc(created)} · ${esc(expiry)}</span>
+                <button type="button" class="student-eval-admissions-remove" title="삭제"
+                        onclick="window._deleteAdmissionsKnowledgeRow(${r.id})">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="student-eval-admissions-title">${esc(r.title || '')}</div>
+            <div class="student-eval-admissions-content">${esc(r.content || '')}</div>
+        </div>`;
+    }).join('');
+}
+
+window._deleteAdmissionsKnowledgeRow = async function(rowId) {
+    if (!await showConfirm('이 입시 정보 항목을 삭제할까요?', { type: 'danger', okText: '삭제' })) return;
+    const ok = await window.deleteAdmissionsKnowledgeRow(rowId);
+    if (ok) await _renderAdmissionsKnowledgeList();
+};
+
+window.runAdmissionsKnowledgeCollect = async function() {
+    const btn = document.getElementById('student-eval-admissions-auto-btn');
+    const prev = btn ? btn.innerHTML : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 학년대 6개 생성 중...';
+    }
+    try {
+        const res = await window.invokeAdmissionsKnowledgeCollect({ mode: 'auto' });
+        if (res && res.ok) {
+            showToast(`입시 정보 ${res.inserted || 0}건이 생성·저장되었습니다.`, 'success');
+            await _renderAdmissionsKnowledgeList();
+        }
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = prev;
+        }
+    }
+};
+
+window.saveAdmissionsKnowledgeManual = async function() {
+    const band = document.getElementById('student-eval-admissions-band')?.value || 'all';
+    const title = (document.getElementById('student-eval-admissions-title')?.value || '').trim();
+    const content = (document.getElementById('student-eval-admissions-content')?.value || '').trim();
+    if (!title || !content) {
+        showToast('제목과 내용을 모두 입력해주세요.', 'warning');
+        return;
+    }
+    const res = await window.invokeAdmissionsKnowledgeCollect({
+        mode: 'manual', gradeBand: band, title, content
+    });
+    if (res && res.ok) {
+        showToast('입시 정보가 저장되었습니다.', 'success');
+        document.getElementById('student-eval-admissions-title').value = '';
+        document.getElementById('student-eval-admissions-content').value = '';
+        const wrap = document.getElementById('student-eval-admissions-manual');
+        if (wrap) wrap.style.display = 'none';
+        await _renderAdmissionsKnowledgeList();
+    }
+};
+
+// 종합평가 모달이 열릴 때마다 목록 렌더 (details 토글 시에도 최신 상태)
+document.addEventListener('toggle', async (e) => {
+    if (e.target && e.target.id === 'student-eval-admissions-knowledge' && e.target.open) {
+        await _renderAdmissionsKnowledgeList();
+    }
+}, true);
+
 window.onScheduleFontSizeInput = function (val) {
     const el = document.getElementById('schedule-font-size-val');
     if (el) el.textContent = `${val}px`;

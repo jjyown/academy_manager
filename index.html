@@ -1204,6 +1204,36 @@
                         <textarea id="student-eval-ai-style-append" class="student-eval-ai-style-note" maxlength="1200" rows="3" placeholder="예: 학부모에게 데이터 부족·메모 미확보를 언급하지 말 것. 짧고 담담한 교육 기관 안내 문체로 쓸 것."></textarea>
                         <button type="button" class="eval-ai-btn eval-ai-btn--narrow" id="student-eval-ai-style-save-btn" onclick="saveOwnerEvalAiStyleNoteFromModal()">고정 지침 저장</button>
                     </details>
+                    <details class="student-eval-ai-persist" id="student-eval-admissions-knowledge">
+                        <summary>입시 정보·트렌드 지식 베이스 <span class="student-eval-ai-persist-tag" id="student-eval-admissions-count">0건</span></summary>
+                        <p class="student-eval-ai-persist-hint">학년대별 입시 정보·트렌드를 누적 저장합니다. AI 종합평가 생성 시 학생 학년에 매칭되는 항목이 자동으로 컨텍스트로 주입돼 분석에 반영됩니다. 만료된(만료일 지난) 항목은 자동으로 제외됩니다.</p>
+                        <div class="student-eval-admissions-actions">
+                            <button type="button" class="eval-ai-btn eval-ai-btn--narrow" id="student-eval-admissions-auto-btn" onclick="runAdmissionsKnowledgeCollect()" title="학년대 6개에 대해 한 번에 Gemini로 입시 트렌드 생성·저장">
+                                <i class="fas fa-wand-magic-sparkles"></i> AI 자동 생성 (전 학년대)
+                            </button>
+                            <button type="button" class="eval-ai-btn eval-ai-btn--secondary eval-ai-btn--narrow" onclick="toggleAdmissionsManualPanel()">
+                                <i class="fas fa-pen"></i> 수동 입력
+                            </button>
+                        </div>
+                        <div id="student-eval-admissions-manual" class="student-eval-refine-wrap" style="display:none;margin-top:8px;">
+                            <label class="student-eval-refine-label" for="student-eval-admissions-band">학년대</label>
+                            <select id="student-eval-admissions-band" class="student-eval-refine-input" style="height:34px;padding:6px 10px;">
+                                <option value="all">전체 (all)</option>
+                                <option value="elementary">초등</option>
+                                <option value="middle">중등</option>
+                                <option value="high1">고1</option>
+                                <option value="high2">고2</option>
+                                <option value="high3">고3</option>
+                                <option value="retake">재수·N수</option>
+                            </select>
+                            <label class="student-eval-refine-label" for="student-eval-admissions-title" style="margin-top:6px;">제목</label>
+                            <input type="text" id="student-eval-admissions-title" class="student-eval-refine-input" maxlength="200" placeholder="예: 2026 6평 변별 포인트, 학종 자기소개서 폐지 후 추세">
+                            <label class="student-eval-refine-label" for="student-eval-admissions-content" style="margin-top:6px;">내용</label>
+                            <textarea id="student-eval-admissions-content" class="student-eval-refine-input" maxlength="8000" rows="6" placeholder="원장님이 직접 정리한 입시 정보·트렌드를 입력하세요. AI 분석 시 이 학년대 학생에게 자동 적용됩니다."></textarea>
+                            <button type="button" class="eval-ai-btn eval-ai-btn--narrow" onclick="saveAdmissionsKnowledgeManual()" style="margin-top:6px;">저장</button>
+                        </div>
+                        <div id="student-eval-admissions-list" class="student-eval-admissions-list"></div>
+                    </details>
                     <div id="student-eval-refine-wrap" class="student-eval-refine-wrap" style="display:none;">
                         <label class="student-eval-refine-label" for="student-eval-refine-input">추가 요청사항</label>
                         <textarea id="student-eval-refine-input" class="student-eval-refine-input" maxlength="400" placeholder="예: 톤을 더 부드럽게, 칭찬을 앞에 두고, 약점은 한 문장만…"></textarea>

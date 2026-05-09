@@ -16,3 +16,8 @@ verify_jwt = false
 # 실제 권한은 함수 내부에서 getUser() + students.owner_user_id 일치로 검증.
 [functions.generate-student-eval-report]
 verify_jwt = false
+
+# 입시 정보 수집: 함수 내부에서 Bearer 세션 또는 x-cron-secret 으로 인증.
+# 게이트웨이 JWT 를 켜두면 cron 호출(서비스롤+x-cron-secret) 이 막혀 비활성화.
+[functions.collect-admissions-knowledge]
+verify_jwt = false

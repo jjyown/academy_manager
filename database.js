@@ -411,6 +411,107 @@ window.deleteOwnerStudentEvalAiStyleEntry = async function(entryId) {
 };
 
 
+// ========== 입시 정보·트렌드 지식 베이스 (admissions_knowledge) ==========
+// 종합평가 AI Stage 1 (입시 전문가 사전 분석) 의 컨텍스트로 사용됨.
+// 학년대(grade_band) 매칭으로 자동 주입되며, 만료 행은 제외.
+
+window.getAdmissionsKnowledgeRows = async function() {
+    try {
+        const session = await _getSession();
+        if (!session) return [];
+        const today = new Date().toISOString().slice(0, 10);
+        const { data, error } = await supabase
+            .from('admissions_knowledge')
+            .select('id, topic_key, grade_band, title, content, source, valid_from, valid_until, created_at')
+            .eq('owner_user_id', session.user.id)
+            .or(`valid_until.is.null,valid_until.gte.${today}`)
+            .order('created_at', { ascending: false })
+            .limit(50);
+        if (error) {
+            if (_isMissingTableError(error)) {
+                console.warn('[getAdmissionsKnowledgeRows] 테이블 없음 — migrations/0031 적용 필요');
+                return [];
+            }
+            console.warn('[getAdmissionsKnowledgeRows]', error);
+            return [];
+        }
+        return data || [];
+    } catch (e) {
+        console.warn('[getAdmissionsKnowledgeRows]', e);
+        return [];
+    }
+};
+
+window.deleteAdmissionsKnowledgeRow = async function(rowId) {
+    try {
+        const session = await _getSession();
+        if (!session) {
+            if (typeof showToast === 'function') showToast('로그인이 필요합니다.', 'warning');
+            return false;
+        }
+        const { error } = await supabase
+            .from('admissions_knowledge')
+            .delete()
+            .eq('id', rowId)
+            .eq('owner_user_id', session.user.id);
+        if (error) {
+            console.error('[deleteAdmissionsKnowledgeRow]', error);
+            if (typeof showToast === 'function') showToast('삭제에 실패했습니다.', 'error');
+            return false;
+        }
+        if (typeof showToast === 'function') showToast('항목을 삭제했습니다.', 'success');
+        return true;
+    } catch (e) {
+        console.error('[deleteAdmissionsKnowledgeRow]', e);
+        return false;
+    }
+};
+
+/**
+ * collect-admissions-knowledge Edge Function 호출.
+ * mode: 'auto' | 'single' | 'manual'
+ * single: { gradeBand }
+ * manual: { gradeBand, title, content, validUntil? }
+ */
+window.invokeAdmissionsKnowledgeCollect = async function(payload) {
+    try {
+        const session = await _getSession();
+        if (!session) {
+            if (typeof showToast === 'function') showToast('로그인이 필요합니다.', 'warning');
+            return null;
+        }
+        const accessToken = session.access_token;
+        const { data, error } = await supabase.functions.invoke('collect-admissions-knowledge', {
+            body: payload || { mode: 'auto' },
+            headers: { Authorization: 'Bearer ' + accessToken }
+        });
+        if (error) {
+            console.error('[invokeAdmissionsKnowledgeCollect]', error);
+            if (typeof showToast === 'function') showToast('입시 정보 수집 호출에 실패했습니다.', 'error');
+            return null;
+        }
+        if (!data || !data.ok) {
+            const errMap = {
+                gemini_not_configured: 'Supabase에 GEMINI_API_KEY 시크릿을 설정해주세요.',
+                manual_missing: '제목·내용을 모두 입력해주세요.',
+                invalid_grade_band: '학년대 값이 올바르지 않습니다.',
+                all_generations_failed: 'Gemini 호출이 모두 실패했습니다. API 키·quota·로그를 확인해주세요.',
+                db_insert_failed: 'DB 저장 실패 — admissions_knowledge 테이블 마이그레이션 적용 여부를 확인하세요.',
+                unauthorized: '다시 로그인해주세요.'
+            };
+            const msg = errMap[data && data.error] || '입시 정보 수집에 실패했습니다.';
+            if (typeof showToast === 'function') showToast(msg, 'error');
+            return null;
+        }
+        return data;
+    } catch (e) {
+        console.error('[invokeAdmissionsKnowledgeCollect]', e);
+        if (typeof showToast === 'function') showToast('입시 정보 수집 중 오류가 발생했습니다.', 'error');
+        return null;
+    }
+};
+
+
 // ========== 학생 관련 함수 ==========
 
 window.getAllStudents = async function() {
