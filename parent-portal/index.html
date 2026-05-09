@@ -427,11 +427,13 @@
 		.hw-cal-dow.sat { color: #60a5fa; }
 		.hw-cal-cell {
 			aspect-ratio: 1; display: flex; flex-direction: column;
-			align-items: center; justify-content: center;
+			align-items: center; justify-content: flex-start;
+			padding-top: 4px;
 			border-radius: 10px; cursor: pointer;
 			transition: all var(--transition);
 			position: relative; font-size: 13px; font-weight: 500;
 			color: var(--text-sec);
+			overflow: hidden;
 		}
 		.hw-cal-cell:hover { background: rgba(255,255,255,0.06); }
 		.hw-cal-cell.empty { cursor: default; }
@@ -449,25 +451,17 @@
 		.hw-cal-cell.sun-day { color: var(--red); }
 		.hw-cal-cell.sat-day { color: #60a5fa; }
 		.hw-cal-cell.selected.sun-day, .hw-cal-cell.selected.sat-day { color: var(--primary); }
-		.hw-cal-cell.hw-ontime::after,
-		.hw-cal-cell.hw-late::after,
-		.hw-cal-cell.hw-missed::after,
-		.hw-cal-cell.hw-manual::after,
-		.hw-cal-cell.hw-submitted::after,
-		.hw-cal-cell.att-present::after,
-		.hw-cal-cell.att-late::after,
-		.hw-cal-cell.att-absent::after,
-		.hw-cal-cell.att-makeup::after {
-			position: absolute; bottom: 3px;
-			font-size: 12px; font-weight: 800; line-height: 1;
-		}
-		.hw-cal-cell.hw-ontime::after { content: '\2713'; color: var(--green); }
-		.hw-cal-cell.hw-late::after { content: '\25b3'; color: var(--yellow); }
-		.hw-cal-cell.hw-missed::after { content: '\2717'; color: var(--red); }
-		.hw-cal-cell.hw-manual::after { content: '\2713'; color: var(--teal); }
-		.hw-cal-cell.hw-submitted::after { content: '\2713'; color: var(--green); }
 		.hw-cal-cell.hw-missed { background: rgba(248,113,113,0.06); }
 		.hw-cal-cell.hw-scheduled { border-bottom: 2px solid rgba(129,140,248,0.25); }
+		/* 셀 내부 — 날짜숫자 + 숙제 상태 아이콘(○△✕) + 학사일정 텍스트 (.acev-text) */
+		.hw-cal-day-num { font-size: 13px; font-weight: 600; line-height: 1.1; }
+		.hw-cal-status-icon {
+			font-size: 13px; font-weight: 800; line-height: 1;
+			margin-top: 2px;
+		}
+		.hw-cal-status-icon.hw-icon-ok { color: var(--green); }
+		.hw-cal-status-icon.hw-icon-late { color: var(--yellow); }
+		.hw-cal-status-icon.hw-icon-miss { color: var(--red); }
 
 		.hw-stats {
 			display: flex; gap: 6px; margin-top: 14px;

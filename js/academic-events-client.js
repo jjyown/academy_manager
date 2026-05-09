@@ -113,19 +113,22 @@
     }
 
     /**
-     * grid 의 셀에 학사일정 배지를 부착. 기존 배지는 제거 후 다시 그림.
+     * grid 의 셀에 학사일정을 표시. mode 에 따라 표시 방식 다름.
      *
      * @param {object} opts
      *   - schoolName    : 학생의 school (string)
      *   - gridEl        : 캘린더 grid DOM
-     *   - cellSelector  : 날짜 셀 selector (각 셀이 dateExtractor 로 dateStr 반환 가능해야 함)
-     *   - dateExtractor : (cell) => 'YYYY-MM-DD' 또는 falsy(빈 셀 등)
+     *   - cellSelector  : 날짜 셀 selector
+     *   - dateExtractor : (cell) => 'YYYY-MM-DD' 또는 falsy
+     *   - mode          : 'badge' (기본, 우상단 졸업모자 배지+호버 툴팁) |
+     *                     'text'  (셀 본문에 일정 이름을 작은 글자로 직접 표기)
      */
     async function renderBadgesOnGrid(opts) {
         const { schoolName, gridEl, cellSelector, dateExtractor } = opts || {};
+        const mode = (opts && opts.mode === 'text') ? 'text' : 'badge';
         if (!gridEl || !cellSelector || typeof dateExtractor !== 'function') return;
-        // 기존 배지 모두 제거 (이전 월 잔존 방지)
-        gridEl.querySelectorAll('.acev-badge').forEach((el) => el.remove());
+        // 기존 표시 모두 제거 (이전 월 잔존 방지) — 두 모드 모두 정리
+        gridEl.querySelectorAll('.acev-badge, .acev-text').forEach((el) => el.remove());
         if (!schoolName) return;
 
         const school = await resolveSchool(schoolName);
@@ -159,6 +162,32 @@
             const yyyymm = ds.slice(0, 7).replace('-', '');
             const events = (monthData.get(yyyymm) || new Map()).get(ds) || [];
             if (events.length === 0) return;
+
+            // 셀이 position: static 이면 absolute 자식이 부모를 못 찾으니 보정
+            const cs = window.getComputedStyle(cell).position;
+            if (cs === 'static' || cs === '') cell.style.position = 'relative';
+
+            if (mode === 'text') {
+                // 셀 하단에 일정 이름을 직접 텍스트로 표기 (호버 의존 X)
+                const wrap = document.createElement('div');
+                wrap.className = 'acev-text';
+                events.slice(0, 2).forEach((e) => {
+                    const line = document.createElement('div');
+                    line.className = 'acev-text-line';
+                    line.textContent = e.name;
+                    wrap.appendChild(line);
+                });
+                if (events.length > 2) {
+                    const more = document.createElement('div');
+                    more.className = 'acev-text-more';
+                    more.textContent = `+${events.length - 2}`;
+                    wrap.appendChild(more);
+                }
+                cell.appendChild(wrap);
+                return;
+            }
+
+            // 기본: 우상단 졸업모자 배지 + 호버 툴팁
             const tooltip = `${school.name} 학사일정\n` + events.map((e) => {
                 const sub = e.content && e.content !== e.name ? ` · ${e.content}` : '';
                 return `· ${e.name}${sub}`;
@@ -177,9 +206,6 @@
                 cnt.textContent = String(events.length);
                 badge.appendChild(cnt);
             }
-            // 셀이 position: static 이면 absolute 가 부모를 못 찾으니 보정
-            const cs = window.getComputedStyle(cell).position;
-            if (cs === 'static' || cs === '') cell.style.position = 'relative';
             cell.appendChild(badge);
         });
     }
@@ -222,6 +248,44 @@
 @media (max-width: 480px) {
     .acev-badge { padding: 1px 3px; font-size: 8px; top: 1px; right: 1px; }
     .acev-badge i { font-size: 7px; }
+}
+
+/* text 모드: 셀 본문에 일정 이름을 직접 표기 (호버 의존 X) */
+.acev-text {
+    margin-top: 3px;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    pointer-events: none;
+}
+.acev-text-line {
+    background: rgba(79, 70, 229, 0.12);
+    color: #4f46e5;
+    border-left: 2px solid #4f46e5;
+    border-radius: 3px;
+    padding: 1px 4px;
+    font-size: 9px;
+    line-height: 1.25;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+}
+.acev-text-more {
+    font-size: 9px;
+    color: #94a3b8;
+    font-weight: 600;
+    padding-left: 4px;
+}
+/* 다크 테마 (학부모 포털 등) */
+@media (prefers-color-scheme: dark) {
+    .acev-text-line {
+        background: rgba(165, 180, 252, 0.18);
+        color: #c7d2fe;
+        border-left-color: #818cf8;
+    }
+    .acev-text-more { color: #cbd5e1; }
 }`;
         document.head.appendChild(style);
     }

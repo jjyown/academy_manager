@@ -1578,8 +1578,31 @@ function renderHwCalendar() {
 		}
 
 		cell.className = cls;
-		cell.textContent = d;
 		cell.dataset.date = dateStr;  // 학사일정 클라이언트가 cellSelector 로 활용
+		// 셀 내부를 명시 구조화: 날짜 숫자 + 숙제 상태 아이콘 (이전엔 textContent 만 사용)
+		cell.innerHTML = '';
+		const dayNum = document.createElement('div');
+		dayNum.className = 'hw-cal-day-num';
+		dayNum.textContent = String(d);
+		cell.appendChild(dayNum);
+		// 숙제 제출 상태 → ○(제출) △(미흡) ✕(미제출) 직관 아이콘
+		if (ds && !isFuture) {
+			let icon = '', cls2 = '';
+			if (ds.status === 'on_time' || ds.status === 'submitted' || ds.status === 'manual') {
+				icon = '○'; cls2 = 'hw-icon-ok';
+			} else if (ds.status === 'late') {
+				icon = '△'; cls2 = 'hw-icon-late';
+			} else if (ds.status === 'missed') {
+				icon = '✕'; cls2 = 'hw-icon-miss';
+			}
+			if (icon) {
+				const ic = document.createElement('div');
+				ic.className = 'hw-cal-status-icon ' + cls2;
+				ic.textContent = icon;
+				ic.setAttribute('aria-label', ds.status);
+				cell.appendChild(ic);
+			}
+		}
 
 		if (!isFuture) {
 			cell.onclick = () => selectHwDate(dateStr);
@@ -1588,7 +1611,7 @@ function renderHwCalendar() {
 		grid.appendChild(cell);
 	}
 
-	// 학생 학교의 학사일정 배지를 cell 우상단에 부착 (NEIS, sessionStorage 24h 캐시)
+	// 학생 학교의 학사일정을 cell 본문에 텍스트로 직접 표기 (호버 의존 X)
 	if (window.AcademicEventsClient && currentStudent && currentStudent.school) {
 		try {
 			window.AcademicEventsClient.renderBadgesOnGrid({
@@ -1596,8 +1619,9 @@ function renderHwCalendar() {
 				gridEl: grid,
 				cellSelector: '.hw-cal-cell[data-date]',
 				dateExtractor: (cell) => cell.dataset.date,
+				mode: 'text',
 			});
-		} catch (e) { console.warn('[acev] hw cal badge err', e); }
+		} catch (e) { console.warn('[acev] hw cal text err', e); }
 	}
 }
 

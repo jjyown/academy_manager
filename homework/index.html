@@ -1444,11 +1444,12 @@ function getAssignmentsForCalendarDate(dateStr) {
 function statusIconForCalCell(ds) {
 	if (!ds || !ds.status) return null;
 	const st = ds.status;
-	if (st === 'on_time') return { cls: 's-ontime', ch: '\u2713' };
-	if (st === 'late') return { cls: 's-late', ch: '\u25b3' };
-	if (st === 'missed') return { cls: 's-missed', ch: '\u2717' };
-	if (st === 'manual') return { cls: 's-manual', ch: '\u2713' };
-	if (st === 'submitted') return { cls: 's-submitted', ch: '\u2713' };
+	// \ud559\ubd80\ubaa8\u00b7\ud559\uc0dd \uc9c1\uad00 \uc704\uc8fc: \uc81c\ucd9c=\u25cb, \ubbf8\ud761(\uc9c0\uac01)=\u25b3, \ubbf8\uc81c\ucd9c=\u2715
+	if (st === 'on_time') return { cls: 's-ontime', ch: '\u25cb' };       // \u25cb
+	if (st === 'late') return { cls: 's-late', ch: '\u25b3' };            // \u25b3
+	if (st === 'missed') return { cls: 's-missed', ch: '\u2717' };        // \u2715
+	if (st === 'manual') return { cls: 's-manual', ch: '\u25cb' };        // \u25cb
+	if (st === 'submitted') return { cls: 's-submitted', ch: '\u25cb' };  // \u25cb
 	if (st === 'pending' && ds.scheduleTime) return { cls: 's-pending', ch: '\u2022' };
 	return null;
 }
@@ -2188,7 +2189,7 @@ async function loadCalendarData() {
 	// 스켈레톤 해제
 	const _grid = document.getElementById('cal-grid');
 	if (_grid) _grid.classList.remove('is-loading');
-	// 학생 학교의 학사일정 배지를 cell 우상단에 부착 (NEIS, 24h 캐시)
+	// 학생 학교의 학사일정을 cell 본문에 텍스트로 직접 표기 (호버 의존 X)
 	if (window.AcademicEventsClient && currentStudent && currentStudent.school) {
 		try {
 			window.AcademicEventsClient.renderBadgesOnGrid({
@@ -2196,8 +2197,9 @@ async function loadCalendarData() {
 				gridEl: _grid,
 				cellSelector: '.cal-cell[data-date]',
 				dateExtractor: (cell) => cell.dataset.date,
+				mode: 'text',
 			});
-		} catch (e) { console.warn('[acev] homework cal badge err', e); }
+		} catch (e) { console.warn('[acev] homework cal text err', e); }
 	}
 	const _detailList = document.getElementById('detail-list');
 	if (_detailList) delete _detailList.dataset.skeleton;
