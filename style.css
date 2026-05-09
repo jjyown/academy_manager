@@ -4422,10 +4422,17 @@ textarea:focus:not(:focus-visible) {
 .day-settings-card, .attendance-card { max-width: 420px; }
 
 .day-settings-card { padding: 0; }
-.day-settings-card .modal-header { padding: 20px 22px 14px; }
+.day-settings-card .modal-header { padding: 20px 22px 14px; flex-shrink: 0; }
+.day-settings-card .dset-footer { flex-shrink: 0; }
 
-/* Day Settings Body */
-.dset-body { padding: 0 22px; }
+/* Day Settings Body — 모달 안에서 스크롤 가능하도록 */
+.dset-body {
+    padding: 0 22px 16px;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+}
 
 .dset-row {
     display: flex;
