@@ -14,6 +14,7 @@
 ## 최근 의사결정 로그
 | 날짜 | 결정 | 이유 | 영향 범위 |
 |---|---|---|---|
+| 2026-05-09 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | migrations/0026_consolidate_rls_policies_20260509.sql |
 | 2026-05-09 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | .gitignore |
 | 2026-05-09 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | grading-server/__pycache__/auth.cpython-312.pyc, grading-server/__pycache__/config.cpython-312.pyc, grading-server/__pycache__/file_utils.cpython-312.pyc, grading-server/__pycache__/progress.cpython-312.pyc, grading-server/grading/__pycache__/__init__.cpython-312.pyc 외 96개 |
 | 2026-05-09 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | tmp-zip-compare-kakao, tmp-zip-compare/academy_manager-main/.cursor/rules/expert-roleplay-doc-logging.mdc, tmp-zip-compare/academy_manager-main/.cursor/rules/workflow-doc-driven.mdc, tmp-zip-compare/academy_manager-main/.gitattributes, tmp-zip-compare/academy_manager-main/.gitignore 외 161개 |
