@@ -3490,6 +3490,13 @@ function _renderCalendarImpl() {
 
     grid.innerHTML = '';
     grid.appendChild(fragment);
+
+    // 학사일정 배지 — 셀 추가 후 비동기로 NEIS 데이터 페치 (캐시되어 있으면 즉시)
+    if (typeof window.renderAcademicBadgesOnCalendar === 'function') {
+        Promise.resolve()
+            .then(() => window.renderAcademicBadgesOnCalendar())
+            .catch((e) => console.warn('[renderCalendar] 학사일정 배지 실패:', e));
+    }
 }
 
 // 디바운스된 renderCalendar (연속 호출 시 마지막만 실행)
@@ -3685,6 +3692,12 @@ window.openDayDetail = async function(dateStr) {
     if (!modal) return;
     modal.style.display = 'flex';
     document.getElementById('day-detail-title').textContent = `${dateStr} 시간표`;
+    // 학사일정 섹션 — 시간표 모달 상단에 해당 날짜 학사일정 chip 표시
+    if (typeof window.renderDayDetailAcademicSection === 'function') {
+        Promise.resolve()
+            .then(() => window.renderDayDetailAcademicSection(dateStr))
+            .catch((e) => console.warn('[openDayDetail] 학사일정 섹션 실패:', e));
+    }
     // 검색 초기화
     const searchInput = document.getElementById('tt-search-input');
     if (searchInput) { searchInput.value = ''; }
