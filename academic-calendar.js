@@ -453,38 +453,44 @@
                 if (!bySchool.has(key)) bySchool.set(key, { school: e.school, events: [] });
                 bySchool.get(key).events.push(e.event);
             });
-            const html = Array.from(bySchool.values()).map((g, gi) => {
+            // 새 레이아웃: 학교별 박스 안에 이벤트 목록을 줄바꿈으로,
+            // 각 줄에 큰 [+ 추가] / [✓ 추가됨] 버튼 우측 정렬
+            const html = Array.from(bySchool.values()).map((g) => {
                 const c = _schoolColor(g.school);
-                const evList = g.events.map((ev, ei) => {
+                const evList = g.events.map((ev) => {
                     const pinned = isEventPinned(g.school, dateStr, ev.name);
                     const sub = ev.content && ev.content !== ev.name
-                        ? ` <span class="tt-academic-event-content">${_escape(ev.content)}</span>`
+                        ? `<span class="tt-academic-event-content">${_escape(ev.content)}</span>`
                         : '';
-                    // data-* 로 학교/날짜/이벤트 인덱스 보관 → 클릭 시 핀 토글
-                    return `<span class="tt-academic-event" data-school-idx="${gi}" data-event-idx="${ei}">
+                    return `<div class="tt-academic-event-row">
+                        <div class="tt-academic-event-text">
+                            <span class="tt-academic-event-name">${_escape(ev.name)}</span>
+                            ${sub}
+                        </div>
                         <button class="tt-academic-pin-btn ${pinned ? 'is-pinned' : ''}"
                             type="button"
-                            aria-label="${pinned ? '핀 제거' : '사이드바에 추가'}"
-                            title="${pinned ? '핀 제거' : '사이드바에 추가'}"
+                            aria-label="${pinned ? '사이드바 핀 제거' : '사이드바에 추가'}"
+                            title="${pinned ? '클릭 시 핀 제거' : '클릭 시 사이드바에 추가'}"
                             data-school-atpt="${_escape(g.school.atpt)}"
                             data-school-code="${_escape(g.school.code)}"
                             data-school-name="${_escape(g.school.name)}"
                             data-date="${_escape(dateStr)}"
                             data-event-name="${_escape(ev.name)}"
                             data-event-content="${_escape(ev.content || '')}">
-                            <i class="fas fa-bookmark" aria-hidden="true"></i>
+                            ${pinned
+                                ? '<i class="fas fa-check" aria-hidden="true"></i> 추가됨'
+                                : '<i class="fas fa-plus" aria-hidden="true"></i> 추가'}
                         </button>
-                        ${_escape(ev.name)}${sub}
-                    </span>`;
+                    </div>`;
                 }).join('');
                 return `<div class="tt-academic-school" style="background:${c.bg};color:${c.fg};border-color:${c.dot};">
-                    <span class="tt-academic-school-name">${_escape(g.school.name)}</span>
-                    ${evList}
+                    <div class="tt-academic-school-name">${_escape(g.school.name)}</div>
+                    <div class="tt-academic-event-list">${evList}</div>
                 </div>`;
             }).join('');
             sec.innerHTML = `<div class="tt-academic-title">
-                <i class="fas fa-graduation-cap"></i> 학사일정
-                <span class="tt-academic-hint">📌 클릭 시 우측 사이드바에 추가</span>
+                <span><i class="fas fa-graduation-cap"></i> 학사일정 ${dateStr}</span>
+                <span class="tt-academic-hint">우측 [+ 추가] 버튼으로 사이드바에 핀</span>
             </div><div class="tt-academic-list">${html}</div>`;
             // 핀 버튼 이벤트 위임
             sec.querySelectorAll('.tt-academic-pin-btn').forEach((btn) => {
@@ -502,8 +508,12 @@
                     };
                     const nowPinned = togglePinEventInternal(school, dateStr, evt);
                     btn.classList.toggle('is-pinned', nowPinned);
-                    btn.setAttribute('aria-label', nowPinned ? '핀 제거' : '사이드바에 추가');
-                    btn.setAttribute('title', nowPinned ? '핀 제거' : '사이드바에 추가');
+                    btn.setAttribute('aria-label', nowPinned ? '사이드바 핀 제거' : '사이드바에 추가');
+                    btn.setAttribute('title', nowPinned ? '클릭 시 핀 제거' : '클릭 시 사이드바에 추가');
+                    // 라벨/아이콘 즉시 갱신
+                    btn.innerHTML = nowPinned
+                        ? '<i class="fas fa-check" aria-hidden="true"></i> 추가됨'
+                        : '<i class="fas fa-plus" aria-hidden="true"></i> 추가';
                     // 사이드바 즉시 갱신
                     if (typeof renderPinnedAcademicEventsSidebar === 'function') {
                         renderPinnedAcademicEventsSidebar();
@@ -548,6 +558,14 @@
                         aria-label="닫기"><i class="fas fa-times" aria-hidden="true"></i></button>
                 </div>
                 <div class="academic-modal-body custom-scroll">
+                    <div class="academic-howto-banner">
+                        <i class="fas fa-circle-info" aria-hidden="true"></i>
+                        <div>
+                            <strong>핀 추가 방법</strong> — 학교 추가 후
+                            메인 캘린더 날짜 클릭 → <strong>시간표 모달 상단 학사일정</strong> 의
+                            <span class="academic-howto-pill">+ 추가</span> 버튼으로 우측 사이드바에 핀.
+                        </div>
+                    </div>
                     <section class="academic-section">
                         <div class="academic-section-title">
                             <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
