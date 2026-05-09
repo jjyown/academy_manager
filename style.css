@@ -671,40 +671,56 @@ textarea:focus:not(:focus-visible) {
    학사일정 (NEIS) 연동 UI
    ============================================================ */
 
-/* 메인 캘린더 셀 — 학사일정 배지 (학교별 1줄, 학교칩 + 이벤트명) */
-.academic-badge-row {
-    display: flex; flex-direction: column; gap: 2px;
-    margin-top: 3px; padding: 0 4px 2px;
-    overflow: hidden;
-    pointer-events: none;
-    max-width: 100%;
-}
-.academic-badge-item {
-    display: flex; align-items: center; gap: 4px;
-    font-size: 10px; line-height: 1.25;
-    min-width: 0;
-}
-.academic-badge-school {
-    flex-shrink: 0;
-    padding: 1px 5px;
-    border-radius: 4px;
-    font-size: 9px; font-weight: 800;
-    line-height: 1.4;
-    letter-spacing: -0.2px;
-}
-.academic-badge-event-text {
-    flex: 1 1 auto;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-weight: 600;
-}
-.academic-badge-more {
+/* 메인 캘린더 셀 — 학사일정 컴팩트 인디케이터 (우상단)
+   상세는 셀 hover 시 풀 팝오버로 표시. 셀 공간 보존이 우선. */
+.grid-cell { position: relative; }
+.academic-cell-indicator {
+    position: absolute;
+    top: 5px; right: 5px;
+    display: inline-flex; align-items: center; gap: 3px;
+    padding: 2px 6px;
+    background: rgba(99, 102, 241, 0.08);
+    border: 1px solid rgba(99, 102, 241, 0.18);
+    border-radius: 10px;
+    color: var(--primary, #6366f1);
     font-size: 9px;
-    color: var(--gray, #94a3b8);
-    font-weight: 600;
-    padding-left: 2px;
+    line-height: 1;
+    pointer-events: none;
+    z-index: 2;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    backdrop-filter: blur(2px);
+}
+.academic-cell-indicator > i {
+    font-size: 9px;
+}
+.academic-cell-indicator-dots {
+    display: inline-flex; align-items: center; gap: 2px;
+}
+.academic-cell-indicator-dot {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.academic-cell-indicator-more {
+    font-size: 8.5px; font-weight: 700;
+    color: var(--text-sec, #64748b);
+    margin-left: 1px;
+}
+/* 셀 hover 시 인디케이터 살짝 강조 */
+.grid-cell:hover .academic-cell-indicator {
+    background: rgba(99, 102, 241, 0.18);
+    border-color: var(--primary, #6366f1);
+}
+/* 모바일/좁은 셀에서 더 작게 */
+@media (max-width: 768px) {
+    .academic-cell-indicator {
+        top: 3px; right: 3px;
+        padding: 1px 4px;
+        gap: 2px;
+    }
+    .academic-cell-indicator > i,
+    .academic-cell-indicator-more { font-size: 8px; }
+    .academic-cell-indicator-dot { width: 4px; height: 4px; }
 }
 
 /* 시간표 모달 — 학사일정 섹션 */

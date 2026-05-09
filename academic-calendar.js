@@ -244,8 +244,6 @@
         }));
         if (myToken !== _badgeRenderToken) return;
 
-        const MAX_VISIBLE_SCHOOLS = 2;
-
         cells.forEach((cell) => {
             const ds = cell.dataset.date || '';
             if (!ds) return;
@@ -253,8 +251,10 @@
             const monthMap = monthlyMaps.get(yyyymm);
             if (!monthMap) return;
             const events = monthMap.get(ds) || [];
+            // 이전 indicator/handler 정리
+            const oldIndicator = cell.querySelector('.academic-cell-indicator');
+            if (oldIndicator) oldIndicator.remove();
             if (events.length === 0) {
-                // 이전 hover 핸들러 정리
                 if (cell._academicHoverCleanup) {
                     cell._academicHoverCleanup();
                     cell._academicHoverCleanup = null;
@@ -263,7 +263,7 @@
             }
 
             // 학교별 그룹화
-            const bySchool = new Map(); // key -> { school, events:[] }
+            const bySchool = new Map();
             events.forEach((e) => {
                 const k = `${e.school.atpt}-${e.school.code}`;
                 if (!bySchool.has(k)) {
@@ -273,48 +273,36 @@
             });
             const groups = Array.from(bySchool.values());
 
-            const row = document.createElement('div');
-            row.className = 'academic-badge-row';
-
-            // 화면에 보이는 학교 수 제한
-            const visibleGroups = groups.slice(0, MAX_VISIBLE_SCHOOLS);
-            const hiddenCount = groups.length - visibleGroups.length;
-
-            visibleGroups.forEach((g) => {
+            // ── 우상단 컴팩트 칩 — 🎓 + 학교 색상 dot 들 + (학교>3 이면 +N)
+            // 셀 공간 절약: 텍스트 없이 시각적 마커만. 상세는 hover 팝오버로.
+            const indicator = document.createElement('div');
+            indicator.className = 'academic-cell-indicator';
+            indicator.setAttribute('aria-label',
+                `학사일정 ${groups.length}개 학교 / ${events.length}건`);
+            const cap = document.createElement('i');
+            cap.className = 'fas fa-graduation-cap';
+            cap.setAttribute('aria-hidden', 'true');
+            indicator.appendChild(cap);
+            const dotsWrap = document.createElement('span');
+            dotsWrap.className = 'academic-cell-indicator-dots';
+            const SHOW_DOTS = 3;
+            groups.slice(0, SHOW_DOTS).forEach((g) => {
                 const c = _schoolColor(g.school);
-                const item = document.createElement('div');
-                item.className = 'academic-badge-item';
-
-                const schoolChip = document.createElement('span');
-                schoolChip.className = 'academic-badge-school';
-                schoolChip.style.background = c.bg;
-                schoolChip.style.color = c.fg;
-                schoolChip.textContent = _abbreviateSchoolName(g.school.name, 5);
-                item.appendChild(schoolChip);
-
-                const eventText = document.createElement('span');
-                eventText.className = 'academic-badge-event-text';
-                eventText.style.color = c.fg;
-                const firstName = g.events[0].name || '';
-                eventText.textContent = g.events.length > 1
-                    ? `${firstName} +${g.events.length - 1}`
-                    : firstName;
-                item.appendChild(eventText);
-
-                row.appendChild(item);
+                const dot = document.createElement('span');
+                dot.className = 'academic-cell-indicator-dot';
+                dot.style.background = c.dot;
+                dotsWrap.appendChild(dot);
             });
-
-            if (hiddenCount > 0) {
-                const more = document.createElement('div');
-                more.className = 'academic-badge-more';
-                more.textContent = `+ ${hiddenCount}개 학교 더`;
-                row.appendChild(more);
+            indicator.appendChild(dotsWrap);
+            if (groups.length > SHOW_DOTS) {
+                const more = document.createElement('span');
+                more.className = 'academic-cell-indicator-more';
+                more.textContent = `+${groups.length - SHOW_DOTS}`;
+                indicator.appendChild(more);
             }
-
-            cell.appendChild(row);
+            cell.appendChild(indicator);
 
             // ── 학교 일정 풀 팝오버 (셀 전역 hover) ──────────────
-            // 학생 인원 배지와 동일한 #calendar-tooltip 공유 — 마우스 따라가며 표시
             const tooltipHtml = _buildAcademicTooltipHtml(ds, groups);
             const onCellEnter = (e) => {
                 // 학생 인원 배지 위에 진입 시엔 인원 배지의 핸들러가 우선

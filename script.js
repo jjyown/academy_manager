@@ -1682,10 +1682,26 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     document.addEventListener('mousemove', (e) => {
         const tooltip = document.getElementById('calendar-tooltip');
-        if(tooltip && tooltip.style.display === 'block') {
-            tooltip.style.left = e.pageX + 15 + 'px';
-            tooltip.style.top = e.pageY + 15 + 'px';
+        if (!tooltip || tooltip.style.display !== 'block') return;
+        // 위치 자동 flip — 화면 밑/오른쪽 잘림 방지
+        const tipRect = tooltip.getBoundingClientRect();
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        const margin = 12;
+        let left = e.pageX + 15;
+        let top = e.pageY + 15;
+        // 우측 잘림 → 커서 왼쪽으로 띄우기
+        if (e.clientX + 15 + tipRect.width > vw - margin) {
+            left = e.pageX - tipRect.width - 15;
+            if (left < window.scrollX + margin) left = window.scrollX + margin;
         }
+        // 하단 잘림 → 커서 위쪽으로 띄우기
+        if (e.clientY + 15 + tipRect.height > vh - margin) {
+            top = e.pageY - tipRect.height - 12;
+            if (top < window.scrollY + margin) top = window.scrollY + margin;
+        }
+        tooltip.style.left = left + 'px';
+        tooltip.style.top = top + 'px';
     });
 
     setupHolidayColorChips();
