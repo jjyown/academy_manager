@@ -1179,9 +1179,13 @@ async function autoMarkAbsentForPastSchedules() {
     try {
         if (typeof supabase !== 'undefined') {
             const ownerId = (typeof cachedLsGet === 'function') ? cachedLsGet('current_owner_id') : null;
+            // attendance_records 실제 컬럼: id, student_id, teacher_id, owner_user_id, attendance_date,
+            //   check_in_time, scheduled_time, status, qr_scanned, qr_scan_time, memo, created_at,
+            //   qr_judgment, shared_memo, attendance_source, auth_time, presence_checked, processed_at,
+            //   class_memo, class_shared_memo. ※ updated_at 컬럼 없음 — explicit select 에서 제외 필수.
             let q = supabase
                 .from('attendance_records')
-                .select('student_id, attendance_date, scheduled_time, status, teacher_id, processed_at, check_in_time, updated_at, created_at')
+                .select('student_id, attendance_date, scheduled_time, status, teacher_id, processed_at, check_in_time, created_at')
                 .gte('attendance_date', cutoffStr)
                 .lte('attendance_date', todayKst);
             if (ownerId) q = q.eq('owner_user_id', ownerId);
