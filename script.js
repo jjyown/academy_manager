@@ -1800,14 +1800,26 @@ document.addEventListener('keydown', (e) => {
     } else if (e.key === 't' || e.key === 'T') {
         if (typeof goToday === 'function') { e.preventDefault(); goToday(); }
     } else if (e.key === '/') {
-        // 학생 드로어가 열려 있으면 그 안의 검색창에 포커스
-        const searchInput = document.getElementById('student-search-input')
-            || document.querySelector('.drawer-search-input')
-            || document.querySelector('input[type="search"]');
-        if (searchInput) {
+        // 현재 보이는 검색창 중 우선순위가 가장 높은 곳에 포커스
+        // 모달/드로어 열려 있으면 그 안의 검색창, 아니면 메인 검색창
+        const candidates = [
+            '#tt-search-input',            // 시간표(day-detail) 모달
+            '#drawer-search-input',        // 학생 관리 드로어
+            '#sch-student-search',         // 일정 등록 모달
+            '#period-del-student-search',  // 일정 삭제 모달
+            '#pay-search-input',           // 결제 모달
+            '#qr-student-search',          // QR 스캔 페이지
+        ];
+        let found = null;
+        for (const sel of candidates) {
+            const el = document.querySelector(sel);
+            // offsetParent === null 이면 display:none 또는 부모 숨김 — 가시성 체크
+            if (el && el.offsetParent !== null) { found = el; break; }
+        }
+        if (found) {
             e.preventDefault();
-            searchInput.focus();
-            if (typeof searchInput.select === 'function') searchInput.select();
+            found.focus();
+            if (typeof found.select === 'function') found.select();
         }
     }
 });
