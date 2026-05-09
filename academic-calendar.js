@@ -353,30 +353,46 @@
         modal.setAttribute('aria-labelledby', 'academic-modal-title');
         modal.innerHTML = `
             <div class="modal-card academic-modal-card">
-                <div class="modal-header">
-                    <h2 id="academic-modal-title"><i class="fas fa-graduation-cap"></i> 학사일정 관리</h2>
-                    <button class="btn-close-x" type="button"
+                <div class="academic-modal-header">
+                    <div class="academic-modal-title-wrap">
+                        <span class="academic-modal-icon"><i class="fas fa-graduation-cap"></i></span>
+                        <div>
+                            <h2 id="academic-modal-title">학사일정 관리</h2>
+                            <p class="academic-modal-subtitle">학원생이 다니는 학교의 시험·방학·행사를 캘린더에 함께 표시합니다.</p>
+                        </div>
+                    </div>
+                    <button class="academic-modal-close" type="button"
                         onclick="document.getElementById('academic-calendar-modal').style.display='none'"
                         aria-label="닫기"><i class="fas fa-times" aria-hidden="true"></i></button>
                 </div>
-                <div class="modal-body custom-scroll">
-                    <div class="academic-section">
-                        <div class="academic-section-title">학교 검색</div>
+                <div class="academic-modal-body custom-scroll">
+                    <section class="academic-section">
+                        <div class="academic-section-title">
+                            <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
+                            학교 검색
+                        </div>
                         <div class="academic-search-row">
-                            <input type="text" id="academic-search-input" class="academic-search-input-field"
-                                placeholder="학교명 입력 (예: 송도중학교)" autocomplete="off">
+                            <div class="academic-search-input-wrap">
+                                <i class="fas fa-search academic-search-input-icon" aria-hidden="true"></i>
+                                <input type="text" id="academic-search-input" class="academic-search-input-field"
+                                    placeholder="학교명을 입력해주세요 (예: 송도중학교)" autocomplete="off">
+                            </div>
                             <button class="academic-search-submit-btn" type="button" id="academic-search-btn">
-                                <i class="fas fa-search"></i> 검색
+                                <i class="fas fa-search" aria-hidden="true"></i> 검색
                             </button>
                         </div>
                         <div id="academic-search-results" class="academic-search-results"></div>
-                    </div>
-                    <div class="academic-section">
-                        <div class="academic-section-title">구독 중인 학교
+                        <div class="academic-search-hint">전국 초·중·고등학교 검색 가능 · 학교마다 다른 색으로 캘린더에 표시됩니다</div>
+                    </section>
+                    <div class="academic-section-divider"></div>
+                    <section class="academic-section">
+                        <div class="academic-section-title">
+                            <i class="fas fa-bookmark" aria-hidden="true"></i>
+                            구독 중인 학교
                             <span class="academic-count" id="academic-sub-count">0</span>
                         </div>
                         <div id="academic-subscribed-list" class="academic-subscribed-list"></div>
-                    </div>
+                    </section>
                 </div>
             </div>`;
         document.body.appendChild(modal);
@@ -460,7 +476,12 @@
         const list = getSubscribedSchools();
         if (countEl) countEl.textContent = list.length;
         if (list.length === 0) {
-            listEl.innerHTML = '<div class="academic-empty">구독한 학교가 없습니다. 위에서 학교를 검색해 추가하세요.</div>';
+            listEl.innerHTML = `
+                <div class="academic-empty academic-empty-friendly">
+                    <i class="fas fa-school academic-empty-icon" aria-hidden="true"></i>
+                    <div class="academic-empty-title">아직 구독한 학교가 없어요</div>
+                    <div class="academic-empty-desc">위 검색창에 학교명을 입력해 추가하면<br>해당 학교의 학사일정이 캘린더에 자동으로 표시됩니다.</div>
+                </div>`;
             return;
         }
         listEl.innerHTML = list.map((sc) => {
