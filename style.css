@@ -3878,6 +3878,23 @@ textarea:focus:not(:focus-visible) {
     color: #cbd5e1;
 }
 
+/* 다른 달 핀 안내 */
+.upcoming-other-months-hint {
+    margin-top: 12px;
+    padding: 8px 10px;
+    background: rgba(99, 102, 241, 0.06);
+    border: 1px dashed rgba(99, 102, 241, 0.25);
+    border-radius: 8px;
+    font-size: 11px;
+    color: #6366f1;
+    display: flex; align-items: center; gap: 6px;
+    line-height: 1.4;
+}
+.upcoming-other-months-hint i {
+    font-size: 11px;
+    flex-shrink: 0;
+}
+
 /* 좁은 화면: 사이드바를 캘린더 아래로 */
 @media (max-width: 1100px) {
     .main-grid-layout {

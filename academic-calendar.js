@@ -745,12 +745,27 @@
         const sidebar = document.getElementById('upcoming-events-sidebar');
         const contentEl = document.getElementById('upcoming-events-content');
         if (!sidebar || !contentEl) return;
-        // 헤더 타이틀 갱신 (count 표시)
-        const titleEl = sidebar.querySelector('.upcoming-title');
+
         const pinned = getPinnedEvents();
+
+        // 현재 캘린더가 보고 있는 연·월 — script.js 의 currentDate 전역 활용
+        const calRef = (typeof currentDate !== 'undefined' && currentDate)
+            ? new Date(currentDate)
+            : new Date();
+        const calYear = calRef.getFullYear();
+        const calMonth = calRef.getMonth() + 1; // 1-12
+        const monthPrefix = `${calYear}-${String(calMonth).padStart(2, '0')}`;
+
+        // 현재 월 + (참고용) 이외 월 카운트
+        const monthPinned = pinned.filter((p) => p.dateStr && p.dateStr.startsWith(monthPrefix));
+        const otherMonthCount = pinned.length - monthPinned.length;
+
+        // 헤더 타이틀 갱신 — 현재 월 + 카운트
+        const titleEl = sidebar.querySelector('.upcoming-title');
         if (titleEl) {
-            titleEl.innerHTML = `<i class="fas fa-bookmark" aria-hidden="true"></i> 핀한 학사일정` +
-                (pinned.length > 0 ? ` <span class="upcoming-count-badge">${pinned.length}</span>` : '');
+            titleEl.innerHTML = `<i class="fas fa-bookmark" aria-hidden="true"></i>`
+                + ` ${calMonth}월 핀한 학사일정`
+                + (monthPinned.length > 0 ? ` <span class="upcoming-count-badge">${monthPinned.length}</span>` : '');
         }
 
         if (pinned.length === 0) {
@@ -760,8 +775,8 @@
                     <div class="upcoming-empty-title">아직 핀한 일정이 없어요</div>
                     <div class="upcoming-empty-desc">
                         캘린더 셀 클릭 → 시간표 모달 상단의<br>
-                        <strong>학사일정</strong> 섹션에서 일정 옆 <i class="fas fa-bookmark" style="color:#94a3b8;"></i>
-                        아이콘을 누르면 여기 추가됩니다.
+                        <strong>학사일정</strong> 섹션에서 <strong>[+ 추가]</strong>
+                        버튼을 누르면 여기 추가됩니다.
                     </div>
                     <div class="upcoming-empty-hint">
                         💡 학교 추가는 <strong>메뉴 → 학사일정</strong> 에서
@@ -770,26 +785,41 @@
             return;
         }
 
+        if (monthPinned.length === 0) {
+            contentEl.innerHTML = `
+                <div class="upcoming-empty">
+                    <i class="fas fa-calendar-day" aria-hidden="true"></i>
+                    <div class="upcoming-empty-title">${calYear}년 ${calMonth}월에 핀한 일정 없음</div>
+                    <div class="upcoming-empty-desc">
+                        다른 달로 이동하거나 이 달의 일정을<br>새로 핀 추가해보세요.
+                    </div>
+                    ${otherMonthCount > 0 ? `<div class="upcoming-empty-hint">
+                        다른 달 핀 일정: <strong>${otherMonthCount}개</strong>
+                    </div>` : ''}
+                </div>`;
+            return;
+        }
+
         const now = new Date();
         now.setHours(0, 0, 0, 0);
 
-        // daysDiff 계산
-        const enriched = pinned.map((p) => {
+        // daysDiff 계산 (오늘 기준)
+        const enriched = monthPinned.map((p) => {
             const m = String(p.dateStr).match(/^(\d{4})-(\d{2})-(\d{2})$/);
             const dayObj = m ? new Date(+m[1], +m[2] - 1, +m[3]) : null;
             const daysDiff = dayObj ? Math.round((dayObj - now) / (1000 * 60 * 60 * 24)) : null;
             return { ...p, daysDiff };
         });
 
-        // 정렬: 다가오는 일정 먼저(오늘 ~ 미래), 지난 일정은 가장 최근부터 뒤에
+        // 정렬: 같은 월 안에서 날짜 순 (오름차순)
         enriched.sort((a, b) => {
-            const aPast = (a.daysDiff || 0) < 0;
-            const bPast = (b.daysDiff || 0) < 0;
-            if (aPast !== bPast) return aPast ? 1 : -1;
-            if (aPast) return (b.daysDiff || 0) - (a.daysDiff || 0); // 지난 일정: 최근 위
-            return (a.daysDiff || 0) - (b.daysDiff || 0); // 미래: 가까운 위
+            const ad = a.dateStr || '';
+            const bd = b.dateStr || '';
+            if (ad !== bd) return ad < bd ? -1 : 1;
+            return String(a.schoolName || '').localeCompare(String(b.schoolName || ''));
         });
 
+        // 같은 월 안에서 다가오는 / 지난 그룹
         const upcoming = enriched.filter((p) => (p.daysDiff || 0) >= 0);
         const past = enriched.filter((p) => (p.daysDiff || 0) < 0);
 
@@ -848,6 +878,13 @@
             html += `<div class="upcoming-section">
                 <div class="upcoming-section-label upcoming-section-past">지난 일정 (${past.length})</div>
                 ${past.map(renderItem).join('')}
+            </div>`;
+        }
+        // 다른 월에 핀이 있으면 안내
+        if (otherMonthCount > 0) {
+            html += `<div class="upcoming-other-months-hint">
+                <i class="fas fa-circle-info" aria-hidden="true"></i>
+                다른 달 핀 일정 <strong>${otherMonthCount}개</strong> — 캘린더 월 이동 시 표시
             </div>`;
         }
         contentEl.innerHTML = html;
