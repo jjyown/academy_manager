@@ -391,23 +391,23 @@
         </div>
         
         <div class="header-center">
-            <button class="btn-today" onclick="goToday()">Today</button>
-            <div class="date-controller">
-                <button class="nav-arrow" id="prev-btn"><i class="fas fa-chevron-left"></i></button>
+            <button class="btn-today" onclick="goToday()" title="오늘로 이동 (단축키: T)">Today</button>
+            <div class="date-controller" role="group" aria-label="날짜 이동">
+                <button class="nav-arrow" id="prev-btn" aria-label="이전 (단축키: ←)" title="이전 (←)"><i class="fas fa-chevron-left" aria-hidden="true"></i></button>
                 <div class="date-display-wrapper">
-                    <h2 id="current-display">2026년 1월</h2>
+                    <h2 id="current-display" aria-live="polite">2026년 1월</h2>
                 </div>
-                <button class="nav-arrow" id="next-btn"><i class="fas fa-chevron-right"></i></button>
+                <button class="nav-arrow" id="next-btn" aria-label="다음 (단축키: →)" title="다음 (→)"><i class="fas fa-chevron-right" aria-hidden="true"></i></button>
             </div>
             <div class="jump-date-wrapper">
-                <input type="date" id="jump-date-picker" class="jump-date-input" title="날짜 바로 이동">
+                <input type="date" id="jump-date-picker" class="jump-date-input" title="날짜 바로 이동" aria-label="날짜 바로 이동">
             </div>
         </div>
 
         <div class="header-right">
             <div class="theme-picker-wrapper">
-                <button class="btn-theme-toggle" onclick="toggleThemePicker()" title="테마 색상 변경">
-                    <i class="fas fa-palette"></i>
+                <button class="btn-theme-toggle" onclick="toggleThemePicker()" title="테마 색상 변경" aria-label="테마 색상 변경">
+                    <i class="fas fa-palette" aria-hidden="true"></i>
                 </button>
                 <div class="theme-picker-popup" id="theme-picker-popup">
                     <div class="theme-picker-title">페이지 테마</div>
@@ -789,11 +789,11 @@
         </div>
     </div>
 
-    <div id="day-detail-modal" class="modal" style="display: none;">
+    <div id="day-detail-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="day-detail-title" style="display: none;">
         <div class="modal-card day-detail-card">
             <div class="modal-header">
                 <h2 id="day-detail-title">날짜</h2>
-                <button class="btn-close-x" onclick="closeModal('day-detail-modal')"><i class="fas fa-times"></i></button>
+                <button class="btn-close-x" onclick="closeModal('day-detail-modal')" aria-label="닫기"><i class="fas fa-times" aria-hidden="true"></i></button>
             </div>
             <div class="tt-search-bar">
                 <div class="tt-search-row">
@@ -821,11 +821,11 @@
         </div>
     </div>
 
-    <div id="attendance-modal" class="modal" style="display: none;">
+    <div id="attendance-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="att-modal-title" style="display: none;">
         <div class="modal-card attendance-card">
             <div class="modal-header">
                 <h2 id="att-modal-title">수업 관리</h2>
-                <button class="btn-close-x" onclick="closeModal('attendance-modal')"><i class="fas fa-times"></i></button>
+                <button class="btn-close-x" onclick="closeModal('attendance-modal')" aria-label="닫기"><i class="fas fa-times" aria-hidden="true"></i></button>
             </div>
             <input type="hidden" id="att-student-id">
             <input type="hidden" id="att-date">
@@ -2078,7 +2078,7 @@
     </footer>
 
     <!-- 글로벌 토스트 알림 컨테이너 -->
-    <div id="toast-container"></div>
+    <div id="toast-container" aria-live="polite" aria-atomic="false"></div>
 
     <!-- 글로벌 확인 다이얼로그 -->
     <div id="confirm-dialog" class="confirm-overlay" style="display:none;">

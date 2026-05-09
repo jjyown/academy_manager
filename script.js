@@ -1771,10 +1771,44 @@ window.closeFeaturePanel = function() {
     setTimeout(() => { overlay.style.display = 'none'; }, 300);
 }
 
-// Allow closing the feature drawer via ESC key
+// 전역 단축키 — Esc(메뉴 닫기) + ←/→(월/주 이동) + T(오늘) + /(검색 포커스)
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
         try { window.closeFeaturePanel(); } catch (_) {}
+    }
+
+    // input/textarea/contenteditable 포커스 중에는 단축키 비활성
+    const tag = (e.target && e.target.tagName) || '';
+    const inEditable = ['INPUT', 'TEXTAREA', 'SELECT'].includes(tag)
+        || (e.target && e.target.isContentEditable);
+    if (inEditable) return;
+
+    // 모달이 열려있으면 단축키 동작은 모달 우선 (각 모달이 자체 처리)
+    const anyModalOpen = !!document.querySelector('.modal[style*="flex"], .modal.show');
+
+    // 메인 앱이 보일 때만 캘린더 단축키
+    const mainApp = document.getElementById('main-app');
+    const mainVisible = mainApp && mainApp.style.display !== 'none';
+    if (!mainVisible || anyModalOpen) return;
+
+    if (e.key === 'ArrowLeft') {
+        const btn = document.getElementById('prev-btn');
+        if (btn && typeof btn.click === 'function') { e.preventDefault(); btn.click(); }
+    } else if (e.key === 'ArrowRight') {
+        const btn = document.getElementById('next-btn');
+        if (btn && typeof btn.click === 'function') { e.preventDefault(); btn.click(); }
+    } else if (e.key === 't' || e.key === 'T') {
+        if (typeof goToday === 'function') { e.preventDefault(); goToday(); }
+    } else if (e.key === '/') {
+        // 학생 드로어가 열려 있으면 그 안의 검색창에 포커스
+        const searchInput = document.getElementById('student-search-input')
+            || document.querySelector('.drawer-search-input')
+            || document.querySelector('input[type="search"]');
+        if (searchInput) {
+            e.preventDefault();
+            searchInput.focus();
+            if (typeof searchInput.select === 'function') searchInput.select();
+        }
     }
 });
 
@@ -8982,37 +9016,42 @@ async function loadTeacherScheduleData(teacherId, opts) {
             const updated = upsertScheduleEntry(entries, entry);
             setScheduleEntries(ownerTid, sid, date, updated.list);
         };
-        // 수파베이스에서 먼저 로드
+        // 수파베이스에서 먼저 로드 — 두 fetch 를 Promise.all 로 병렬화 (대략 1RTT 절약)
         if (typeof getSchedulesByTeacher === 'function') {
             try {
-                const dbSchedules = await getSchedulesByTeacher(teacherId);
+                const ownerId = cachedLsGet('current_owner_id');
+                const ownerHydrate = (!skipOwnerPagedHydrate && ownerId && typeof supabase !== 'undefined' && typeof fetchSchedulesForOwnerPaged === 'function')
+                    ? fetchSchedulesForOwnerPaged(ownerId).catch((e) => {
+                        console.warn('[loadTeacherScheduleData] owner 전체 보강 조회 실패:', e);
+                        return null;
+                    })
+                    : Promise.resolve(null);
+
+                const [dbSchedules, ownerSchedules] = await Promise.all([
+                    getSchedulesByTeacher(teacherId),
+                    ownerHydrate,
+                ]);
+
                 teacherScheduleData[teacherId] = {};
-                
-                dbSchedules.forEach(schedule => {
+
+                (dbSchedules || []).forEach(schedule => {
                     appendScheduleEntry(teacherId, schedule);
                 });
 
-                // legacy/미배정 혼합 데이터 보강 (owner 전체 fetch — `loadAllTeachersScheduleData` 직전이면 opts로 생략)
-                const ownerId = cachedLsGet('current_owner_id');
-                if (!skipOwnerPagedHydrate && ownerId && typeof supabase !== 'undefined') {
-                    try {
-                        const ownerSchedules = await fetchSchedulesForOwnerPaged(ownerId);
-                        (ownerSchedules || []).forEach((row) => {
-                            const resolvedOwnerTid = String(
-                                resolveKnownTeacherId(row?.teacher_id)
-                                || resolveTeacherIdFromStudentContext(row?.student_id)
-                                || row?.teacher_id
-                                || ''
-                            ).trim();
-                            if (!resolvedOwnerTid || resolvedOwnerTid !== normalizedTeacherId) return;
-                            appendScheduleEntry(teacherId, row);
-                        });
-                    } catch (ownerErr) {
-                        console.warn('[loadTeacherScheduleData] owner 전체 보강 조회 실패:', ownerErr);
-                    }
+                if (Array.isArray(ownerSchedules)) {
+                    ownerSchedules.forEach((row) => {
+                        const resolvedOwnerTid = String(
+                            resolveKnownTeacherId(row?.teacher_id)
+                            || resolveTeacherIdFromStudentContext(row?.student_id)
+                            || row?.teacher_id
+                            || ''
+                        ).trim();
+                        if (!resolvedOwnerTid || resolvedOwnerTid !== normalizedTeacherId) return;
+                        appendScheduleEntry(teacherId, row);
+                    });
                 }
-                
-                console.log(`일정 DB 로드 (${teacherId}): ${dbSchedules.length}개`);
+
+                console.log(`일정 DB 로드 (${teacherId}): ${(dbSchedules || []).length}개`);
                 
                 // 로컬에도 백업
                 const key = `teacher_schedule_data__${teacherId}`;
@@ -9740,6 +9779,31 @@ window.renderDrawerList = function() {
         let html = '';
         let lastGroup = null;
 
+        // teacherOptions 캐시 — 학생마다 forEach 안에서 N×M 문자열 빌드를 한 번씩만
+        // (assigned teacher id 단위로 재사용; 100명 × 5선생 = 6 항목 캐시로 정착)
+        const _teacherOptionsBase = (teacherList || []).map(t => ({
+            id: String(t.id),
+            name: String(t.name || '')
+        }));
+        const _teacherOptionsCache = new Map();
+        const buildTeacherOptionsHtml = (assignedId) => {
+            const key = String(assignedId || '');
+            if (_teacherOptionsCache.has(key)) return _teacherOptionsCache.get(key);
+            const html = _teacherOptionsBase.map(({ id, name }) =>
+                `<option value="${id}" ${id === key ? 'selected' : ''}>${name}</option>`
+            ).join('');
+            _teacherOptionsCache.set(key, html);
+            return html;
+        };
+        // 그룹별 멤버 수 — 학생마다 filtered.filter 를 다시 도는 비용 제거
+        const _groupCounts = new Map();
+        if (currentStudentSort === 'grade' || currentStudentSort === 'school') {
+            filtered.forEach(x => {
+                const k = getGroupKey(x);
+                if (k !== null) _groupCounts.set(k, (_groupCounts.get(k) || 0) + 1);
+            });
+        }
+
         filtered.forEach((s, idx) => {
             const groupKey = getGroupKey(s);
 
@@ -9749,7 +9813,7 @@ window.renderDrawerList = function() {
                     html += `</div>`; // 이전 그룹 래퍼 닫기
                 }
                 const style = getGroupStyle(groupKey);
-                const membersInGroup = filtered.filter(x => getGroupKey(x) === groupKey).length;
+                const membersInGroup = _groupCounts.get(groupKey) || 0;
                 html += `<div class="drawer-group">`;
                 html += `<div class="drawer-group-header" style="background:${style.bg};border-left:3px solid ${style.border};color:${style.text};">
                     <i class="fas ${style.icon}"></i>
@@ -9762,9 +9826,7 @@ window.renderDrawerList = function() {
             let itemClass = '';
             if (s.status === 'archived' || s.status === 'paused') itemClass = 'inactive-item';
             const assignedTeacherId = getAssignedTeacherId(String(s.id));
-            const teacherOptions = (teacherList || []).map(t => 
-                `<option value="${t.id}" ${String(t.id) === String(assignedTeacherId) ? 'selected' : ''}>${t.name}</option>`
-            ).join('');
+            const teacherOptions = buildTeacherOptionsHtml(assignedTeacherId);
             const assignControl = `
                 <select class="m-input" style="width: 84px; min-width: 84px; max-width: 84px; padding: 4px 6px; font-size: 11px;" onchange="setStudentAssignment('${s.id}', this.value)">
                     <option value="">미배정</option>

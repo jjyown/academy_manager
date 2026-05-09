@@ -667,10 +667,15 @@ textarea:focus:not(:focus-visible) {
     max-height: 92vh !important;
 }
 
-/* 시간표 학생 검색 바 */
+/* 시간표 학생 검색 바 — 모달 스크롤 시 상단에 고정 */
 .tt-search-bar {
-    padding: 0 20px 10px;
+    padding: 8px 20px 10px;
     flex-shrink: 0;
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background: var(--card, #fff);
+    border-bottom: 1px solid var(--border, rgba(0,0,0,0.06));
 }
 .tt-search-row {
     display: flex;
