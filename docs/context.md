@@ -14,6 +14,7 @@
 ## 최근 의사결정 로그
 | 날짜 | 결정 | 이유 | 영향 범위 |
 |---|---|---|---|
+| 2026-05-10 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | supabase/functions/collect-admissions-knowledge/index.ts |
 | 2026-05-10 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | .gitignore |
 | 2026-05-10 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | index.html, migrations/0032_admissions_knowledge_weekly_cron_20260510.sql, supabase/functions/collect-admissions-knowledge/index.ts |
 | 2026-05-10 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | database.js, index.html, migrations/0031_admissions_knowledge_20260510.sql, script.js, style.css 외 3개 |

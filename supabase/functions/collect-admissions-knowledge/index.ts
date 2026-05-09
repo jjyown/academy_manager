@@ -185,6 +185,59 @@ async function scrapeOneSection(s: SiteSection, maxArticles: number): Promise<Sc
     }
 }
 
+/**
+ * 기사 view 페이지에서 본문(article-view-content-div) 추출.
+ * 두 사이트 모두 동일 CMS 사용. 실패 시 빈 문자열.
+ */
+async function fetchArticleBody(url: string): Promise<string> {
+    try {
+        const res = await fetch(url, {
+            headers: {
+                "User-Agent": "Mozilla/5.0 (academy-manager admissions-knowledge collector)",
+                "Accept": "text/html",
+                "Accept-Language": "ko-KR,ko;q=0.9",
+            },
+        });
+        if (!res.ok) return "";
+        const html = await res.text();
+        // article-view-content-div ~ article-sns 사이를 본문으로 간주
+        // (article-sns 가 없으면 끝까지)
+        const startIdx = html.indexOf('id="article-view-content-div"');
+        if (startIdx < 0) return "";
+        const endMarker = html.indexOf('id="article-sns"', startIdx);
+        const slice = endMarker > 0
+            ? html.slice(startIdx, endMarker)
+            : html.slice(startIdx, startIdx + 20000);
+        // figure / figcaption / iframe / 광고성 div 제거 후 텍스트화
+        const cleaned = slice
+            .replace(/<figure[\s\S]*?<\/figure>/gi, " ")
+            .replace(/<iframe[\s\S]*?<\/iframe>/gi, " ");
+        return htmlToText(cleaned).slice(0, 1200);
+    } catch (e) {
+        console.warn(`[fetchBody] err`, e);
+        return "";
+    }
+}
+
+/**
+ * 풀에 담긴 기사들의 본문을 동시에 fetch (concurrency 제한).
+ * url 별로 캐시해 중복 fetch 방지.
+ */
+async function fetchBodiesParallel(urls: string[], concurrency: number, perUrlCache: Map<string, string>): Promise<void> {
+    const queue = urls.filter((u) => !perUrlCache.has(u));
+    let idx = 0;
+    async function worker() {
+        while (true) {
+            const i = idx++;
+            if (i >= queue.length) return;
+            const url = queue[i];
+            const body = await fetchArticleBody(url);
+            perUrlCache.set(url, body);
+        }
+    }
+    await Promise.all(Array.from({ length: Math.min(concurrency, queue.length) }, worker));
+}
+
 /** 모든 섹션 병렬 스크래핑 → 학년대별로 분류한 기사 묶음 반환 */
 async function scrapeAllSections(maxPerSection: number): Promise<{
     byBand: Record<GradeBand, ScrapedArticle[]>;
@@ -225,34 +278,46 @@ interface BandSummary {
 /**
  * 스크래핑한 기사 목록을 Gemini 1회 호출로 6학년대 분량 요약 텍스트 생성.
  * 응답을 학년대별로 파싱해 BandSummary[] 반환.
+ *
+ * @param byBand 학년대별 기사 메타
+ * @param bodyByUrl URL→본문 캐시 (있는 기사만 본문 포함)
  */
-async function summarizeWithGemini(byBand: Record<GradeBand, ScrapedArticle[]>): Promise<BandSummary[]> {
+async function summarizeWithGemini(
+    byBand: Record<GradeBand, ScrapedArticle[]>,
+    bodyByUrl: Map<string, string>,
+): Promise<BandSummary[]> {
     if (!GEMINI_API_KEY) return [];
 
     const today = new Date().toISOString().slice(0, 10);
 
-    // 학년대별 기사 묶음을 프롬프트에 정리 (각 기사에 출처 사이트 표기)
+    // 학년대별 기사 묶음을 프롬프트에 정리 (제목 + 본문 발췌)
     const sourcesText = ALL_BANDS.map((band) => {
         const arts = byBand[band];
         if (arts.length === 0) return `## [${BAND_LABEL[band]} (${band})] 관련 기사 없음 — 일반 입시 원칙으로만 작성`;
-        const lines = arts.map((a) => `- [${a.site}/${a.sectionLabel}] ${a.title}`).join("\n");
-        return `## [${BAND_LABEL[band]} (${band})] 최근 기사 ${arts.length}건:\n${lines}`;
+        const lines = arts.map((a, i) => {
+            const body = bodyByUrl.get(a.url) || "";
+            const head = `[${i + 1}] [${a.site}/${a.sectionLabel}] ${a.title}`;
+            const excerpt = body ? `\n   본문발췌: ${body.slice(0, 600)}` : "";
+            return head + excerpt;
+        }).join("\n");
+        return `## [${BAND_LABEL[band]} (${band})] 최근 기사 ${arts.length}건 (제목 + 본문 발췌):\n${lines}`;
     }).join("\n\n");
 
     const systemPrompt = `당신은 한국 대학입시(수능·내신·수시·정시·학생부종합전형)에 정통한 20년 경력 입시 전문 컨설턴트입니다.
 
 [작업]
-학원 원장이 학생 종합평가에 활용할 수 있도록, 아래 두 입시 전문 매체 (kyobit.com, veritas-a.com) 에서 스크래핑한 최신 기사 제목들을 학년대별로 분석해 「학습 우선순위·평가 데이터·약점 패턴·학부모 소통 포인트」를 정리합니다.
+학원 원장이 학생 종합평가에 활용할 수 있도록, 아래 두 입시 전문 매체 (kyobit.com, veritas-a.com) 에서 스크래핑한 최신 기사 (제목 + 본문 발췌) 들을 학년대별로 분석해 「학습 우선순위·평가 데이터·약점 패턴·학부모 소통 포인트」를 정리합니다.
 
 [학원 환경]
 - 본 학원은 중·고등학생을 주 대상으로 합니다. 따라서 high1/high2/high3/retake/middle 의 분석 깊이를 충실히, elementary 는 가벼운 수준으로 작성하세요.
 
 [원칙]
-- 기사 본문 전체가 아닌 제목만 제공됩니다. 제목에서 읽을 수 있는 추세·패턴 위주로 정리하세요.
-- 데이터에 없는 사실(특정 점수, 합격선 단언 등)을 지어내지 마세요.
+- 본문 발췌가 첨부된 기사는 발췌의 구체 데이터(등급컷·전형 변경·일정 등) 를 우선 활용하세요. 제목만 있는 기사는 제목에서 추세를 읽으세요.
+- 데이터에 없는 사실(특정 점수, 합격선 단언 등)을 지어내지 마세요. 본문에 없는 수치를 추정하지 마세요.
 - 학년대별로 명확히 구분된 내용만 쓰세요(예: 고1 섹션에 고3 정시 얘기 X).
 - ${today} 기준으로 통상 유효한 입시 일반 원칙도 함께 녹여 주세요(기사가 적은 학년대에서 특히).
 - veritas 출처 기사는 입결·등급컷·전형 변경 등 정량·구조 정보가 많고, kyobit 기사는 일반 교육 트렌드 위주임을 활용하세요.
+- 동일 주제가 여러 기사에 나오면 가장 최신·구체적인 본문 정보를 우선하세요.
 
 [출력 형식 — 반드시 이 형식, 다른 텍스트·메타 설명 없이]
 각 학년대 블록을 아래 헤더로 시작:
@@ -439,13 +504,28 @@ serve(async (req: Request) => {
 
         const { byBand, sourcesAll } = await scrapeAllSections(8);
         if (sourcesAll.length === 0) {
-            return new Response(JSON.stringify({ ok: false, error: "scrape_failed", detail: "kyobit.com 응답 없음 또는 구조 변경" }), {
+            return new Response(JSON.stringify({ ok: false, error: "scrape_failed", detail: "kyobit.com / veritas-a.com 응답 없음 또는 구조 변경" }), {
                 status: 200,
                 headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
         }
 
-        const summaries = await summarizeWithGemini(byBand);
+        // ── 본문 수집 (학년대별 상위 기사들의 body) ─────────────────
+        // 같은 url 이 여러 학년대에 매칭될 수 있으므로 dedupe.
+        // 학년대별 상위 N건만 fetch 해 비용·시간 제어.
+        const PER_BAND_FETCH = 4;
+        const targetUrls = new Set<string>();
+        for (const band of ALL_BANDS) {
+            const arts = byBand[band] || [];
+            for (let i = 0; i < Math.min(arts.length, PER_BAND_FETCH); i++) {
+                targetUrls.add(arts[i].url);
+            }
+        }
+        const bodyCache = new Map<string, string>();
+        await fetchBodiesParallel(Array.from(targetUrls), 6, bodyCache);
+        const bodiesFetched = Array.from(bodyCache.values()).filter((b) => b.length > 100).length;
+
+        const summaries = await summarizeWithGemini(byBand, bodyCache);
         if (summaries.length === 0) {
             return new Response(JSON.stringify({ ok: false, error: "summarize_failed" }), {
                 status: 200,
@@ -495,6 +575,7 @@ serve(async (req: Request) => {
                 ok: true,
                 inserted: data?.length ?? 0,
                 scraped: sourcesAll.length,
+                bodiesFetched,
                 rows: data ?? [],
             }),
             { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
