@@ -3797,6 +3797,7 @@ window.renderDayEvents = function(dateStr) {
         const yPos = paddingTop + (h * 60 * pxPerMin);
         const label = document.createElement('div');
         label.className = 'time-label';
+        label.dataset.hour = String(h);
         label.textContent = `${String(h).padStart(2, '0')}:00`;
         label.style.top = yPos + 'px';
         axis.appendChild(label);
@@ -4400,6 +4401,130 @@ window.renderDayEvents = function(dateStr) {
     lineOverlay.style.backgroundPositionY = paddingTop + 'px';
     lineOverlay.style.backgroundSize = `100% ${hourPxOv}px`;
     grid.appendChild(lineOverlay);
+
+    // ============================================================
+    // 시간대별 밀집도 분석 — 신규 학생 배정용 운영 정보 패널
+    //   - 각 시간(h)에 동시에 들어있는 학생수 합산
+    //   - 운영 시간대(이벤트 첫 시작 ~ 마지막 종료) 안의 빈 시간 추천
+    // ============================================================
+    try {
+        _renderDayDensityInsights(layoutEvents, axis);
+    } catch (densityErr) {
+        console.warn('[renderDayEvents] 밀집도 분석 실패:', densityErr);
+    }
+}
+
+/** layoutEvents 기반 시간대별 학생수 분포 + 요약 패널 + 시간축 chip 렌더 */
+function _renderDayDensityInsights(layoutEvents, axisEl) {
+    const summary = document.getElementById('tt-density-summary');
+    if (!summary) return;
+    if (!Array.isArray(layoutEvents) || layoutEvents.length === 0) {
+        summary.classList.add('is-empty');
+        summary.textContent = '오늘은 등록된 일정이 없습니다.';
+        // 기존 chip 정리
+        if (axisEl) {
+            axisEl.querySelectorAll('.time-label').forEach(lbl => {
+                lbl.classList.remove('tt-free-hour', 'tt-peak-hour');
+                const old = lbl.querySelector('.tt-hour-density');
+                if (old) old.remove();
+            });
+        }
+        return;
+    }
+    // 시간(h) 단위 학생수 합산 — event 가 걸친 모든 시간에 member 수 더함
+    // 1시간 슬롯 1개에 30분 짜리 2개가 겹쳐도 동시간 학생수 정확히 반영하기 위해
+    // 분 해상도로 계산 후 시간 단위로 max 집계 (peak concurrency).
+    const minuteCount = new Array(24 * 60 + 1).fill(0);
+    const uniqueStudentIds = new Set();
+    layoutEvents.forEach(ev => {
+        const start = Math.max(0, ev.startMin | 0);
+        const end = Math.min(24 * 60, start + (ev.duration | 0));
+        const memberCount = Array.isArray(ev.members) ? ev.members.length : 1;
+        for (let m = start; m < end; m++) {
+            minuteCount[m] += memberCount;
+        }
+        if (Array.isArray(ev.members)) {
+            ev.members.forEach(mb => {
+                const id = mb && mb.student && mb.student.id;
+                if (id) uniqueStudentIds.add(String(id));
+            });
+        }
+    });
+
+    // 시간(h) 별 동시 최대 학생수
+    const hourPeak = new Array(25).fill(0);
+    for (let h = 0; h < 24; h++) {
+        let maxAt = 0;
+        for (let m = h * 60; m < (h + 1) * 60; m++) {
+            if (minuteCount[m] > maxAt) maxAt = minuteCount[m];
+        }
+        hourPeak[h] = maxAt;
+    }
+
+    // 운영 시간대 = 첫 이벤트 시작 시간(h) ~ 마지막 이벤트 종료 시간(h)
+    let firstHour = 24, lastHour = 0;
+    layoutEvents.forEach(ev => {
+        const sH = Math.floor(ev.startMin / 60);
+        const eH = Math.ceil((ev.startMin + ev.duration) / 60);
+        if (sH < firstHour) firstHour = sH;
+        if (eH > lastHour) lastHour = eH;
+    });
+    if (firstHour >= lastHour) { firstHour = 14; lastHour = 22; }
+
+    // 피크/여유 시간 도출 (운영 시간대 내)
+    let peakHour = -1, peakCount = 0;
+    const freeHours = [];
+    for (let h = firstHour; h < lastHour; h++) {
+        const c = hourPeak[h];
+        if (c > peakCount) { peakCount = c; peakHour = h; }
+        if (c === 0) freeHours.push(h);
+    }
+
+    // 가장 한가한(0이 아닌 가장 적은) 시간 도출 — 빈 시간이 없을 경우 fallback
+    let lightestHour = -1, lightestCount = Infinity;
+    for (let h = firstHour; h < lastHour; h++) {
+        if (hourPeak[h] < lightestCount) { lightestCount = hourPeak[h]; lightestHour = h; }
+    }
+
+    // 추천 시간: 빈 시간 우선, 없으면 가장 한가한 시간 1-2개
+    const recommend = freeHours.length > 0
+        ? freeHours.slice(0, 3)
+        : (lightestHour >= 0 ? [lightestHour] : []);
+
+    // 요약 패널 렌더
+    summary.classList.remove('is-empty');
+    const fmt = (h) => `${String(h).padStart(2, '0')}시`;
+    let html = '';
+    html += `<span class="tt-density-stat"><i class="fas fa-user-group"></i>전체 ${uniqueStudentIds.size}명 / ${layoutEvents.length}수업</span>`;
+    html += `<span class="tt-density-stat"><i class="fas fa-clock"></i>운영 ${fmt(firstHour)}–${fmt(lastHour)}</span>`;
+    if (peakHour >= 0 && peakCount > 0) {
+        html += `<span class="tt-density-stat peak"><i class="fas fa-arrow-trend-up"></i>피크 ${fmt(peakHour)} (${peakCount}명)</span>`;
+    }
+    if (recommend.length > 0) {
+        const recLabel = recommend.map(fmt).join(', ');
+        html += `<span class="tt-density-stat recommend"><i class="fas fa-bullseye"></i>신규 추천 <strong>${recLabel}</strong></span>`;
+    }
+    summary.innerHTML = html;
+
+    // 시간축 chip — 운영 시간대 안의 시간에 학생수 chip 부착
+    if (axisEl) {
+        axisEl.querySelectorAll('.time-label').forEach(lbl => {
+            lbl.classList.remove('tt-free-hour', 'tt-peak-hour');
+            const old = lbl.querySelector('.tt-hour-density');
+            if (old) old.remove();
+            const h = parseInt(lbl.dataset.hour || '-1', 10);
+            if (h < firstHour || h >= lastHour) return;
+            const c = hourPeak[h];
+            const lvl = c === 0 ? 0 : c <= 2 ? 1 : c <= 4 ? 2 : c <= 6 ? 3 : 4;
+            const chip = document.createElement('span');
+            chip.className = `tt-hour-density lvl-${lvl}`;
+            chip.textContent = c === 0 ? '여유' : `${c}명`;
+            chip.title = c === 0 ? '이 시간대는 비어 있습니다' : `이 시간대 동시 학생 ${c}명`;
+            lbl.appendChild(chip);
+            if (c === 0) lbl.classList.add('tt-free-hour');
+            else if (h === peakHour && peakCount > 0) lbl.classList.add('tt-peak-hour');
+        });
+    }
 }
 
 // ... (기타 모달 Open/Close 및 CRUD 로직 생략 없이 유지) ...
