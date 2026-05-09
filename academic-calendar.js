@@ -889,13 +889,6 @@
                 ${past.map(renderItem).join('')}
             </div>`;
         }
-        // 다른 월에 핀이 있으면 안내
-        if (otherMonthCount > 0) {
-            html += `<div class="upcoming-other-months-hint">
-                <i class="fas fa-circle-info" aria-hidden="true"></i>
-                다른 달 핀 일정 <strong>${otherMonthCount}개</strong> — 캘린더 월 이동 시 표시
-            </div>`;
-        }
         contentEl.innerHTML = html;
 
         // 핀 제거 버튼 이벤트 위임
