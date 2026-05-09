@@ -1579,12 +1579,25 @@ function renderHwCalendar() {
 
 		cell.className = cls;
 		cell.textContent = d;
+		cell.dataset.date = dateStr;  // 학사일정 클라이언트가 cellSelector 로 활용
 
 		if (!isFuture) {
 			cell.onclick = () => selectHwDate(dateStr);
 		}
 
 		grid.appendChild(cell);
+	}
+
+	// 학생 학교의 학사일정 배지를 cell 우상단에 부착 (NEIS, sessionStorage 24h 캐시)
+	if (window.AcademicEventsClient && currentStudent && currentStudent.school) {
+		try {
+			window.AcademicEventsClient.renderBadgesOnGrid({
+				schoolName: currentStudent.school,
+				gridEl: grid,
+				cellSelector: '.hw-cal-cell[data-date]',
+				dateExtractor: (cell) => cell.dataset.date,
+			});
+		} catch (e) { console.warn('[acev] hw cal badge err', e); }
 	}
 }
 

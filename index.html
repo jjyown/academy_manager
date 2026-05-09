@@ -477,6 +477,9 @@
         </div>
         <div class="drawer-controls">
             <button class="btn-save-main" onclick="prepareRegister()">+ 학생 등록</button>
+            <button class="btn-save-main" style="background:#0ea5e9;margin-top:6px;" onclick="openGradePromotionModal()" title="새 학년도(3월) 일괄 학년 승급 — 미리보기 후 적용">
+                <i class="fas fa-arrow-up"></i> 학년 일괄 승급
+            </button>
             <div class="student-tab-group">
                 <button class="student-tab-btn active" id="student-tab-all" onclick="setStudentListTab('all')">전체 학생</button>
                 <button class="student-tab-btn" id="student-tab-mine" onclick="setStudentListTab('mine')">내 학생</button>
@@ -1253,6 +1256,36 @@
                             <i class="fas fa-save"></i> 저장
                         </button>
                     </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 학년 일괄 승급 모달 -->
+    <div id="grade-promotion-modal" class="modal" style="display:none;">
+        <div class="modal-card" style="max-width:760px;width:96%;max-height:88vh;display:flex;flex-direction:column;">
+            <div class="academic-modal-header" style="background:#0ea5e9;color:#fff;padding:18px 22px;border-radius:14px 14px 0 0;">
+                <div style="display:flex;justify-content:space-between;align-items:center;width:100%;">
+                    <div>
+                        <h2 style="margin:0;font-size:18px;font-weight:800;"><i class="fas fa-arrow-up"></i> 학년 일괄 승급</h2>
+                        <p style="margin:4px 0 0;font-size:12px;opacity:0.9;">새 학년도에 학년을 한 단계 올리고, 고3은 졸업 처리합니다. 체크 해제하면 해당 학생은 제외됩니다.</p>
+                    </div>
+                    <button class="academic-modal-close" type="button" onclick="closeModal('grade-promotion-modal')" aria-label="닫기" style="color:#fff;"><i class="fas fa-times"></i></button>
+                </div>
+            </div>
+            <div class="custom-scroll" id="grade-promotion-body" style="flex:1;overflow-y:auto;padding:18px 22px;">
+                <div id="grade-promotion-preview-empty" style="display:none;color:#94a3b8;text-align:center;padding:40px 0;">
+                    승급 대상 학생이 없습니다 (재원 학생만 대상).
+                </div>
+                <div id="grade-promotion-preview-list" style="display:flex;flex-direction:column;gap:6px;"></div>
+            </div>
+            <div style="padding:14px 22px;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;background:#f8fafc;border-radius:0 0 14px 14px;">
+                <div style="font-size:12px;color:#64748b;" id="grade-promotion-summary">선택 0명</div>
+                <div style="display:flex;gap:8px;">
+                    <button class="btn-cancel" type="button" onclick="closeModal('grade-promotion-modal')" style="padding:8px 14px;">취소</button>
+                    <button class="btn-save-main" type="button" onclick="applyGradePromotion()" style="padding:8px 16px;background:#0ea5e9;">
+                        <i class="fas fa-check"></i> 선택한 학생 일괄 적용
+                    </button>
                 </div>
             </div>
         </div>

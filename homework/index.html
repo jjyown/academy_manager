@@ -9,6 +9,8 @@
 	<link rel="stylesheet" href="/css/sub-shared.css">
 	<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 	<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+	<!-- 학사일정 NEIS 클라이언트 (학생 학교 → 캘린더 셀에 배지) -->
+	<script src="/js/academic-events-client.js"></script>
 	<script>
 		// 로컬/정적 배포 공통 환경변수 로더
 		(async () => {
@@ -2186,6 +2188,17 @@ async function loadCalendarData() {
 	// 스켈레톤 해제
 	const _grid = document.getElementById('cal-grid');
 	if (_grid) _grid.classList.remove('is-loading');
+	// 학생 학교의 학사일정 배지를 cell 우상단에 부착 (NEIS, 24h 캐시)
+	if (window.AcademicEventsClient && currentStudent && currentStudent.school) {
+		try {
+			window.AcademicEventsClient.renderBadgesOnGrid({
+				schoolName: currentStudent.school,
+				gridEl: _grid,
+				cellSelector: '.cal-cell[data-date]',
+				dateExtractor: (cell) => cell.dataset.date,
+			});
+		} catch (e) { console.warn('[acev] homework cal badge err', e); }
+	}
 	const _detailList = document.getElementById('detail-list');
 	if (_detailList) delete _detailList.dataset.skeleton;
 
@@ -2326,6 +2339,7 @@ function renderCalendar() {
 
 		cell.className = cls;
 		cell.textContent = '';
+		cell.dataset.date = dateStr;  // 학사일정 클라이언트가 cellSelector 로 활용
 		const numEl = document.createElement('span');
 		numEl.className = 'cal-day-num';
 		numEl.textContent = String(d);

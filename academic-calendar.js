@@ -1062,6 +1062,76 @@
         }
     }
 
+    // ── 자동 학교 구독 동기화 ──────────────────────────────────
+    // 활성 학생의 school 컬럼을 기준으로 구독 목록을 자동 갱신:
+    //  - 학생 추가: 그 학교가 구독에 없으면 NEIS 검색 → 자동 구독
+    //  - 학생 퇴원/삭제/학교변경: 해당 학교에 활성 학생 0명이면 구독 해제 + 캐시 정리
+    /**
+     * @param {Array<{name?:string, school?:string, status?:string}>} students
+     *   현재 students 전역(또는 동등 배열). status === 'active' 만 카운트.
+     *   options.silent === true 면 토스트 표시 안 함(루프 호출용).
+     */
+    async function syncSubscriptionsFromStudents(students, options) {
+        const opts = options || {};
+        const silent = !!opts.silent;
+        if (!Array.isArray(students)) return { added: [], removed: [], failed: [] };
+
+        // 활성 학생들의 학교명 집합
+        const activeSchoolSet = new Set();
+        students.forEach((s) => {
+            const status = String(s.status || 'active').toLowerCase();
+            if (status !== 'active') return;
+            const sc = String(s.school || '').trim();
+            if (sc) activeSchoolSet.add(sc);
+        });
+
+        const subscribed = getSubscribedSchools();
+        const subscribedNameSet = new Set(subscribed.map((x) => x.name));
+
+        const result = { added: [], removed: [], failed: [] };
+
+        // 1) 활성 학생이 있는데 구독에 없는 학교 → NEIS 검색 후 자동 구독
+        for (const schoolName of activeSchoolSet) {
+            if (subscribedNameSet.has(schoolName)) continue;
+            try {
+                const matches = await searchSchoolsNeis(schoolName);
+                // 정확 매칭 우선, 없으면 첫 번째
+                const match = matches.find((m) => m.name === schoolName) || matches[0];
+                if (!match) {
+                    result.failed.push({ name: schoolName, reason: 'NEIS 검색 결과 없음' });
+                    continue;
+                }
+                const ok = subscribeSchool(match);
+                if (ok) result.added.push(match.name);
+                else result.failed.push({ name: schoolName, reason: '이미 구독 중' });
+            } catch (e) {
+                console.warn('[academic sync] NEIS 검색 실패:', schoolName, e);
+                result.failed.push({ name: schoolName, reason: e.message || '검색 오류' });
+            }
+        }
+
+        // 2) 구독에 있지만 활성 학생이 없는 학교 → 자동 구독 해제
+        for (const sub of subscribed) {
+            if (activeSchoolSet.has(sub.name)) continue;
+            const ok = unsubscribeSchool(sub.atpt, sub.code);
+            if (ok) result.removed.push(sub.name);
+        }
+
+        if (!silent && (result.added.length || result.removed.length)) {
+            const parts = [];
+            if (result.added.length) parts.push(`${result.added.length}개 추가`);
+            if (result.removed.length) parts.push(`${result.removed.length}개 제거`);
+            if (typeof window.showToast === 'function') {
+                window.showToast(`학사일정 학교 구독 자동 동기화: ${parts.join(', ')}`, 'info');
+            }
+            // 캘린더 배지 즉시 재렌더 (옵션)
+            if (typeof window.renderCalendar === 'function') {
+                try { window.renderCalendar(true); } catch (e) {}
+            }
+        }
+        return result;
+    }
+
     // ── 외부 노출 ───────────────────────────────────────────────
     /** 캐시 비우고 메인 캘린더·시간표·사이드바 즉시 재페치 */
     window.refreshAcademicCacheNow = async function () {
@@ -1111,4 +1181,5 @@
     window.isAcademicEventPinned = isEventPinned;
     window.togglePinAcademicEvent = togglePinEventInternal;
     window.unpinAcademicEvent = unpinEvent;
+    window.syncAcademicSchoolSubscriptionsFromStudents = syncSubscriptionsFromStudents;
 })();

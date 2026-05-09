@@ -10383,7 +10383,7 @@ function getActiveStudentsForTeacher(teacherId) {
     return out.filter((s) => {
         if (s._scheduleOnlyStudent) return true;
         if (s.status === 'active') return true;
-        if (s.status === 'archived' || s.status === 'paused') return true;
+        if (s.status === 'archived' || s.status === 'paused' || s.status === 'graduated') return true;
         return false;
     });
 }
@@ -10778,7 +10778,7 @@ window.renderDrawerList = function() {
             }
 
             let itemClass = '';
-            if (s.status === 'archived' || s.status === 'paused') itemClass = 'inactive-item';
+            if (s.status === 'archived' || s.status === 'paused' || s.status === 'graduated') itemClass = 'inactive-item';
             const assignedTeacherId = getAssignedTeacherId(String(s.id));
             const teacherOptions = buildTeacherOptionsHtml(assignedTeacherId);
             const assignControl = `
@@ -10811,6 +10811,7 @@ window.renderDrawerList = function() {
                     <option value="active" ${s.status === 'active' ? 'selected' : ''}>재원</option>
                     <option value="archived" ${s.status === 'archived' ? 'selected' : ''}>퇴원</option>
                     <option value="paused" ${s.status === 'paused' ? 'selected' : ''}>휴원</option>
+                    <option value="graduated" ${s.status === 'graduated' ? 'selected' : ''}>졸업</option>
                     <option value="delete">삭제</option>
                 </select>
             </div>`;
@@ -11159,19 +11160,25 @@ window.updateStudentStatus = async function(id, newStatus) {
                 if (deleted) {
                     // 모든 선생님에게서 제거
                     unassignStudentFromAllTeachers(id);
-                    
+
                     // 메모리와 로컬 스토리지에서 삭제
                     students.splice(idx, 1);
-                    
+
                     // currentTeacherStudents에서도 제거
                     currentTeacherStudents = currentTeacherStudents.filter(s => String(s.id) !== String(id));
-                    
-                    saveData(); 
-                    renderDrawerList(); 
-                    renderCalendar(); 
-                    
+
+                    saveData();
+                    renderDrawerList();
+                    renderCalendar();
+
                     console.log(`[updateStudentStatus] 학생 삭제 성공 - ${student.name}`);
                     showToast(`${student.name} 학생이 삭제되었습니다.`, 'success');
+
+                    // 학사일정 학교 구독 자동 동기화 (활성 학생 0명인 학교 자동 제거)
+                    if (typeof window.syncAcademicSchoolSubscriptionsFromStudents === 'function') {
+                        Promise.resolve(window.syncAcademicSchoolSubscriptionsFromStudents(students))
+                            .catch((e) => console.warn('[학사일정 sync]', e));
+                    }
                 } else {
                     throw new Error('데이터베이스 삭제 실패');
                 }
@@ -11221,10 +11228,16 @@ window.updateStudentStatus = async function(id, newStatus) {
             if (updatePayload.status_changed_date !== undefined) {
                 students[idx].statusChangedDate = updatePayload.status_changed_date;
             }
-            saveData(); 
-            renderDrawerList(); 
+            saveData();
+            renderDrawerList();
             renderCalendar();
             console.log(`[updateStudentStatus] 상태 변경 성공 - ${student.name}: ${newStatus}, 변경일: ${updatePayload.status_changed_date || '없음'}`);
+
+            // 학사일정 학교 구독 자동 동기화 (재원/퇴원 변경 시)
+            if (typeof window.syncAcademicSchoolSubscriptionsFromStudents === 'function') {
+                Promise.resolve(window.syncAcademicSchoolSubscriptionsFromStudents(students))
+                    .catch((e) => console.warn('[학사일정 sync]', e));
+            }
             
             // 퇴원/휴원 시 이후 일정 삭제 여부 확인
             if (newStatus === 'archived' || newStatus === 'paused') {
@@ -12247,7 +12260,13 @@ window.handleStudentSave = async function() {
         closeModal('register-modal');
         renderDrawerList();
         renderCalendar();
-        
+
+        // 학사일정 학교 구독 자동 동기화 (신규 학생의 학교 자동 추가, 더 이상 활성 학생 없는 학교 자동 제거)
+        if (typeof window.syncAcademicSchoolSubscriptionsFromStudents === 'function') {
+            // 비동기 백그라운드 — UI 응답 차단하지 않음
+            Promise.resolve(window.syncAcademicSchoolSubscriptionsFromStudents(students))
+                .catch((e) => console.warn('[학사일정 sync]', e));
+        }
     } catch (error) {
         console.error('학생 저장 중 오류:', error);
         showToast('학생 정보 저장에 실패했습니다: ' + error.message, 'error');
@@ -12266,3 +12285,181 @@ window.handleStudentSave = async function() {
 // 수납 관리, 페이지 링크 함수 → js/payment.js로 이동
 
 // 권한, 선생님 관리 모달, 포맷터, 주소검색 → js/teacher-manage.js로 이동
+
+// ========== 학년 일괄 승급 (수동 트리거) ==========
+// 학교급(초·중·고) + 학년숫자 → 다음 학년. 고3 은 졸업(graduated) 처리.
+// 매년 새학기 시작(보통 3월 1일) 무렵 원장이 직접 「학년 일괄 승급」 버튼 클릭.
+// 미리보기에서 개별 학생 체크 해제로 재수생·휴학생 등 예외 제외 가능.
+
+function _parseGradeText(raw) {
+    const s = String(raw || '').trim();
+    if (!s) return null;
+    // 초/중/고 (등) + 숫자, 다양한 표기 허용: 초1, 초등1, 초1학년, 초등학교 1학년 등
+    let level = null;
+    if (/(^|[^가-힣])초(등)?/.test(s)) level = 'elementary';
+    else if (/(^|[^가-힣])중(학)?/.test(s)) level = 'middle';
+    else if (/(^|[^가-힣])고(등|3|2|1)?/.test(s) || /^고/.test(s)) level = 'high';
+    else if (/재수|N수|반수/i.test(s)) level = 'retake';
+    if (!level) return null;
+    if (level === 'retake') return { level, n: 0 };
+    // 숫자 추출 (마지막 한 자리 우선)
+    const m = s.match(/(\d)\s*학?년?/);
+    const n = m ? parseInt(m[1], 10) : null;
+    if (!n || n < 1) return null;
+    if (level === 'elementary' && n > 6) return null;
+    if (level === 'middle' && n > 3) return null;
+    if (level === 'high' && n > 3) return null;
+    return { level, n };
+}
+
+function _nextGradeText(parsed) {
+    if (!parsed) return null;
+    const { level, n } = parsed;
+    if (level === 'retake') return null; // 재수생은 변동 없음(예외)
+    if (level === 'elementary') {
+        if (n < 6) return `초${n + 1}`;
+        return '중1';
+    }
+    if (level === 'middle') {
+        if (n < 3) return `중${n + 1}`;
+        return '고1';
+    }
+    if (level === 'high') {
+        if (n < 3) return `고${n + 1}`;
+        return '__GRADUATED__';
+    }
+    return null;
+}
+
+window.openGradePromotionModal = function () {
+    const modal = document.getElementById('grade-promotion-modal');
+    const listEl = document.getElementById('grade-promotion-preview-list');
+    const emptyEl = document.getElementById('grade-promotion-preview-empty');
+    const summaryEl = document.getElementById('grade-promotion-summary');
+    if (!modal || !listEl) return;
+
+    // 활성(재원) 학생만 대상
+    const targets = (Array.isArray(students) ? students : [])
+        .filter((s) => String(s.status || 'active') === 'active')
+        .map((s) => {
+            const parsed = _parseGradeText(s.grade);
+            const next = _nextGradeText(parsed);
+            return {
+                id: s.id,
+                name: s.name || '(이름없음)',
+                school: s.school || '',
+                currentGrade: s.grade || '',
+                parsed,
+                next,
+            };
+        });
+
+    const promotable = targets.filter((t) => t.next);
+    const skipped = targets.filter((t) => !t.next);
+
+    if (promotable.length === 0) {
+        emptyEl.style.display = 'block';
+        listEl.innerHTML = '';
+    } else {
+        emptyEl.style.display = 'none';
+        const esc = (x) => String(x || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        listEl.innerHTML = promotable.map((t) => {
+            const isGrad = t.next === '__GRADUATED__';
+            const arrowHtml = isGrad
+                ? '<span style="color:#dc2626;font-weight:800;">졸업 → 관리 대상에서 제외</span>'
+                : `<span style="color:#0ea5e9;font-weight:700;">${esc(t.next)}</span>`;
+            return `<label class="grade-promo-row" style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid #e2e8f0;border-radius:8px;background:#fff;cursor:pointer;">
+                <input type="checkbox" class="grade-promo-check" data-sid="${esc(t.id)}" data-next="${esc(t.next)}" checked
+                    onchange="_updateGradePromotionSummary()" style="width:16px;height:16px;flex-shrink:0;">
+                <div style="flex:1;min-width:0;">
+                    <div style="font-weight:700;font-size:14px;color:#1e293b;">${esc(t.name)}
+                        <span style="font-size:11px;font-weight:500;color:#94a3b8;margin-left:6px;">${esc(t.school)}</span>
+                    </div>
+                    <div style="font-size:12px;color:#475569;margin-top:2px;">
+                        ${esc(t.currentGrade || '(학년 미입력)')} <i class="fas fa-arrow-right" style="opacity:0.6;font-size:10px;margin:0 4px;"></i> ${arrowHtml}
+                    </div>
+                </div>
+            </label>`;
+        }).join('');
+    }
+    if (skipped.length) {
+        const esc = (x) => String(x || '').replace(/</g, '&lt;');
+        const skipHtml = `<div style="margin-top:14px;padding:10px;background:#f1f5f9;border-radius:8px;font-size:12px;color:#64748b;">
+            <strong>제외된 ${skipped.length}명</strong> — 학년 미입력 또는 재수/특수 케이스:<br>
+            ${skipped.slice(0, 10).map((t) => `· ${esc(t.name)} (${esc(t.currentGrade) || '미입력'})`).join('<br>')}
+            ${skipped.length > 10 ? `<br>… 외 ${skipped.length - 10}명` : ''}
+        </div>`;
+        listEl.insertAdjacentHTML('beforeend', skipHtml);
+    }
+
+    if (summaryEl) summaryEl.textContent = `선택 ${promotable.length}명 · 제외 ${skipped.length}명`;
+
+    modal.style.display = 'flex';
+};
+
+window._updateGradePromotionSummary = function () {
+    const checks = document.querySelectorAll('.grade-promo-check');
+    const total = checks.length;
+    const selected = Array.from(checks).filter((c) => c.checked).length;
+    const summaryEl = document.getElementById('grade-promotion-summary');
+    if (summaryEl) summaryEl.textContent = `선택 ${selected}/${total}명`;
+};
+
+window.applyGradePromotion = async function () {
+    const checks = document.querySelectorAll('.grade-promo-check:checked');
+    if (checks.length === 0) {
+        showToast('선택된 학생이 없습니다.', 'warning');
+        return;
+    }
+    if (!await showConfirm(
+        `선택한 ${checks.length}명의 학년을 일괄 변경합니다.\n고3 학생은 '졸업' 상태로 변경되어 관리 대상에서 제외됩니다.\n\n계속할까요?`,
+        { type: 'question', title: '학년 일괄 승급', okText: '적용' }
+    )) return;
+
+    let okCnt = 0, gradCnt = 0, failCnt = 0;
+    const updates = Array.from(checks).map((el) => ({
+        id: el.dataset.sid,
+        next: el.dataset.next,
+    }));
+
+    for (const u of updates) {
+        try {
+            if (u.next === '__GRADUATED__') {
+                const today = new Date();
+                const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+                await updateStudent(u.id, { status: 'graduated', status_changed_date: dateStr });
+                const idx = students.findIndex((s) => String(s.id) === String(u.id));
+                if (idx >= 0) {
+                    students[idx].status = 'graduated';
+                    students[idx].statusChangedDate = dateStr;
+                }
+                gradCnt++;
+            } else {
+                await updateStudent(u.id, { grade: u.next });
+                const idx = students.findIndex((s) => String(s.id) === String(u.id));
+                if (idx >= 0) students[idx].grade = u.next;
+                okCnt++;
+            }
+        } catch (e) {
+            console.error('[applyGradePromotion]', u, e);
+            failCnt++;
+        }
+    }
+
+    saveData();
+    renderDrawerList();
+    renderCalendar();
+    closeModal('grade-promotion-modal');
+
+    // 학사일정 학교 구독 자동 동기화 (졸업으로 활성 학생 0명 된 학교 있으면 정리)
+    if (typeof window.syncAcademicSchoolSubscriptionsFromStudents === 'function') {
+        Promise.resolve(window.syncAcademicSchoolSubscriptionsFromStudents(students))
+            .catch((e) => console.warn('[학사일정 sync]', e));
+    }
+
+    const parts = [];
+    if (okCnt) parts.push(`${okCnt}명 승급`);
+    if (gradCnt) parts.push(`${gradCnt}명 졸업`);
+    if (failCnt) parts.push(`${failCnt}명 실패`);
+    showToast(`학년 승급 완료 — ${parts.join(', ')}`, failCnt ? 'warning' : 'success');
+};
