@@ -363,9 +363,9 @@
                     <div class="academic-section">
                         <div class="academic-section-title">학교 검색</div>
                         <div class="academic-search-row">
-                            <input type="text" id="academic-search-input" class="m-input"
-                                placeholder="학교명 입력 (예: 송도중학교)">
-                            <button class="btn-save-main" type="button" id="academic-search-btn">
+                            <input type="text" id="academic-search-input" class="academic-search-input-field"
+                                placeholder="학교명 입력 (예: 송도중학교)" autocomplete="off">
+                            <button class="academic-search-submit-btn" type="button" id="academic-search-btn">
                                 <i class="fas fa-search"></i> 검색
                             </button>
                         </div>

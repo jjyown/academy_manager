@@ -755,16 +755,45 @@ textarea:focus:not(:focus-visible) {
     font-size: 11px; font-weight: 700;
 }
 .academic-search-row {
-    display: flex; gap: 6px;
+    display: flex; gap: 8px;
     margin-bottom: 8px;
+    align-items: stretch;
 }
-.academic-search-row .m-input {
-    flex: 1;
+.academic-search-input-field {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 8px 12px;
+    background: var(--bg-elevated, #f8fafc);
+    border: 1px solid var(--border, #e2e8f0);
+    border-radius: 8px;
+    color: var(--text, #0f172a);
+    font-size: 13px;
+    transition: border 0.15s;
+    -webkit-appearance: none;
+    appearance: none;
 }
-.academic-search-row .btn-save-main {
-    flex-shrink: 0;
-    padding: 0 14px;
+.academic-search-input-field:focus {
+    outline: none;
+    border-color: var(--primary, #6366f1);
 }
+.academic-search-input-field::placeholder {
+    color: var(--gray, #94a3b8);
+}
+.academic-search-submit-btn {
+    flex: 0 0 auto;
+    padding: 0 16px;
+    background: var(--primary, #6366f1);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 13px; font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    display: inline-flex; align-items: center; gap: 6px;
+    transition: filter 0.15s;
+}
+.academic-search-submit-btn:hover { filter: brightness(1.08); }
+.academic-search-submit-btn:active { filter: brightness(0.95); }
 .academic-search-results {
     max-height: 280px;
     overflow-y: auto;
