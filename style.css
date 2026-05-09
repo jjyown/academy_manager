@@ -935,6 +935,38 @@ textarea:focus:not(:focus-visible) {
     font-weight: 700;
 }
 
+/* 날짜 설정 모달 (day-settings-modal) — 학사일정 + 핀 섹션 */
+.dset-academic-section {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border, #e5e7eb);
+}
+.dset-academic-section .dset-section-label {
+    display: flex; align-items: center; gap: 6px;
+    flex-wrap: wrap;
+}
+.dset-academic-hint {
+    margin-left: auto;
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--gray, #94a3b8);
+    background: rgba(99, 102, 241, 0.08);
+    padding: 2px 8px;
+    border-radius: 10px;
+    white-space: nowrap;
+}
+.dset-academic-list {
+    display: flex; flex-direction: column;
+    gap: 8px;
+}
+.dset-academic-loading,
+.dset-academic-empty {
+    padding: 12px;
+    text-align: center;
+    color: var(--gray, #94a3b8);
+    font-size: 12px;
+}
+
 /* 학사일정 관리 모달 — 안내 배너 */
 .academic-howto-banner {
     display: flex; gap: 10px;

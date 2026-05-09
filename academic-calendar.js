@@ -896,10 +896,103 @@
         }
     });
 
+    // ── 날짜 설정 모달 (day-settings-modal) — 학사일정 + 핀 섹션 ──
+    async function renderDaySettingsAcademicSection(dateStr) {
+        const sec = document.getElementById('dset-academic-section');
+        const listEl = document.getElementById('dset-academic-list');
+        if (!sec || !listEl) return;
+
+        if (getSubscribedSchools().length === 0) {
+            sec.style.display = 'none';
+            listEl.innerHTML = '';
+            return;
+        }
+        sec.style.display = 'block';
+        listEl.innerHTML = '<div class="dset-academic-loading">학사일정 불러오는 중...</div>';
+
+        try {
+            const events = await getAcademicEventsForDate(dateStr);
+            if (events.length === 0) {
+                listEl.innerHTML = '<div class="dset-academic-empty">이 날짜에 등록된 학사일정이 없습니다.</div>';
+                return;
+            }
+            // 학교별 그룹
+            const bySchool = new Map();
+            events.forEach((e) => {
+                const k = `${e.school.atpt}-${e.school.code}`;
+                if (!bySchool.has(k)) bySchool.set(k, { school: e.school, events: [] });
+                bySchool.get(k).events.push(e.event);
+            });
+            const html = Array.from(bySchool.values()).map((g) => {
+                const c = _schoolColor(g.school);
+                const evList = g.events.map((ev) => {
+                    const pinned = isEventPinned(g.school, dateStr, ev.name);
+                    const sub = ev.content && ev.content !== ev.name
+                        ? `<span class="tt-academic-event-content">${_escape(ev.content)}</span>`
+                        : '';
+                    return `<div class="tt-academic-event-row">
+                        <div class="tt-academic-event-text">
+                            <span class="tt-academic-event-name">${_escape(ev.name)}</span>
+                            ${sub}
+                        </div>
+                        <button class="tt-academic-pin-btn ${pinned ? 'is-pinned' : ''}"
+                            type="button"
+                            aria-label="${pinned ? '사이드바 핀 제거' : '사이드바에 추가'}"
+                            title="${pinned ? '클릭 시 핀 제거' : '클릭 시 사이드바에 추가'}"
+                            data-school-atpt="${_escape(g.school.atpt)}"
+                            data-school-code="${_escape(g.school.code)}"
+                            data-school-name="${_escape(g.school.name)}"
+                            data-date="${_escape(dateStr)}"
+                            data-event-name="${_escape(ev.name)}"
+                            data-event-content="${_escape(ev.content || '')}">
+                            ${pinned
+                                ? '<i class="fas fa-check" aria-hidden="true"></i> 추가됨'
+                                : '<i class="fas fa-plus" aria-hidden="true"></i> 추가'}
+                        </button>
+                    </div>`;
+                }).join('');
+                return `<div class="tt-academic-school" style="background:${c.bg};color:${c.fg};border-color:${c.dot};">
+                    <div class="tt-academic-school-name">${_escape(g.school.name)}</div>
+                    <div class="tt-academic-event-list">${evList}</div>
+                </div>`;
+            }).join('');
+            listEl.innerHTML = html;
+            // 핀 토글 위임
+            listEl.querySelectorAll('.tt-academic-pin-btn').forEach((btn) => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const school = {
+                        atpt: btn.dataset.schoolAtpt,
+                        code: btn.dataset.schoolCode,
+                        name: btn.dataset.schoolName,
+                    };
+                    const evt = {
+                        name: btn.dataset.eventName,
+                        content: btn.dataset.eventContent || '',
+                    };
+                    const nowPinned = togglePinEventInternal(school, btn.dataset.date, evt);
+                    btn.classList.toggle('is-pinned', nowPinned);
+                    btn.setAttribute('aria-label', nowPinned ? '사이드바 핀 제거' : '사이드바에 추가');
+                    btn.setAttribute('title', nowPinned ? '클릭 시 핀 제거' : '클릭 시 사이드바에 추가');
+                    btn.innerHTML = nowPinned
+                        ? '<i class="fas fa-check" aria-hidden="true"></i> 추가됨'
+                        : '<i class="fas fa-plus" aria-hidden="true"></i> 추가';
+                    if (typeof renderPinnedAcademicEventsSidebar === 'function') {
+                        renderPinnedAcademicEventsSidebar();
+                    }
+                });
+            });
+        } catch (e) {
+            console.warn('[Academic] day-settings 렌더 실패:', e);
+            listEl.innerHTML = '<div class="dset-academic-empty">학사일정 불러오기 실패</div>';
+        }
+    }
+
     // ── 외부 노출 ───────────────────────────────────────────────
     window.openAcademicCalendarModal = openAcademicCalendarModal;
     window.renderAcademicBadgesOnCalendar = renderAcademicBadgesOnCalendar;
     window.renderDayDetailAcademicSection = renderDayDetailAcademicSection;
+    window.renderDaySettingsAcademicSection = renderDaySettingsAcademicSection;
     window.renderUpcomingAcademicEvents = renderUpcomingAcademicEvents;
     window.renderPinnedAcademicEventsSidebar = renderPinnedAcademicEventsSidebar;
     window.getMonthlyAcademicEvents = getMonthlyAcademicEvents;

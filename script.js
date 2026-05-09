@@ -8843,6 +8843,13 @@ window.openDaySettings = function (dateStr) {
     document.getElementById('day-name').value = '';
 
     setTimeout(() => setupHolidayColorChips(), 0);
+
+    // 학사일정 + 핀 추가 섹션 (구독 학교 있을 때만 노출)
+    if (typeof window.renderDaySettingsAcademicSection === 'function') {
+        Promise.resolve()
+            .then(() => window.renderDaySettingsAcademicSection(dateStr))
+            .catch((e) => console.warn('[openDaySettings] 학사일정 렌더 실패:', e));
+    }
 };
 
 window.saveDaySettings = async function () {
