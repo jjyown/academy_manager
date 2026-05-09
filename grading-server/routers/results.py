@@ -442,7 +442,11 @@ async def _recalculate_result_totals(result_id: int):
     """채점 결과의 문항별 데이터를 기반으로 총점/정답수 재계산"""
     try:
         sb = get_supabase()
-        items_res = await run_query(sb.table("grading_items").select("*").eq("result_id", result_id).execute)
+        items_res = await run_query(
+            sb.table("grading_items")
+            .select("question_type, ai_max_score, ai_score, is_correct, student_answer, ai_feedback")
+            .eq("result_id", result_id).execute
+        )
         items = items_res.data or []
         if not items:
             return
@@ -555,7 +559,11 @@ async def regrade_result(result_id: int, request: Request, background_tasks: Bac
         answers_json = answer_key.get("answers_json", {})
         types_json = answer_key.get("question_types_json", {})
 
-        items_res = await run_query(sb.table("grading_items").select("*").eq("result_id", result_id).order("question_number").execute)
+        items_res = await run_query(
+            sb.table("grading_items")
+            .select("id, question_label, question_number, question_type, ai_max_score, ai_score, student_answer, correct_answer, is_correct, ai_feedback")
+            .eq("result_id", result_id).order("question_number").execute
+        )
         old_items = items_res.data or []
 
         if not old_items:

@@ -62,16 +62,20 @@ async def grade_submission(
         if skipped_dupes:
             logger.info(f"[Dedup] 중복 문제 {len(skipped_dupes)}개 건너뜀: {skipped_dupes}")
 
-    logger.info(f"[Smart OCR] 교재: {textbook_info.get('name', '?')}, "
-                f"페이지: {textbook_info.get('page', '?')}, "
-                f"인식 문제 수: {len(student_answers)}, "
-                f"문제 번호: {list(student_answers.keys())}")
+    logger.info(
+        "[Smart OCR] 교재: %s, 페이지: %s, 인식 문제 수: %d",
+        textbook_info.get('name', '?'),
+        textbook_info.get('page', '?'),
+        len(student_answers),
+    )
 
-    for q_num in sorted(student_answers.keys(), key=lambda x: _sort_key(x)):
-        s_data = student_answers[q_num]
-        s_ans = s_data.get("answer", "") if isinstance(s_data, dict) else str(s_data)
-        c_ans = answers_json.get(q_num, "(없음)")
-        logger.info(f"  [{q_num}번] 학생: '{s_ans}' / 정답: '{c_ans}'")
+    if logger.isEnabledFor(logging.DEBUG):
+        # 문제별 학생 응답·정답 매핑은 디버깅용 — INFO 비용 절감
+        for q_num in sorted(student_answers.keys(), key=lambda x: _sort_key(x)):
+            s_data = student_answers[q_num]
+            s_ans = s_data.get("answer", "") if isinstance(s_data, dict) else str(s_data)
+            c_ans = answers_json.get(q_num, "(없음)")
+            logger.debug("  [%s번] 학생: '%s' / 정답: '%s'", q_num, s_ans, c_ans)
 
     items = []
     correct_count = 0

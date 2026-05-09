@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import threading
+import time
 from datetime import date
 from functools import partial
 from supabase import create_client, Client
@@ -29,19 +30,46 @@ async def run_query(fn, *args, **kwargs):
 
 
 # ── 중앙 관리자 토큰 ──
+_central_admin_token_cache: tuple[str | None, float] | None = None
+_central_admin_token_lock = asyncio.Lock()
+_CENTRAL_ADMIN_TOKEN_TTL = 300  # 5분
+
 
 async def get_central_admin_token() -> str | None:
-    """중앙 관리자(is_central_admin=true) 드라이브 refresh_token 조회"""
-    try:
-        sb = get_supabase()
-        res = await run_query(sb.table("teachers").select("google_drive_refresh_token").eq(
-            "is_central_admin", True
-        ).eq("google_drive_connected", True).limit(1).execute)
-        if res.data and len(res.data) > 0:
-            return res.data[0].get("google_drive_refresh_token")
-    except Exception as e:
-        logger.error(f"중앙 관리자 토큰 조회 실패: {e}")
-    return None
+    """중앙 관리자(is_central_admin=true) 드라이브 refresh_token 조회 (5분 TTL 캐시)
+
+    refresh_token 은 거의 변하지 않으므로 짧은 in-process 캐시로 매 요청 1RTT 절감.
+    auth/refresh 실패 시 호출부에서 invalidate_central_admin_token() 으로 무효화.
+    """
+    global _central_admin_token_cache
+    now = time.monotonic()
+    cached = _central_admin_token_cache
+    if cached and now < cached[1]:
+        return cached[0]
+    async with _central_admin_token_lock:
+        # double-check after lock
+        cached = _central_admin_token_cache
+        if cached and time.monotonic() < cached[1]:
+            return cached[0]
+        token: str | None = None
+        try:
+            sb = get_supabase()
+            res = await run_query(sb.table("teachers").select("google_drive_refresh_token").eq(
+                "is_central_admin", True
+            ).eq("google_drive_connected", True).limit(1).execute)
+            if res.data and len(res.data) > 0:
+                token = res.data[0].get("google_drive_refresh_token")
+        except Exception as e:
+            logger.error(f"중앙 관리자 토큰 조회 실패: {e}")
+            return None
+        _central_admin_token_cache = (token, time.monotonic() + _CENTRAL_ADMIN_TOKEN_TTL)
+        return token
+
+
+def invalidate_central_admin_token() -> None:
+    """토큰이 만료/회수돼 401/403 이 떴을 때 호출 — 다음 조회에서 즉시 재조회."""
+    global _central_admin_token_cache
+    _central_admin_token_cache = None
 
 
 # ── answer_keys ──
