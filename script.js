@@ -1158,6 +1158,59 @@ async function autoMarkAbsentForPastSchedules() {
     const todayKst = formatDateToYYYYMMDD(nowKst);
     let updated = false;
 
+    // ====================================================================
+    // 성능 최적화 — N+1 → 1개 bulk + 30일 lookback 제한
+    //   (이전: 슬롯마다 getMergedAttendanceRecordForAutoAbsentSlot DB 호출)
+    //   slot 수만큼 sequential await 으로 18s+ 걸리던 부담 해소
+    // ====================================================================
+    const LOOKBACK_DAYS = 30;
+    const cutoffDate = new Date(nowKst);
+    cutoffDate.setDate(cutoffDate.getDate() - LOOKBACK_DAYS);
+    const cutoffStr = formatDateToYYYYMMDD(cutoffDate);
+
+    // (studentId|date|normalizedTime) → 우선순위 최상 record
+    const attendanceBulkMap = new Map();
+    const _statusPriority = { present: 5, late: 4, makeup: 3, etc: 3, absent: 2, none: 1 };
+    const _pickPriority = (v) => _statusPriority[String(v || '').toLowerCase()] || 0;
+    const _pickTs = (r) => new Date(
+        r?.processed_at || r?.check_in_time || r?.updated_at || r?.created_at || 0
+    ).getTime();
+
+    try {
+        if (typeof supabase !== 'undefined') {
+            const ownerId = (typeof cachedLsGet === 'function') ? cachedLsGet('current_owner_id') : null;
+            let q = supabase
+                .from('attendance_records')
+                .select('student_id, attendance_date, scheduled_time, status, teacher_id, processed_at, check_in_time, updated_at, created_at')
+                .gte('attendance_date', cutoffStr)
+                .lte('attendance_date', todayKst);
+            if (ownerId) q = q.eq('owner_user_id', ownerId);
+            const { data: rows, error } = await q;
+            if (!error && Array.isArray(rows)) {
+                rows.forEach((r) => {
+                    const sid = String(r.student_id);
+                    const date = r.attendance_date;
+                    const time = (typeof normalizeScheduleTimeKey === 'function')
+                        ? normalizeScheduleTimeKey(r.scheduled_time || '')
+                        : String(r.scheduled_time || '').slice(0, 5);
+                    if (!sid || !date || !time) return;
+                    const key = `${sid}|${date}|${time}`;
+                    const existing = attendanceBulkMap.get(key);
+                    if (!existing) { attendanceBulkMap.set(key, r); return; }
+                    // 우선순위 갱신 (status > timestamp)
+                    const ep = _pickPriority(existing.status);
+                    const np = _pickPriority(r.status);
+                    if (np > ep || (np === ep && _pickTs(r) > _pickTs(existing))) {
+                        attendanceBulkMap.set(key, r);
+                    }
+                });
+                console.info(`[autoMarkAbsentForPastSchedules] bulk prefetch: ${rows.length}건 / map ${attendanceBulkMap.size}건 (${cutoffStr} ~ ${todayKst})`);
+            }
+        }
+    } catch (e) {
+        console.warn('[autoMarkAbsentForPastSchedules] bulk prefetch 실패 — per-slot 폴백 사용:', e);
+    }
+
     // ★ 모든 선생님의 일정을 순회 (현재 선생님뿐 아니라 전체)
     for (const teacherId in teacherScheduleData) {
         const teacherSchedule = teacherScheduleData[teacherId] || {};
@@ -1168,6 +1221,9 @@ async function autoMarkAbsentForPastSchedules() {
             if (!student) continue;
 
             for (const dateStr in scheduleByDate) {
+                // 30일 lookback 밖의 과거 일정은 이미 처리되었거나 더 이상 보정이 의미 없음 → skip
+                if (dateStr < cutoffStr) continue;
+
                 const rawData = scheduleByDate[dateStr];
                 // ★ 배열 또는 단일 객체 모두 처리
                 const entries = Array.isArray(rawData) ? rawData : [rawData];
@@ -1196,26 +1252,30 @@ async function autoMarkAbsentForPastSchedules() {
                     if (!shouldCheck) continue;
 
                     // DB 기준으로 이미 처리된 상태가 있으면 자동 결석 덮어쓰기를 금지
-                    // (로컬 캐시 누락/지연으로 인한 present -> absent 역전 방지)
-                    if (typeof getMergedAttendanceRecordForAutoAbsentSlot === 'function') {
+                    // bulk prefetch Map 으로 슬롯당 1회 조회 → O(1) lookup (이전: per-slot DB 호출)
+                    let dbRecord = attendanceBulkMap.get(`${String(studentId)}|${dateStr}|${normalizedStartTime}`) || null;
+                    // bulk 가 비어있는 경우(prefetch 실패) per-slot 폴백 — 안전 보장
+                    if (!dbRecord && attendanceBulkMap.size === 0
+                        && typeof getMergedAttendanceRecordForAutoAbsentSlot === 'function') {
                         try {
-                            const dbRecord = await getMergedAttendanceRecordForAutoAbsentSlot(
-                                studentId,
-                                dateStr,
-                                String(teacherId),
-                                normalizedStartTime
+                            dbRecord = await getMergedAttendanceRecordForAutoAbsentSlot(
+                                studentId, dateStr, String(teacherId), normalizedStartTime
                             );
-                            const dbStatus = String(dbRecord?.status || '').toLowerCase();
-                            if (dbStatus === 'present' || dbStatus === 'late' || dbStatus === 'makeup' || dbStatus === 'etc') {
-                                if (!student.attendance) student.attendance = {};
-                                if (!student.attendance[dateStr] || typeof student.attendance[dateStr] !== 'object') {
-                                    student.attendance[dateStr] = {};
-                                }
-                                student.attendance[dateStr][normalizedStartTime] = dbStatus === 'etc' ? 'makeup' : dbStatus;
-                                continue;
-                            }
                         } catch (dbCheckError) {
-                            console.warn('[autoMarkAbsentForPastSchedules] DB 상태 확인 실패, 로컬 기준으로 진행:', dbCheckError);
+                            console.warn('[autoMarkAbsentForPastSchedules] per-slot 폴백 실패:', dbCheckError);
+                            dbRecord = null;
+                        }
+                    }
+                    if (dbRecord) {
+                        const dbStatus = String(dbRecord.status || '').toLowerCase();
+                        if (dbStatus === 'present' || dbStatus === 'late'
+                            || dbStatus === 'makeup' || dbStatus === 'etc') {
+                            if (!student.attendance) student.attendance = {};
+                            if (!student.attendance[dateStr] || typeof student.attendance[dateStr] !== 'object') {
+                                student.attendance[dateStr] = {};
+                            }
+                            student.attendance[dateStr][normalizedStartTime] = dbStatus === 'etc' ? 'makeup' : dbStatus;
+                            continue;
                         }
                     }
 
