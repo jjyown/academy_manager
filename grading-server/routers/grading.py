@@ -32,7 +32,7 @@ from integrations.supabase_client import (
     get_student, create_grading_result, update_grading_result,
     create_grading_items, update_submission_grading_status, create_notification,
 )
-from integrations.drive import download_file_central, upload_to_central
+from integrations.drive import download_file_central, prepare_upload_target, upload_to_target
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["grading"])
@@ -436,13 +436,24 @@ async def _execute_grading(
     if not answer_key:
         logger.warning(f"배정된 교재 없음 (student: {student_id}) → 확인 요청 상태로 전환")
         if not defer_drive:
-            for idx, img_bytes in enumerate(image_bytes_list):
-                filename = f"원본_{idx+1}.jpg"
-                uploaded = upload_to_central(
-                    central_token, central_result_folder_name, result_sub_path, filename, img_bytes
+            try:
+                _no_key_service, _no_key_parent = prepare_upload_target(
+                    central_token, central_result_folder_name, result_sub_path
                 )
-                central_graded_urls.append(uploaded["url"])
-                central_graded_ids.append(uploaded["id"])
+            except Exception as prep_err:
+                logger.error(f"[Grade] no-key 분기 Drive 준비 실패 — 원본 업로드 생략: {prep_err}", exc_info=True)
+                _no_key_service = _no_key_parent = None
+            if _no_key_service is not None:
+                for idx, img_bytes in enumerate(image_bytes_list):
+                    filename = f"원본_{idx+1}.jpg"
+                    try:
+                        uploaded = upload_to_target(
+                            _no_key_service, _no_key_parent, filename, img_bytes
+                        )
+                        central_graded_urls.append(uploaded["url"])
+                        central_graded_ids.append(uploaded["id"])
+                    except Exception as up_err:
+                        logger.warning(f"[Grade] no-key 원본 {idx+1} 업로드 실패: {up_err}")
 
         await update_grading_result(result_id, {
             "status": "review_needed",
@@ -628,6 +639,17 @@ async def _execute_grading(
 
     failed_images = []
 
+    # 폴더 트리 1회 해석 — 페이지마다 재해석(OAuth + 5-7 files.list)을 제거.
+    upload_service = upload_parent_id = None
+    if not defer_drive:
+        try:
+            upload_service, upload_parent_id = prepare_upload_target(
+                central_token, central_result_folder_name, result_sub_path
+            )
+        except Exception as prep_err:
+            logger.error(f"[Grade] Drive 업로드 대상 준비 실패 — 이번 세션은 deferred 로 진행: {prep_err}", exc_info=True)
+            defer_drive = True
+
     for step, idx in enumerate(grading_order):
         img_bytes = image_bytes_list[idx]
         update_progress(result_id, "grading", step + 1, total_images,
@@ -647,8 +669,8 @@ async def _execute_grading(
 
                 if not defer_drive:
                     filename = f"풀이_{idx+1}.jpg"
-                    central_uploaded = upload_to_central(
-                        central_token, central_result_folder_name, result_sub_path, filename, img_bytes
+                    central_uploaded = upload_to_target(
+                        upload_service, upload_parent_id, filename, img_bytes
                     )
                     central_graded_urls.append(central_uploaded["url"])
                     central_graded_ids.append(central_uploaded["id"])
@@ -707,8 +729,8 @@ async def _execute_grading(
                     grade_result["total_score"], grade_result["max_score"]
                 )
                 filename = f"채점_{idx+1}.jpg"
-                central_uploaded = upload_to_central(
-                    central_token, central_result_folder_name, result_sub_path, filename, graded_img
+                central_uploaded = upload_to_target(
+                    upload_service, upload_parent_id, filename, graded_img
                 )
                 central_graded_urls.append(central_uploaded["url"])
                 central_graded_ids.append(central_uploaded["id"])
@@ -720,8 +742,8 @@ async def _execute_grading(
             if not defer_drive:
                 try:
                     filename = f"실패_{idx+1}.jpg"
-                    fallback = upload_to_central(
-                        central_token, central_result_folder_name, result_sub_path, filename, img_bytes
+                    fallback = upload_to_target(
+                        upload_service, upload_parent_id, filename, img_bytes
                     )
                     central_graded_urls.append(fallback["url"])
                     central_graded_ids.append(fallback["id"])

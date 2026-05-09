@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from fastapi import HTTPException
 
 from config import CENTRAL_GRADED_RESULT_FOLDER, CENTRAL_INSTANT_GRADE_FOLDER
-from integrations.drive import delete_file, download_file_central, upload_to_central
+from integrations.drive import delete_file, download_file_central, prepare_upload_target, upload_to_target
 from integrations.supabase_client import (
     get_central_admin_token,
     get_grading_items_for_confirm,
@@ -148,6 +148,13 @@ async def publish_graded_images_on_confirm(result_row: dict) -> tuple[list[str],
     ids: list[str] = []
     urls: list[str] = []
 
+    # 폴더 트리 1회 해석 — 페이지마다 재해석을 제거.
+    try:
+        upload_service, upload_parent_id = prepare_upload_target(central_token, folder, sub_path)
+    except Exception as prep_err:
+        logger.error(f"[ConfirmDrive] Drive 업로드 대상 준비 실패: {prep_err}", exc_info=True)
+        raise HTTPException(502, f"Drive 업로드 대상 준비 실패: {str(prep_err)[:120]}")
+
     n = len(image_bytes_list)
     for idx in range(n):
         page_items = by_page.get(idx, [])
@@ -166,7 +173,7 @@ async def publish_graded_images_on_confirm(result_row: dict) -> tuple[list[str],
             fname = f"원본_{idx+1}.jpg"
 
         try:
-            up = upload_to_central(central_token, folder, sub_path, fname, jpg)
+            up = upload_to_target(upload_service, upload_parent_id, fname, jpg)
         except Exception as e:
             logger.error(f"[ConfirmDrive] Drive 업로드 실패 {fname}: {e}", exc_info=True)
             raise HTTPException(502, f"Drive 업로드 실패 ({fname}): {str(e)[:120]}")

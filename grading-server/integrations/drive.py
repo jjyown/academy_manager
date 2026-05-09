@@ -166,18 +166,56 @@ def download_file_central(central_token: str, file_id: str, retries: int = 2) ->
     raise RuntimeError(f"드라이브 파일 다운로드 실패 ({file_id}): {last_err}")
 
 
-def upload_to_central(central_token: str, folder_name: str, sub_path: list[str],
-                      filename: str, image_bytes: bytes, mime_type: str = "image/jpeg",
-                      retries: int = 2) -> dict:
-    """중앙 드라이브에 업로드: {CENTRAL_ROOT_FOLDER} / {folder_name} / {sub_path...} / {filename}"""
+def prepare_upload_target(central_token: str, folder_name: str, sub_path: list[str]):
+    """업로드 대상 폴더(리프) ID 를 한 번에 해석.
+
+    {루트}/{folder_name}/{sub_path...} 까지 폴더를 보장(없으면 생성)하고
+    (service, leaf_parent_id) 를 반환. 페이지/이미지 루프에서 결과를 재사용해
+    매 회 폴더 트리 재해석(OAuth 갱신 + 5-7회 files.list)을 제거할 수 있다.
+
+    Returns: (service, leaf_parent_id)
+    """
+    service = _build_service(central_token)
+    root = _ensure_homework_structure_with_service(service)
+    parent = _find_or_create_folder(service, folder_name, root)
+    for folder in sub_path:
+        parent = _find_or_create_folder(service, folder, parent)
+    return service, parent
+
+
+def upload_to_target(service, parent_id: str, filename: str, image_bytes: bytes,
+                     mime_type: str = "image/jpeg", retries: int = 2) -> dict:
+    """이미 해석된 service+parent_id 에 단일 파일을 업로드.
+
+    prepare_upload_target() 결과를 받아 페이지/이미지 루프에서 재호출하면
+    upload_to_central 의 매번 폴더 트리 해석을 건너뜀. 단발성 호출에는
+    upload_to_central 사용.
+    """
     last_err = None
     for attempt in range(1, retries + 1):
         try:
-            service = _build_service(central_token)
-            root = _ensure_homework_structure_with_service(service)
-            parent = _find_or_create_folder(service, folder_name, root)
-            for folder in sub_path:
-                parent = _find_or_create_folder(service, folder, parent)
+            return _upload_file(service, parent_id, filename, image_bytes, mime_type)
+        except Exception as e:
+            last_err = e
+            logger.warning(f"[Drive] 업로드 실패 (시도 {attempt}/{retries}, file={filename}): {e}")
+            if attempt < retries:
+                import time
+                time.sleep(1.5 * attempt)
+    raise RuntimeError(f"드라이브 업로드 실패 ({filename}): {last_err}")
+
+
+def upload_to_central(central_token: str, folder_name: str, sub_path: list[str],
+                      filename: str, image_bytes: bytes, mime_type: str = "image/jpeg",
+                      retries: int = 2) -> dict:
+    """중앙 드라이브에 단발성 업로드: {CENTRAL_ROOT_FOLDER} / {folder_name} / {sub_path...} / {filename}.
+
+    루프 안에서 반복 호출하면 매번 폴더 트리를 재해석하므로 비효율 — 그 경우
+    prepare_upload_target() + upload_to_target() 조합 사용.
+    """
+    last_err = None
+    for attempt in range(1, retries + 1):
+        try:
+            service, parent = prepare_upload_target(central_token, folder_name, sub_path)
             return _upload_file(service, parent, filename, image_bytes, mime_type)
         except Exception as e:
             last_err = e

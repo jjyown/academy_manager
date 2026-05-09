@@ -326,12 +326,22 @@ async def delete_result(result_id: int):
                 drive_ids = []
                 drive_ids.extend(result_row.get("central_graded_drive_ids") or [])
                 drive_ids.extend(result_row.get("central_original_drive_ids") or [])
-                deleted = 0
-                for fid in drive_ids:
-                    if fid and delete_file(central_token, fid):
-                        deleted += 1
-                if deleted:
-                    logger.info(f"[Delete] result #{result_id}: Drive 파일 {deleted}개 삭제")
+                drive_ids = [fid for fid in drive_ids if fid]
+                if drive_ids:
+                    # 동기 Drive 호출을 to_thread 로 감싸 이벤트 루프 비차단·병렬화
+                    async def _delete_one(fid: str) -> bool:
+                        try:
+                            return await asyncio.to_thread(delete_file, central_token, fid)
+                        except Exception as de:
+                            logger.warning(f"[Delete] Drive 파일 {fid} 삭제 예외(무시): {de}")
+                            return False
+                    outcomes = await asyncio.gather(
+                        *(_delete_one(fid) for fid in drive_ids),
+                        return_exceptions=False,
+                    )
+                    deleted = sum(1 for o in outcomes if o is True)
+                    if deleted:
+                        logger.info(f"[Delete] result #{result_id}: Drive 파일 {deleted}/{len(drive_ids)}개 삭제")
 
         await run_query(sb.table("grading_items").delete().eq("result_id", result_id).execute)
         await run_query(sb.table("grading_results").delete().eq("id", result_id).execute)
@@ -589,6 +599,8 @@ async def regrade_result(result_id: int, request: Request, background_tasks: Bac
 
         mc_per_score = (100 - essay_total) / mc_questions if mc_questions > 0 else 0
 
+        # Phase 1: 인메모리 계산 — UPDATE payload 만 쌓고 카운터 갱신
+        update_plans: list[tuple[int, dict]] = []
         for item in old_items:
             q_label = item.get("question_label") or str(item.get("question_number", ""))
             student_answer = item.get("student_answer", "")
@@ -620,8 +632,15 @@ async def regrade_result(result_id: int, request: Request, background_tasks: Bac
             elif q_type == "essay":
                 essay_earned += float(item.get("ai_score") or 0)
 
-            await run_query(sb.table("grading_items").update(update_data).eq("id", item["id"]).execute)
-            regraded_count += 1
+            update_plans.append((item["id"], update_data))
+
+        # Phase 2: UPDATE 병렬 실행 — N+1 sequential → asyncio.gather (RTT 한 번 분량)
+        if update_plans:
+            await asyncio.gather(*(
+                run_query(sb.table("grading_items").update(ud).eq("id", iid).execute)
+                for iid, ud in update_plans
+            ))
+        regraded_count = len(update_plans)
 
         total_score = round(correct * mc_per_score + essay_earned, 1)
         # 재채점 후에도 선생님 검토·확정 전 단계로 둠

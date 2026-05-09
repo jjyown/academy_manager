@@ -1341,6 +1341,61 @@ async function resolveGradingOwnerUserIdFallback() {
 	return u;
 }
 
+// ============================================================
+// answer-keys 60s TTL 캐시
+//   - 페이지 내 7곳에서 동일 owner_id 로 /api/answer-keys 를 반복 fetch.
+//   - 60초 TTL + in-flight dedupe 로 라운드트립 절감.
+//   - DELETE/POST parse 직후엔 invalidateAnswerKeysCache() 로 즉시 무효화.
+//   - 동일 owner 내에서만 캐시 유효(owner 가 바뀌면 자동 미스).
+// ============================================================
+const ANSWER_KEYS_CACHE_TTL_MS = 60_000;
+const _answerKeysCache = { data: null, expiresAt: 0, ownerId: null };
+let _answerKeysInflight = null; // { ownerId, promise }
+
+async function fetchAnswerKeysCached(opts = {}) {
+	const { force = false, timeoutMs = 30000 } = opts;
+	const ownerId = gradingOwnerId();
+	const now = Date.now();
+	if (!force
+		&& _answerKeysCache.data
+		&& _answerKeysCache.expiresAt > now
+		&& _answerKeysCache.ownerId === ownerId) {
+		return _answerKeysCache.data;
+	}
+	if (_answerKeysInflight && _answerKeysInflight.ownerId === ownerId) {
+		return _answerKeysInflight.promise;
+	}
+	const controller = new AbortController();
+	const timer = setTimeout(() => controller.abort(), timeoutMs);
+	const promise = (async () => {
+		try {
+			const res = await fetch(`${GRADING_SERVER_URL}/api/answer-keys?teacher_id=${encodeURIComponent(ownerId)}`, { signal: controller.signal });
+			if (!res.ok) {
+				const err = new Error(`HTTP ${res.status}`);
+				err.status = res.status;
+				throw err;
+			}
+			const result = await res.json();
+			const data = result.data || [];
+			_answerKeysCache.data = data;
+			_answerKeysCache.expiresAt = Date.now() + ANSWER_KEYS_CACHE_TTL_MS;
+			_answerKeysCache.ownerId = ownerId;
+			return data;
+		} finally {
+			clearTimeout(timer);
+			_answerKeysInflight = null;
+		}
+	})();
+	_answerKeysInflight = { ownerId, promise };
+	return promise;
+}
+
+function invalidateAnswerKeysCache() {
+	_answerKeysCache.data = null;
+	_answerKeysCache.expiresAt = 0;
+	_answerKeysCache.ownerId = null;
+}
+
 let teacherList = [];
 /** 로그인 시 PIN 검증에 쓰는 단일 행(선택 UI 제거 — 원장·canonical·단일·첫 행 순으로 자동 결정) */
 let gradingLoginTeacher = null;
@@ -2759,10 +2814,7 @@ async function openDetail(resultId) {
 	const keySelect = document.getElementById('detail-key-select');
 	keySelect.innerHTML = '<option value="">교재 없음</option>';
 	try {
-		const keysRes = await fetch(`${GRADING_SERVER_URL}/api/answer-keys?teacher_id=${encodeURIComponent(gradingOwnerId())}`);
-		if (!keysRes.ok) throw new Error(`HTTP ${keysRes.status}`);
-		const keysData = await keysRes.json();
-		const keys = keysData.data || [];
+		const keys = await fetchAnswerKeysCached();
 		for (const k of keys) {
 			const opt = document.createElement('option');
 			opt.value = k.id;
@@ -3219,11 +3271,7 @@ async function loadStudentList() {
 	} catch (e) { stuAllStudents = []; }
 
 	try {
-		const c1 = new AbortController();
-		const t1 = setTimeout(() => c1.abort(), 30000);
-		const keysRes = await fetch(`${GRADING_SERVER_URL}/api/answer-keys?teacher_id=${encodeURIComponent(gradingOwnerId())}`, { signal: c1.signal });
-		clearTimeout(t1);
-		stuAllBooks = (await keysRes.json()).data || [];
+		stuAllBooks = await fetchAnswerKeysCached();
 	} catch (e) { stuAllBooks = []; }
 
 	try {
@@ -3501,22 +3549,13 @@ async function showAssignModal(prefillDate) {
 
 	let keys = [];
 	try {
-		const controller = new AbortController();
-		const timeoutId = setTimeout(() => controller.abort(), ASSIGN_KEYS_FETCH_MS);
-		const keysRes = await fetch(`${GRADING_SERVER_URL}/api/answer-keys?teacher_id=${encodeURIComponent(gradingOwnerId())}`, { signal: controller.signal });
-		clearTimeout(timeoutId);
-		if (keysRes.ok) {
-			const j = await keysRes.json();
-			keys = j.data || [];
-		} else {
-			showToast(`교재 목록을 불러오지 못했습니다 (${keysRes.status})`, 'error');
-		}
+		keys = await fetchAnswerKeysCached({ timeoutMs: ASSIGN_KEYS_FETCH_MS });
 	} catch (e) {
 		if (e && e.name === 'AbortError') {
 			showToast('교재 목록 요청이 지연되고 있습니다. 서버가 바쁠 때는 잠시 후 다시 시도하세요.', 'warning');
 		} else {
 			console.warn('answer-keys 로드 실패:', e);
-			showToast('교재 목록을 불러오지 못했습니다.', 'error');
+			showToast(e && e.status ? `교재 목록을 불러오지 못했습니다 (${e.status})` : '교재 목록을 불러오지 못했습니다.', 'error');
 		}
 	}
 
@@ -3635,19 +3674,12 @@ async function editAssignment(assignId) {
 
 	let keys = [];
 	try {
-		const controller = new AbortController();
-		const timeoutId = setTimeout(() => controller.abort(), ASSIGN_KEYS_FETCH_MS);
-		const keysRes = await fetch(`${GRADING_SERVER_URL}/api/answer-keys?teacher_id=${encodeURIComponent(gradingOwnerId())}`, { signal: controller.signal });
-		clearTimeout(timeoutId);
-		if (keysRes.ok) {
-			const j = await keysRes.json();
-			keys = j.data || [];
-		} else {
-			showToast(`교재 목록을 불러오지 못했습니다 (${keysRes.status})`, 'error');
-		}
+		keys = await fetchAnswerKeysCached({ timeoutMs: ASSIGN_KEYS_FETCH_MS });
 	} catch (e) {
 		if (e && e.name === 'AbortError') {
 			showToast('교재 목록 요청이 지연되고 있습니다. 잠시 후 다시 시도하세요.', 'warning');
+		} else if (e && e.status) {
+			showToast(`교재 목록을 불러오지 못했습니다 (${e.status})`, 'error');
 		} else {
 			console.warn('answer-keys 로드 실패:', e);
 		}
@@ -3845,12 +3877,8 @@ async function loadAnswerKeys() {
 	if (!currentTeacher) return;
 	let data = [];
 	try {
-		const controller = new AbortController();
-		const timeoutId = setTimeout(() => controller.abort(), 30000);
-		const res = await fetch(`${GRADING_SERVER_URL}/api/answer-keys?teacher_id=${encodeURIComponent(gradingOwnerId())}`, { signal: controller.signal });
-		clearTimeout(timeoutId);
-		const result = await res.json();
-		data = result.data || [];
+		// 메인 교재 목록 — 항상 최신 보장이 중요하므로 force 로 캐시 우회
+		data = await fetchAnswerKeysCached({ force: true });
 	} catch (e) {
 		if (e && e.name === 'AbortError') {
 			console.warn('교재 목록 로드 취소됨(타임아웃 또는 페이지 전환). 새로고침하거나 잠시 후 다시 시도하세요.');
@@ -3884,6 +3912,7 @@ async function deleteAnswerKey(id, title) {
 		});
 		const result = await res.json();
 		if (result.success) {
+			invalidateAnswerKeysCache();
 			showToast('교재가 삭제되었습니다', 'success');
 			loadAnswerKeys();
 		} else {
@@ -4049,6 +4078,7 @@ async function registerAnswerKey() {
 			const result = await res.json();
 
 			if (result.data) {
+				invalidateAnswerKeysCache();
 				const cnt = result.parsed_result?.total || 0;
 				if (isHmlOrHwp) {
 					showToast(`교재 등록 완료! ${cnt}문제 추출 (HML 페이지 미리보기 이미지 생성/업로드)`, 'success');
@@ -4077,6 +4107,7 @@ async function registerAnswerKey() {
 		} catch (e) {
 			return showToast('서버 연결 실패', 'error');
 		}
+		invalidateAnswerKeysCache();
 		showToast('교재가 등록되었습니다 (정답은 나중에 추가)', 'success');
 		closeModal('key-modal');
 		loadAnswerKeys();
@@ -4208,9 +4239,7 @@ function applyKdZoom() {
 async function openKeyDetail(keyId) {
 	let allKeys = [];
 	try {
-		const res = await fetch(`${GRADING_SERVER_URL}/api/answer-keys?teacher_id=${encodeURIComponent(gradingOwnerId())}`);
-		const result = await res.json();
-		allKeys = result.data || [];
+		allKeys = await fetchAnswerKeysCached();
 	} catch (e) {
 		showToast('교재 로드 실패', 'error');
 		return;
@@ -4313,9 +4342,8 @@ async function refreshKeyPageImages() {
 	if (!currentKeyDetail) return;
 	const keyId = currentKeyDetail.id;
 	try {
-		const res = await fetch(`${GRADING_SERVER_URL}/api/answer-keys?teacher_id=${encodeURIComponent(gradingOwnerId())}`);
-		const result = await res.json();
-		const keys = result.data || [];
+		// 새로고침 동작이 의도이므로 캐시 우회
+		const keys = await fetchAnswerKeysCached({ force: true });
 		const updated = keys.find(k => k.id === keyId);
 		if (updated) {
 			currentKeyDetail.page_images_json = updated.page_images_json || [];
