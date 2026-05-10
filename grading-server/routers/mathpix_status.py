@@ -44,8 +44,9 @@ async def mathpix_status(
         if usage:
             usage_payload = {
                 "calls_this_period": usage.calls_this_period,
-                "calls_remaining": usage.calls_remaining,
-                "billing_period_end": usage.billing_period_end,
+                "calls_remaining": usage.calls_remaining,  # Mathpix가 더 이상 제공하지 않음 — None
+                "billing_period_end": usage.billing_period_end,  # 동일 — None
+                "note": "잔여 호출 수는 Mathpix Console에서 확인 (https://console.mathpix.com)",
             }
 
     primary = (PDF_EXTRACTION_PRIMARY or "").strip().lower() or (

@@ -71,9 +71,17 @@ _last_account_diagnostic: dict | None = None
 
 @dataclass
 class MathpixUsage:
-    calls_this_period: int | None
-    calls_remaining: int | None
-    billing_period_end: str | None
+    """Mathpix /v3/ocr-usage 응답 요약.
+
+    ⚠ 2025년 이후 Mathpix API에는 '잔여 호출 수(calls_remaining)'를 직접 제공하는
+    엔드포인트가 없다. /v3/account는 deprecated(404), 후속인 /v3/ocr-usage는
+    누적 사용 기록만 반환한다. 따라서 잔여량은 None이며, 호출 사전 차단(low_threshold)
+    로직은 동작하지 않는다 — 호출 후 quota error(402/403, "out of credit")가
+    감지되면 그때 exhausted 마킹된다. 정확한 잔여량은 Mathpix Console 확인이 필요.
+    """
+    calls_this_period: int | None  # 누적 사용량 (ocr_usage[].count 합)
+    calls_remaining: int | None    # Mathpix가 더 이상 제공하지 않음 — 항상 None
+    billing_period_end: str | None # Mathpix가 더 이상 제공하지 않음 — 항상 None
     raw: dict
 
 
@@ -135,10 +143,12 @@ def _ms_to_iso(ms: float) -> str | None:
 # ============================================================
 
 async def get_account_usage(force: bool = False) -> MathpixUsage | None:
-    """현재 결제 주기의 호출 잔여량을 조회한다 (5분 캐시).
+    """Mathpix /v3/ocr-usage 호출하여 누적 사용량을 조회 (5분 캐시).
 
-    응답 스키마는 Mathpix가 변경할 수 있으므로 알려진 키들을 폭넓게 매핑한다.
-    인증 실패(401/403)나 미설정 시 None을 반환한다.
+    Mathpix는 더 이상 잔여 호출 수를 API로 제공하지 않는다 (2024-2025 변경).
+    이 함수는 사용 기록(ocr_usage[])을 합산해 누적 호출 수만 돌려준다.
+    잔여량은 항상 None이며, 호출 사전 차단은 사실상 동작하지 않는다.
+
     실패 사유는 _last_account_diagnostic에 기록되어 status 엔드포인트에서 조회 가능.
     """
     global _usage_cache, _usage_cache_at, _last_account_diagnostic
@@ -152,7 +162,7 @@ async def get_account_usage(force: bool = False) -> MathpixUsage | None:
     if not force and _usage_cache and (now - _usage_cache_at) < _USAGE_CACHE_MS:
         return MathpixUsage(**_usage_cache)
 
-    url = f"{s['api_base']}/v3/account"
+    url = f"{s['api_base']}/v3/ocr-usage"
     headers = {"app_id": s["app_id"], "app_key": s["app_key"]}
 
     try:
@@ -160,13 +170,13 @@ async def get_account_usage(force: bool = False) -> MathpixUsage | None:
             resp = await client.get(url, headers=headers)
     except Exception as e:
         msg = f"network exception: {e}"
-        logger.warning(f"[Mathpix] /v3/account 호출 예외: {e}")
+        logger.warning(f"[Mathpix] /v3/ocr-usage 호출 예외: {e}")
         _last_account_diagnostic = {"stage": "request", "reason": msg}
         return None
 
     body_preview = (resp.text or "")[:300]
     if resp.status_code in (401, 403):
-        logger.warning(f"[Mathpix] /v3/account 인증 실패: {resp.status_code} body={body_preview}")
+        logger.warning(f"[Mathpix] /v3/ocr-usage 인증 실패: {resp.status_code} body={body_preview}")
         _last_account_diagnostic = {
             "stage": "auth",
             "status_code": resp.status_code,
@@ -175,7 +185,7 @@ async def get_account_usage(force: bool = False) -> MathpixUsage | None:
         }
         return None
     if resp.status_code >= 400:
-        logger.warning(f"[Mathpix] /v3/account 실패 {resp.status_code}: {body_preview}")
+        logger.warning(f"[Mathpix] /v3/ocr-usage 실패 {resp.status_code}: {body_preview}")
         _last_account_diagnostic = {
             "stage": "http",
             "status_code": resp.status_code,
@@ -193,40 +203,28 @@ async def get_account_usage(force: bool = False) -> MathpixUsage | None:
         }
         return None
 
-    # 시험지 해설 제작과 동일한 폭넓은 스키마 탐색 (json.usage 또는 json.account 또는 json 자체)
-    usage_obj: dict = data
-    if isinstance(data.get("usage"), dict):
-        usage_obj = data["usage"]
-    elif isinstance(data.get("account"), dict):
-        usage_obj = data["account"]
+    records = data.get("ocr_usage") if isinstance(data.get("ocr_usage"), list) else []
+    total_count = 0
+    for rec in records:
+        if not isinstance(rec, dict):
+            continue
+        c = rec.get("count")
+        try:
+            total_count += int(c)
+        except (TypeError, ValueError):
+            continue
 
-    calls_this_period = _pick_int(usage_obj, [
-        "calls_this_period", "callsThisPeriod", "current_period_calls", "calls", "api_calls",
-    ])
-    calls_remaining = _pick_int(usage_obj, [
-        "calls_remaining", "callsRemaining", "remaining_calls", "remaining",
-        "requests_remaining", "requestsRemaining",
-    ])
-    billing_period_end = _pick_str(usage_obj, [
-        "billing_period_end", "billingPeriodEnd", "period_end", "current_period_end",
-    ])
-
-    if calls_remaining is None and calls_this_period is None:
-        # 응답은 정상(200)인데 알려진 키가 하나도 없음 → 스키마 변경 가능성
-        _last_account_diagnostic = {
-            "stage": "schema",
-            "status_code": resp.status_code,
-            "top_level_keys": list(data.keys())[:20],
-            "usage_obj_keys": list(usage_obj.keys())[:20] if isinstance(usage_obj, dict) else [],
-            "hint": "Mathpix /v3/account 응답 스키마가 코드의 키 후보와 일치하지 않음. 위 키 목록을 확인",
-        }
-    else:
-        _last_account_diagnostic = {"stage": "ok", "status_code": resp.status_code}
+    _last_account_diagnostic = {
+        "stage": "ok",
+        "status_code": resp.status_code,
+        "records_count": len(records),
+        "note": "Mathpix는 잔여 호출 수를 API로 제공하지 않음 — 충전량 확인은 https://console.mathpix.com",
+    }
 
     payload = {
-        "calls_this_period": calls_this_period,
-        "calls_remaining": calls_remaining,
-        "billing_period_end": billing_period_end,
+        "calls_this_period": total_count if records else None,
+        "calls_remaining": None,        # Mathpix가 더 이상 제공하지 않음
+        "billing_period_end": None,     # Mathpix가 더 이상 제공하지 않음
         "raw": data,
     }
     _usage_cache = payload
@@ -235,7 +233,7 @@ async def get_account_usage(force: bool = False) -> MathpixUsage | None:
 
 
 def get_last_account_diagnostic() -> dict | None:
-    """마지막 /v3/account 호출 결과(성공/실패 사유). 운영 모니터링용."""
+    """마지막 /v3/ocr-usage 호출 결과(성공/실패 사유). 운영 모니터링용."""
     return _last_account_diagnostic
 
 
@@ -261,10 +259,12 @@ def _pick_str(obj: dict, keys: list[str]) -> str | None:
 async def is_usable_for_ocr() -> bool:
     """OCR 호출 직전 사전 체크.
 
-    - 미설정 → False
-    - 이미 exhausted → False
-    - 사용량 조회 성공 && callsRemaining ≤ low_threshold → 즉시 exhausted 마킹 후 False
-    - 사용량 조회 실패 → True (낙관적; 실제 호출에서 quota error를 잡는다)
+    Mathpix가 잔여량을 더 이상 API로 제공하지 않으므로(2025+), 사전 차단은
+    실질적으로 작동하지 않는다. configured && !exhausted 만 검사하고,
+    실제 호출에서 quota error(402/403, "out of credit") 받으면 그때 mark_exhausted된다.
+
+    MATHPIX_LOW_THRESHOLD 는 향후 Mathpix가 잔여량 API를 다시 제공할 경우를
+    대비해 남겨둔다 — usage.calls_remaining 이 None이면 무시된다.
     """
     if not is_configured():
         return False
