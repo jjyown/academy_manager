@@ -17,7 +17,8 @@ logger = logging.getLogger(__name__)
 _bearer_scheme = HTTPBearer(auto_error=False)
 
 # /health와 같이 인증이 불필요한 경로
-PUBLIC_PATHS = {"/health", "/docs", "/openapi.json", "/redoc"}
+# /api/mathpix-status: Mathpix 충전량/소진 상태 운영 모니터링용(브라우저 직접 접근). reset도 백오프 해제일 뿐 destructive 영향 없음.
+PUBLIC_PATHS = {"/health", "/health/runtime", "/docs", "/openapi.json", "/redoc", "/api/mathpix-status"}
 
 # Supabase 사용자 JWT 대신 별도 인증(채점 세션 JWT·쿼리 폴백)을 쓰는 API — 미들웨어에서 Bearer 요구 제외
 SKIP_SUPABASE_JWT_PATH_PREFIXES = (
