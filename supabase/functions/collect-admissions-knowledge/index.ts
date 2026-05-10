@@ -29,9 +29,11 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
+// gemini-2.5-flash: 2026 시점 가성비 최적. 2.0-flash 대비 동일 비용대에서
+// 한국어 추론 안정성·복합 지시 준수도 향상.
 const GEMINI_ADMISSIONS_MODEL = Deno.env.get("GEMINI_ADMISSIONS_MODEL")
     ?? Deno.env.get("GEMINI_EVAL_MODEL")
-    ?? "gemini-2.0-flash";
+    ?? "gemini-2.5-flash";
 const CRON_SECRET = Deno.env.get("CRON_SECRET") ?? "";
 
 const corsHeaders: Record<string, string> = {

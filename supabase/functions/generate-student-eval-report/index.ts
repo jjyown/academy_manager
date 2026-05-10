@@ -5,7 +5,9 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
-const GEMINI_EVAL_MODEL = Deno.env.get("GEMINI_EVAL_MODEL") ?? "gemini-2.0-flash";
+// gemini-2.5-flash: 2026 시점 가성비 최적 (입력 빠름·동일 비용대 품질 ↑).
+// 2.0-flash 대비 한국어 추론 안정성·지시 준수도 모두 향상.
+const GEMINI_EVAL_MODEL = Deno.env.get("GEMINI_EVAL_MODEL") ?? "gemini-2.5-flash";
 /** 입시 전문가 사전 분석 단계 모델 — 비싸지 않은 모델로도 충분. 환경변수로 별도 설정 가능 */
 const GEMINI_ADMISSIONS_MODEL = Deno.env.get("GEMINI_ADMISSIONS_MODEL") ?? GEMINI_EVAL_MODEL;
 /** Stage 1 (입시 전문가 사전 분석) 비활성화 옵션 — 환경변수로 끌 수 있음 */
