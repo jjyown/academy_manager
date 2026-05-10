@@ -14,6 +14,7 @@
 ## 최근 의사결정 로그
 | 날짜 | 결정 | 이유 | 영향 범위 |
 |---|---|---|---|
+| 2026-05-10 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | .gitignore, migrations/0034_cleanup_expired_reset_codes_20260510.sql, qa-artifacts/quick-recheck-report.json, qa-artifacts/report.json, qa-artifacts/runtime-agent-verify-long.json 외 2개 |
 | 2026-05-10 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | grading-server/ocr/mathpix.py |
 | 2026-05-10 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | grading-server/.env.example, grading-server/ocr/mathpix.py, grading-server/routers/mathpix_status.py |
 | 2026-05-10 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | grading-server/ocr/mathpix.py, grading-server/routers/mathpix_status.py |

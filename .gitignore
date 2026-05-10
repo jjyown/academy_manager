@@ -43,3 +43,8 @@ __pycache__/
 
 # 자동 생성된 cron 적용 SQL (CRON_SECRET 포함 — 절대 커밋 금지)
 migrations/_GENERATED_*.sql
+
+# 옛 런타임 검증 산출물(대용량 JSON) — 코드/검증 스크립트만 추적, 결과 JSON은 로컬용
+qa-artifacts/runtime-*.json
+qa-artifacts/report.json
+qa-artifacts/quick-recheck-report.json
