@@ -222,7 +222,7 @@ async def get_account_usage(force: bool = False) -> MathpixUsage | None:
     }
 
     payload = {
-        "calls_this_period": total_count if records else None,
+        "calls_this_period": total_count,  # 기록이 없으면 0 (아직 호출 전)
         "calls_remaining": None,        # Mathpix가 더 이상 제공하지 않음
         "billing_period_end": None,     # Mathpix가 더 이상 제공하지 않음
         "raw": data,
