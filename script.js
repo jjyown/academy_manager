@@ -8578,10 +8578,52 @@ window.toggleStudentEvalParentVisible = async function() {
         return;
     }
     const next = ta.dataset.parentVisible !== '1';
+    const evalText = (ta.value || '').trim();
+
+    // 학부모 공개 ON 시 본문이 비어있으면 막기
+    if (next && !evalText) {
+        showToast('먼저 종합 평가 내용을 작성하거나 AI로 생성해주세요.', 'warning');
+        return;
+    }
+
     try {
-        await window.saveStudentEvaluation(sid, month, ta.value.trim(), currentTeacherId, {
+        // 1) 텍스트 저장 + parent_portal_visible 갱신
+        await window.saveStudentEvaluation(sid, month, evalText, currentTeacherId, {
             parentPortalVisible: next
         });
+
+        // 2) 학부모 공개 ON 으로 전환되는 경우, 학부모는 이미지 리포트만 봅니다.
+        //    이미지가 없으면 자동 생성·업로드해서 학부모가 텍스트가 아닌 이미지로 보도록 보장.
+        if (next) {
+            // DB 의 image_url 이 비어있는지 확인
+            let needGenerate = true;
+            try {
+                const { data } = await supabase
+                    .from('student_evaluations')
+                    .select('image_url')
+                    .eq('student_id', parseInt(sid, 10))
+                    .eq('eval_month', month)
+                    .maybeSingle();
+                if (data && typeof data.image_url === 'string' && data.image_url.trim()) {
+                    needGenerate = false;
+                }
+            } catch (e) { /* image_url 컬럼 없으면 그냥 생성 시도 */ }
+
+            if (needGenerate) {
+                // 토스트로 진행 상황 안내 — 약 5~10초 소요
+                showToast('학부모용 이미지 리포트 자동 생성 중... (약 5~10초)', 'info');
+                if (typeof window.exportStudentEvalAsImage === 'function') {
+                    try {
+                        await window.exportStudentEvalAsImage();
+                        // exportStudentEvalAsImage 안에서 이미 토스트가 발생하므로 추가 토스트 생략
+                    } catch (genErr) {
+                        console.warn('[toggleStudentEvalParentVisible] 자동 이미지 생성 실패:', genErr);
+                        showToast('이미지 자동 생성 실패 — 학부모는 텍스트로 보입니다. 「이미지 리포트」 버튼으로 수동 재시도하세요.', 'warning');
+                    }
+                }
+            }
+        }
+
         ta.dataset.parentVisible = next ? '1' : '0';
         window.updateStudentEvalParentToggleUi();
         showToast(next ? '학부모 포털에 공개되었습니다.' : '학부모 포털에서 숨겼습니다.', 'success');
