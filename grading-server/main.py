@@ -7,6 +7,7 @@
 5. 선생님이 채점 관리 페이지에서 검토/다운로드
 """
 import logging
+import os
 import time
 from collections import defaultdict
 from contextlib import asynccontextmanager
@@ -56,6 +57,33 @@ from routers import (
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
+
+
+# ============================================================
+# 운영 환경 인증 점검 (보수적 — 시스템은 GRADING_SESSION_SECRET 기반 gst 인증을
+# 주력으로 사용하며, SUPABASE_JWT_SECRET 는 선택임)
+# ============================================================
+# fail-fast 조건: 운영 환경이면서 두 비밀(GRADING_SESSION_SECRET, SUPABASE_JWT_SECRET)
+# 가 모두 비어 있을 때만 — 그 외에는 경고만 남기고 통과.
+_PROD_MARKERS = (
+    "RAILWAY_ENVIRONMENT_NAME",
+    "RAILWAY_PROJECT_NAME",
+    "RAILWAY_SERVICE_NAME",
+)
+_is_prod_env = any(os.getenv(m) for m in _PROD_MARKERS)
+_has_grading_session = bool(os.getenv("GRADING_SESSION_SECRET", "").strip())
+if _is_prod_env and not SUPABASE_JWT_SECRET and not _has_grading_session:
+    raise RuntimeError(
+        "[FATAL] 운영 환경에서 SUPABASE_JWT_SECRET 와 GRADING_SESSION_SECRET 가 모두 비어 있습니다. "
+        "최소 한 개의 인증 비밀은 반드시 설정하세요."
+    )
+if not SUPABASE_JWT_SECRET:
+    # 본 시스템은 SUPABASE_JWT_SECRET 가 선택. gst(grading session token) 기반 인증을 사용 중이라면 정상.
+    logger.info(
+        "[auth] SUPABASE_JWT_SECRET 미설정 — 일반 /api/* 는 GRADING_SESSION_SECRET(gst) 기반 인증으로만 보호됨. "
+        "필요 시 Supabase JWT 도 함께 설정 가능."
+    )
+
 
 scheduler = AsyncIOScheduler()
 
@@ -184,6 +212,26 @@ _rate_limit_store: dict[str, list[float]] = defaultdict(list)
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
     p = request.url.path
+    # 공개 포털(인증코드 무차단 brute-force 방지) 은 더 엄격하게 — IP+student_id 단위로
+    # 별도 키를 사용하고, 기본 분당 한도의 1/3 만 허용.
+    if p.startswith("/api/public-portal-grading"):
+        client_ip = request.client.host if request.client else "unknown"
+        sid = request.query_params.get("student_id") or ""
+        # result_id 경로(GET /results/{result_id}/items) 의 경우 path 의 마지막 숫자 부분도 함께 사용
+        key = f"portal:{client_ip}:{sid or 'anon'}:{p}"
+        now = time.time()
+        window = 60.0
+        portal_limit = max(5, RATE_LIMIT_PER_MINUTE // 3)
+        timestamps = _rate_limit_store[key]
+        _rate_limit_store[key] = [t for t in timestamps if now - t < window]
+        if len(_rate_limit_store[key]) >= portal_limit:
+            return JSONResponse(
+                status_code=429,
+                content={"detail": f"요청이 너무 많습니다. 분당 {portal_limit}회까지 가능합니다."}
+            )
+        _rate_limit_store[key].append(now)
+        return await call_next(request)
+
     if (
         p.startswith("/api/grade")
         or p.startswith("/api/auto-grade")
@@ -196,7 +244,6 @@ async def rate_limit_middleware(request: Request, call_next):
         timestamps = _rate_limit_store[client_ip]
         _rate_limit_store[client_ip] = [t for t in timestamps if now - t < window]
         if len(_rate_limit_store[client_ip]) >= RATE_LIMIT_PER_MINUTE:
-            from fastapi.responses import JSONResponse
             return JSONResponse(
                 status_code=429,
                 content={"detail": f"Rate limit exceeded. Max {RATE_LIMIT_PER_MINUTE} requests per minute."}
