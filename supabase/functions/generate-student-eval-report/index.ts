@@ -92,6 +92,8 @@ async function runAdmissionsExpertAnalysis(args: {
   memoBlock: string;
   /** admissions_knowledge 에서 학년대 매칭으로 가져온 입시 정보·트렌드. 없으면 빈 문자열. */
   knowledgeBlock: string;
+  /** 원장의 고정 지침 (student_eval_ai_style_entries) — Stage 2 와 동일하게 Stage 1 에도 반영 */
+  ownerStyleNote: string;
 }): Promise<string> {
   if (ADMISSIONS_STAGE_DISABLED) return "";
   if (!GEMINI_API_KEY) return "";
@@ -120,7 +122,10 @@ async function runAdmissionsExpertAnalysis(args: {
 [중요] 본 요청에는 "[최신 입시 정보·트렌드]" 섹션이 포함될 수 있습니다.
 이는 원장이 운영하는 입시 정보 수집 모듈이 학년대별로 정리해 둔 자료로,
 당신의 분석에 반드시 반영해야 합니다(특히 [A. 입시 단계 위치] / [D. 다음 달 학습 우선순위]).
-단, 학생 데이터에 없는 사실을 "트렌드 자료에 따르면" 하고 가져다 붙이지 마세요 — 트렌드는 우선순위·가이드일 뿐이고 진단 근거는 학생 데이터입니다.`;
+단, 학생 데이터에 없는 사실을 "트렌드 자료에 따르면" 하고 가져다 붙이지 마세요 — 트렌드는 우선순위·가이드일 뿐이고 진단 근거는 학생 데이터입니다.${args.ownerStyleNote ? `
+
+[이 학원 원장의 고정 지침 — 본 분석 노트 작성 시에도 반드시 준수]
+${args.ownerStyleNote}` : ""}`;
 
   const expertUser = `[학생 식별]
 - 이름: ${args.studentName}
@@ -434,6 +439,7 @@ serve(async (req: Request) => {
         scoreBlock,
         memoBlock,
         knowledgeBlock,
+        ownerStyleNote: ownerEvalStyleNote,  // Stage 2 와 동일한 고정 지침을 Stage 1 에도 적용
       });
     }
 

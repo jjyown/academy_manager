@@ -1205,10 +1205,11 @@
                             <span id="student-eval-parent-toggle-label">학부모 비공개</span>
                         </button>
                     </div>
-                    <details class="student-eval-ai-persist" id="student-eval-ai-persist">
-                        <summary>AI에 항상 적용할 문구 <span class="student-eval-ai-persist-tag">원장 계정·DB 저장</span></summary>
-                        <p class="student-eval-ai-persist-hint">Gemini나 Supabase가 스스로 &quot;기억&quot;하지는 않습니다. 아래에 적어 저장하면 DB에 <strong>항목으로 누적</strong>되며, AI 생성·재생성 시 기존 지침과 함께 시스템 지시에 붙습니다. 「추가 요청사항」은 그때그때 한 번만 반영됩니다.</p>
-                        <label class="student-eval-ai-style-append-label" for="student-eval-ai-style-append">이번에 추가할 문구</label>
+                    <details class="student-eval-ai-persist" id="student-eval-ai-persist" ontoggle="if(this.open) renderOwnerEvalAiStyleEntries()">
+                        <summary>AI에 항상 적용할 문구 <span class="student-eval-ai-persist-tag" id="student-eval-ai-style-count">원장 계정·DB 저장</span></summary>
+                        <p class="student-eval-ai-persist-hint">아래에 적은 문구는 <strong>다음 「AI 생성」부터 모든 학생 평가에 자동 반영</strong>됩니다 (Stage 1 입시 전문가 분석 + Stage 2 학부모용 작성 모두). 항목으로 누적되니, 더 이상 필요 없으면 휴지통 아이콘으로 삭제하세요.</p>
+                        <div id="student-eval-ai-style-list" class="student-eval-ai-style-list"></div>
+                        <label class="student-eval-ai-style-append-label" for="student-eval-ai-style-append" style="margin-top:10px;">이번에 추가할 문구</label>
                         <textarea id="student-eval-ai-style-append" class="student-eval-ai-style-note" maxlength="1200" rows="3" placeholder="예: 학부모에게 데이터 부족·메모 미확보를 언급하지 말 것. 짧고 담담한 교육 기관 안내 문체로 쓸 것."></textarea>
                         <button type="button" class="eval-ai-btn eval-ai-btn--narrow" id="student-eval-ai-style-save-btn" onclick="saveOwnerEvalAiStyleNoteFromModal()">고정 지침 저장</button>
                     </details>

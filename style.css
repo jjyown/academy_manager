@@ -2933,6 +2933,78 @@ textarea:focus:not(:focus-visible) {
     border-color: #818cf8;
     box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.12);
 }
+/* 저장된 고정 지침 목록 */
+.student-eval-ai-style-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 6px 0 8px;
+    max-height: 220px;
+    overflow-y: auto;
+    padding-right: 2px;
+}
+.student-eval-ai-style-empty,
+.student-eval-ai-style-loading {
+    font-size: 11px;
+    color: #94a3b8;
+    text-align: center;
+    padding: 14px 8px;
+    background: #f8fafc;
+    border: 1px dashed #cbd5e1;
+    border-radius: 8px;
+}
+.student-eval-ai-style-item {
+    background: #eef2ff;
+    border-left: 3px solid #6366f1;
+    border-radius: 6px;
+    padding: 6px 8px;
+}
+.student-eval-ai-style-item-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 10px;
+    color: #64748b;
+    margin-bottom: 3px;
+}
+.student-eval-ai-style-item-num {
+    background: #6366f1;
+    color: #ffffff;
+    border-radius: 999px;
+    padding: 0 6px;
+    font-weight: 700;
+    font-size: 9px;
+}
+.student-eval-ai-style-item-date { font-size: 10px; }
+.student-eval-ai-style-del {
+    margin-left: auto;
+    background: transparent;
+    border: none;
+    color: #94a3b8;
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 4px;
+    transition: all 0.15s;
+}
+.student-eval-ai-style-del:hover { color: #ef4444; background: rgba(239, 68, 68, 0.08); }
+.student-eval-ai-style-item-body {
+    font-size: 12px;
+    color: #1e293b;
+    line-height: 1.5;
+    word-break: keep-all;
+    white-space: pre-wrap;
+}
+[data-theme="night"] .student-eval-ai-style-item,
+[data-theme="charcoal"] .student-eval-ai-style-item {
+    background: rgba(99, 102, 241, 0.18);
+}
+[data-theme="night"] .student-eval-ai-style-item-body,
+[data-theme="charcoal"] .student-eval-ai-style-item-body { color: #e2e8f0; }
+[data-theme="night"] .student-eval-ai-style-empty,
+[data-theme="charcoal"] .student-eval-ai-style-empty {
+    background: rgba(15, 23, 42, 0.4);
+    border-color: rgba(148, 163, 184, 0.3);
+}
 /* 입시 정보 지식 베이스 패널 */
 .student-eval-admissions-actions {
     display: flex;

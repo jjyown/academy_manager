@@ -8496,6 +8496,11 @@ window.openStudentEvalModal = async function(studentId, options) {
     if (titleEl) titleEl.textContent = `${s.name} (${s.grade})${s.school ? ' · ' + s.school : ''}`;
 
     await loadStudentEvalModalContent(sid, monthPrefix, { initialTab });
+
+    // 저장된 AI 고정 지침 카운트 즉시 표시 (details 가 닫혀 있어도 summary 의 칩으로 보임)
+    if (typeof window.renderOwnerEvalAiStyleEntries === 'function') {
+        Promise.resolve(window.renderOwnerEvalAiStyleEntries()).catch(() => {});
+    }
 };
 
 window.saveStudentEvalFromModal = async function() {
@@ -8755,7 +8760,67 @@ window.saveOwnerEvalAiStyleNoteFromModal = async function() {
     const ta = document.getElementById('student-eval-ai-style-append');
     if (!ta || typeof window.appendOwnerStudentEvalAiStyleNote !== 'function') return;
     const ok = await window.appendOwnerStudentEvalAiStyleNote(ta.value);
-    if (ok) ta.value = '';
+    if (ok) {
+        ta.value = '';
+        // 저장 직후 목록·카운트 즉시 갱신해 "반영 중"임을 시각적으로 확인
+        await window.renderOwnerEvalAiStyleEntries();
+    }
+};
+
+/**
+ * 저장된 원장 AI 고정 지침 목록을 모달에 렌더.
+ * 평가 모달이 열리거나 details 패널이 펼쳐질 때 호출됨.
+ */
+window.renderOwnerEvalAiStyleEntries = async function() {
+    const listEl = document.getElementById('student-eval-ai-style-list');
+    const countEl = document.getElementById('student-eval-ai-style-count');
+    if (!listEl) return;
+    if (typeof window.getOwnerStudentEvalAiStyleNoteRows !== 'function') return;
+    listEl.innerHTML = '<div class="student-eval-ai-style-loading">불러오는 중...</div>';
+    try {
+        const rows = await window.getOwnerStudentEvalAiStyleNoteRows();
+        if (countEl) {
+            countEl.textContent = rows && rows.length
+                ? `현재 ${rows.length}건 적용 중`
+                : '아직 저장된 지침 없음';
+        }
+        if (!rows || rows.length === 0) {
+            listEl.innerHTML = '<div class="student-eval-ai-style-empty">아직 저장된 고정 지침이 없습니다. 아래에 입력 후 저장하면 다음 평가부터 적용됩니다.</div>';
+            return;
+        }
+        const esc = (s) => String(s || '')
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        listEl.innerHTML = rows.map((r, i) => {
+            const created = r.created_at ? String(r.created_at).slice(0, 10) : '';
+            const idAttr = r.id != null ? `data-entry-id="${esc(r.id)}"` : '';
+            const delBtn = r.id != null
+                ? `<button type="button" class="student-eval-ai-style-del" title="삭제" ${idAttr}
+                       onclick="deleteOwnerEvalAiStyleEntryFromModal(this)">
+                       <i class="fas fa-trash" aria-hidden="true"></i>
+                   </button>`
+                : '';
+            return `<div class="student-eval-ai-style-item">
+                <div class="student-eval-ai-style-item-head">
+                    <span class="student-eval-ai-style-item-num">#${i + 1}</span>
+                    ${created ? `<span class="student-eval-ai-style-item-date">${esc(created)}</span>` : ''}
+                    ${delBtn}
+                </div>
+                <div class="student-eval-ai-style-item-body">${esc(r.content || '')}</div>
+            </div>`;
+        }).join('');
+    } catch (e) {
+        console.warn('[renderOwnerEvalAiStyleEntries]', e);
+        listEl.innerHTML = '<div class="student-eval-ai-style-empty">불러오기 실패</div>';
+    }
+};
+
+window.deleteOwnerEvalAiStyleEntryFromModal = async function(btn) {
+    const entryId = btn && btn.dataset && btn.dataset.entryId;
+    if (!entryId) return;
+    if (typeof window.deleteOwnerStudentEvalAiStyleEntry !== 'function') return;
+    if (!await showConfirm('이 고정 지침을 삭제할까요? 다음 평가부터 더 이상 반영되지 않습니다.', { type: 'danger', okText: '삭제' })) return;
+    const ok = await window.deleteOwnerStudentEvalAiStyleEntry(entryId);
+    if (ok) await window.renderOwnerEvalAiStyleEntries();
 };
 
 // ========== 종합평가 → 학부모 발송용 전문가 양식 이미지 리포트 ==========
