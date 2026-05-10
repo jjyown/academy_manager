@@ -51,6 +51,7 @@ from routers import (
     grading_auth,
     homework_assignments,
     public_portal_grading,
+    mathpix_status,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -280,6 +281,7 @@ app.include_router(homework_submissions.router)
 app.include_router(grading_auth.router)
 app.include_router(homework_assignments.router)
 app.include_router(public_portal_grading.router)
+app.include_router(mathpix_status.router)
 
 
 # ============================================================

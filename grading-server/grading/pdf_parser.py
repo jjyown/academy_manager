@@ -1,11 +1,15 @@
-"""정답 PDF 파싱: Gemini Vision으로 PDF 페이지를 이미지로 읽어 정답 추출
+"""정답 PDF 파싱: Mathpix 1순위 → Gemini Vision 폴백으로 정답 추출
+
+엔진 우선순위 (PDF_EXTRACTION_PRIMARY로 강제 가능):
+1) Mathpix /v3/pdf (인쇄된 수식·텍스트에 강점, 충전량 부족 시 자동 비활성)
+2) Gemini Vision (이미지 변환 → 비전 OCR + 정답 JSON 직접 생성)
+3) pdfplumber 텍스트 → Gemini 텍스트 파싱 (둘 다 실패 시)
 
 지원하는 교재 구조:
-1) 프린트 과제: 문제 → 빠른정답 → 해설
-2) 시중 교재: 문제 → 해설 (해설에 정답 포함)
+- 프린트 과제: 문제 → 빠른정답 → 해설
+- 시중 교재: 문제 → 해설 (해설에 정답 포함)
 
 페이지 범위가 지정되면 해당 페이지만 처리 (시중 교재 200p+ 대응)
-페이지 미지정 시 자동으로 정답/해설 페이지 탐색
 """
 import logging
 import json
@@ -15,6 +19,7 @@ import io
 import fitz  # PyMuPDF
 import pdfplumber
 from integrations.gemini import parse_answers_from_pdf
+from ocr import mathpix
 
 logger = logging.getLogger(__name__)
 
@@ -42,19 +47,35 @@ async def extract_answers_from_pdf(
         {"answers": {...}, "types": {...}, "total": int,
          "page_images": [{"page": 1, "image_bytes": bytes}, ...]}
     """
-    # 1차: Gemini Vision으로 정답 추출 (썸네일보다 먼저 - 빠른 응답 우선)
+    primary = await _resolve_primary_engine()
     result = None
-    try:
-        result = await _extract_with_gemini_vision(pdf_bytes, total_hint, page_range)
-        if result.get("total", 0) > 0:
-            logger.info(f"[Vision] 정답 추출 완료: {result['total']}문제")
-        else:
-            logger.warning("[Vision] 정답을 찾지 못함, 텍스트 방식으로 재시도")
-            result = None
-    except Exception as e:
-        logger.warning(f"[Vision] 실패: {e}, 텍스트 방식으로 재시도")
 
-    # 2차 fallback: pdfplumber 텍스트 추출 → Gemini 텍스트 파싱
+    # 1차: Mathpix (primary=mathpix일 때만)
+    if primary == "mathpix":
+        try:
+            result = await _extract_with_mathpix(pdf_bytes, total_hint, page_range)
+            if result and result.get("total", 0) > 0:
+                logger.info(f"[Mathpix] 정답 추출 완료: {result['total']}문제")
+            else:
+                logger.warning("[Mathpix] 정답 0건 → Gemini Vision 폴백")
+                result = None
+        except Exception as e:
+            logger.warning(f"[Mathpix] 예외 발생, Gemini Vision 폴백: {e}")
+            result = None
+
+    # 2차: Gemini Vision (primary=gemini이거나 Mathpix가 실패/소진된 경우)
+    if not result:
+        try:
+            result = await _extract_with_gemini_vision(pdf_bytes, total_hint, page_range)
+            if result.get("total", 0) > 0:
+                logger.info(f"[Vision] 정답 추출 완료: {result['total']}문제")
+            else:
+                logger.warning("[Vision] 정답을 찾지 못함, 텍스트 방식으로 재시도")
+                result = None
+        except Exception as e:
+            logger.warning(f"[Vision] 실패: {e}, 텍스트 방식으로 재시도")
+
+    # 3차 fallback: pdfplumber 텍스트 추출 → Gemini 텍스트 파싱
     if not result:
         text = _extract_text_from_pdf(pdf_bytes, page_range)
         if not text.strip():
@@ -70,6 +91,92 @@ async def extract_answers_from_pdf(
     result["page_images"] = page_images
 
     return result
+
+
+async def _resolve_primary_engine() -> str:
+    """PDF 정답 추출 1순위 엔진 결정.
+
+    PDF_EXTRACTION_PRIMARY 명시값 > Mathpix 가용성 > "gemini"
+    """
+    from config import PDF_EXTRACTION_PRIMARY
+    forced = (PDF_EXTRACTION_PRIMARY or "").strip().lower()
+    if forced in ("mathpix", "gemini"):
+        if forced == "mathpix" and not await mathpix.is_usable_for_ocr():
+            logger.info("[Engine] PDF_EXTRACTION_PRIMARY=mathpix 지정됐으나 사용 불가 → gemini 사용")
+            return "gemini"
+        return forced
+
+    if await mathpix.is_usable_for_ocr():
+        return "mathpix"
+    return "gemini"
+
+
+async def _extract_with_mathpix(
+    pdf_bytes: bytes,
+    total_hint: int | None = None,
+    page_range: tuple[int, int] | None = None,
+) -> dict | None:
+    """Mathpix /v3/pdf 로 PDF → MMD 텍스트 추출 후 Gemini로 정답 JSON 파싱.
+
+    page_range가 지정되면 해당 페이지만 잘라 보내 Mathpix 호출 비용을 줄인다.
+    quota 에러는 mathpix 모듈이 자동으로 exhausted 마킹하므로 호출자는
+    None만 반환받으면 다음 엔진(Gemini Vision)으로 자연 폴백된다.
+    """
+    target_bytes = pdf_bytes
+    if page_range:
+        sliced = _slice_pdf(pdf_bytes, page_range)
+        if sliced:
+            target_bytes = sliced
+            logger.info(f"[Mathpix] page_range {page_range} 슬라이스: "
+                        f"{len(pdf_bytes)//1024}KB → {len(target_bytes)//1024}KB")
+        else:
+            logger.warning(f"[Mathpix] page_range 슬라이스 실패, 전체 PDF로 진행")
+
+    res = await mathpix.ocr_pdf(target_bytes, output_format="mmd")
+    if not res.get("ok"):
+        if res.get("quota_exceeded"):
+            logger.warning(f"[Mathpix] 충전량 소진 감지 → 이후 호출 자동 차단: {res.get('error')}")
+        else:
+            logger.warning(f"[Mathpix] PDF OCR 실패: {res.get('error')}")
+        return None
+
+    mmd_text = (res.get("text") or "").strip()
+    if not mmd_text:
+        logger.warning("[Mathpix] 빈 결과 텍스트")
+        return None
+
+    parsed = await parse_answers_from_pdf(mmd_text, total_hint)
+    answers = parsed.get("answers") or {}
+    types = parsed.get("types") or {}
+    answers, types = _validate_answer_types(answers, types)
+    return {
+        "answers": answers,
+        "types": types,
+        "total": len(answers),
+    }
+
+
+def _slice_pdf(pdf_bytes: bytes, page_range: tuple[int, int]) -> bytes | None:
+    """page_range(1-based, 양끝 포함)에 해당하는 페이지만 가진 PDF 바이트 반환."""
+    try:
+        src = fitz.open(stream=pdf_bytes, filetype="pdf")
+        try:
+            total = len(src)
+            start = max(0, page_range[0] - 1)
+            end = min(total, page_range[1]) - 1
+            if start > end:
+                return None
+            dst = fitz.open()
+            try:
+                dst.insert_pdf(src, from_page=start, to_page=end)
+                return dst.tobytes()
+            finally:
+                dst.close()
+        finally:
+            src.close()
+    except Exception as e:
+        logger.warning(f"[Mathpix] PDF 슬라이스 실패: {e}")
+        return None
 
 
 async def _extract_with_gemini_vision(

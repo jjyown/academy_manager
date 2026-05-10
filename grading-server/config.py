@@ -34,6 +34,29 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 # AI 모델 설정
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
+# ============================================================
+# Mathpix OCR (인쇄된 정답 PDF/교재 페이지 OCR 1순위)
+# ============================================================
+# 시험지 해설 제작 프로젝트와 동일 정책: 자격증명이 설정되어 있으면
+# 인쇄 텍스트·수식이 포함된 PDF는 Mathpix로 먼저 시도, 충전량(callsRemaining)이
+# MATHPIX_LOW_THRESHOLD 이하로 떨어지거나 quota 에러 응답을 받으면 즉시
+# exhausted 마킹되어 자동으로 Gemini Vision 으로 폴백한다.
+# (학생 답안 손글씨 OCR은 기존 Gemini+GPT-4o 파이프라인 유지)
+MATHPIX_APP_ID = os.getenv("MATHPIX_APP_ID", "")
+MATHPIX_APP_KEY = os.getenv("MATHPIX_APP_KEY", "")
+MATHPIX_API_BASE = os.getenv("MATHPIX_API_BASE", "https://api.mathpix.com")
+# 잔여 호출 수가 이 값 이하이면 사전 차단 → 폴백 경로로 우회
+MATHPIX_LOW_THRESHOLD = int(os.getenv("MATHPIX_LOW_THRESHOLD", "50"))
+# exhausted 후 자동 재시도 대기(분). 빈값/0 이면 영구 비활성(수동 reset 필요)
+_mp_retry_raw = os.getenv("MATHPIX_RETRY_AFTER_EXHAUSTION_MIN", "").strip()
+MATHPIX_RETRY_AFTER_EXHAUSTION_MIN = int(_mp_retry_raw) if _mp_retry_raw.isdigit() else 0
+# PDF 폴링 timeout / 폴링 간격(초)
+MATHPIX_PDF_TIMEOUT_SECONDS = int(os.getenv("MATHPIX_PDF_TIMEOUT_SECONDS", "300"))
+MATHPIX_PDF_POLL_INTERVAL_SECONDS = int(os.getenv("MATHPIX_PDF_POLL_INTERVAL_SECONDS", "3"))
+# 정답 PDF 추출 1순위 엔진: "mathpix" | "gemini"
+# 비워두면 Mathpix 자격증명 유무로 자동 결정 (있으면 mathpix, 없으면 gemini)
+PDF_EXTRACTION_PRIMARY = os.getenv("PDF_EXTRACTION_PRIMARY", "").strip().lower()
+
 PORT = int(os.getenv("PORT", "8000"))
 
 # CORS 허용 도메인 (쉼표 구분, 비어있으면 localhost만 허용)
