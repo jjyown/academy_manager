@@ -14,6 +14,7 @@
 ## 최근 의사결정 로그
 | 날짜 | 결정 | 이유 | 영향 범위 |
 |---|---|---|---|
+| 2026-05-10 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | grading-server/auth.py, grading-server/main.py, grading-server/routers/highroad_solution_status.py |
 | 2026-05-10 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | grading-server/main.py |
 | 2026-05-10 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | .gitignore, migrations/README.md |
 | 2026-05-10 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | grading-server/.env.example, grading-server/integrations/highroad_solution.py, grading-server/routers/answer_keys.py, grading-server/routers/public_portal_grading.py, grading-server/routers/results.py 외 4개 |
