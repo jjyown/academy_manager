@@ -955,21 +955,62 @@ async function loadEvaluation(monthStr) {
 	document.getElementById('eval-month-label').textContent = `${y}년 ${parseInt(m)}월 종합 평가`;
 
 	try {
-		const { data, error } = await supabaseClient
+		// image_url 도 함께 조회 (선생님이 「이미지 리포트」를 발송했으면 우선 표시)
+		// RLS: parent_portal_visible=false 이면 행이 조회되지 않음 → 학부모에게 비공개로 간주
+		let dbSelect = 'comment, image_url';
+		let { data, error } = await supabaseClient
 			.from('student_evaluations')
-			.select('comment')
+			.select(dbSelect)
 			.eq('student_id', currentStudent.id)
 			.eq('eval_month', target)
 			.maybeSingle();
+		// image_url 컬럼 미적용 환경 폴백
+		if (error && /image_url|column/i.test(String(error.message || ''))) {
+			const fb = await supabaseClient
+				.from('student_evaluations')
+				.select('comment')
+				.eq('student_id', currentStudent.id)
+				.eq('eval_month', target)
+				.maybeSingle();
+			data = fb.data;
+			error = fb.error;
+		}
 		if (error && error.code !== 'PGRST116') throw error;
 
 		const textarea = document.getElementById('eval-textarea');
-		// RLS: parent_portal_visible=false 이면 행이 조회되지 않음 → 학부모에게 비공개로 간주
+		const imgWrap = document.getElementById('eval-image-wrap');
+		const imgEl = document.getElementById('eval-image');
+		const evalFooter = document.getElementById('eval-footer');
+
+		const teacher = getAuthorizedTeacher();
+		const imageUrl = data && typeof data.image_url === 'string' && data.image_url.trim() ? data.image_url : '';
+
+		// 학부모 모드(선생 인증 없음) + image_url 있음 → 이미지만 표시, 텍스트·푸터 숨김
+		if (!teacher && imageUrl) {
+			if (imgEl) imgEl.src = imageUrl;
+			if (imgWrap) imgWrap.style.display = 'block';
+			if (textarea) {
+				textarea.value = '';
+				textarea.style.display = 'none';
+			}
+			if (evalFooter) evalFooter.style.display = 'none';
+			document.getElementById('eval-save-row').style.display = 'none';
+			return;
+		}
+
+		// 그 외(선생 인증 모드 OR 이미지 없음): 기존 텍스트 모드
+		if (imgWrap) imgWrap.style.display = 'none';
+		if (textarea) textarea.style.display = '';
+		if (evalFooter) evalFooter.style.display = '';
+		// 선생 인증 모드에서도 이미지가 있으면 참고용으로 함께 노출
+		if (teacher && imageUrl) {
+			if (imgEl) imgEl.src = imageUrl;
+			if (imgWrap) imgWrap.style.display = 'block';
+		}
+
 		textarea.value = data && typeof data.comment === 'string' ? data.comment : '';
 		updateEvalCharCount();
 
-		// 선생님 인증 여부에 따라 수정 가능 여부 결정
-		const teacher = getAuthorizedTeacher();
 		if (teacher) {
 			textarea.readOnly = false;
 			textarea.placeholder = '학생에 대한 종합 평가를 작성하세요 (최대 2000자)';

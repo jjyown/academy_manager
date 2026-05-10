@@ -870,8 +870,15 @@
 				</div>
 
 				<div id="eval-content" class="eval-content visible">
+					<!-- 이미지 리포트가 있으면 학부모에게 우선 표시 (선생님이 만든 전문가 양식) -->
+					<div id="eval-image-wrap" style="display:none;text-align:center;margin-bottom:14px;">
+						<img id="eval-image" src="" alt="종합평가 리포트" style="width:100%;max-width:680px;border-radius:12px;box-shadow:0 4px 16px rgba(0,0,0,0.25);background:#fff;">
+						<div style="font-size:11px;color:var(--gray);margin-top:6px;">
+							<i class="fas fa-image"></i> 선생님이 발송한 월간 종합평가 리포트 — 길게 누르면 저장 가능
+						</div>
+					</div>
 					<textarea id="eval-textarea" class="eval-textarea" placeholder="이번 달 종합 평가가 아직 작성되지 않았습니다." maxlength="2000" readonly></textarea>
-					<div class="eval-footer">
+					<div class="eval-footer" id="eval-footer">
 						<span class="eval-char"><span id="eval-char-count">0</span>/2000</span>
 						<span class="eval-hint">읽기 전용</span>
 					</div>

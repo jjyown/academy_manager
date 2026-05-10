@@ -8964,6 +8964,7 @@ window.exportStudentEvalAsImage = async function() {
             windowHeight: card.scrollHeight,
         });
 
+        // 1) 로컬 다운로드 (원장 보관용)
         const dataUrl = canvas.toDataURL('image/png');
         const a = document.createElement('a');
         const fileSafeName = String(studentName).replace(/[^\w가-힣]/g, '_');
@@ -8973,7 +8974,22 @@ window.exportStudentEvalAsImage = async function() {
         a.click();
         a.remove();
 
-        showToast('학부모 발송용 리포트 이미지가 다운로드 폴더에 저장되었습니다.', 'success');
+        // 2) Supabase Storage 업로드 + DB image_url 저장 (학부모 포털 노출용)
+        if (typeof window.uploadStudentEvalImage === 'function') {
+            try {
+                const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+                if (!blob) throw new Error('canvas → blob 변환 실패');
+                const tid = (typeof currentTeacherId !== 'undefined' && currentTeacherId) ? currentTeacherId : '';
+                const { url } = await window.uploadStudentEvalImage(studentId, evalMonth, blob, tid);
+                console.log('[exportStudentEvalAsImage] 학부모 포털용 이미지 URL 저장:', url);
+                showToast('이미지 저장 완료 — 다운로드(로컬) + 학부모 포털 발송용 업로드 모두 성공.', 'success');
+            } catch (upErr) {
+                console.warn('[exportStudentEvalAsImage] 업로드 실패(다운로드는 성공):', upErr);
+                showToast('로컬 다운로드는 됐지만 학부모 포털 업로드 실패: ' + (upErr.message || ''), 'warning');
+            }
+        } else {
+            showToast('학부모 발송용 리포트 이미지가 다운로드 폴더에 저장되었습니다.', 'success');
+        }
     } catch (e) {
         console.error('[exportStudentEvalAsImage]', e);
         showToast('이미지 생성 실패: ' + (e.message || ''), 'error');

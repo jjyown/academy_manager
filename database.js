@@ -1524,6 +1524,78 @@ window.saveStudentEvaluation = async function(studentId, evalMonth, comment, tea
     }
 }
 
+/**
+ * 종합평가 이미지(PNG Blob) 를 Supabase Storage 에 업로드 →
+ * student_evaluations.image_url 에 public URL 저장.
+ *
+ * 경로: student-eval-reports/{owner_uuid}/{student_id}_{YYYY-MM}.png
+ * 같은 학생·같은 월 재생성 시 덮어쓰기.
+ */
+window.uploadStudentEvalImage = async function(studentId, evalMonth, blob, teacherId) {
+    try {
+        const session = await _getSession();
+        if (!session) throw new Error('로그인이 필요합니다');
+        const ownerId = session.user.id;
+        if (!blob) throw new Error('이미지 데이터 없음');
+        if (!studentId || !evalMonth) throw new Error('학생/월 정보 누락');
+
+        // path: {owner_uuid}/{student_id}_{eval_month}.png
+        const path = `${ownerId}/${parseInt(studentId, 10)}_${evalMonth}.png`;
+
+        const { error: upErr } = await supabase.storage
+            .from('student-eval-reports')
+            .upload(path, blob, {
+                contentType: 'image/png',
+                upsert: true,             // 같은 path 덮어쓰기
+                cacheControl: '60'        // 학부모 포털 새로고침 시 빠르게 갱신 보이도록
+            });
+        if (upErr) {
+            console.error('[uploadStudentEvalImage] storage upload', upErr);
+            // 정책·버킷 미적용 안내
+            const msg = String(upErr.message || '');
+            if (/bucket|not\s*found|row-level|policy/i.test(msg)) {
+                throw new Error('Storage 버킷·정책이 적용되지 않았습니다. migrations/0033 SQL 을 적용해주세요.');
+            }
+            throw upErr;
+        }
+
+        const { data: pub } = supabase.storage
+            .from('student-eval-reports')
+            .getPublicUrl(path);
+        const publicUrl = pub && pub.publicUrl ? pub.publicUrl : '';
+        if (!publicUrl) throw new Error('public URL 생성 실패');
+
+        // 캐시 무효화용 timestamp 쿼리 추가 (학부모 포털에서 새로고침 시 즉시 반영)
+        const versioned = publicUrl + (publicUrl.includes('?') ? '&' : '?') + 'v=' + Date.now();
+
+        // student_evaluations 행 upsert 로 image_url 저장 (없으면 row 생성)
+        const upsertPayload = {
+            student_id: parseInt(studentId, 10),
+            eval_month: evalMonth,
+            owner_user_id: ownerId,
+            teacher_id: String(teacherId || ''),
+            image_url: versioned,
+            updated_at: new Date().toISOString()
+        };
+        const { error: dbErr } = await supabase
+            .from('student_evaluations')
+            .upsert(upsertPayload, { onConflict: 'student_id,eval_month' });
+        if (dbErr) {
+            // image_url 컬럼 없을 때 알기 쉽게 안내
+            const msg = String(dbErr.message || '');
+            if (/image_url|column/i.test(msg)) {
+                throw new Error('student_evaluations.image_url 컬럼이 없습니다. migrations/0033 SQL 을 적용해주세요.');
+            }
+            throw dbErr;
+        }
+
+        return { url: versioned, path };
+    } catch (e) {
+        console.error('[uploadStudentEvalImage] 에러:', e);
+        throw e;
+    }
+};
+
 // ========== 수업관리 메모(JSON) 관리 ==========
 // student_evaluations.class_memos / class_shared_memos를 month 단위로 로드/저장합니다.
 // class_memos: { "YYYY-MM-DD": { "HH:MM": "<memo-html>" } }
