@@ -61,6 +61,7 @@ async def mathpix_status(
         "exhausted_permanent": exhausted and MATHPIX_RETRY_AFTER_EXHAUSTION_MIN <= 0,
         "reset_performed": reset_performed,
         "usage": usage_payload,
+        "usage_diagnostic": mathpix.get_last_account_diagnostic() if usage_payload is None else None,
         "low_threshold": MATHPIX_LOW_THRESHOLD,
         "retry_after_minutes": MATHPIX_RETRY_AFTER_EXHAUSTION_MIN or None,
         "primary_pdf_engine": primary,

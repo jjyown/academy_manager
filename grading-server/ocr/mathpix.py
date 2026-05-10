@@ -65,6 +65,9 @@ _usage_cache_at: float = 0.0  # epoch ms
 
 _exhausted_until_ms: float = 0.0  # epoch ms; 0이면 사용 가능
 
+# 마지막 /v3/account 호출 진단(운영용 — mathpix-status 엔드포인트에 노출)
+_last_account_diagnostic: dict | None = None
+
 
 @dataclass
 class MathpixUsage:
@@ -136,11 +139,13 @@ async def get_account_usage(force: bool = False) -> MathpixUsage | None:
 
     응답 스키마는 Mathpix가 변경할 수 있으므로 알려진 키들을 폭넓게 매핑한다.
     인증 실패(401/403)나 미설정 시 None을 반환한다.
+    실패 사유는 _last_account_diagnostic에 기록되어 status 엔드포인트에서 조회 가능.
     """
-    global _usage_cache, _usage_cache_at
+    global _usage_cache, _usage_cache_at, _last_account_diagnostic
 
     s = _load_settings()
     if not s["app_id"] or not s["app_key"]:
+        _last_account_diagnostic = {"stage": "preflight", "reason": "credentials_missing"}
         return None
 
     now = _now_ms()
@@ -153,27 +158,70 @@ async def get_account_usage(force: bool = False) -> MathpixUsage | None:
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.get(url, headers=headers)
-        if resp.status_code in (401, 403):
-            logger.warning(f"[Mathpix] /v3/account 인증 실패: {resp.status_code}")
-            return None
-        if resp.status_code >= 400:
-            logger.warning(f"[Mathpix] /v3/account 실패 {resp.status_code}: {resp.text[:200]}")
-            return None
-        data = resp.json() or {}
     except Exception as e:
+        msg = f"network exception: {e}"
         logger.warning(f"[Mathpix] /v3/account 호출 예외: {e}")
+        _last_account_diagnostic = {"stage": "request", "reason": msg}
         return None
 
-    usage_obj = data.get("usage") if isinstance(data.get("usage"), dict) else data
+    body_preview = (resp.text or "")[:300]
+    if resp.status_code in (401, 403):
+        logger.warning(f"[Mathpix] /v3/account 인증 실패: {resp.status_code} body={body_preview}")
+        _last_account_diagnostic = {
+            "stage": "auth",
+            "status_code": resp.status_code,
+            "body_preview": body_preview,
+            "hint": "MATHPIX_APP_ID/MATHPIX_APP_KEY 값이 올바른지, 키에 trailing space나 줄바꿈이 들어가지 않았는지 확인",
+        }
+        return None
+    if resp.status_code >= 400:
+        logger.warning(f"[Mathpix] /v3/account 실패 {resp.status_code}: {body_preview}")
+        _last_account_diagnostic = {
+            "stage": "http",
+            "status_code": resp.status_code,
+            "body_preview": body_preview,
+        }
+        return None
+
+    try:
+        data = resp.json() or {}
+    except Exception as e:
+        _last_account_diagnostic = {
+            "stage": "json",
+            "reason": str(e),
+            "body_preview": body_preview,
+        }
+        return None
+
+    # 시험지 해설 제작과 동일한 폭넓은 스키마 탐색 (json.usage 또는 json.account 또는 json 자체)
+    usage_obj: dict = data
+    if isinstance(data.get("usage"), dict):
+        usage_obj = data["usage"]
+    elif isinstance(data.get("account"), dict):
+        usage_obj = data["account"]
+
     calls_this_period = _pick_int(usage_obj, [
-        "calls_this_period", "callsThisPeriod", "current_period_calls", "calls",
+        "calls_this_period", "callsThisPeriod", "current_period_calls", "calls", "api_calls",
     ])
     calls_remaining = _pick_int(usage_obj, [
         "calls_remaining", "callsRemaining", "remaining_calls", "remaining",
+        "requests_remaining", "requestsRemaining",
     ])
     billing_period_end = _pick_str(usage_obj, [
         "billing_period_end", "billingPeriodEnd", "period_end", "current_period_end",
     ])
+
+    if calls_remaining is None and calls_this_period is None:
+        # 응답은 정상(200)인데 알려진 키가 하나도 없음 → 스키마 변경 가능성
+        _last_account_diagnostic = {
+            "stage": "schema",
+            "status_code": resp.status_code,
+            "top_level_keys": list(data.keys())[:20],
+            "usage_obj_keys": list(usage_obj.keys())[:20] if isinstance(usage_obj, dict) else [],
+            "hint": "Mathpix /v3/account 응답 스키마가 코드의 키 후보와 일치하지 않음. 위 키 목록을 확인",
+        }
+    else:
+        _last_account_diagnostic = {"stage": "ok", "status_code": resp.status_code}
 
     payload = {
         "calls_this_period": calls_this_period,
@@ -184,6 +232,11 @@ async def get_account_usage(force: bool = False) -> MathpixUsage | None:
     _usage_cache = payload
     _usage_cache_at = now
     return MathpixUsage(**payload)
+
+
+def get_last_account_diagnostic() -> dict | None:
+    """마지막 /v3/account 호출 결과(성공/실패 사유). 운영 모니터링용."""
+    return _last_account_diagnostic
 
 
 def _pick_int(obj: dict, keys: list[str]) -> int | None:
