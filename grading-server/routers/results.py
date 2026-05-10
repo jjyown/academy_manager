@@ -17,6 +17,7 @@ from integrations.supabase_client import (
     update_grading_result, get_student, update_submission_grading_status,
 )
 from integrations.drive import delete_file, download_file_central
+from integrations import highroad_solution
 from grading.confirm_drive_publish import publish_graded_images_on_confirm
 from progress import clear_old_progress, get_progress, get_all_active
 
@@ -421,10 +422,47 @@ async def list_result_items(result_id: int):
     try:
         sb = get_supabase()
         res = await run_query(sb.table("grading_items").select("*").eq("result_id", result_id).order("question_number").execute)
-        return {"data": res.data or []}
+        items = res.data or []
+        # 해설제작(highroad-math-solution) 매핑이 있는 정답지면 검수 해설을 함께 내려준다.
+        await _attach_external_solutions_for_result(result_id, items)
+        return {"data": items}
     except Exception as e:
         logger.error(f"문항 조회 실패: {e}")
         raise HTTPException(status_code=500, detail=f"문항 조회 실패: {str(e)[:200]}")
+
+
+async def _attach_external_solutions_for_result(result_id: int, items: list[dict]) -> None:
+    """grading_results.answer_key_id → answer_keys.solution_source → highroad 해설 attach.
+
+    네트워크/외부 시스템 장애에도 채점 화면이 끊기지 않도록 모든 예외를 흡수.
+    """
+    if not items or not highroad_solution.is_enabled():
+        return
+    try:
+        sb = get_supabase()
+        gr = await run_query(
+            sb.table("grading_results")
+            .select("answer_key_id")
+            .eq("id", result_id)
+            .limit(1)
+            .execute
+        )
+        ak_id = (gr.data or [{}])[0].get("answer_key_id")
+        if not ak_id:
+            return
+        ak = await get_answer_key(int(ak_id))
+        if not ak:
+            return
+        labels = [str(it.get("question_label") or it.get("question_number") or "").strip() for it in items]
+        labels = [s for s in labels if s]
+        exam_map, pair_map = await highroad_solution.load_solutions_for_answer_key(ak, item_labels=labels)
+        if not exam_map and not pair_map:
+            return
+        matched = highroad_solution.attach_solutions_to_items(items, exam_map, pair_map)
+        if matched:
+            logger.info(f"[Solution] result #{result_id}: 해설 {matched}/{len(items)}건 첨부")
+    except Exception as e:
+        logger.warning(f"[Solution] result #{result_id} 해설 첨부 실패(무시): {e}")
 
 
 @router.put("/items/{item_id}")

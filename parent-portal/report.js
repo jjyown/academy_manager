@@ -1407,16 +1407,32 @@ async function openPortalGradingItemsModal(resultId, verificationCode) {
 			return;
 		}
 		let rows = '';
-		for (const it of items) {
+		for (let i = 0; i < items.length; i++) {
+			const it = items[i];
 			const qn = it.question_label || `#${it.question_number}`;
 			const corr = it.is_correct === true ? '○' : it.is_correct === false ? '×' : '—';
-			rows += `<tr><td>${escapeHtml(String(qn))}</td><td>${escapeHtml(corr)}</td><td>${escapeHtml(String(it.student_answer ?? ''))}</td><td>${escapeHtml(String(it.correct_answer ?? ''))}</td></tr>`;
+			const hasSol = !!it.solution_body;
+			const solBtn = hasSol
+				? ` <button type="button" class="pp-sol-toggle" data-idx="${i}" aria-label="해설 보기">📖</button>`
+				: '';
+			rows += `<tr><td>${escapeHtml(String(qn))}${solBtn}</td><td>${escapeHtml(corr)}</td><td>${escapeHtml(String(it.student_answer ?? ''))}</td><td>${escapeHtml(String(it.correct_answer ?? ''))}</td></tr>`;
+			if (hasSol) {
+				rows += `<tr id="pp-sol-${i}" style="display:none;"><td colspan="4" class="pp-sol-cell"><pre class="pp-sol-body">${escapeHtml(String(it.solution_body))}</pre></td></tr>`;
+			}
 		}
 		bodyEl.innerHTML = `
 			<table class="pp-grading-items-table">
 				<thead><tr><th>문항</th><th>정오</th><th>학생 답</th><th>정답</th></tr></thead>
 				<tbody>${rows}</tbody>
 			</table>`;
+		bodyEl.querySelectorAll('.pp-sol-toggle').forEach(btn => {
+			btn.addEventListener('click', e => {
+				e.stopPropagation();
+				const i = btn.getAttribute('data-idx');
+				const row = document.getElementById(`pp-sol-${i}`);
+				if (row) row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
+			});
+		});
 	} catch (e) {
 		bodyEl.innerHTML = `<p class="pp-grading-err">${escapeHtml(String(e.message || e))}</p>`;
 	}

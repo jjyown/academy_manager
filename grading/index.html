@@ -951,6 +951,28 @@
 			</div>
 		</div>
 
+		<!-- 해설지 매핑 (highroad-math-solution 검수 완료 해설을 채점 결과에 노출) -->
+		<div class="card">
+			<div class="card-title" style="justify-content:space-between;">
+				<span><i class="fas fa-link"></i> 해설지 매핑 <span style="font-size:11px;color:var(--text-sec);font-weight:400;margin-left:6px;">(선택)</span></span>
+				<span id="kd-solution-status" style="font-size:11px;color:var(--text-sec);font-weight:400;"></span>
+			</div>
+			<div style="font-size:12px;color:var(--text-sec);line-height:1.55;margin-bottom:10px;">
+				「시험지 해설 제작」에서 작업해 둔 검수 완료 해설을 채점 결과·학생 포털에 자동 표시하려면 시험명 또는 교재 시리즈명을 적어주세요.<br>
+				둘 중 <strong>하나만</strong> 사용. 비워두면 매핑 없음(현재와 동일).
+			</div>
+			<div style="display:flex;gap:8px;flex-wrap:wrap;">
+				<div class="form-group" style="flex:1;margin-bottom:0;min-width:200px;">
+					<label class="form-label">시험명 (exam_solutions.exam_name)</label>
+					<input class="input" id="kd-solution-exam-name" placeholder="예: 2026 모의고사 1회" oninput="markKdDirty();onSolutionMappingChange()">
+				</div>
+				<div class="form-group" style="flex:1;margin-bottom:0;min-width:200px;">
+					<label class="form-label">교재 시리즈명 (analysis_records.pair_series)</label>
+					<input class="input" id="kd-solution-pair-series" placeholder="예: 쎈 대수" oninput="markKdDirty();onSolutionMappingChange()">
+				</div>
+			</div>
+		</div>
+
 		<!-- 2단 레이아웃: 왼쪽 미리보기 / 오른쪽 문제목록 -->
 		<div class="kd-split">
 			<!-- 왼쪽: 페이지 이미지 미리보기 -->
@@ -4253,6 +4275,12 @@ async function openKeyDetail(keyId) {
 	document.getElementById('kd-subject').value = currentKeyDetail.subject || '';
 	document.getElementById('kd-grade-level').value = currentKeyDetail.grade_level || '';
 
+	// 해설지 매핑 — answer_keys.solution_source jsonb 를 두 input 으로 분리
+	const ss = currentKeyDetail.solution_source || {};
+	document.getElementById('kd-solution-exam-name').value = (ss && typeof ss === 'object' && ss.exam_name) || '';
+	document.getElementById('kd-solution-pair-series').value = (ss && typeof ss === 'object' && ss.pair_series) || '';
+	onSolutionMappingChange();
+
 	// 페이지 이미지 + 북마크 + 영역
 	kdPageImages = currentKeyDetail.page_images_json || [];
 	kdBookmarks = currentKeyDetail.bookmarks_json || [];
@@ -4953,6 +4981,27 @@ function removeQuestion(idx) {
 	renderKeyQuestions();
 }
 
+function onSolutionMappingChange() {
+	// 두 입력 중 하나에 값이 있으면 다른 한 쪽은 비활성화 인상을 주는 라벨만 안내(저장 시에는 둘 다 사용 가능)
+	const exam = document.getElementById('kd-solution-exam-name')?.value.trim() || '';
+	const pair = document.getElementById('kd-solution-pair-series')?.value.trim() || '';
+	const status = document.getElementById('kd-solution-status');
+	if (!status) return;
+	if (!exam && !pair) {
+		status.textContent = '매핑 없음 — 해설 표시 안 됨';
+		status.style.color = 'var(--text-sec)';
+	} else if (exam && pair) {
+		status.textContent = '시험명 우선 사용, 누락 시 시리즈로 폴백';
+		status.style.color = 'var(--yellow)';
+	} else if (exam) {
+		status.textContent = '시험명으로 매핑됨';
+		status.style.color = 'var(--green)';
+	} else {
+		status.textContent = '교재 시리즈로 매핑됨';
+		status.style.color = 'var(--green)';
+	}
+}
+
 async function saveKeyDetail() {
 	if (!currentKeyDetail) return;
 
@@ -4972,6 +5021,16 @@ async function saveKeyDetail() {
 
 	if (!title) { showToast('교재명을 입력하세요', 'error'); return; }
 
+	// 해설지 매핑 직렬화 — exam_name/pair_series 둘 다 비면 null 로 전송하여 컬럼을 비움
+	const examName = document.getElementById('kd-solution-exam-name').value.trim();
+	const pairSeries = document.getElementById('kd-solution-pair-series').value.trim();
+	let solutionSource = null;
+	if (examName || pairSeries) {
+		solutionSource = { system: 'highroad' };
+		if (examName) solutionSource.exam_name = examName;
+		if (pairSeries) solutionSource.pair_series = pairSeries;
+	}
+
 	try {
 		const res = await fetch(`${GRADING_SERVER_URL}/api/answer-keys/${currentKeyDetail.id}`, {
 			method: 'PUT',
@@ -4986,6 +5045,7 @@ async function saveKeyDetail() {
 				total_questions: Object.keys(answersJson).length,
 				bookmarks_json: kdBookmarks,
 				regions_json: kdRegions,
+				solution_source: solutionSource,
 			}),
 		});
 		if (!res.ok) { showToast('저장 실패', 'error'); return; }
@@ -5626,12 +5686,18 @@ function renderAnswerPanel() {
 		const mismatch = !isUnanswered && item.is_correct !== null && item.student_answer && item.correct_answer
 			&& item.student_answer.trim() !== item.correct_answer.trim() && item.is_correct === true;
 
+		const hasSol = !!item.solution_body;
+		const solBadge = hasSol ? `<span style="font-size:9px;padding:1px 4px;border-radius:3px;background:rgba(201,167,74,0.15);color:var(--primary);margin-left:4px;cursor:pointer;" onclick="event.stopPropagation();toggleInlineSolution(${idx})" title="해설 보기">📖</span>` : '';
+
 		html += `<tr class="${selClass}" style="${rowStyle}" onclick="selectItem(${idx})" id="summary-row-${idx}">
-			<td style="font-weight:700;font-size:11px;">${item.question_label || item.question_number}</td>
+			<td style="font-weight:700;font-size:11px;">${item.question_label || item.question_number}${solBadge}</td>
 			<td class="student-ans">${studentAns}${warnIcon}</td>
 			<td class="correct-ans">${correctAns}</td>
 			<td style="text-align:center;">${statusCell}${confBar}</td>
 		</tr>`;
+		if (hasSol) {
+			html += `<tr id="inline-sol-${idx}" style="display:none;"><td colspan="4" style="padding:0 4px 6px;">${_renderSolutionBlock(item)}</td></tr>`;
+		}
 	});
 	html += '</tbody></table>';
 
@@ -5678,7 +5744,33 @@ function _renderDetailItem(item, idx) {
 		<div class="ap-row"><span class="ap-label">학생 답</span><span class="ap-val" style="color:var(--text);">${escapeHtml(item.student_answer || '(없음)')}</span></div>
 		<div class="ap-row"><span class="ap-label">정답</span><span class="ap-val" style="color:var(--green);">${escapeHtml(item.correct_answer || '-')}</span></div>
 		${item.ai_feedback ? `<div style="font-size:11px;color:var(--text-sec);margin-top:4px;"><i class="fas fa-robot" style="margin-right:3px;"></i>${escapeHtml(item.ai_feedback)}</div>` : ''}
+		${_renderSolutionBlock(item)}
 		${quickBtns}
+	</div>`;
+}
+
+// 해설제작(highroad-math-solution) 검수 본문을 채점 패널에 표시.
+// 본문은 마크다운/LaTeX 가 섞여 들어올 수 있으나 별도 렌더러는 도입하지 않고 monospace pre 로 안전하게 노출.
+function toggleInlineSolution(idx) {
+	const row = document.getElementById(`inline-sol-${idx}`);
+	if (!row) return;
+	row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
+}
+
+function _renderSolutionBlock(item) {
+	const body = item && item.solution_body;
+	if (!body) return '';
+	const kind = item.solution_source_kind === 'analysis_records' ? '교재 시리즈' : '검수 해설';
+	const status = item.solution_status === 'verified' ? '검수완료' : '초안';
+	const statusColor = item.solution_status === 'verified' ? 'var(--green)' : 'var(--yellow)';
+	return `<div class="ap-solution" style="margin-top:8px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);">
+		<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+			<i class="fas fa-lightbulb" style="color:var(--primary);font-size:11px;"></i>
+			<span style="font-size:11px;font-weight:700;color:var(--primary);">해설</span>
+			<span style="font-size:10px;color:var(--text-sec);">${kind}</span>
+			<span style="font-size:10px;color:${statusColor};margin-left:auto;">${status}</span>
+		</div>
+		<pre style="white-space:pre-wrap;word-break:break-word;font-family:'Pretendard',sans-serif;font-size:12px;line-height:1.6;color:var(--text);margin:0;">${escapeHtml(body)}</pre>
 	</div>`;
 }
 

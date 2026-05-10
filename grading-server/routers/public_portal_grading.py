@@ -10,8 +10,10 @@ from integrations.supabase_client import (
     get_supabase,
     get_student,
     get_grading_results_by_student,
+    get_answer_key,
     run_query,
 )
+from integrations import highroad_solution
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +46,10 @@ _PUBLIC_ITEM_FIELDS = {
     "correct_answer",
     "is_correct",
     "ai_feedback",
+    # highroad-math-solution 매핑 시 첨부 — 학생/학부모 포털에서도 노출
+    "solution_body",
+    "solution_source_kind",
+    "solution_status",
 }
 
 
@@ -121,7 +127,7 @@ async def list_confirmed_result_items_for_portal(result_id: int, verification_co
     sb = get_supabase()
     res = await run_query(
         sb.table("grading_results")
-        .select("id, student_id, status")
+        .select("id, student_id, status, answer_key_id")
         .eq("id", result_id)
         .limit(1)
         .execute
@@ -144,4 +150,20 @@ async def list_confirmed_result_items_for_portal(result_id: int, verification_co
         .execute
     )
     raw = items_res.data or []
+
+    # 검수 완료 해설 첨부 — 외부 시스템 장애에도 채점 결과 자체는 노출되도록 안전하게.
+    if raw and highroad_solution.is_enabled():
+        ak_id = row.get("answer_key_id")
+        if ak_id:
+            try:
+                ak = await get_answer_key(int(ak_id))
+                if ak:
+                    labels = [str(it.get("question_label") or it.get("question_number") or "").strip() for it in raw]
+                    labels = [s for s in labels if s]
+                    exam_map, pair_map = await highroad_solution.load_solutions_for_answer_key(ak, item_labels=labels)
+                    if exam_map or pair_map:
+                        highroad_solution.attach_solutions_to_items(raw, exam_map, pair_map)
+            except Exception as e:
+                logger.warning(f"[Portal] 해설 첨부 실패(무시) result={result_id}: {e}")
+
     return {"data": _sanitize_items(raw)}

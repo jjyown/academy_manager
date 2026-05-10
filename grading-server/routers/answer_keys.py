@@ -39,6 +39,20 @@ async def update_answer_key(key_id: int, request: Request):
             raise HTTPException(404, "교재를 찾을 수 없습니다")
         old_key = existing.data[0]
 
+        # 소유권 검증 — 본 라우터는 SUPABASE_SERVICE_KEY 로 RLS 를 우회하므로
+        # 애플리케이션 레벨에서 반드시 teacher_id 일치를 확인해야 한다.
+        # JWT 미들웨어가 활성화된 경우 request.state.user.sub 를 신뢰.
+        # 미설정(개발용)이면 body.teacher_id 를 폴백으로 허용.
+        user = getattr(request.state, "user", None)
+        caller_id = (user or {}).get("sub") if isinstance(user, dict) else None
+        if not caller_id:
+            caller_id = (body.get("teacher_id") or "").strip() or None
+        if caller_id and old_key.get("teacher_id") and old_key["teacher_id"] != caller_id:
+            logger.warning(
+                f"[AnswerKey] 소유권 위반 시도: caller={caller_id} key#{key_id} owner={old_key.get('teacher_id')}"
+            )
+            raise HTTPException(403, "이 교재를 수정할 권한이 없습니다")
+
         update_data = {}
 
         if "title" in body:
@@ -65,6 +79,14 @@ async def update_answer_key(key_id: int, request: Request):
             update_data["regions_json"] = body["regions_json"]
         if "grade_level" in body:
             update_data["grade_level"] = body["grade_level"]
+        if "solution_source" in body:
+            # 외부 해설 시스템(highroad-math-solution) 매핑(jsonb). 비우려면 null 명시.
+            ss = body["solution_source"]
+            if ss in (None, ""):
+                update_data["solution_source"] = None
+            elif isinstance(ss, dict):
+                update_data["solution_source"] = ss
+            # 기타 타입은 무시 — 잘못된 입력으로 컬럼을 깨뜨리지 않음
 
         if not update_data:
             return {"success": False, "message": "수정할 내용이 없습니다"}
@@ -81,7 +103,17 @@ async def update_answer_key(key_id: int, request: Request):
 
 
 @router.delete("/{key_id}")
-async def delete_answer_key(key_id: int, teacher_id: str):
+async def delete_answer_key(key_id: int, teacher_id: str, request: Request):
+    # JWT 가 있으면 sub 로 강제 일치 — 쿼리 파라미터를 신뢰하지 않는다.
+    # JWT 미설정 환경에서는 쿼리 폴백 허용(기존 동작 유지).
+    user = getattr(request.state, "user", None)
+    caller_id = (user or {}).get("sub") if isinstance(user, dict) else None
+    if caller_id and caller_id != teacher_id:
+        logger.warning(
+            f"[AnswerKey] 삭제 소유권 위반 시도: caller={caller_id} 가 teacher_id={teacher_id} 로 위장"
+        )
+        raise HTTPException(403, "이 교재를 삭제할 권한이 없습니다")
+
     sb = get_supabase()
     record = await run_query(sb.table("answer_keys").select("id, title, page_images_json").eq(
         "id", key_id
