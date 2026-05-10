@@ -171,16 +171,26 @@
                 // 셀 하단에 일정 이름을 직접 텍스트로 표기 (호버 의존 X)
                 const wrap = document.createElement('div');
                 wrap.className = 'acev-text';
+                // 셀이 좁아 잘리는 경우를 대비해 title 으로 전체 정보 보존(호버 fallback)
+                const fullTip = `${school.name}\n` + events.map((e) => {
+                    const sub = e.content && e.content !== e.name ? ` · ${e.content}` : '';
+                    return `· ${e.name}${sub}`;
+                }).join('\n');
+                wrap.title = fullTip;
                 events.slice(0, 2).forEach((e) => {
                     const line = document.createElement('div');
                     line.className = 'acev-text-line';
                     line.textContent = e.name;
+                    line.title = e.content && e.content !== e.name
+                        ? `${e.name} · ${e.content}`
+                        : e.name;
                     wrap.appendChild(line);
                 });
                 if (events.length > 2) {
                     const more = document.createElement('div');
                     more.className = 'acev-text-more';
-                    more.textContent = `+${events.length - 2}`;
+                    more.textContent = `+${events.length - 2}건`;
+                    more.title = events.slice(2).map((e) => e.name).join(', ');
                     wrap.appendChild(more);
                 }
                 cell.appendChild(wrap);
@@ -250,42 +260,53 @@
     .acev-badge i { font-size: 7px; }
 }
 
-/* text 모드: 셀 본문에 일정 이름을 직접 표기 (호버 의존 X) */
+/* text 모드: 셀 본문에 일정 이름을 직접 표기 (호버 의존 X)
+   라이트·다크 배경 모두에서 잘 보이도록 솔리드 인디고 + 흰 글자 */
 .acev-text {
     margin-top: 3px;
     display: flex;
     flex-direction: column;
-    gap: 1px;
+    gap: 2px;
     pointer-events: none;
+    align-items: center;
+    width: 100%;
+    padding: 0 2px;
+    box-sizing: border-box;
 }
 .acev-text-line {
-    background: rgba(79, 70, 229, 0.12);
-    color: #4f46e5;
-    border-left: 2px solid #4f46e5;
-    border-radius: 3px;
-    padding: 1px 4px;
+    background: #6366f1;                 /* 솔리드 인디고 — 라이트·다크 모두 OK */
+    color: #ffffff;
+    border-radius: 4px;
+    padding: 1px 5px;
     font-size: 9px;
-    line-height: 1.25;
-    font-weight: 600;
-    white-space: nowrap;
+    line-height: 1.2;
+    font-weight: 700;
+    /* 캘린더 셀이 늘 좁아서 기본부터 2줄 wrap 허용 (한국어는 어절 보존) */
+    white-space: normal;
+    word-break: keep-all;
+    overflow-wrap: break-word;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
     overflow: hidden;
-    text-overflow: ellipsis;
+    text-align: center;
     max-width: 100%;
+    box-shadow: 0 1px 1px rgba(0, 0, 0, 0.15);
 }
 .acev-text-more {
     font-size: 9px;
-    color: #94a3b8;
-    font-weight: 600;
-    padding-left: 4px;
+    color: #ffffff;
+    font-weight: 700;
+    background: rgba(99, 102, 241, 0.55);
+    padding: 0 5px;
+    border-radius: 4px;
+    line-height: 1.3;
 }
-/* 다크 테마 (학부모 포털 등) */
-@media (prefers-color-scheme: dark) {
-    .acev-text-line {
-        background: rgba(165, 180, 252, 0.18);
-        color: #c7d2fe;
-        border-left-color: #818cf8;
-    }
-    .acev-text-more { color: #cbd5e1; }
+/* 매우 좁은 모바일에선 폰트 한 단계 더 줄임 */
+@media (max-width: 380px) {
+    .acev-text-line { font-size: 8px; padding: 0 3px; line-height: 1.15; }
+    .acev-text-more { font-size: 8px; }
+    .acev-text { gap: 1px; }
 }`;
         document.head.appendChild(style);
     }
