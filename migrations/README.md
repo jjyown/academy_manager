@@ -31,9 +31,20 @@
 | 0023 | grading_assignments_due_time_20260330 | 채점 과제 마감 시각 |
 | 0024 | homework_submission_grading_assignment_20260330 | 숙제↔과제 연결 |
 | 0025 | grading_confirm_drive_20260405 | 채점 확정 Drive 게시 |
+| 0026 | consolidate_rls_policies_20260509 | RLS 정책 통합 |
+| 0027 | revoke_trigger_func_execute_20260509 | 트리거 함수 EXECUTE 회수 |
+| 0029 | index_cleanup_20260509 | 미사용 인덱스 정리 |
+| 0030 | drop_answer_keys_broad_read_20260509 | answer_keys 광역 읽기 정책 제거 |
+| 0031 | admissions_knowledge_20260510 | 입시 지식 베이스 테이블 |
+| 0032 | admissions_knowledge_weekly_cron_20260510 | 입시 지식 주간 수집 cron |
+| 0033 | student_eval_image_url_20260510 | 학생 평가 이미지 URL |
+| 0034 | cleanup_expired_reset_codes_20260510 | 만료 reset code 자동 삭제 cron |
+| 0035 | answer_keys_solution_source_20260510 | answer_keys.solution_source(jsonb) — 외부 해설 시스템 매핑 |
+
+> 0028 은 결번. 운영에 적용된 모든 마이그레이션은 위 표 순서대로 실행되어 있다.
 
 ## 새 마이그레이션 추가 시
 
-1. 다음 번호(`0026_...`)로 `migrations/` 에 추가
+1. 다음 번호(`0036_...`)로 `migrations/` 에 추가. **번호 충돌 절대 금지** — 기존 번호 재사용 시 적용 누락 사고가 발생할 수 있다.
 2. Supabase SQL Editor에서 실행 후 운영에 반영
 3. 커밋 시 적용 일시(KST)와 작업 컨텍스트를 commit message에 명시

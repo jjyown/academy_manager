@@ -48,3 +48,6 @@ migrations/_GENERATED_*.sql
 qa-artifacts/runtime-*.json
 qa-artifacts/report.json
 qa-artifacts/quick-recheck-report.json
+
+# Supabase CLI 로컬 캐시(연결 프로젝트 정보 등 — 사용자별 상태)
+supabase/.temp/
