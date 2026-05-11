@@ -2345,7 +2345,27 @@ async function setCurrentTeacher(teacher) {
         } else {
             setTimeout(runDeferredAutoAbsentAndRepaint, 0);
         }
-        
+
+        // 학사일정 구독 자동 동기화 — 페이지 진입 시점에도 1회 보정.
+        // 학생 CRUD 시점에는 이미 동기화되지만, 사용자가 localStorage 캐시를
+        // 비우거나 다른 기기로 접속한 경우엔 학생-구독 정합성이 깨질 수 있어
+        // 페이지 로드 시 1회 보정. 백그라운드(idle) 로 실행해 UI 블록 안 함.
+        const runDeferredAcademicSync = () => {
+            if (typeof window.syncAcademicSchoolSubscriptionsFromStudents !== 'function') return;
+            try {
+                Promise.resolve(
+                    window.syncAcademicSchoolSubscriptionsFromStudents(students, { silent: true })
+                ).catch((e) => console.warn('[학사일정 sync init]', e));
+            } catch (e) {
+                console.warn('[학사일정 sync init]', e);
+            }
+        };
+        if (typeof requestIdleCallback === 'function') {
+            requestIdleCallback(runDeferredAcademicSync, { timeout: 3500 });
+        } else {
+            setTimeout(runDeferredAcademicSync, 200);
+        }
+
         console.log('[setCurrentTeacher] 완료 - 선생님:', teacher.name);
     } catch (err) {
         console.error('[setCurrentTeacher] 에러 발생:', err);
