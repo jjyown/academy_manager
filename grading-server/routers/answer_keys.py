@@ -13,6 +13,7 @@ from integrations.supabase_client import (
 from integrations.drive import (
     download_file_central, upload_page_images_to_central,
     search_answer_pdfs_central, delete_page_images_folder,
+    upload_homework_material_pdf,
 )
 from grading.pdf_parser import extract_answers_from_pdf
 from grading.hml_parser import extract_answers_from_hml, build_hml_answer_preview_images
@@ -237,3 +238,104 @@ async def list_drive_pdfs():
         raise HTTPException(400, "중앙 관리 드라이브가 연결되지 않았습니다")
     pdfs = search_answer_pdfs_central(central_token, CENTRAL_GRADING_MATERIAL_FOLDER)
     return {"data": pdfs}
+
+
+@router.post("/upload-custom-material")
+async def upload_custom_material(
+    teacher_id: str = Form(...),
+    title: str = Form(...),
+    subject: str = Form(""),
+    grade_level: str = Form(""),
+    year: int = Form(...),
+    month: int = Form(...),
+    day: int = Form(...),
+    pdf_file: UploadFile = File(...),
+    answer_page_range: str = Form(""),
+    total_hint: int = Form(None),
+):
+    """자체제작 숙제 PDF 업로드 → 파싱 → answer_keys 등록(source_type='custom').
+
+    Drive 저장 경로:
+        숙제 관리 / 학생들에게 나간숙제 자료 / {year}년 / {month}월 / {day}일 / {YYYY-MM-DD-title}.pdf
+
+    페이지 이미지는 시중교재와 동일하게 "숙제 관리/교재/{grade_level}/{title}/" 에 저장 —
+    자동채점 파이프라인이 시중/자체제작을 구분 없이 동일 풀에서 처리하도록 일관성 유지.
+
+    선행: 마이그레이션 0037(answer_keys.source_type + custom_material_uploaded_at) 적용 필요.
+    """
+    if not (1 <= month <= 12):
+        raise HTTPException(400, "month 는 1~12 사이여야 합니다")
+    if not (1 <= day <= 31):
+        raise HTTPException(400, "day 는 1~31 사이여야 합니다")
+    if year < 2000 or year > 2100:
+        raise HTTPException(400, "year 가 유효하지 않습니다")
+
+    central_token = await get_central_admin_token()
+    if not central_token:
+        raise HTTPException(503, "중앙 관리 드라이브가 연결되지 않았습니다")
+
+    file_bytes = await pdf_file.read()
+    if not file_bytes:
+        raise HTTPException(400, "빈 PDF 입니다")
+
+    drive_meta = upload_homework_material_pdf(
+        central_token, year, month, day, title, file_bytes,
+    )
+    logger.info(
+        f"[CustomMaterial] '{title}' Drive 업로드 완료: file={drive_meta['filename']} id={drive_meta['id']}"
+    )
+
+    page_range = None
+    if answer_page_range.strip():
+        page_range = parse_page_range(answer_page_range.strip())
+    result = await extract_answers_from_pdf(file_bytes, total_hint=total_hint, page_range=page_range)
+    raw_page_images = result.pop("page_images", [])
+
+    page_images_json: list[dict] = []
+    if raw_page_images:
+        try:
+            page_images_json = upload_page_images_to_central(
+                central_token, title, raw_page_images,
+                grade_level=(grade_level or "").strip() or None,
+            )
+        except Exception as e:
+            logger.warning(f"[CustomMaterial] 페이지 이미지 Drive 업로드 실패, base64 fallback: {e}")
+            page_images_json = []
+        if not page_images_json:
+            for img in raw_page_images:
+                b64 = base64.b64encode(img["image_bytes"]).decode("utf-8")
+                page_images_json.append({
+                    "page": img["page"],
+                    "url": f"data:image/jpeg;base64,{b64}",
+                })
+
+    key_data = {
+        "teacher_id": teacher_id,
+        "title": title,
+        "subject": subject,
+        "grade_level": (grade_level or "").strip(),
+        "drive_file_id": drive_meta["id"],
+        "total_questions": result.get("total", 0),
+        "answers_json": result.get("answers", {}),
+        "question_types_json": result.get("types", {}),
+        "page_images_json": page_images_json,
+        "parsed": True,
+        "source_type": "custom",
+        "custom_material_uploaded_at": datetime.now(timezone.utc).isoformat(),
+    }
+    saved = await upsert_answer_key(key_data)
+    logger.info(
+        f"[CustomMaterial] '{title}' answer_keys 저장 완료 "
+        f"(정답 {result.get('total', 0)}문제, 페이지 이미지 {len(page_images_json)}장, "
+        f"drive_file_id={drive_meta['id']})"
+    )
+
+    return {
+        "data": saved,
+        "parsed_result": result,
+        "drive": {
+            "file_id": drive_meta["id"],
+            "filename": drive_meta["filename"],
+            "url": drive_meta.get("web_url") or drive_meta.get("url"),
+        },
+    }

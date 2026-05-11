@@ -13,6 +13,7 @@ from config import (
     CENTRAL_GRADED_RESULT_FOLDER,
     CENTRAL_INSTANT_GRADE_FOLDER,
     CENTRAL_SUBMIT_FOLDER,
+    CENTRAL_HOMEWORK_MATERIAL_FOLDER,
     CENTRAL_PAGE_IMAGES_FOLDER,
     CENTRAL_GRADE_LEVEL_FOLDERS,
 )
@@ -105,7 +106,7 @@ def resolve_central_root_folder_id(service) -> str:
 
 
 def _ensure_homework_structure_with_service(service) -> str:
-    """숙제 관리 루트 및 고정 하위 폴더(교재/학년, 제출 원본, 채점 결과)를 생성하고 루트 폴더 ID를 반환."""
+    """숙제 관리 루트 및 고정 하위 폴더(교재/학년, 제출 원본, 채점 결과, 즉시채점, 자체제작 숙제 자료)를 생성하고 루트 폴더 ID를 반환."""
     root_id = resolve_central_root_folder_id(service)
     material_id = _find_or_create_folder(service, CENTRAL_GRADING_MATERIAL_FOLDER, root_id)
     for grade_name in CENTRAL_GRADE_LEVEL_FOLDERS:
@@ -113,6 +114,7 @@ def _ensure_homework_structure_with_service(service) -> str:
     _find_or_create_folder(service, CENTRAL_SUBMIT_FOLDER, root_id)
     _find_or_create_folder(service, CENTRAL_GRADED_RESULT_FOLDER, root_id)
     _find_or_create_folder(service, CENTRAL_INSTANT_GRADE_FOLDER, root_id)
+    _find_or_create_folder(service, CENTRAL_HOMEWORK_MATERIAL_FOLDER, root_id)
     return root_id
 
 
@@ -181,6 +183,55 @@ def prepare_upload_target(central_token: str, folder_name: str, sub_path: list[s
     for folder in sub_path:
         parent = _find_or_create_folder(service, folder, parent)
     return service, parent
+
+
+def prepare_homework_material_upload_target(central_token: str, year: int, month: int, day: int):
+    """자체제작 숙제 PDF 업로드 대상 폴더 준비.
+
+    경로: {CENTRAL_ROOT_FOLDER} / {CENTRAL_HOMEWORK_MATERIAL_FOLDER} / {year}년 / {month}월 / {day}일 /
+
+    Returns: (service, leaf_parent_id) — 동일 날짜로 여러 PDF 올릴 때 재사용.
+    """
+    service = _build_service(central_token)
+    root = _ensure_homework_structure_with_service(service)
+    parent = _find_or_create_folder(service, CENTRAL_HOMEWORK_MATERIAL_FOLDER, root)
+    parent = _find_or_create_folder(service, f"{year}년", parent)
+    parent = _find_or_create_folder(service, f"{month}월", parent)
+    parent = _find_or_create_folder(service, f"{day}일", parent)
+    return service, parent
+
+
+def build_homework_material_filename(year: int, month: int, day: int, title: str) -> str:
+    """자체제작 숙제 PDF 파일명 규칙(운영 합의 2026-05-11): YYYY-MM-DD-{숙제명}.pdf"""
+    safe_title = (title or "").strip().replace("/", "-").replace("\\", "-").replace("'", "").replace('"', "")
+    if not safe_title:
+        safe_title = "숙제"
+    return f"{year:04d}-{month:02d}-{day:02d}-{safe_title}.pdf"
+
+
+def upload_homework_material_pdf(central_token: str, year: int, month: int, day: int,
+                                 title: str, pdf_bytes: bytes, retries: int = 2) -> dict:
+    """자체제작 숙제 PDF 단발성 업로드.
+
+    저장 경로: 숙제 관리 / 학생들에게 나간숙제 자료 / {year}년 / {month}월 / {day}일 / {YYYY-MM-DD-숙제명}.pdf
+
+    Returns: {"id", "url", "web_url", "filename"} — answer_keys.drive_file_id 저장용.
+    """
+    filename = build_homework_material_filename(year, month, day, title)
+    last_err = None
+    for attempt in range(1, retries + 1):
+        try:
+            service, parent = prepare_homework_material_upload_target(central_token, year, month, day)
+            uploaded = _upload_file(service, parent, filename, pdf_bytes, "application/pdf")
+            uploaded["filename"] = filename
+            return uploaded
+        except Exception as e:
+            last_err = e
+            logger.warning(f"[Drive] 자체제작 숙제 PDF 업로드 실패 (시도 {attempt}/{retries}, file={filename}): {e}")
+            if attempt < retries:
+                import time
+                time.sleep(1.5 * attempt)
+    raise RuntimeError(f"자체제작 숙제 PDF 업로드 실패 ({filename}): {last_err}")
 
 
 def upload_to_target(service, parent_id: str, filename: str, image_bytes: bytes,

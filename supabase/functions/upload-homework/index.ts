@@ -19,6 +19,8 @@ const DRIVE_MATERIAL_FOLDER = "교재";
 const DRIVE_GRADE_LEVEL_FOLDERS = ["중1", "중2", "중3", "고1", "고2", "고3"] as const;
 const DRIVE_SUBMIT_FOLDER = "제출 과제 원본";
 const DRIVE_GRADED_FOLDER = "채점 결과";
+const DRIVE_INSTANT_GRADE_FOLDER = "즉시채점";
+const DRIVE_HOMEWORK_MATERIAL_FOLDER = "학생들에게 나간숙제 자료";
 
 function extractBearerToken(req: Request): string | null {
   const authHeader = req.headers.get("Authorization") || req.headers.get("authorization");
@@ -129,7 +131,7 @@ async function getOrCreateSubFolder(
   return createData.id;
 }
 
-/** 숙제 관리 / 교재/{중1~고3} / 제출 과제 원본 / 채점 결과 고정 트리 생성(멱등) */
+/** 숙제 관리 / 교재/{중1~고3} / 제출 과제 원본 / 채점 결과 / 즉시채점 / 학생들에게 나간숙제 자료 고정 트리 생성(멱등) */
 async function ensureHomeworkDriveLayout(accessToken: string): Promise<string> {
   const centralRoot = await getOrCreateSubFolder(accessToken, DRIVE_ROOT_FOLDER, null);
   const materialRoot = await getOrCreateSubFolder(
@@ -142,6 +144,8 @@ async function ensureHomeworkDriveLayout(accessToken: string): Promise<string> {
   }
   await getOrCreateSubFolder(accessToken, DRIVE_SUBMIT_FOLDER, centralRoot);
   await getOrCreateSubFolder(accessToken, DRIVE_GRADED_FOLDER, centralRoot);
+  await getOrCreateSubFolder(accessToken, DRIVE_INSTANT_GRADE_FOLDER, centralRoot);
+  await getOrCreateSubFolder(accessToken, DRIVE_HOMEWORK_MATERIAL_FOLDER, centralRoot);
   return centralRoot;
 }
 

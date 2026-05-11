@@ -64,9 +64,11 @@ PORT = int(os.getenv("PORT", "8000"))
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "")
 
 # 중앙 드라이브 폴더 구조:
-#   숙제 관리 / 교재 / {중1,중2,중3,고1,고2,고3}
+#   숙제 관리 / 교재 / {중1,중2,중3,고1,고2,고3}              ← 시중교재(미리 파싱) 풀
 #   숙제 관리 / 제출 과제 원본 / {N년}/{N월}/{N일}/{학생이름}
 #   숙제 관리 / 채점 결과 / {N년}/{N월}/{N일}/{학생이름}
+#   숙제 관리 / 즉시채점 / {N년}/{N월}/{N일}/{폴더라벨}
+#   숙제 관리 / 학생들에게 나간숙제 자료 / {N년}/{N월}/{N일}/  ← 자체제작 숙제 PDF
 # (기존 배포는 .env로 이전 이름 유지 가능)
 CENTRAL_ROOT_FOLDER = os.getenv("CENTRAL_ROOT_FOLDER", "숙제 관리")
 # Edge upload-homework는 "숙제 관리" 고정. Railway에 과거 루트만 있으면 drive.resolve_central_root_folder_id가 여기서 대체 검색.
@@ -80,6 +82,9 @@ CENTRAL_GRADED_RESULT_FOLDER = os.getenv("CENTRAL_GRADED_RESULT_FOLDER", "채점
 # 숙제 관리 / 즉시채점 / {년}년 / {월}월 / {일}일 / {선생님 입력 폴더명}
 CENTRAL_INSTANT_GRADE_FOLDER = os.getenv("CENTRAL_INSTANT_GRADE_FOLDER", "즉시채점")
 CENTRAL_SUBMIT_FOLDER = os.getenv("CENTRAL_SUBMIT_FOLDER", "제출 과제 원본")
+# 숙제 관리 / 학생들에게 나간숙제 자료 / {년}년 / {월}월 / {일}일 / {YYYY-MM-DD-숙제명}.pdf
+# 운영 합의(2026-05-11): 시중교재가 아닌 자체제작 숙제 PDF만 여기에 보관 → answer_keys.source_type='custom'.
+CENTRAL_HOMEWORK_MATERIAL_FOLDER = os.getenv("CENTRAL_HOMEWORK_MATERIAL_FOLDER", "학생들에게 나간숙제 자료")
 # 교재 파싱 시 페이지 이미지 저장 위치: 숙제 관리 / 교재 / 이 이름 / {교재제목}
 CENTRAL_PAGE_IMAGES_FOLDER = os.getenv("CENTRAL_PAGE_IMAGES_FOLDER", "교재 페이지 이미지")
 # 교재 하위 학년 구분 폴더(자동 생성)
