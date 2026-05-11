@@ -261,9 +261,14 @@ function debounce(fn, delay) {
 }
 
 // localStorage 캐시 (동기 호출 최소화)
+// 캐시 정책: 값이 한 번이라도 잡혀 있으면(non-null) 그대로 반환,
+// null/undefined 면 매번 localStorage 를 다시 확인 — 직접 localStorage.setItem
+// 으로 외부에서 키가 새로 들어오는 경우(예: auth.js signIn 의 current_owner_id 세팅)
+// 캐시 stale 로 인해 로그인 직후 loadTeachers 가 빈 목록을 받는 race 를 차단.
 const _lsCache = {};
 function cachedLsGet(key) {
-    if (_lsCache[key] !== undefined) return _lsCache[key];
+    const cached = _lsCache[key];
+    if (cached !== undefined && cached !== null) return cached;
     _lsCache[key] = localStorage.getItem(key);
     return _lsCache[key];
 }
