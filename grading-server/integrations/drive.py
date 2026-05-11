@@ -209,6 +209,44 @@ def build_homework_material_filename(year: int, month: int, day: int, title: str
     return f"{year:04d}-{month:02d}-{day:02d}-{safe_title}.pdf"
 
 
+def upload_book_pdf_to_central(central_token: str, grade_level: str, title: str,
+                               pdf_bytes: bytes, retries: int = 2) -> dict:
+    """시중교재(드래그&드롭) PDF 원본 업로드.
+
+    저장 경로: 숙제 관리 / 교재 / {grade_level} / {title} / {title}.pdf
+
+    같은 폴더에 `upload_page_images_to_central` 이 page_NNN.jpg 를 저장하므로
+    PDF 원본 + 페이지 이미지가 한 폴더에 공존(재파싱·검수 용이).
+
+    Returns: {"id", "url", "web_url", "filename"} — answer_keys.drive_file_id 저장용.
+    """
+    if not grade_level or grade_level not in CENTRAL_GRADE_LEVEL_FOLDERS:
+        raise ValueError(f"유효하지 않은 학년: '{grade_level}' (허용: {CENTRAL_GRADE_LEVEL_FOLDERS})")
+    safe_title = (title or "").strip().replace("/", "-").replace("\\", "-").replace("'", "").replace('"', "")
+    if not safe_title:
+        raise ValueError("title 이 비어 있습니다")
+    filename = f"{safe_title}.pdf"
+
+    last_err = None
+    for attempt in range(1, retries + 1):
+        try:
+            service = _build_service(central_token)
+            root = _ensure_homework_structure_with_service(service)
+            material_root = _find_or_create_folder(service, CENTRAL_GRADING_MATERIAL_FOLDER, root)
+            grade_root = _find_or_create_folder(service, grade_level, material_root)
+            book_folder = _find_or_create_folder(service, safe_title, grade_root)
+            uploaded = _upload_file(service, book_folder, filename, pdf_bytes, "application/pdf")
+            uploaded["filename"] = filename
+            return uploaded
+        except Exception as e:
+            last_err = e
+            logger.warning(f"[Drive] 시중교재 PDF 업로드 실패 (시도 {attempt}/{retries}, file={filename}): {e}")
+            if attempt < retries:
+                import time
+                time.sleep(1.5 * attempt)
+    raise RuntimeError(f"시중교재 PDF 업로드 실패 ({filename}): {last_err}")
+
+
 def upload_homework_material_pdf(central_token: str, year: int, month: int, day: int,
                                  title: str, pdf_bytes: bytes, retries: int = 2) -> dict:
     """자체제작 숙제 PDF 단발성 업로드.

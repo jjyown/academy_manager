@@ -8,12 +8,12 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from config import CENTRAL_GRADING_MATERIAL_FOLDER
 from integrations.supabase_client import (
     get_supabase, run_query, get_central_admin_token,
-    get_answer_keys_by_teacher, upsert_answer_key,
+    get_answer_keys_by_teacher, upsert_answer_key, add_student_book,
 )
 from integrations.drive import (
     download_file_central, upload_page_images_to_central,
     search_answer_pdfs_central, delete_page_images_folder,
-    upload_homework_material_pdf,
+    upload_homework_material_pdf, upload_book_pdf_to_central,
 )
 from grading.pdf_parser import extract_answers_from_pdf
 from grading.hml_parser import extract_answers_from_hml, build_hml_answer_preview_images
@@ -338,4 +338,153 @@ async def upload_custom_material(
             "filename": drive_meta["filename"],
             "url": drive_meta.get("web_url") or drive_meta.get("url"),
         },
+    }
+
+
+@router.post("/upload-for-student")
+async def upload_for_student(
+    student_id: int = Form(...),
+    teacher_id: str = Form(...),
+    pdf_file: UploadFile = File(...),
+    title: str = Form(""),
+    subject: str = Form(""),
+    answer_page_range: str = Form(""),
+    total_hint: int = Form(None),
+):
+    """학생 카드 드래그&드롭 진입점.
+
+    동작 (시중교재 풀 등록 효율화):
+      1) 학생의 grade(예: '고1') 자동 조회 → 학년 폴더 결정
+      2) title 미지정 시 PDF 파일명에서 자동 추출
+      3) 같은 (teacher_id, title) 의 answer_keys 가 이미 있으면 재파싱·재업로드 건너뛰고
+         student_books 연결만 수행(다른 학생도 같은 교재 풀에 합류) — idempotent
+      4) 신규일 때만 PDF 원본·페이지 이미지 Drive 업로드 + 파싱 + answer_keys 등록
+      5) student_books 자동 연결
+
+    Drive 저장 경로:
+        숙제 관리 / 교재 / {학년} / {title} /
+          ├─ {title}.pdf         (재파싱·검수용 원본)
+          └─ page_001.jpg ~      (자동채점 매칭용)
+    """
+    sb = get_supabase()
+
+    student_row_res = await run_query(
+        sb.table("students").select("id, name, grade, owner_user_id")
+          .eq("id", student_id).limit(1).execute
+    )
+    if not student_row_res.data:
+        raise HTTPException(404, "학생을 찾을 수 없습니다")
+    student_row = student_row_res.data[0]
+    grade = (student_row.get("grade") or "").strip()
+    if not grade:
+        raise HTTPException(400, "학생 학년(grade) 정보가 없습니다 — 학생 프로필을 먼저 갱신하세요")
+
+    if not title.strip():
+        raw_name = (pdf_file.filename or "").strip()
+        if raw_name:
+            base = raw_name.rsplit(".", 1)[0]
+            title = base.strip() or f"{student_row.get('name','학생')}_숙제"
+        else:
+            title = f"{student_row.get('name','학생')}_숙제"
+    title = title.strip()
+
+    # 1) 동일 (teacher_id, title) 이미 있으면 student_books 연결만 — 재업로드/재파싱 회피
+    existing_res = await run_query(
+        sb.table("answer_keys").select("id, title, grade_level, parsed, drive_file_id")
+          .eq("teacher_id", teacher_id).eq("title", title).limit(1).execute
+    )
+    if existing_res.data:
+        ak = existing_res.data[0]
+        try:
+            await add_student_book(student_id, ak["id"], teacher_id)
+        except Exception as e:
+            logger.warning(f"[UploadForStudent] student_books 연결 실패(reuse): {e}")
+        logger.info(
+            f"[UploadForStudent] 기존 answer_keys 재사용: title='{title}' key#{ak['id']} → student#{student_id} 연결"
+        )
+        return {
+            "data": ak,
+            "reused": True,
+            "student": {"id": student_id, "name": student_row.get("name"), "grade": grade},
+        }
+
+    file_bytes = await pdf_file.read()
+    if not file_bytes:
+        raise HTTPException(400, "빈 PDF 입니다")
+
+    central_token = await get_central_admin_token()
+    if not central_token:
+        raise HTTPException(503, "중앙 관리 드라이브가 연결되지 않았습니다")
+
+    # 2) PDF 원본 업로드 → 교재/{학년}/{title}/{title}.pdf
+    try:
+        pdf_meta = upload_book_pdf_to_central(central_token, grade, title, file_bytes)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    logger.info(
+        f"[UploadForStudent] PDF Drive 업로드: grade={grade} title='{title}' file_id={pdf_meta['id']}"
+    )
+
+    # 3) 정답 파싱
+    page_range = None
+    if answer_page_range.strip():
+        page_range = parse_page_range(answer_page_range.strip())
+    result = await extract_answers_from_pdf(file_bytes, total_hint=total_hint, page_range=page_range)
+    raw_page_images = result.pop("page_images", [])
+
+    # 4) 페이지 이미지 → 같은 폴더 (page_NNN.jpg)
+    page_images_json: list[dict] = []
+    if raw_page_images:
+        try:
+            page_images_json = upload_page_images_to_central(
+                central_token, title, raw_page_images, grade_level=grade,
+            )
+        except Exception as e:
+            logger.warning(f"[UploadForStudent] 페이지 이미지 Drive 업로드 실패, base64 fallback: {e}")
+            page_images_json = []
+        if not page_images_json:
+            for img in raw_page_images:
+                b64 = base64.b64encode(img["image_bytes"]).decode("utf-8")
+                page_images_json.append({
+                    "page": img["page"],
+                    "url": f"data:image/jpeg;base64,{b64}",
+                })
+
+    # 5) answer_keys 등록 (source_type='book')
+    key_data = {
+        "teacher_id": teacher_id,
+        "title": title,
+        "subject": subject,
+        "grade_level": grade,
+        "drive_file_id": pdf_meta["id"],
+        "total_questions": result.get("total", 0),
+        "answers_json": result.get("answers", {}),
+        "question_types_json": result.get("types", {}),
+        "page_images_json": page_images_json,
+        "parsed": True,
+        "source_type": "book",
+    }
+    saved = await upsert_answer_key(key_data)
+
+    # 6) student_books 연결
+    if saved and saved.get("id"):
+        try:
+            await add_student_book(student_id, saved["id"], teacher_id)
+        except Exception as e:
+            logger.warning(f"[UploadForStudent] student_books 연결 실패(new): {e}")
+    logger.info(
+        f"[UploadForStudent] 신규 등록 완료: title='{title}' grade={grade} "
+        f"문제수={result.get('total',0)} 페이지={len(page_images_json)} → student#{student_id}"
+    )
+
+    return {
+        "data": saved,
+        "reused": False,
+        "parsed_result": result,
+        "drive": {
+            "file_id": pdf_meta["id"],
+            "filename": pdf_meta["filename"],
+            "url": pdf_meta.get("web_url") or pdf_meta.get("url"),
+        },
+        "student": {"id": student_id, "name": student_row.get("name"), "grade": grade},
     }

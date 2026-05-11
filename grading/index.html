@@ -3397,7 +3397,7 @@ function renderStudentList() {
 						<button class="stu-book-del" onclick="event.stopPropagation();removeStudentBook(${b.id},${s.id})" title="제거"><i class="fas fa-times"></i></button>
 					</div>`;
 				}).join('')
-				: '<div class="stu-empty-books"><i class="fas fa-arrow-left" style="margin-right:4px;opacity:0.4;"></i>왼쪽에서 교재를 드래그하세요</div>';
+				: '<div class="stu-empty-books"><i class="fas fa-arrow-left" style="margin-right:4px;opacity:0.4;"></i>왼쪽에서 교재 카드를 드래그하거나 <strong>PDF 파일</strong>을 직접 드롭하세요</div>';
 
 			html += `<div class="stu-card" id="stu-card-${s.id}" data-student-id="${s.id}">
 				<div class="stu-card-header" onclick="toggleStudentCard(${s.id})">
@@ -3432,8 +3432,19 @@ function renderStudentList() {
 		card.addEventListener('drop', async e => {
 			e.preventDefault();
 			card.classList.remove('drop-over');
+			if (!sid) return;
+			// 분기 1: OS 파일 드래그(예: PDF) → 신규 교재 자동 등록 + 학생 풀 연결
+			const files = e.dataTransfer.files;
+			if (files && files.length > 0) {
+				const pdf = Array.from(files).find(f => /\.pdf$/i.test(f.name) || f.type === 'application/pdf');
+				if (!pdf) return showToast('PDF 파일만 가능합니다', 'error');
+				if (files.length > 1) showToast('첫 번째 PDF만 처리됩니다', 'info');
+				await uploadPdfForStudent(sid, pdf);
+				return;
+			}
+			// 분기 2: 기존 — 좌측 교재 카드 드래그(text/plain keyId)
 			const keyId = e.dataTransfer.getData('text/plain') || _stuDragKeyId;
-			if (!keyId || !sid) return;
+			if (!keyId) return;
 			const existing = (stuBookMap[sid] || []).some(b => String(b.answer_key_id) === String(keyId));
 			if (existing) return showToast('이미 배정된 교재입니다', 'error');
 			await addStudentBookDrop(sid, parseInt(keyId));
@@ -3444,6 +3455,44 @@ function renderStudentList() {
 function toggleStudentCard(studentId) {
 	const card = document.getElementById('stu-card-' + studentId);
 	if (card) card.classList.toggle('open');
+}
+
+/** 학생 카드에 OS PDF 파일을 드롭했을 때:
+ *  - 학생 grade 자동 사용 → 숙제 관리/교재/{학년}/{title}/{title}.pdf 업로드
+ *  - 정답 파싱 + answer_keys 등록 (source_type='book')
+ *  - student_books 자동 연결
+ *  - 같은 title 이 이미 풀에 있으면 재업로드 없이 연결만 (reused=true)
+ */
+async function uploadPdfForStudent(studentId, pdfFile) {
+	const sizeMb = (pdfFile.size / (1024 * 1024)).toFixed(1);
+	const toastEl = showToast(`📤 ${pdfFile.name} (${sizeMb}MB) 업로드·파싱 중...`, 'info', 0);
+	try {
+		const formData = new FormData();
+		formData.append('student_id', studentId);
+		formData.append('teacher_id', gradingOwnerId());
+		formData.append('pdf_file', pdfFile);
+		const res = await fetch(`${GRADING_SERVER_URL}/api/answer-keys/upload-for-student`, {
+			method: 'POST',
+			body: formData,
+		});
+		const result = await res.json().catch(() => ({}));
+		if (!res.ok) {
+			throw new Error(result.detail || result.error || `HTTP ${res.status}`);
+		}
+		hideToast(toastEl);
+		if (result.reused) {
+			showToast(`기존 교재 "${result.data?.title || pdfFile.name}" 재사용 → 학생에게 연결됨`, 'success');
+		} else {
+			const total = result.parsed_result?.total ?? 0;
+			showToast(`신규 교재 등록 완료 — ${total}문제 파싱·연결됨`, 'success');
+		}
+		await loadStudentList();
+		const card = document.getElementById('stu-card-' + studentId);
+		if (card) card.classList.add('open');
+	} catch (e) {
+		hideToast(toastEl);
+		showToast('PDF 업로드 실패: ' + e.message, 'error');
+	}
 }
 
 async function addStudentBookDrop(studentId, answerKeyId) {
