@@ -103,6 +103,30 @@ AI_API_TIMEOUT = int(os.getenv("AI_API_TIMEOUT", "120"))
 # AI 채점 에이전트 (개별 문제 집중 검증) - "true"이면 활성화
 USE_GRADING_AGENT = os.getenv("USE_GRADING_AGENT", "true").lower() in ("true", "1", "yes")
 
+# ============================================================
+# 전문 채점조교 모듈 (Phase 4, 2026-05-11)
+# ============================================================
+# 두 모듈 모두 /api/grade 자동채점 파이프라인 안에서 즉시 실행되며,
+# 선생님이 채점 화면 열기 전에 검수가 끝난 상태로 보임.
+#
+# 1) OCR 정제 조교: cross_validate_ocr 직후, agent_verify 직전.
+#    학생 답안의 수식·기호·부호를 표준화 (예: 'x2+1' → 'x²+1', '루트2' → '√2').
+#    텍스트 입력만(이미지 X) → 비용 저렴, 손글씨 OCR 고질병 일괄 해결.
+USE_OCR_POLISHER = os.getenv("USE_OCR_POLISHER", "true").lower() in ("true", "1", "yes")
+# OCR 정제 1회 호출당 최대 처리 답안 수(Gemini Flash 배치 안정성용). 0 이면 무제한.
+OCR_POLISHER_BATCH_LIMIT = int(os.getenv("OCR_POLISHER_BATCH_LIMIT", "60"))
+OCR_POLISHER_HARD_TIMEOUT_SECONDS = int(os.getenv("OCR_POLISHER_HARD_TIMEOUT_SECONDS", "45"))
+
+# 2) 풀이 검토 조교: 채점 완료 후 DB 저장 직전. 의심 항목만 대상.
+#    정답이어도 풀이 과정의 부호/지수/단위/중간계산 실수 탐지 + 서답형 부분점수 제안.
+USE_PROCESS_REVIEWER = os.getenv("USE_PROCESS_REVIEWER", "true").lower() in ("true", "1", "yes")
+# 한 채점 작업에서 풀이 검토를 돌릴 최대 문항 수(비용 통제). 0이면 무제한.
+PROCESS_REVIEWER_MAX_ITEMS = int(os.getenv("PROCESS_REVIEWER_MAX_ITEMS", "12"))
+# 풀이 검토 hard timeout
+PROCESS_REVIEWER_HARD_TIMEOUT_SECONDS = int(os.getenv("PROCESS_REVIEWER_HARD_TIMEOUT_SECONDS", "120"))
+# 어떤 항목을 풀이 검토 대상으로 볼지: 채점 결과의 신뢰도(confidence)가 이 값 미만이면 후보
+PROCESS_REVIEWER_CONFIDENCE_THRESHOLD = float(os.getenv("PROCESS_REVIEWER_CONFIDENCE_THRESHOLD", "0.7"))
+
 # 채점 백그라운드 전체 타임아웃(초)
 # 기본: 300초 + 이미지당 20초, 최대 900초
 GRADING_TIMEOUT_BASE_SECONDS = int(os.getenv("GRADING_TIMEOUT_BASE_SECONDS", "300"))

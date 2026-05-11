@@ -18,6 +18,8 @@ from config import (
     AGENT_VERIFY_MAX_QUESTIONS,
     AGENT_VERIFY_MIN_REMAINING_SECONDS,
     AGENT_VERIFY_TIMEOUT_GUARD_SECONDS,
+    USE_OCR_POLISHER,
+    USE_PROCESS_REVIEWER,
 )
 from progress import update_progress
 from file_utils import extract_images_from_zip
@@ -509,6 +511,17 @@ async def _execute_grading(
         question_types=question_types,
     )
 
+    # ── 전문 채점조교 #1: OCR 정제 조교 ──
+    # cross_validate 직후 한 번에 학생 답안 표기 표준화(x2→x², 루트2→√2 등).
+    # 채점 로직은 normalized_answers 를 우선 사용해 글씨체 편차 영향을 줄임.
+    if USE_OCR_POLISHER:
+        try:
+            from grading.assistant_ocr_polish import polish_ocr_results
+            _set_stage(run_ctx, result_id=result_id, stage="ocr_polish", detail="OCR 정제 조교")
+            ocr_results = await polish_ocr_results(ocr_results)
+        except Exception as e:
+            logger.warning(f"[OCR-Polish] 정제 조교 실패(채점 진행은 계속): {e}")
+
     # ── AI 에이전트: 개별 문제 집중 검증 (3단계) ──
     if USE_GRADING_AGENT:
         try:
@@ -752,6 +765,17 @@ async def _execute_grading(
 
     if failed_images:
         logger.warning(f"[Grade] 총 {len(failed_images)}장 실패: {failed_images}")
+
+    # ── 전문 채점조교 #2: 풀이 검토 조교 ──
+    # 정답이어도 풀이 과정의 부호/지수/단위/중간계산 실수 탐지 + 서답형 부분점수 제안 +
+    # 오답일 때 mistake_category 자동 분류(취약점 분석용).
+    if USE_PROCESS_REVIEWER and all_items:
+        try:
+            from grading.assistant_process_review import review_grading_items
+            _set_stage(run_ctx, result_id=result_id, stage="process_review", detail="풀이 검토 조교")
+            all_items = await review_grading_items(image_bytes_list, all_items, answer_key)
+        except Exception as e:
+            logger.warning(f"[ProcessReview] 풀이 검토 조교 실패(결과 저장은 계속): {e}")
 
     _set_stage(run_ctx, result_id=result_id, stage="saving", detail="결과 저장")
     update_progress(result_id, "saving", total_images, total_images, "결과 저장 중...")

@@ -143,12 +143,22 @@ async def grade_submission(
 
         main_num = int(re.match(r"(\d+)", q_num).group(1)) if re.match(r"(\d+)", q_num) else 0
 
+        # OCR 정제 조교가 답안 dict 에 정제 결과를 'answer' 로, 원본을 'raw' 로 저장.
+        # raw 가 다르면 정제가 일어난 것 — student_answer_normalized 컬럼에 보고용으로 저장.
+        normalized_for_save = ""
+        if isinstance(student_data, dict):
+            raw_original = str(student_data.get("raw") or "")
+            polished = str(student_data.get("answer") or "")
+            if polished and polished != raw_original:
+                normalized_for_save = polished
+
         item = {
             "question_number": main_num,
             "question_label": q_num,
             "question_type": _map_type(q_type),
             "correct_answer": correct_answer or "",
             "student_answer": cleaned_answer if raw_answer != "unanswered" else "",
+            "student_answer_normalized": normalized_for_save,
             "ocr1_answer": student_data.get("ocr1", "") if isinstance(student_data, dict) else "",
             "ocr2_answer": student_data.get("ocr2", "") if isinstance(student_data, dict) else "",
             "confidence": student_data.get("confidence", 0) if isinstance(student_data, dict) else 0,

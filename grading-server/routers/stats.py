@@ -89,6 +89,138 @@ async def get_student_stats(student_id: int, teacher_id: str = ""):
         raise HTTPException(status_code=500, detail=f"학생 통계 조회 실패: {str(e)[:200]}")
 
 
+@router.get("/student/{student_id}/weakness-report")
+async def get_weakness_report(student_id: int, teacher_id: str = "", limit_recent: int = 5):
+    """학생 취약점 분석 보고서.
+
+    누적 데이터:
+      - mistake_category 별 빈도 (오답일 때 풀이 검토 조교가 분류한 실수 유형)
+      - process_review_flags 별 빈도 (부호/지수/단위 등 풀이 이슈)
+      - 단원별(question_meta_json.topic) 정답률 — 메타 있는 문항만
+      - 최근 N개 결과 정답률 추이
+
+    실수 카테고리·플래그 데이터는 0039 마이그레이션 적용 + 풀이 검토 조교 실행 이후
+    축적되므로 초기에는 비어있을 수 있다.
+    """
+    try:
+        sb = get_supabase()
+
+        # 1) 학생의 모든 채점 결과 id 모으기 (confirmed + review_needed)
+        q = sb.table("grading_results").select(
+            "id, answer_key_id, created_at, total_score, max_score, "
+            "correct_count, wrong_count, total_questions, status"
+        ).eq("student_id", student_id).in_(
+            "status", ["confirmed", "review_needed"]
+        ).order("created_at", desc=False)
+        if teacher_id:
+            q = q.eq("teacher_id", teacher_id)
+        results_res = await run_query(q.execute)
+        results = results_res.data or []
+        result_ids = [r["id"] for r in results]
+        ak_ids = list({r["answer_key_id"] for r in results if r.get("answer_key_id")})
+
+        # 2) 해당 result_id 들의 grading_items 일괄 조회 (취약점 컬럼 포함)
+        all_items: list[dict] = []
+        if result_ids:
+            batch_size = 50
+            for i in range(0, len(result_ids), batch_size):
+                batch = result_ids[i:i + batch_size]
+                items_res = await run_query(sb.table("grading_items").select(
+                    "result_id, question_number, question_label, question_type, "
+                    "is_correct, mistake_category, process_review_flags"
+                ).in_("result_id", batch).execute)
+                all_items.extend(items_res.data or [])
+
+        # 3) answer_keys.question_meta_json 한 번에 조회
+        meta_by_key: dict[int, dict] = {}
+        if ak_ids:
+            ak_res = await run_query(sb.table("answer_keys").select(
+                "id, title, question_meta_json"
+            ).in_("id", ak_ids).execute)
+            for ak in (ak_res.data or []):
+                meta_by_key[ak["id"]] = ak.get("question_meta_json") or {}
+        ak_by_result = {r["id"]: r.get("answer_key_id") for r in results}
+
+        # 4) 집계
+        total_items = len(all_items)
+        correct_count = sum(1 for it in all_items if it.get("is_correct") is True)
+        accuracy = round(correct_count / total_items * 100, 1) if total_items else 0.0
+
+        mistake_counter: dict[str, int] = {}
+        flags_counter: dict[str, int] = {}
+        topic_buckets: dict[str, dict] = {}
+        for it in all_items:
+            mc = it.get("mistake_category")
+            if mc:
+                mistake_counter[mc] = mistake_counter.get(mc, 0) + 1
+            for fl in (it.get("process_review_flags") or []):
+                if not isinstance(fl, str) or fl == "answer_correct":
+                    continue
+                flags_counter[fl] = flags_counter.get(fl, 0) + 1
+            ak_id = ak_by_result.get(it.get("result_id"))
+            meta = (meta_by_key.get(ak_id) or {})
+            q_meta = meta.get(str(it.get("question_number"))) or {}
+            topic = q_meta.get("topic")
+            if topic:
+                b = topic_buckets.setdefault(topic, {"topic": topic, "total": 0, "correct": 0})
+                b["total"] += 1
+                if it.get("is_correct") is True:
+                    b["correct"] += 1
+
+        # 빈도순 정렬 + 비율 부착
+        def _ratio_list(counter: dict, denom: int) -> list[dict]:
+            arr = [{"key": k, "count": v, "ratio": round(v / denom * 100, 1) if denom else 0.0}
+                   for k, v in counter.items()]
+            arr.sort(key=lambda x: x["count"], reverse=True)
+            return arr
+
+        mistake_categories = _ratio_list(mistake_counter, total_items)
+        process_flags = _ratio_list(flags_counter, total_items)
+        topics = []
+        for b in topic_buckets.values():
+            acc = round(b["correct"] / b["total"] * 100, 1) if b["total"] else 0.0
+            topics.append({"topic": b["topic"], "total": b["total"], "correct": b["correct"], "accuracy": acc})
+        topics.sort(key=lambda x: x["accuracy"])  # 정답률 낮은 단원 먼저(=취약 우선)
+
+        # 5) 최근 N개 추이
+        recent_trend = []
+        for r in results[-max(limit_recent, 1):]:
+            max_s = float(r.get("max_score") or 1)
+            total_s = float(r.get("total_score") or 0)
+            acc = round(total_s / max_s * 100, 1) if max_s else 0.0
+            recent_trend.append({
+                "result_id": r["id"],
+                "date": str(r.get("created_at", ""))[:10],
+                "accuracy": acc,
+                "correct": r.get("correct_count", 0),
+                "wrong": r.get("wrong_count", 0),
+                "total_questions": r.get("total_questions", 0),
+            })
+
+        return {
+            "student_id": student_id,
+            "summary": {
+                "total_results": len(results),
+                "total_items": total_items,
+                "correct_count": correct_count,
+                "accuracy": accuracy,
+            },
+            "mistake_categories": mistake_categories,
+            "process_flags": process_flags,
+            "topics": topics,
+            "recent_trend": recent_trend,
+            "notes": {
+                "data_dependencies": [
+                    "mistake_categories / process_flags 는 0038·0039 마이그레이션 적용 + 풀이 검토 조교 실행 이후 축적",
+                    "topics 는 answer_keys.question_meta_json 에 단원 메타가 입력된 문항에 한정",
+                ],
+            },
+        }
+    except Exception as e:
+        logger.error(f"취약점 보고 조회 실패 (student_id={student_id}): {e}")
+        raise HTTPException(status_code=500, detail=f"취약점 보고 실패: {str(e)[:200]}")
+
+
 @router.get("/wrong-answers")
 async def get_wrong_answer_stats(teacher_id: str, answer_key_id: int = 0):
     try:

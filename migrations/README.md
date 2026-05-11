@@ -42,11 +42,13 @@
 | 0035 | answer_keys_solution_source_20260510 | answer_keys.solution_source(jsonb) — 외부 해설 시스템 매핑 |
 | 0036 | tighten_student_eval_reports_bucket_listing_20260511 | student-eval-reports 버킷의 광역 SELECT 정책 제거 + owner-only SELECT 정책 추가 (Advisor: public_bucket_allows_listing) |
 | 0037 | answer_keys_source_type_20260511 | answer_keys.source_type('book'/'custom'/'manual') + custom_material_uploaded_at — 시중교재 vs 자체제작 숙제 PDF 구분 (Drive: 학생들에게 나간숙제 자료/ 폴더 도입과 동시 적용) |
+| 0038 | grading_items_assistant_columns_20260511 | grading_items에 전문 채점조교 결과 4컬럼: student_answer_normalized / process_feedback / suggested_partial_score / process_review_flags |
+| 0039 | weakness_analysis_slots_20260511 | grading_items.mistake_category(conceptual/computational/careless/transcription/time_pressure/unknown) + answer_keys.question_meta_json — 학생 취약점 누적 분석용 |
 
 > 0028 은 결번. 운영에 적용된 모든 마이그레이션은 위 표 순서대로 실행되어 있다.
 
 ## 새 마이그레이션 추가 시
 
-1. 다음 번호(`0038_...`)로 `migrations/` 에 추가. **번호 충돌 절대 금지** — 기존 번호 재사용 시 적용 누락 사고가 발생할 수 있다.
+1. 다음 번호(`0040_...`)로 `migrations/` 에 추가. **번호 충돌 절대 금지** — 기존 번호 재사용 시 적용 누락 사고가 발생할 수 있다.
 2. Supabase SQL Editor에서 실행 후 운영에 반영
 3. 커밋 시 적용 일시(KST)와 작업 컨텍스트를 commit message에 명시
