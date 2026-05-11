@@ -430,6 +430,9 @@
     <div style="display: flex; justify-content: center; align-items: center; margin-top: 20px; gap: 10px; flex-wrap: wrap;">
         <button class="view-btn active" id="tab-month" onclick="switchView('month')">월간</button>
         <button class="view-btn" id="tab-week" onclick="switchView('week')">주간</button>
+        <button class="month-review-btn" id="btn-month-review" onclick="openCurrentMonthReview()" title="이 달의 정기 일정 점검·적용">
+            <i class="fas fa-calendar-check"></i> 월 점검
+        </button>
         <div class="timetable-scope-main-wrap">
             <label for="tt-scope-main-select">시간표</label>
             <select id="tt-scope-main-select" class="timetable-scope-main-select" onchange="setTimetableScope(this.value)">
@@ -830,6 +833,29 @@
             <div class="modal-footer-actions">
                 <button class="btn-delete-action" onclick="executePeriodDelete()">
                     <i class="fas fa-trash-alt"></i> 일정 삭제하기
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="monthly-review-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="monthly-review-title" style="display: none;">
+        <div class="modal-card monthly-review-card" style="max-width: 560px;">
+            <div class="modal-header">
+                <h2 id="monthly-review-title">월별 일정 점검</h2>
+                <span id="monthly-review-confirmed-badge" class="monthly-review-confirmed-badge" style="display:none;">
+                    <i class="fas fa-check-circle"></i> 이미 확정된 달
+                </span>
+                <button class="btn-close-x" onclick="closeMonthlyReviewModal()" aria-label="닫기"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="monthly-review-hint">
+                <i class="fas fa-circle-info"></i>
+                <span>이번 달 시간이 평소와 <b>다른 학생만</b> [수정]으로 패턴을 바꿔주세요. 그 다음 <b>이 달 일정 적용</b>을 누르면 전체 학생의 정기 일정이 한 번에 생성됩니다. 휴일·중복은 자동 제외됩니다.</span>
+            </div>
+            <div id="monthly-review-list" class="monthly-review-list"></div>
+            <div class="monthly-review-footer">
+                <button type="button" class="btn-cancel-action" onclick="closeMonthlyReviewModal()">닫기</button>
+                <button type="button" class="btn-save-main" id="monthly-review-apply-btn" onclick="applyMonthlyReview()">
+                    <i class="fas fa-calendar-plus"></i> 이 달 일정 적용
                 </button>
             </div>
         </div>

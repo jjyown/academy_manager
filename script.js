@@ -1744,6 +1744,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 currentDate = new Date(e.target.value);
                 renderCalendar();
                 e.target.value = '';
+                if (typeof _maybeAutoShowMonthlyReview === 'function') _maybeAutoShowMonthlyReview();
             }
         });
     }
@@ -10629,7 +10630,12 @@ function unassignStudentFromAllTeachers(studentId) {
     
     console.log(`[학생 삭제] 모든 선생님에게서 학생 ${studentId} 제거 완료`);
 }
-window.goToday = function() { currentDate = new Date(); document.getElementById('jump-date-picker').value = ''; renderCalendar(); }
+window.goToday = function() {
+    currentDate = new Date();
+    document.getElementById('jump-date-picker').value = '';
+    renderCalendar();
+    if (typeof _maybeAutoShowMonthlyReview === 'function') _maybeAutoShowMonthlyReview();
+}
 window.moveDate = function(d) {
     if(currentView === 'month') {
         // 날짜를 1일로 임시 설정 후 월 이동, 마지막에 일자를 조정
@@ -10642,6 +10648,12 @@ window.moveDate = function(d) {
         currentDate.setDate(currentDate.getDate() + (d * 7));
     }
     renderCalendar();
+    if (typeof _maybeAutoShowMonthlyReview === 'function') _maybeAutoShowMonthlyReview();
+}
+window.openCurrentMonthReview = function() {
+    if (typeof openMonthlyReviewModal === 'function') {
+        openMonthlyReviewModal(getMonthKey(currentDate));
+    }
 }
 window.switchView = function(v) {
     currentView = v;
@@ -12084,6 +12096,8 @@ async function applyStudentWeeklyPattern(studentId, options) {
     const durationMin = parseInt(opts.durationMin || 0, 10) || 0;
     const weeks = parseInt(opts.weeks || 12, 10) || 12;
     const excludeHolidays = opts.excludeHolidays !== false;
+    const toDate = opts.toDate ? new Date(opts.toDate) : null;
+    if (toDate) toDate.setHours(23, 59, 59, 999);
 
     const result = { count: 0, skippedHoliday: 0, skippedExisting: 0 };
     if (!studentId || days.length === 0 || !startTime || !durationMin) return result;
@@ -12117,6 +12131,7 @@ async function applyStudentWeeklyPattern(studentId, options) {
     for (let i = 0; i < weeks * 7; i++) {
         const cur = new Date(start);
         cur.setDate(start.getDate() + i);
+        if (toDate && cur > toDate) break;
         if (!days.includes(cur.getDay())) continue;
         const off = cur.getTimezoneOffset() * 60000;
         const dStr = new Date(cur.getTime() - off).toISOString().split('T')[0];
@@ -12158,6 +12173,225 @@ async function applyStudentWeeklyPattern(studentId, options) {
     }
 
     return result;
+}
+
+// ============================================================
+// 월별 일정 점검 — 변동 있는 학생만 수정 후 그 달에 일괄 적용
+// ============================================================
+const _CONFIRMED_MONTHS_KEY = 'weeklyPatternConfirmedMonths';
+const _SESSION_SHOWN_KEY = 'weeklyReviewShownSession';
+
+function getMonthKey(date) {
+    const d = date instanceof Date ? date : new Date(date);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function _readJSONList(storage, key) {
+    try {
+        const v = storage.getItem(key);
+        const arr = v ? JSON.parse(v) : [];
+        return Array.isArray(arr) ? arr : [];
+    } catch (e) { return []; }
+}
+
+function getConfirmedMonths() {
+    return _readJSONList(localStorage, _CONFIRMED_MONTHS_KEY);
+}
+
+function isMonthConfirmed(monthKey) {
+    return getConfirmedMonths().includes(monthKey);
+}
+
+function markMonthConfirmed(monthKey) {
+    const list = getConfirmedMonths();
+    if (!list.includes(monthKey)) {
+        list.push(monthKey);
+        try { localStorage.setItem(_CONFIRMED_MONTHS_KEY, JSON.stringify(list)); } catch (e) {}
+    }
+}
+
+function wasReviewShownThisSession(monthKey) {
+    return _readJSONList(sessionStorage, _SESSION_SHOWN_KEY).includes(monthKey);
+}
+
+function markReviewShownThisSession(monthKey) {
+    const list = _readJSONList(sessionStorage, _SESSION_SHOWN_KEY);
+    if (!list.includes(monthKey)) {
+        list.push(monthKey);
+        try { sessionStorage.setItem(_SESSION_SHOWN_KEY, JSON.stringify(list)); } catch (e) {}
+    }
+}
+
+/**
+ * 특정 달(YYYY-MM)에 한해 패턴 있는 학생들 일정 자동 생성.
+ * 휴일·중복 skip. studentIds 미지정 시 패턴 있는 활성 학생 전체.
+ */
+async function applyWeeklyPatternsToMonth({ monthKey, studentIds }) {
+    const [y, m] = String(monthKey || '').split('-').map(Number);
+    const agg = { count: 0, skippedHoliday: 0, skippedExisting: 0, students: 0 };
+    if (!y || !m) return agg;
+
+    const monthStart = new Date(y, m - 1, 1);
+    const monthEnd = new Date(y, m, 0); // 해당 월 마지막 날
+
+    const filterByIds = Array.isArray(studentIds) && studentIds.length > 0;
+    const targets = (students || []).filter((s) => {
+        if (filterByIds) return studentIds.map(String).includes(String(s.id));
+        const patterns = s.weeklyPatterns || [];
+        return patterns.length > 0 && (s.status || 'active') === 'active';
+    });
+
+    for (const student of targets) {
+        const patterns = student.weeklyPatterns || [];
+        if (patterns.length === 0) continue;
+        let studentHadAny = false;
+        for (const p of patterns) {
+            const r = await applyStudentWeeklyPattern(student.id, {
+                days: p.days,
+                startTime: p.start,
+                durationMin: p.duration,
+                fromDate: monthStart,
+                toDate: monthEnd,
+                weeks: 6, // 한 달 = 최대 6주 분량이면 충분
+                excludeHolidays: true,
+            });
+            agg.count += r.count || 0;
+            agg.skippedHoliday += r.skippedHoliday || 0;
+            agg.skippedExisting += r.skippedExisting || 0;
+            if ((r.count || 0) > 0) studentHadAny = true;
+        }
+        if (studentHadAny) agg.students++;
+    }
+    return agg;
+}
+
+function _formatPatternsSummary(patterns) {
+    const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
+    return (patterns || []).map((p) => {
+        const days = [...new Set(p.days || [])]
+            .sort((a, b) => a - b)
+            .map((d) => dayNames[d])
+            .join('·');
+        return `<span class="monthly-review-pattern-chip">${days} · ${p.start} · ${p.duration}분</span>`;
+    }).join(' ');
+}
+
+let _monthlyReviewState = null;
+let _pendingMonthlyReviewReopen = null;
+
+function _renderMonthlyReviewList() {
+    const list = document.getElementById('monthly-review-list');
+    if (!list) return;
+    const targets = (students || []).filter((s) =>
+        Array.isArray(s.weeklyPatterns) && s.weeklyPatterns.length > 0
+        && (s.status || 'active') === 'active'
+    );
+    if (targets.length === 0) {
+        list.innerHTML = '<div class="monthly-review-empty">패턴이 등록된 활성 학생이 없습니다.<br>학생 등록/수정에서 <b>주간 기본 일정</b>을 설정해주세요.</div>';
+        return;
+    }
+    targets.sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'ko'));
+    list.innerHTML = targets.map((s) => {
+        const summary = _formatPatternsSummary(s.weeklyPatterns);
+        const name = (typeof escapeHtml === 'function') ? escapeHtml(s.name || '') : String(s.name || '');
+        return `
+            <div class="monthly-review-row" data-sid="${s.id}">
+                <label class="monthly-review-check">
+                    <input type="checkbox" data-sid="${s.id}">
+                    <span class="monthly-review-check-box"><i class="fas fa-check"></i></span>
+                </label>
+                <div class="monthly-review-info">
+                    <div class="monthly-review-name">${name}</div>
+                    <div class="monthly-review-summary">${summary}</div>
+                </div>
+                <button type="button" class="monthly-review-edit-btn" onclick="openStudentEditFromMonthlyReview('${s.id}')">
+                    <i class="fas fa-pen"></i> 수정
+                </button>
+            </div>
+        `;
+    }).join('');
+}
+
+window.openMonthlyReviewModal = function(monthKey) {
+    const key = monthKey || getMonthKey(typeof currentDate !== 'undefined' ? currentDate : new Date());
+    _monthlyReviewState = { monthKey: key };
+    _renderMonthlyReviewList();
+    const titleEl = document.getElementById('monthly-review-title');
+    if (titleEl) {
+        const [y, m] = key.split('-');
+        titleEl.textContent = `${y}년 ${parseInt(m, 10)}월 일정 점검`;
+    }
+    const confirmedBadge = document.getElementById('monthly-review-confirmed-badge');
+    if (confirmedBadge) {
+        confirmedBadge.style.display = isMonthConfirmed(key) ? '' : 'none';
+    }
+    if (typeof openModal === 'function') openModal('monthly-review-modal');
+};
+
+window.closeMonthlyReviewModal = function() {
+    if (typeof closeModal === 'function') closeModal('monthly-review-modal');
+    _monthlyReviewState = null;
+};
+
+window.openStudentEditFromMonthlyReview = function(studentId) {
+    const mk = _monthlyReviewState?.monthKey || getMonthKey(currentDate);
+    _pendingMonthlyReviewReopen = mk;
+    if (typeof closeModal === 'function') closeModal('monthly-review-modal');
+    setTimeout(() => {
+        if (typeof prepareEdit === 'function') prepareEdit(studentId);
+    }, 180);
+};
+
+window.applyMonthlyReview = async function() {
+    if (!_monthlyReviewState) return;
+    const monthKey = _monthlyReviewState.monthKey;
+    const btn = document.getElementById('monthly-review-apply-btn');
+    const originalHtml = btn ? btn.innerHTML : '';
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 생성 중...'; }
+    try {
+        const result = await applyWeeklyPatternsToMonth({ monthKey });
+        markMonthConfirmed(monthKey);
+        const msg = result.count > 0
+            ? `${result.students}명 · ${result.count}건 생성됨`
+              + (result.skippedExisting > 0 ? ` · 중복 ${result.skippedExisting}건 제외` : '')
+              + (result.skippedHoliday > 0 ? ` · 휴일 ${result.skippedHoliday}건 제외` : '')
+            : '이미 모든 일정이 등록되어 추가 생성된 항목이 없습니다.';
+        if (typeof showToast === 'function') {
+            showToast(msg, result.count > 0 ? 'success' : 'info');
+        }
+        closeMonthlyReviewModal();
+        if (typeof renderCalendar === 'function') renderCalendar();
+    } catch (e) {
+        console.error('[applyMonthlyReview] 실패:', e);
+        if (typeof showToast === 'function') {
+            showToast('월별 일정 적용 실패: ' + (e.message || ''), 'error');
+        }
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = originalHtml; }
+    }
+};
+
+function _maybeAutoShowMonthlyReview() {
+    if (typeof currentView !== 'undefined' && currentView !== 'month') return;
+    if (!Array.isArray(students) || students.length === 0) return;
+    const hasAny = students.some((s) =>
+        Array.isArray(s.weeklyPatterns) && s.weeklyPatterns.length > 0
+        && (s.status || 'active') === 'active'
+    );
+    if (!hasAny) return;
+    const monthKey = getMonthKey(typeof currentDate !== 'undefined' ? currentDate : new Date());
+    if (isMonthConfirmed(monthKey)) return;
+    if (wasReviewShownThisSession(monthKey)) return;
+    markReviewShownThisSession(monthKey);
+    setTimeout(() => openMonthlyReviewModal(monthKey), 350);
+}
+
+function _consumeMonthlyReviewReopenIfPending() {
+    if (!_pendingMonthlyReviewReopen) return false;
+    const mk = _pendingMonthlyReviewReopen;
+    _pendingMonthlyReviewReopen = null;
+    setTimeout(() => openMonthlyReviewModal(mk), 220);
+    return true;
 }
 
 function isStudentSchemaColumnError(error) {
@@ -12431,29 +12665,24 @@ window.handleStudentSave = async function() {
             const last = students[students.length - 1];
             if (last) savedStudentId = last.id;
         }
+        // 주간 패턴 자동 일정 생성 — 현재 보고 있는 달에만 (월별 점검 흐름과 정합)
+        // 미래 달은 "월별 일정 점검" 모달에서 사용자 확인 후 일괄 생성.
         if (weeklyPatternsFromUI.length > 0 && savedStudentId) {
             try {
-                const agg = { count: 0, skippedHoliday: 0, skippedExisting: 0 };
-                for (const p of weeklyPatternsFromUI) {
-                    const r = await applyStudentWeeklyPattern(savedStudentId, {
-                        days: p.days,
-                        startTime: p.start,
-                        durationMin: p.duration,
-                        weeks: 12,
-                        excludeHolidays: true,
-                    });
-                    agg.count += r.count || 0;
-                    agg.skippedHoliday += r.skippedHoliday || 0;
-                    agg.skippedExisting += r.skippedExisting || 0;
-                }
+                const viewMonthKey = getMonthKey(typeof currentDate !== 'undefined' ? currentDate : new Date());
+                const agg = await applyWeeklyPatternsToMonth({
+                    monthKey: viewMonthKey,
+                    studentIds: [savedStudentId],
+                });
                 if (agg.count > 0) {
                     showToast(
-                        `주간 일정 ${agg.count}건 자동 생성됨` +
+                        `${viewMonthKey} 일정 ${agg.count}건 자동 생성됨` +
                         (agg.skippedExisting > 0 ? ` · 중복 ${agg.skippedExisting}건 제외` : '') +
-                        (agg.skippedHoliday > 0 ? ` · 휴일 ${agg.skippedHoliday}건 제외` : ''),
+                        (agg.skippedHoliday > 0 ? ` · 휴일 ${agg.skippedHoliday}건 제외` : '') +
+                        ' · 다음 달은 「월 점검」에서 적용해주세요.',
                         'success'
                     );
-                } else if (agg.skippedExisting > 0 || agg.skippedHoliday > 0) {
+                } else if ((agg.skippedExisting || 0) + (agg.skippedHoliday || 0) > 0) {
                     showToast('이미 등록된 일정만 있어 추가 생성된 일정이 없습니다.', 'info');
                 }
             } catch (genErr) {
@@ -12463,6 +12692,8 @@ window.handleStudentSave = async function() {
         }
 
         closeModal('register-modal');
+        // 월별 점검 모달에서 [수정] 진입한 케이스: 저장 후 점검 모달 복귀
+        _consumeMonthlyReviewReopenIfPending();
         renderDrawerList();
         renderCalendar();
 

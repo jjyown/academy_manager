@@ -15,6 +15,7 @@
 | 날짜 | 결정 | 이유 | 영향 범위 |
 |---|---|---|---|
 | 2026-05-11 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | index.html, script.js, style.css |
+| 2026-05-11 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | index.html, script.js, style.css |
 | 2026-05-11 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | grading-server/config.py, grading-server/grading/assistant_ocr_polish.py, grading-server/grading/assistant_process_review.py, grading-server/grading/grader.py, grading-server/routers/grading.py 외 4개 |
 | 2026-05-11 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | grading-server/integrations/drive.py, grading-server/routers/answer_keys.py, grading/index.html |
 | 2026-05-11 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | grading-server/config.py, grading-server/integrations/drive.py, grading-server/routers/answer_keys.py, migrations/0036_tighten_student_eval_reports_bucket_listing_20260511.sql, migrations/0037_answer_keys_source_type_20260511.sql 외 2개 |
