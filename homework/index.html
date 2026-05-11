@@ -1306,6 +1306,8 @@ const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 		detectSessionInUrl: false
 	}
 });
+// AcademicEventsClient(학사일정 보강 모듈) 가 school_calendar_overrides 를 조회할 수 있도록 노출.
+window.db = db;
 
 // ============================================================
 // 유틸: XSS 방지

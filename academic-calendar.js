@@ -15,7 +15,10 @@
 
     const LS_SCHOOLS = 'academic_calendar_schools';
     const LS_CACHE_PREFIX = 'academic_calendar_cache_';
+    const LS_OVERRIDE_CACHE_PREFIX = 'academic_override_cache_';
     const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+    // override 캐시 TTL 은 짧게 — 원장이 조사 직후 화면 갱신이 빠르게 보여야 함.
+    const OVERRIDE_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6h
 
     const PALETTE = [
         { bg: '#dcfce7', fg: '#166534', dot: '#16a34a' }, // green
@@ -81,7 +84,15 @@
     }
     function invalidateAcademicCache() {
         Object.keys(localStorage).forEach((k) => {
-            if (k.startsWith(LS_CACHE_PREFIX)) {
+            if (k.startsWith(LS_CACHE_PREFIX) || k.startsWith(LS_OVERRIDE_CACHE_PREFIX)) {
+                try { localStorage.removeItem(k); } catch (e) {}
+            }
+        });
+    }
+    function invalidateAcademicOverrideCacheForSchool(atpt, code) {
+        const prefix = `${LS_OVERRIDE_CACHE_PREFIX}${atpt}_${code}_`;
+        Object.keys(localStorage).forEach((k) => {
+            if (k.startsWith(prefix)) {
                 try { localStorage.removeItem(k); } catch (e) {}
             }
         });
@@ -198,6 +209,78 @@
         }));
     }
 
+    // ── school_calendar_overrides (홈페이지 조사 보강분) ───────────
+    // Supabase 의 공개 테이블에서 (atpt, code, yyyymm) 학사일정을 가져옴.
+    // window.fetchSchoolCalendarOverrides 가 database.js 에서 노출되어 있어야 함.
+    // 못 가져오면 [] 반환 — 본 모듈은 보강 데이터 없이도 정상 동작.
+    const _overrideInflight = new Map();
+    async function _fetchOverridesForMonth(school, yyyymm) {
+        if (!school || !school.atpt || !school.code) return [];
+        if (typeof window.fetchSchoolCalendarOverrides !== 'function') return [];
+        const cacheKey = `${LS_OVERRIDE_CACHE_PREFIX}${school.atpt}_${school.code}_${yyyymm}`;
+        try {
+            const raw = localStorage.getItem(cacheKey);
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                if (parsed && parsed.expires > Date.now() && Array.isArray(parsed.data)) {
+                    return parsed.data;
+                }
+            }
+        } catch (e) {}
+        if (_overrideInflight.has(cacheKey)) return _overrideInflight.get(cacheKey);
+        const p = (async () => {
+            try {
+                const list = await window.fetchSchoolCalendarOverrides(
+                    school.atpt, school.code, yyyymm
+                );
+                const arr = Array.isArray(list) ? list : [];
+                try {
+                    localStorage.setItem(cacheKey, JSON.stringify({
+                        data: arr, expires: Date.now() + OVERRIDE_CACHE_TTL_MS,
+                    }));
+                } catch (e) {}
+                return arr;
+            } catch (e) {
+                console.warn(`[Academic] override fetch ${school.name} ${yyyymm} 실패:`, e);
+                return [];
+            } finally {
+                _overrideInflight.delete(cacheKey);
+            }
+        })();
+        _overrideInflight.set(cacheKey, p);
+        return p;
+    }
+
+    /** NEIS 이벤트 + override 를 (date, normalized name) 기준으로 dedupe.
+     *  중복 시 NEIS 우선(공식 데이터). override 만 있는 경우 _source:'override' 표기. */
+    function _normalizeEventName(s) {
+        return String(s || '').replace(/\s+/g, '').toLowerCase();
+    }
+    function _mergeNeisWithOverrides(neisEvents, overrideEvents) {
+        const seen = new Set();
+        const out = [];
+        (neisEvents || []).forEach((ev) => {
+            const k = `${ev.date}|${_normalizeEventName(ev.name)}`;
+            if (seen.has(k)) return;
+            seen.add(k);
+            out.push(Object.assign({}, ev, { _source: 'neis' }));
+        });
+        (overrideEvents || []).forEach((ev) => {
+            const k = `${ev.date}|${_normalizeEventName(ev.name)}`;
+            if (seen.has(k)) return;
+            seen.add(k);
+            out.push({
+                date: ev.date,
+                name: ev.name,
+                content: ev.content || '',
+                _source: 'override',
+                _kind: ev.kind || 'event',
+                _sourceUrl: ev.sourceUrl || '',
+            });
+        });
+        return out;
+    }
+
     // ── 캐시된 월별 학사일정 조회 ───────────────────────────────
     const _inflight = new Map(); // cacheKey -> Promise
     async function _fetchMonthCached(school, yyyymm) {
@@ -233,16 +316,20 @@
     }
 
     // 월별 합본 — Map<dateStr, Array<{school, event}>>
+    // NEIS 결과 + school_calendar_overrides 결과를 학교별로 dedupe-merge 후
+    // 날짜별로 펼침. 각 event 는 _source 필드를 가짐('neis' | 'override').
     async function getMonthlyAcademicEvents(yyyymm) {
         const schools = getSubscribedSchools();
         const dateMap = new Map();
         if (schools.length === 0) return dateMap;
-        const results = await Promise.all(
-            schools.map((sc) => _fetchMonthCached(sc, yyyymm))
-        );
-        results.forEach((events, i) => {
+        const [neisResults, overrideResults] = await Promise.all([
+            Promise.all(schools.map((sc) => _fetchMonthCached(sc, yyyymm))),
+            Promise.all(schools.map((sc) => _fetchOverridesForMonth(sc, yyyymm))),
+        ]);
+        neisResults.forEach((neisEvents, i) => {
             const sc = schools[i];
-            (events || []).forEach((ev) => {
+            const merged = _mergeNeisWithOverrides(neisEvents, overrideResults[i]);
+            merged.forEach((ev) => {
                 if (!ev.date) return;
                 const arr = dateMap.get(ev.date) || [];
                 arr.push({ school: sc, event: ev });
@@ -407,7 +494,10 @@
                 const sub = ev.content && ev.content !== ev.name
                     ? ` <span style="opacity:0.65;font-weight:500;">· ${_escape(ev.content)}</span>`
                     : '';
-                return `<div style="margin-top:2px;">${_escape(ev.name)}${sub}</div>`;
+                const srcBadge = ev._source === 'override'
+                    ? ` <span title="학교 홈페이지 조사 결과" style="background:rgba(99,102,241,0.16);color:#4338ca;padding:0 5px;border-radius:4px;font-size:10px;font-weight:700;margin-left:2px;vertical-align:1px;">조사</span>`
+                    : '';
+                return `<div style="margin-top:2px;">${_escape(ev.name)}${srcBadge}${sub}</div>`;
             }).join('');
             return `<div style="margin-bottom:6px;">
                 <span style="background:${c.bg};color:${c.fg};padding:2px 8px;border-radius:5px;font-weight:700;font-size:11px;display:inline-block;margin-bottom:2px;">
@@ -462,9 +552,13 @@
                     const sub = ev.content && ev.content !== ev.name
                         ? `<span class="tt-academic-event-content">${_escape(ev.content)}</span>`
                         : '';
+                    const srcBadge = ev._source === 'override'
+                        ? `<span class="tt-academic-event-source" title="학교 홈페이지 조사 결과${ev._sourceUrl ? ' · ' + _escape(ev._sourceUrl) : ''}">조사</span>`
+                        : '';
                     return `<div class="tt-academic-event-row">
                         <div class="tt-academic-event-text">
                             <span class="tt-academic-event-name">${_escape(ev.name)}</span>
+                            ${srcBadge}
                             ${sub}
                         </div>
                         <button class="tt-academic-pin-btn ${pinned ? 'is-pinned' : ''}"
@@ -708,16 +802,34 @@
         }
         listEl.innerHTML = list.map((sc) => {
             const c = _schoolColor(sc);
+            const log = _getInvestigationLogFor(sc);
+            const logHtml = log
+                ? `<div class="academic-subscribed-investigation" title="${_escape(log.lastSourceUrl || '')}">
+                        <i class="fas fa-circle-check" aria-hidden="true"></i>
+                        조사함 · ${_escape(_relativeTime(log.lastAt))} · ${log.lastTotal || 0}건
+                    </div>`
+                : '';
             return `<div class="academic-subscribed-item" style="border-left-color:${c.dot};">
                 <span class="academic-color-dot" style="background:${c.dot};"></span>
                 <div class="academic-subscribed-info">
                     <div class="academic-subscribed-name">${_escape(sc.name)}</div>
                     <div class="academic-subscribed-meta">${_escape(sc.region)}${sc.type ? ' · ' + _escape(sc.type) : ''}</div>
+                    ${logHtml}
                 </div>
-                <button type="button" class="academic-remove-btn"
-                    data-atpt="${_escape(sc.atpt)}" data-code="${_escape(sc.code)}">
-                    <i class="fas fa-times"></i>
-                </button>
+                <div class="academic-subscribed-actions">
+                    <button type="button" class="academic-investigate-btn"
+                        data-atpt="${_escape(sc.atpt)}" data-code="${_escape(sc.code)}"
+                        data-name="${_escape(sc.name)}" data-region="${_escape(sc.region)}"
+                        title="NEIS 에 누락된 시험·방학 일정을 학교 공식 홈페이지에서 직접 조사합니다.">
+                        <i class="fas fa-magnifying-glass-chart" aria-hidden="true"></i>
+                        <span class="academic-investigate-btn-label">홈페이지 조사</span>
+                    </button>
+                    <button type="button" class="academic-remove-btn"
+                        data-atpt="${_escape(sc.atpt)}" data-code="${_escape(sc.code)}"
+                        aria-label="구독 해제" title="구독 해제">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
             </div>`;
         }).join('');
         listEl.querySelectorAll('.academic-remove-btn').forEach((b) => {
@@ -729,6 +841,121 @@
                 }
             });
         });
+        listEl.querySelectorAll('.academic-investigate-btn').forEach((b) => {
+            b.addEventListener('click', () => _runInvestigateFromButton(b, modal));
+        });
+    }
+
+    // ── 학교 홈페이지 조사 로그 (LS) ─────────────────────────────
+    const LS_INVESTIGATION_LOG = 'academic_investigation_log';
+    function _readInvestigationLog() {
+        try {
+            const o = JSON.parse(localStorage.getItem(LS_INVESTIGATION_LOG) || '{}');
+            return (o && typeof o === 'object') ? o : {};
+        } catch (e) { return {}; }
+    }
+    function _writeInvestigationLog(o) {
+        try { localStorage.setItem(LS_INVESTIGATION_LOG, JSON.stringify(o || {})); }
+        catch (e) {}
+    }
+    function _getInvestigationLogFor(sc) {
+        const all = _readInvestigationLog();
+        const k = `${sc.atpt}|${sc.code}`;
+        return all[k] || null;
+    }
+    function _setInvestigationLogFor(sc, data) {
+        const all = _readInvestigationLog();
+        const k = `${sc.atpt}|${sc.code}`;
+        all[k] = Object.assign({}, all[k] || {}, data || {});
+        _writeInvestigationLog(all);
+    }
+    function _relativeTime(iso) {
+        if (!iso) return '';
+        const t = Date.parse(iso);
+        if (!t) return '';
+        const diff = Math.floor((Date.now() - t) / 1000);
+        if (diff < 60) return '방금';
+        if (diff < 3600) return `${Math.floor(diff / 60)}분 전`;
+        if (diff < 86400) return `${Math.floor(diff / 3600)}시간 전`;
+        if (diff < 86400 * 30) return `${Math.floor(diff / 86400)}일 전`;
+        return new Date(t).toISOString().slice(0, 10);
+    }
+
+    // ── 조사 실행 (버튼 핸들러) ──────────────────────────────────
+    async function _runInvestigateFromButton(btn, modal) {
+        if (typeof window.invokeInvestigateSchoolCalendar !== 'function') {
+            if (typeof window.showToast === 'function') {
+                window.showToast('조사 기능을 사용할 수 없습니다. database.js 가 로드되었는지 확인해주세요.', 'error');
+            }
+            return;
+        }
+        if (btn.disabled) return;
+        const school = {
+            atpt: btn.dataset.atpt,
+            code: btn.dataset.code,
+            name: btn.dataset.name,
+            region: btn.dataset.region || '',
+        };
+        const originalHtml = btn.innerHTML;
+        btn.disabled = true;
+        btn.classList.add('is-loading');
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin" aria-hidden="true"></i> <span class="academic-investigate-btn-label">조사 중...</span>';
+        if (typeof window.showToast === 'function') {
+            window.showToast(`${school.name} 홈페이지 조사 시작 (15~40초 소요)`, 'info');
+        }
+        try {
+            const result = await window.invokeInvestigateSchoolCalendar(school);
+            if (!result) {
+                // showToast 는 database.js 헬퍼에서 이미 띄움
+                btn.innerHTML = originalHtml;
+                return;
+            }
+            if (!result.ok) {
+                btn.innerHTML = originalHtml;
+                return;
+            }
+            // 성공 — 로그 갱신
+            _setInvestigationLogFor(school, {
+                lastAt: new Date().toISOString(),
+                lastTotal: result.total || 0,
+                lastSourceUrl: (result.sourceUrls && result.sourceUrls[0]) || '',
+                lastStrategy: result.strategy || '',
+            });
+            // override 캐시 무효화 → 즉시 새 데이터 로드
+            invalidateAcademicOverrideCacheForSchool(school.atpt, school.code);
+            if (typeof window.showToast === 'function') {
+                if (result.total > 0) {
+                    window.showToast(
+                        `${school.name}: ${result.total}건의 학사일정 발견 (저장 완료)`, 'success'
+                    );
+                } else {
+                    window.showToast(
+                        `${school.name}: 추출 가능한 학사일정이 없었습니다. ${result.note || ''}`.trim(),
+                        'warning'
+                    );
+                }
+            }
+            // 학사일정 모달 갱신
+            _renderSubscribedList(modal);
+            // 캘린더 / 사이드바 즉시 재렌더
+            const tasks = [];
+            if (typeof renderAcademicBadgesOnCalendar === 'function') {
+                tasks.push(renderAcademicBadgesOnCalendar());
+            }
+            if (typeof _renderPinnedAcademicEventsSidebar === 'function') {
+                tasks.push(_renderPinnedAcademicEventsSidebar());
+            }
+            await Promise.allSettled(tasks);
+        } catch (e) {
+            console.warn('[Academic] 홈페이지 조사 실패:', e);
+            if (typeof window.showToast === 'function') {
+                window.showToast(`${school.name} 조사 실패: ${e.message || ''}`, 'error');
+            }
+            btn.innerHTML = originalHtml;
+        } finally {
+            btn.disabled = false;
+            btn.classList.remove('is-loading');
+        }
     }
 
     function openAcademicCalendarModal() {
@@ -1004,9 +1231,13 @@
                     const sub = ev.content && ev.content !== ev.name
                         ? `<span class="tt-academic-event-content">${_escape(ev.content)}</span>`
                         : '';
+                    const srcBadge = ev._source === 'override'
+                        ? `<span class="tt-academic-event-source" title="학교 홈페이지 조사 결과${ev._sourceUrl ? ' · ' + _escape(ev._sourceUrl) : ''}">조사</span>`
+                        : '';
                     return `<div class="tt-academic-event-row">
                         <div class="tt-academic-event-text">
                             <span class="tt-academic-event-name">${_escape(ev.name)}</span>
+                            ${srcBadge}
                             ${sub}
                         </div>
                         <button class="tt-academic-pin-btn ${pinned ? 'is-pinned' : ''}"

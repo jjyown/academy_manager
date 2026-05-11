@@ -511,6 +511,101 @@ window.invokeAdmissionsKnowledgeCollect = async function(payload) {
     }
 };
 
+/**
+ * investigate-school-calendar Edge Function 호출.
+ * NEIS 에 학사일정이 누락된 학교의 공식 홈페이지를 조사해
+ * school_calendar_overrides 에 보강 일정을 저장한다.
+ *
+ * @param {{atpt:string, code:string, name:string, region?:string}} school
+ * @returns {Promise<null|{ok:boolean, schoolName:string, inserted:number,
+ *   total:number, events:Array, sourceUrls:string[], strategy:string,
+ *   note?:string}>}
+ */
+window.invokeInvestigateSchoolCalendar = async function(school) {
+    try {
+        if (!school || !school.atpt || !school.code || !school.name) {
+            if (typeof showToast === 'function') showToast('학교 정보가 부족합니다.', 'warning');
+            return null;
+        }
+        const session = await _getSession();
+        if (!session) {
+            if (typeof showToast === 'function') showToast('로그인이 필요합니다.', 'warning');
+            return null;
+        }
+        const accessToken = session.access_token;
+        const { data, error } = await supabase.functions.invoke('investigate-school-calendar', {
+            body: { school },
+            headers: { Authorization: 'Bearer ' + accessToken }
+        });
+        if (error) {
+            console.error('[invokeInvestigateSchoolCalendar]', error);
+            if (typeof showToast === 'function') showToast('홈페이지 조사 호출에 실패했습니다.', 'error');
+            return null;
+        }
+        if (!data || !data.ok) {
+            const errMap = {
+                gemini_not_configured: 'Supabase 에 GEMINI_API_KEY 시크릿을 설정해주세요.',
+                supabase_env_missing: '서버 환경변수가 누락되었습니다.',
+                school_missing: '학교 식별 정보(atpt/code/name)가 누락되었습니다.',
+                db_upsert_failed: 'DB 저장 실패 — school_calendar_overrides 마이그레이션 적용 여부를 확인하세요.',
+                unauthorized: '다시 로그인해주세요.',
+            };
+            const msg = errMap[data && data.error] || ('홈페이지 조사에 실패했습니다.' + (data && data.detail ? ' (' + data.detail + ')' : ''));
+            if (typeof showToast === 'function') showToast(msg, 'error');
+            return data || null;
+        }
+        return data;
+    } catch (e) {
+        console.error('[invokeInvestigateSchoolCalendar]', e);
+        if (typeof showToast === 'function') showToast('홈페이지 조사 중 오류가 발생했습니다.', 'error');
+        return null;
+    }
+};
+
+/**
+ * school_calendar_overrides 에서 한 학교의 특정 yyyymm 학사일정을 조회.
+ * RLS 정책상 anon/authenticated 모두 SELECT 가능 — 학부모 포털·숙제관리에서도 사용 가능.
+ *
+ * @param {string} atpt
+ * @param {string} code
+ * @param {string} yyyymm 예: '202605'
+ * @returns {Promise<Array<{date:string, name:string, content:string, kind:string, sourceUrl?:string, investigatedAt?:string}>>}
+ */
+window.fetchSchoolCalendarOverrides = async function(atpt, code, yyyymm) {
+    try {
+        if (!atpt || !code || !yyyymm) return [];
+        const year = parseInt(yyyymm.slice(0, 4), 10);
+        const month = parseInt(yyyymm.slice(4, 6), 10);
+        if (!year || !month) return [];
+        const fromDate = `${yyyymm.slice(0,4)}-${yyyymm.slice(4,6)}-01`;
+        const lastDay = new Date(year, month, 0).getDate();
+        const toDate = `${yyyymm.slice(0,4)}-${yyyymm.slice(4,6)}-${String(lastDay).padStart(2,'0')}`;
+        const { data, error } = await supabase
+            .from('school_calendar_overrides')
+            .select('event_date, event_name, event_content, event_kind, source_url, investigated_at')
+            .eq('atpt', atpt)
+            .eq('school_code', code)
+            .gte('event_date', fromDate)
+            .lte('event_date', toDate)
+            .order('event_date', { ascending: true });
+        if (error) {
+            console.warn('[fetchSchoolCalendarOverrides]', error);
+            return [];
+        }
+        return (data || []).map((r) => ({
+            date: r.event_date,
+            name: r.event_name,
+            content: r.event_content || '',
+            kind: r.event_kind || 'event',
+            sourceUrl: r.source_url || '',
+            investigatedAt: r.investigated_at || '',
+        }));
+    } catch (e) {
+        console.warn('[fetchSchoolCalendarOverrides]', e);
+        return [];
+    }
+};
+
 
 // ========== 학생 관련 함수 ==========
 
