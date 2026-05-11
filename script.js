@@ -1744,10 +1744,17 @@ document.addEventListener('DOMContentLoaded', async () => {
                 currentDate = new Date(e.target.value);
                 renderCalendar();
                 e.target.value = '';
-                if (typeof _maybeAutoShowMonthlyReview === 'function') _maybeAutoShowMonthlyReview();
             }
         });
     }
+
+    // 탭 가시성이 돌아왔을 때 — 자정을 넘긴 경우 새 달 점검 모달이 자동 표시됨
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState !== 'visible') return;
+        if (typeof _maybeAutoShowMonthlyReview === 'function') {
+            try { _maybeAutoShowMonthlyReview(); } catch (e) { /* ignore */ }
+        }
+    });
 
     document.addEventListener('mousemove', (e) => {
         const tooltip = document.getElementById('calendar-tooltip');
@@ -2293,7 +2300,12 @@ async function setCurrentTeacher(teacher) {
         }
         
         renderCalendar();
-        
+
+        // 오늘 날짜의 월이 미확정이면 점검 모달 자동 표시 (앱 진입 시 1회)
+        if (typeof _maybeAutoShowMonthlyReview === 'function') {
+            try { _maybeAutoShowMonthlyReview(); } catch (e) { console.warn('[월 점검 자동 표시 실패]', e); }
+        }
+
         // 8단계: 권한 메뉴 및 역할 라벨 업데이트
         console.log('[setCurrentTeacher] 8단계: 권한 메뉴 및 역할 라벨 업데이트...');
         updatePaymentMenuVisibility();
@@ -10634,6 +10646,7 @@ window.goToday = function() {
     currentDate = new Date();
     document.getElementById('jump-date-picker').value = '';
     renderCalendar();
+    // 오늘로 돌아온 시점에 새 달이 시작됐다면 점검 모달 표시
     if (typeof _maybeAutoShowMonthlyReview === 'function') _maybeAutoShowMonthlyReview();
 }
 window.moveDate = function(d) {
@@ -10648,7 +10661,7 @@ window.moveDate = function(d) {
         currentDate.setDate(currentDate.getDate() + (d * 7));
     }
     renderCalendar();
-    if (typeof _maybeAutoShowMonthlyReview === 'function') _maybeAutoShowMonthlyReview();
+    // 다른 달로 단순 이동 시에는 모달 안 띄움 — 오늘 날짜의 월에만 자동 트리거.
 }
 window.openCurrentMonthReview = function() {
     if (typeof openMonthlyReviewModal === 'function') {
@@ -12372,18 +12385,19 @@ window.applyMonthlyReview = async function() {
 };
 
 function _maybeAutoShowMonthlyReview() {
-    if (typeof currentView !== 'undefined' && currentView !== 'month') return;
+    // 오늘 날짜 기준 — 보고 있는 달이 미래여도 트리거하지 않음.
+    // 새 달이 시작되어 오늘 날짜의 월이 아직 확정되지 않은 경우에만 자동 표시.
     if (!Array.isArray(students) || students.length === 0) return;
     const hasAny = students.some((s) =>
         Array.isArray(s.weeklyPatterns) && s.weeklyPatterns.length > 0
         && (s.status || 'active') === 'active'
     );
     if (!hasAny) return;
-    const monthKey = getMonthKey(typeof currentDate !== 'undefined' ? currentDate : new Date());
-    if (isMonthConfirmed(monthKey)) return;
-    if (wasReviewShownThisSession(monthKey)) return;
-    markReviewShownThisSession(monthKey);
-    setTimeout(() => openMonthlyReviewModal(monthKey), 350);
+    const todayMonthKey = getMonthKey(new Date());
+    if (isMonthConfirmed(todayMonthKey)) return;
+    if (wasReviewShownThisSession(todayMonthKey)) return;
+    markReviewShownThisSession(todayMonthKey);
+    setTimeout(() => openMonthlyReviewModal(todayMonthKey), 350);
 }
 
 function _consumeMonthlyReviewReopenIfPending() {
