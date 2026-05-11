@@ -624,29 +624,13 @@
                         주간 기본 일정
                         <span class="weekly-pattern-hint-inline">설정 시 미래 12주 자동 생성</span>
                     </label>
-                    <div class="weekly-day-chips" id="reg-weekly-days" role="group" aria-label="요일 선택">
-                        <label class="weekly-day-chip"><input type="checkbox" value="1"><span>월</span></label>
-                        <label class="weekly-day-chip"><input type="checkbox" value="2"><span>화</span></label>
-                        <label class="weekly-day-chip"><input type="checkbox" value="3"><span>수</span></label>
-                        <label class="weekly-day-chip"><input type="checkbox" value="4"><span>목</span></label>
-                        <label class="weekly-day-chip"><input type="checkbox" value="5"><span>금</span></label>
-                        <label class="weekly-day-chip weekly-day-chip-sat"><input type="checkbox" value="6"><span>토</span></label>
-                        <label class="weekly-day-chip weekly-day-chip-sun"><input type="checkbox" value="0"><span>일</span></label>
-                    </div>
-                    <div class="form-row" style="margin-top:8px;">
-                        <div class="weekly-pattern-input-wrap">
-                            <span class="weekly-pattern-input-label">시작</span>
-                            <input type="time" id="reg-weekly-start" class="m-input" placeholder="16:00">
-                        </div>
-                        <div class="weekly-pattern-input-wrap">
-                            <span class="weekly-pattern-input-label">분량</span>
-                            <input type="number" id="reg-weekly-duration" class="m-input" placeholder="100" min="30" max="240" step="10">
-                            <span class="weekly-pattern-input-suffix">분</span>
-                        </div>
-                    </div>
+                    <div id="reg-weekly-groups"></div>
+                    <button type="button" class="weekly-pattern-add-btn" onclick="addWeeklyPatternGroup()">
+                        <i class="fas fa-plus"></i> 시간대 추가
+                    </button>
                     <div class="weekly-pattern-help">
                         <i class="fas fa-circle-info" aria-hidden="true"></i>
-                        예: 월·수·금 · 16:00 · 100분 → 미래 12주치 자동 생성. 휴일·이미 있는 일정·과거 일정은 자동 제외됩니다. 학생 수정 시 다시 저장하면 미래 일정이 보강됩니다.
+                        예: 월·금 16:00, 수 18:00처럼 요일마다 시간이 다르면 <b>시간대 추가</b>로 그룹을 더 만드세요. 휴일·중복·과거 일정은 자동 제외되며, 학생 수정 시 다시 저장하면 미래 일정이 보강됩니다.
                     </div>
                 </div>
                 <!-- 코드 관리 통합 섹션 (수정 모드에서만 표시, 아코디언) -->

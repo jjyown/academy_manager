@@ -9626,7 +9626,7 @@ async function loadAndCleanData() {
             // Supabase 데이터를 앱 형식으로 변환
             students = supabaseStudents.map(s => {
                 const metaFromMemo = parseStudentMetaFromMemo(s.memo || '');
-                const weeklyPatternFromMemo = parseWeeklyPatternFromMemo(s.memo || '');
+                const weeklyPatternsFromMemo = parseWeeklyPatternsFromMemo(s.memo || '');
                 return ({
                 id: s.id,
                 name: s.name,
@@ -9641,7 +9641,7 @@ async function loadAndCleanData() {
                 specialLectureFee: s.special_lecture_fee || 0,
                 defaultTextbookFee: s.default_textbook_fee || 0,
                 memo: stripWeeklyPatternFromMemo(stripStudentMetaFromMemo(s.memo || '')),
-                weeklyPattern: weeklyPatternFromMemo,
+                weeklyPatterns: weeklyPatternsFromMemo,
                 registerDate: s.register_date || '',
                 parentCode: s.parent_code || '',
                 studentCode: s.student_code || '',
@@ -11813,7 +11813,7 @@ window.prepareEdit = function(id) {
     document.getElementById('reg-special-fee').value = s.specialLectureFee ? s.specialLectureFee.toLocaleString() : "";
     document.getElementById('reg-default-textbook-fee').value = s.defaultTextbookFee ? s.defaultTextbookFee.toLocaleString() : "";
     document.getElementById('reg-memo').value = s.memo || "";
-    _populateWeeklyPatternUI(s.weeklyPattern || null);
+    _populateWeeklyPatternsUI(s.weeklyPatterns || []);
     if (s.registerDate) {
         document.getElementById('reg-register-date').value = s.registerDate;
     } else {
@@ -11915,13 +11915,12 @@ function buildMemoWithStudentMeta(memoText, meta) {
 // 주간 기본 일정 (학생 메모 메타에 임베드 — 마이그레이션 0)
 //   marker: [학생주간일정]days=1,3,5|start=16:00|duration=100
 //   요일: 0=일,1=월,...,6=토
+//   여러 줄 = 시간대 그룹 N개 (예: 월·금 16:00, 수 18:00)
 // ============================================================
 const _WEEKLY_PATTERN_MARKER = '[학생주간일정]';
 
-function parseWeeklyPatternFromMemo(memoText) {
-    const lines = String(memoText || '').split('\n');
-    const line = lines.find((l) => l.startsWith(_WEEKLY_PATTERN_MARKER));
-    if (!line) return null;
+function _parseWeeklyPatternLine(line) {
+    if (!line || !line.startsWith(_WEEKLY_PATTERN_MARKER)) return null;
     const payload = line.slice(_WEEKLY_PATTERN_MARKER.length);
     const map = {};
     payload.split('|').forEach((part) => {
@@ -11938,6 +11937,13 @@ function parseWeeklyPatternFromMemo(memoText) {
     return { days, start, duration };
 }
 
+function parseWeeklyPatternsFromMemo(memoText) {
+    return String(memoText || '')
+        .split('\n')
+        .map(_parseWeeklyPatternLine)
+        .filter((p) => p !== null);
+}
+
 function stripWeeklyPatternFromMemo(memoText) {
     return String(memoText || '')
         .split('\n')
@@ -11946,51 +11952,121 @@ function stripWeeklyPatternFromMemo(memoText) {
         .trim();
 }
 
-function buildMemoWithWeeklyPattern(memoText, pattern) {
+function buildMemoWithWeeklyPatterns(memoText, patterns) {
     const stripped = stripWeeklyPatternFromMemo(memoText || '').trim();
-    if (!pattern || !Array.isArray(pattern.days) || pattern.days.length === 0
-        || !pattern.start || !pattern.duration) {
-        return stripped;
-    }
-    const sortedDays = [...new Set(pattern.days)].sort((a, b) => a - b);
-    const line = `${_WEEKLY_PATTERN_MARKER}days=${sortedDays.join(',')}`
-        + `|start=${pattern.start}|duration=${pattern.duration}`;
-    return stripped ? `${stripped}\n${line}` : line;
+    const list = Array.isArray(patterns) ? patterns : (patterns ? [patterns] : []);
+    const lines = list
+        .filter((p) => p && Array.isArray(p.days) && p.days.length > 0 && p.start && p.duration)
+        .map((p) => {
+            const sortedDays = [...new Set(p.days)].sort((a, b) => a - b);
+            return `${_WEEKLY_PATTERN_MARKER}days=${sortedDays.join(',')}`
+                + `|start=${p.start}|duration=${p.duration}`;
+        });
+    if (lines.length === 0) return stripped;
+    return stripped ? `${stripped}\n${lines.join('\n')}` : lines.join('\n');
 }
 
-/** 학생 등록 모달의 주간 패턴 UI → 객체 변환 (불완전하면 null) */
-function _readWeeklyPatternFromUI() {
-    const checks = document.querySelectorAll('#reg-weekly-days input[type="checkbox"]:checked');
-    const days = Array.from(checks)
-        .map((c) => parseInt(c.value, 10))
-        .filter((n) => !Number.isNaN(n) && n >= 0 && n <= 6);
-    const startEl = document.getElementById('reg-weekly-start');
-    const durEl = document.getElementById('reg-weekly-duration');
-    const start = (startEl?.value || '').trim();
-    const duration = parseInt(durEl?.value || '0', 10) || 0;
-    if (days.length === 0 || !start || !duration) return null;
-    return { days, start, duration };
+/** 그룹 1개의 UI를 만들어 반환 — pattern 없으면 빈 그룹 */
+function _createWeeklyPatternGroupEl(pattern) {
+    const wrap = document.createElement('div');
+    wrap.className = 'weekly-pattern-group';
+    const dayList = [
+        { v: 1, label: '월', cls: '' },
+        { v: 2, label: '화', cls: '' },
+        { v: 3, label: '수', cls: '' },
+        { v: 4, label: '목', cls: '' },
+        { v: 5, label: '금', cls: '' },
+        { v: 6, label: '토', cls: 'weekly-day-chip-sat' },
+        { v: 0, label: '일', cls: 'weekly-day-chip-sun' },
+    ];
+    const days = (pattern && Array.isArray(pattern.days)) ? pattern.days : [];
+    const chipsHtml = dayList.map((d) => {
+        const checked = days.includes(d.v) ? 'checked' : '';
+        return `<label class="weekly-day-chip ${d.cls}"><input type="checkbox" value="${d.v}" ${checked}><span>${d.label}</span></label>`;
+    }).join('');
+    const startVal = pattern?.start || '';
+    const durVal = pattern?.duration ? String(pattern.duration) : '';
+    wrap.innerHTML = `
+        <button type="button" class="weekly-pattern-remove-btn" title="이 시간대 그룹 삭제" aria-label="삭제">
+            <i class="fas fa-times"></i>
+        </button>
+        <div class="weekly-day-chips reg-weekly-days" role="group" aria-label="요일 선택">${chipsHtml}</div>
+        <div class="form-row" style="margin-top:8px;">
+            <div class="weekly-pattern-input-wrap">
+                <span class="weekly-pattern-input-label">시작</span>
+                <input type="time" class="m-input reg-weekly-start" placeholder="16:00" value="${startVal}">
+            </div>
+            <div class="weekly-pattern-input-wrap">
+                <span class="weekly-pattern-input-label">분량</span>
+                <input type="number" class="m-input reg-weekly-duration" placeholder="100" min="30" max="240" step="10" value="${durVal}">
+                <span class="weekly-pattern-input-suffix">분</span>
+            </div>
+        </div>
+    `;
+    const removeBtn = wrap.querySelector('.weekly-pattern-remove-btn');
+    if (removeBtn) {
+        removeBtn.addEventListener('click', () => {
+            const container = document.getElementById('reg-weekly-groups');
+            if (!container) return;
+            const remaining = container.querySelectorAll('.weekly-pattern-group');
+            if (remaining.length <= 1) {
+                _clearWeeklyPatternGroup(wrap);
+            } else {
+                wrap.remove();
+            }
+        });
+    }
+    return wrap;
+}
+
+function _clearWeeklyPatternGroup(groupEl) {
+    if (!groupEl) return;
+    groupEl.querySelectorAll('input[type="checkbox"]').forEach((c) => { c.checked = false; });
+    const s = groupEl.querySelector('.reg-weekly-start');
+    const d = groupEl.querySelector('.reg-weekly-duration');
+    if (s) s.value = '';
+    if (d) d.value = '';
+}
+
+window.addWeeklyPatternGroup = function() {
+    const container = document.getElementById('reg-weekly-groups');
+    if (!container) return;
+    container.appendChild(_createWeeklyPatternGroupEl(null));
+};
+
+/** 학생 등록 모달의 모든 주간 패턴 그룹 → 배열 (빈 그룹 제외) */
+function _readWeeklyPatternsFromUI() {
+    const groups = document.querySelectorAll('#reg-weekly-groups .weekly-pattern-group');
+    const result = [];
+    groups.forEach((g) => {
+        const days = Array.from(g.querySelectorAll('input[type="checkbox"]:checked'))
+            .map((c) => parseInt(c.value, 10))
+            .filter((n) => !Number.isNaN(n) && n >= 0 && n <= 6);
+        const start = (g.querySelector('.reg-weekly-start')?.value || '').trim();
+        const duration = parseInt(g.querySelector('.reg-weekly-duration')?.value || '0', 10) || 0;
+        if (days.length === 0 || !start || !duration) return;
+        result.push({ days, start, duration });
+    });
+    return result;
 }
 
 function _resetWeeklyPatternUI() {
-    document.querySelectorAll('#reg-weekly-days input[type="checkbox"]')
-        .forEach((c) => { c.checked = false; });
-    const startEl = document.getElementById('reg-weekly-start');
-    const durEl = document.getElementById('reg-weekly-duration');
-    if (startEl) startEl.value = '';
-    if (durEl) durEl.value = '';
+    const container = document.getElementById('reg-weekly-groups');
+    if (!container) return;
+    container.innerHTML = '';
+    container.appendChild(_createWeeklyPatternGroupEl(null));
 }
 
-function _populateWeeklyPatternUI(pattern) {
-    document.querySelectorAll('#reg-weekly-days input[type="checkbox"]')
-        .forEach((c) => {
-            c.checked = !!(pattern && Array.isArray(pattern.days)
-                && pattern.days.includes(parseInt(c.value, 10)));
-        });
-    const startEl = document.getElementById('reg-weekly-start');
-    const durEl = document.getElementById('reg-weekly-duration');
-    if (startEl) startEl.value = pattern?.start || '';
-    if (durEl) durEl.value = pattern?.duration ? String(pattern.duration) : '';
+function _populateWeeklyPatternsUI(patterns) {
+    const container = document.getElementById('reg-weekly-groups');
+    if (!container) return;
+    container.innerHTML = '';
+    const list = Array.isArray(patterns) ? patterns.filter(Boolean) : [];
+    if (list.length === 0) {
+        container.appendChild(_createWeeklyPatternGroupEl(null));
+        return;
+    }
+    list.forEach((p) => container.appendChild(_createWeeklyPatternGroupEl(p)));
 }
 
 /**
@@ -12133,9 +12209,9 @@ window.handleStudentSave = async function() {
     const specialLectureFee = document.getElementById('reg-special-fee').value;
     const defaultTextbookFee = document.getElementById('reg-default-textbook-fee').value;
     const userMemo = document.getElementById('reg-memo').value.trim();
-    const weeklyPatternFromUI = _readWeeklyPatternFromUI();
+    const weeklyPatternsFromUI = _readWeeklyPatternsFromUI();
     // 메모에 [학생주간일정] 메타 라인 임베드 (DB 마이그레이션 0)
-    const memo = buildMemoWithWeeklyPattern(userMemo, weeklyPatternFromUI);
+    const memo = buildMemoWithWeeklyPatterns(userMemo, weeklyPatternsFromUI);
     const regDate = document.getElementById('reg-register-date').value.trim();
 
     clearStudentRequiredMarks();
@@ -12293,7 +12369,7 @@ window.handleStudentSave = async function() {
                         ...students[idx],
                         ...localData,
                         memo: userMemo,
-                        weeklyPattern: weeklyPatternFromUI,
+                        weeklyPatterns: weeklyPatternsFromUI,
                     };
                 }
                 console.log('학생 수정 완료:', updatedStudent);
@@ -12325,12 +12401,12 @@ window.handleStudentSave = async function() {
                 // Supabase에서 생성된 ID 사용
                 const newStudentId = addedStudent.id;
 
-                // 메모리에 추가 — memo 는 사용자 입력만 + weeklyPattern 별도
+                // 메모리에 추가 — memo 는 사용자 입력만 + weeklyPatterns 별도
                 students.push({
                     id: newStudentId,
                     ...localData,
                     memo: userMemo,
-                    weeklyPattern: weeklyPatternFromUI,
+                    weeklyPatterns: weeklyPatternsFromUI,
                     status: addedStudent.status || 'active',
                     events: [],
                     attendance: {},
@@ -12355,23 +12431,29 @@ window.handleStudentSave = async function() {
             const last = students[students.length - 1];
             if (last) savedStudentId = last.id;
         }
-        if (weeklyPatternFromUI && savedStudentId) {
+        if (weeklyPatternsFromUI.length > 0 && savedStudentId) {
             try {
-                const genResult = await applyStudentWeeklyPattern(savedStudentId, {
-                    days: weeklyPatternFromUI.days,
-                    startTime: weeklyPatternFromUI.start,
-                    durationMin: weeklyPatternFromUI.duration,
-                    weeks: 12,
-                    excludeHolidays: true,
-                });
-                if (genResult.count > 0) {
+                const agg = { count: 0, skippedHoliday: 0, skippedExisting: 0 };
+                for (const p of weeklyPatternsFromUI) {
+                    const r = await applyStudentWeeklyPattern(savedStudentId, {
+                        days: p.days,
+                        startTime: p.start,
+                        durationMin: p.duration,
+                        weeks: 12,
+                        excludeHolidays: true,
+                    });
+                    agg.count += r.count || 0;
+                    agg.skippedHoliday += r.skippedHoliday || 0;
+                    agg.skippedExisting += r.skippedExisting || 0;
+                }
+                if (agg.count > 0) {
                     showToast(
-                        `주간 일정 ${genResult.count}건 자동 생성됨` +
-                        (genResult.skippedExisting > 0 ? ` · 중복 ${genResult.skippedExisting}건 제외` : '') +
-                        (genResult.skippedHoliday > 0 ? ` · 휴일 ${genResult.skippedHoliday}건 제외` : ''),
+                        `주간 일정 ${agg.count}건 자동 생성됨` +
+                        (agg.skippedExisting > 0 ? ` · 중복 ${agg.skippedExisting}건 제외` : '') +
+                        (agg.skippedHoliday > 0 ? ` · 휴일 ${agg.skippedHoliday}건 제외` : ''),
                         'success'
                     );
-                } else if (genResult.skippedExisting > 0 || genResult.skippedHoliday > 0) {
+                } else if (agg.skippedExisting > 0 || agg.skippedHoliday > 0) {
                     showToast('이미 등록된 일정만 있어 추가 생성된 일정이 없습니다.', 'info');
                 }
             } catch (genErr) {
