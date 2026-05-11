@@ -1699,16 +1699,19 @@ textarea:focus:not(:focus-visible) {
    학사일정 직접 입력 모달 (academic-manual-entry-modal, amec-)
    좌측: PDF·이미지 미리보기 / 우측: 일정 한 줄씩 추가 폼
    AI 추출 대신 사용자가 자료를 보며 직접 입력하는 정확 방식
+   특이도 — .modal-card 공통 규칙(max-width:600px)을 덮어쓰기 위해
+   .modal-card.amec-modal-card 로 묶어 작성.
    ============================================================ */
-.amec-modal-card {
-    width: 95vw;
-    max-width: 1280px;
-    height: 88vh;
-    max-height: 880px;
+.modal-card.amec-modal-card {
+    width: 96vw;
+    max-width: 1600px;
+    height: 92vh;
+    max-height: 980px;
     display: flex;
     flex-direction: column;
     padding: 0;
     overflow: hidden;
+    border-radius: 16px;
 }
 .amec-header {
     display: flex; align-items: center; justify-content: space-between;
@@ -1738,7 +1741,8 @@ textarea:focus:not(:focus-visible) {
 .amec-body {
     flex: 1; min-height: 0;
     display: grid;
-    grid-template-columns: 1.4fr 1fr;
+    /* 좌(미리보기) 더 넓게 — PDF 표를 읽기 편하게. 우측 입력폼은 420px 고정 폭. */
+    grid-template-columns: minmax(0, 1fr) 420px;
     gap: 0;
 }
 .amec-preview-pane {
@@ -1933,9 +1937,14 @@ textarea:focus:not(:focus-visible) {
 .amec-save-btn:hover:not(:disabled) { background: #0d9488; }
 .amec-save-btn:disabled, .amec-save-btn.is-loading { opacity: 0.7; cursor: not-allowed; }
 
+/* 태블릿: 우측 폼 폭 축소, 미리보기 비율 유지 */
+@media (max-width: 1200px) {
+    .amec-body { grid-template-columns: minmax(0, 1fr) 360px; }
+}
+/* 모바일: 세로 스택 */
 @media (max-width: 880px) {
-    .amec-modal-card { width: 100vw; height: 100vh; max-height: 100vh; border-radius: 0; }
-    .amec-body { grid-template-columns: 1fr; grid-template-rows: 40vh 1fr; }
+    .modal-card.amec-modal-card { width: 100vw; height: 100vh; max-height: 100vh; border-radius: 0; }
+    .amec-body { grid-template-columns: 1fr; grid-template-rows: 45vh 1fr; }
     .amec-preview-pane { border-right: 0; border-bottom: 1px solid var(--border, #e2e8f0); }
     .amec-input-date { flex: 0 0 130px; }
     .amec-input-kind { flex: 0 0 90px; }
@@ -10043,6 +10052,21 @@ body.pay-tax-mode-exempt .pay-vat-only { display: none !important; }
 }
 .pay-ledger-extra[open] > summary::before { content: '− '; }
 .pay-ledger-extra[open] > .pay-ledger-grid { margin-top: 10px; }
+
+.pay-expense-toolbar-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+.pay-ledger-btn-secondary {
+    background: #fff !important;
+    color: #6366f1 !important;
+    border: 1px solid #c7d2fe !important;
+}
+.pay-ledger-btn-secondary:hover {
+    background: #eef2ff !important;
+    border-color: #6366f1 !important;
+}
 
 .pay-expense-categories {
     display: flex;

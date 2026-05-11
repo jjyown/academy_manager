@@ -3905,3 +3905,125 @@ window.addEventListener('load', () => {
         try { maybeShowDailyTaxToast(); } catch (e) { /* ignore */ }
     }, 3500);
 });
+
+// ============================================
+// 카드 수수료 빠른 등록 — 비용원장에 '수수료' 카테고리로 자동 등록
+// ============================================
+function getCurrentPaymentMonthRangeSafe() {
+    try {
+        if (typeof getCurrentPaymentMonthRange === 'function') return getCurrentPaymentMonthRange();
+    } catch (e) {}
+    const d = new Date();
+    const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const todayLocal = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+    return { monthKey, monthStart: todayLocal };
+}
+
+window.openCardFeeModal = function() {
+    const role = (typeof getCurrentTeacherRole === 'function') ? getCurrentTeacherRole() : 'admin';
+    if (role !== 'admin') {
+        showToast('수수료 등록은 관리자만 가능합니다.', 'warning');
+        return;
+    }
+    const { monthKey, monthStart } = getCurrentPaymentMonthRangeSafe();
+    const monthInput = document.getElementById('card-fee-month-key');
+    const dateInput = document.getElementById('card-fee-date');
+    const channelInput = document.getElementById('card-fee-channel');
+    const grossInput = document.getElementById('card-fee-gross');
+    const amountInput = document.getElementById('card-fee-amount');
+    const rateInput = document.getElementById('card-fee-rate');
+    const noteInput = document.getElementById('card-fee-note');
+    if (!monthInput || !dateInput || !channelInput || !amountInput) return;
+    monthInput.value = monthKey || '';
+    dateInput.value = monthStart || '';
+    if (!channelInput.value) channelInput.value = '우리카드';
+    grossInput.value = '';
+    amountInput.value = '';
+    rateInput.value = '';
+    noteInput.value = '';
+    resetModalRequiredMarks('card-fee-modal');
+    preparePayTermHelpButtons();
+    openModal('card-fee-modal');
+};
+
+window.onCardFeeChannelChange = function() {
+    const noteInput = document.getElementById('card-fee-note');
+    const channel = document.getElementById('card-fee-channel')?.value || '';
+    const monthKey = document.getElementById('card-fee-month-key')?.value || '';
+    if (noteInput && !noteInput.value.trim()) {
+        noteInput.value = monthKey ? `${monthKey} ${channel} 수수료` : `${channel} 수수료`;
+    }
+};
+
+function recalcCardFeeRate() {
+    const gross = Math.max(0, parseAmount(document.getElementById('card-fee-gross')?.value || 0));
+    const fee = Math.max(0, parseAmount(document.getElementById('card-fee-amount')?.value || 0));
+    const rateEl = document.getElementById('card-fee-rate');
+    if (!rateEl) return;
+    if (gross > 0 && fee > 0) {
+        const rate = Math.round((fee / gross) * 10000) / 100; // 소수 2자리
+        rateEl.value = `${rate}%`;
+    } else {
+        rateEl.value = '';
+    }
+}
+window.onCardFeeGrossChange = recalcCardFeeRate;
+window.onCardFeeAmountChange = recalcCardFeeRate;
+
+window.saveCardFee = async function() {
+    resetModalRequiredMarks('card-fee-modal');
+    const monthKey = (document.getElementById('card-fee-month-key')?.value || '').trim();
+    const expenseDate = (document.getElementById('card-fee-date')?.value || '').trim();
+    const channel = (document.getElementById('card-fee-channel')?.value || '').trim();
+    const grossAmount = Math.max(0, parseAmount(document.getElementById('card-fee-gross')?.value || 0));
+    const feeAmount = Math.max(0, parseAmount(document.getElementById('card-fee-amount')?.value || 0));
+    const note = (document.getElementById('card-fee-note')?.value || '').trim();
+
+    if (!monthKey) { markAndFocusRequiredFields(['card-fee-month-key']); showToast('귀속월을 선택해주세요.', 'warning'); return; }
+    if (!expenseDate) { markAndFocusRequiredFields(['card-fee-date']); showToast('정산일을 선택해주세요.', 'warning'); return; }
+    if (!channel) { markAndFocusRequiredFields(['card-fee-channel']); showToast('수수료 채널을 선택해주세요.', 'warning'); return; }
+    if (feeAmount <= 0) { markAndFocusRequiredFields(['card-fee-amount']); showToast('수수료 금액을 입력해주세요.', 'warning'); return; }
+
+    const isExemptMode = (typeof getPaymentTaxMode === 'function' && getPaymentTaxMode() === 'exempt');
+    const rateNote = grossAmount > 0 ? ` (매출 ${grossAmount.toLocaleString()}원 기준 ${(Math.round((feeAmount / grossAmount) * 10000) / 100)}%)` : '';
+    const composedNote = (note ? `${note}` : `${monthKey} ${channel} 수수료`) + rateNote;
+
+    const rows = loadExpenseLedger();
+    const newRow = {
+        id: `expense_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        createdAt: new Date().toISOString(),
+        monthKey,
+        expenseDate,
+        category: '수수료',
+        amount: feeAmount,
+        supplyAmount: feeAmount,
+        vatAmount: 0,
+        method: '계좌이체',
+        vendor: channel,
+        vatType: isExemptMode ? '면세' : '부가세포함',
+        evidenceType: '카드전표',
+        evidenceNumber: '',
+        payrollIncomeType: '',
+        payrollTarget: '',
+        payrollMonth: '',
+        payrollWithholding: 0,
+        payrollLocalTax: 0,
+        payrollInsurance: 0,
+        payrollNetAmount: 0,
+        note: composedNote,
+    };
+    rows.unshift(newRow);
+    saveExpenseLedgerRows(rows);
+    if (typeof saveData === 'function') saveData();
+    closeModal('card-fee-modal');
+    if (typeof renderExpenseTab === 'function') renderExpenseTab();
+    showToast(`${channel} 수수료 ${feeAmount.toLocaleString()}원이 비용원장에 등록되었습니다.`, 'success');
+    try {
+        const synced = await upsertExpenseRowRemote(newRow);
+        if (!synced && expenseRemoteChecked) {
+            showToast('수수료는 로컬에 저장되었습니다. 서버 동기화는 확인이 필요합니다.', 'info');
+        }
+    } catch (e) {
+        console.warn('[card-fee] 원격 동기화 실패:', e);
+    }
+};
