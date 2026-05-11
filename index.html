@@ -1308,6 +1308,9 @@
                 <div class="pay-header-top">
                     <h2><i class="fas fa-won-sign"></i> 수납·기장</h2>
                     <div class="pay-header-actions">
+                        <button class="pay-deadline-chip hidden" id="pay-deadline-chip" onclick="goToFilingFromDeadlineChip()" title="다가오는 신고일 — 클릭하면 신고센터로 이동">
+                            <i class="fas fa-bell"></i> <span id="pay-deadline-chip-label">신고 D-day</span>
+                        </button>
                         <button class="pay-mode-chip" id="pay-mode-chip" onclick="togglePaymentTaxMode()" title="면세/과세 모드 전환">
                             <i class="fas fa-shield-alt"></i> <span id="pay-mode-chip-label">면세</span>
                         </button>
@@ -1510,17 +1513,17 @@
 
                 <div class="pay-filing-summary">
                     <div class="pay-filing-summary-card pay-filing-summary-income">
-                        <span class="pay-filing-summary-label">연간 수입금액</span>
+                        <span class="pay-filing-summary-label">연간 수입금액 <span class="pay-term-help" data-help="해당 연도 1월~12월에 받은 수강료·교재비·특강료 등 모든 매출의 합계. 사업장현황신고와 종합소득세 신고의 기본 금액입니다.">?</span></span>
                         <strong id="pay-filing-income-total">0원</strong>
                         <span class="pay-filing-summary-sub" id="pay-filing-income-count">0건</span>
                     </div>
                     <div class="pay-filing-summary-card pay-filing-summary-expense">
-                        <span class="pay-filing-summary-label">연간 필요경비</span>
+                        <span class="pay-filing-summary-label">연간 필요경비 <span class="pay-term-help" data-help="해당 연도에 학원 운영을 위해 쓴 비용 합계. 임차료·강사료·공과금·교재비 등 모두 포함. 종합소득세에서 수입에서 차감되어 세금 부담을 줄여줍니다.">?</span></span>
                         <strong id="pay-filing-expense-total">0원</strong>
                         <span class="pay-filing-summary-sub" id="pay-filing-expense-count">0건</span>
                     </div>
                     <div class="pay-filing-summary-card pay-filing-summary-net">
-                        <span class="pay-filing-summary-label">예상 순익(수입-비용)</span>
+                        <span class="pay-filing-summary-label">예상 순익(수입-비용) <span class="pay-term-help" data-help="입력된 수입에서 비용을 단순히 뺀 금액. 실제 종합소득세는 단순경비율·기준경비율·소득공제 등이 적용되므로 이 금액과 다를 수 있습니다. 참고용 수치입니다.">?</span></span>
                         <strong id="pay-filing-net-total">0원</strong>
                         <span class="pay-filing-summary-sub">실제 신고 금액은 다를 수 있음</span>
                     </div>
@@ -1629,11 +1632,11 @@
                         <select id="ledger-student-id" class="m-input"></select>
                     </div>
                     <div class="input-group">
-                        <label>청구월 <span class="pay-required-mark">*</span></label>
+                        <label>청구월 <span class="pay-required-mark">*</span> <span class="pay-term-help" data-help="수업이 진행되는 달, 즉 학부모에게 청구한 기준 월입니다. 예) 5월 수업분 수강료라면 2026-05.">?</span></label>
                         <input type="month" id="ledger-month-key" class="m-input">
                     </div>
                     <div class="input-group">
-                        <label>수입 분류</label>
+                        <label>수입 분류 <span class="pay-term-help" data-help="신고 시 분류별 합계로 집계됩니다. 일반 월 수강료는 '수강료', 별도 교재비는 '교재비', 방학 특강은 '특강료'. 보통 '수강료' 하나면 충분합니다.">?</span></label>
                         <select id="ledger-income-type" class="m-input">
                             <option value="수강료">수강료</option>
                             <option value="교재비">교재비</option>
@@ -1642,20 +1645,21 @@
                         </select>
                     </div>
                     <div class="input-group">
-                        <label>청구금액</label>
+                        <label>청구금액 <span class="pay-term-help" data-help="원래 받아야 할 총액. 예) 수강료 30만원 + 교재비 5만원 = 35만원. 분할 납부 중이면 수납금액과 차이만큼 미수금으로 잡힙니다.">?</span></label>
                         <input type="text" id="ledger-due-amount" class="m-input" placeholder="예: 350,000" oninput="formatNumberWithComma(this)">
                     </div>
                     <div class="input-group">
-                        <label>수납금액 <span class="pay-required-mark">*</span></label>
+                        <label>수납금액 <span class="pay-required-mark">*</span> <span class="pay-term-help" data-help="실제로 받은 금액. 청구금액 전액을 받았으면 청구금액과 같습니다. 일부만 받았으면 받은 금액만 적으면 됩니다.">?</span></label>
                         <input type="text" id="ledger-paid-amount" class="m-input" placeholder="예: 350,000" oninput="formatNumberWithComma(this); onPaymentPaidAmountInput(this.value)">
                     </div>
                     <div class="input-group">
-                        <label>결제수단 <span class="pay-required-mark">*</span></label>
+                        <label>결제수단 <span class="pay-required-mark">*</span> <span class="pay-term-help" data-help="카드·계좌이체는 자동으로 매출 신고됩니다. 지역화폐(동백전)도 카드매출과 동일하게 자동 신고됩니다. 현금만 별도 현금영수증을 발급하면 신고가 끝납니다.">?</span></label>
                         <select id="ledger-method" class="m-input">
                             <option value="카드">카드</option>
                             <option value="계좌이체">계좌이체</option>
                             <option value="현금">현금</option>
                             <option value="QR코드">QR/간편결제</option>
+                            <option value="지역화폐">지역화폐(동백전 등)</option>
                         </select>
                     </div>
                     <div class="input-group">
@@ -1663,7 +1667,7 @@
                         <input type="date" id="ledger-paid-at" class="m-input">
                     </div>
                     <div class="input-group">
-                        <label>증빙 발급</label>
+                        <label>증빙 발급 <span class="pay-term-help" data-help="학부모에게 어떤 영수증을 줬는지 기록합니다. 카드결제는 카드사가 자동 처리하므로 '없음/자동(카드)' 선택. 10만원 이상 현금을 받으면 '현금영수증 발급' 의무.">?</span></label>
                         <select id="ledger-evidence-type" class="m-input">
                             <option value="manual">없음/자동(카드)</option>
                             <option value="현금영수증">현금영수증 발급</option>
@@ -1674,8 +1678,8 @@
                         </select>
                     </div>
                     <div class="input-group">
-                        <label>증빙번호(승인번호 등)</label>
-                        <input type="text" id="ledger-evidence-number" class="m-input" placeholder="현금영수증·승인번호·이체번호">
+                        <label>증빙번호 <span class="pay-term-help" data-help="발급한 증빙의 고유번호. 현금영수증이면 국세청 승인번호, 세금계산서면 일련번호. 카드결제·계좌이체는 비워두셔도 됩니다.">?</span></label>
+                        <input type="text" id="ledger-evidence-number" class="m-input" placeholder="현금영수증·세금계산서 번호 (카드면 비워둠)">
                     </div>
                     <div class="input-group pay-vat-only">
                         <label>공급가액 <span class="pay-field-badge is-auto">자동</span></label>
@@ -1686,13 +1690,13 @@
                         <input type="text" id="ledger-vat-amount" class="m-input pay-auto-input" placeholder="자동 계산" readonly>
                     </div>
                     <div class="input-group">
-                        <label>거래확인번호(선택)</label>
-                        <input type="text" id="ledger-reference-id" class="m-input" placeholder="카드/이체/QR 거래번호">
+                        <label>결제 승인번호(선택) <span class="pay-term-help" data-help="카드사·은행이 결제 직후 발급한 거래 추적용 번호입니다. 영수증·통장 명세서·결제내역 화면에서 확인 가능. 사후 거래 확인용일 뿐 세무신고에는 불필요합니다.">?</span></label>
+                        <input type="text" id="ledger-reference-id" class="m-input" placeholder="카드 승인번호·이체확인번호 (없으면 비워둠)">
                     </div>
                     <div class="input-group" style="grid-column: 1 / -1;">
                         <label style="display:flex; align-items:center; gap:8px;">
                             <input type="checkbox" id="ledger-unmatched">
-                            <span>학생을 모르겠음 → <b>미확인입금</b>으로 임시 보관</span>
+                            <span>학생을 모르겠음 → <b>미확인입금</b>으로 임시 보관 <span class="pay-term-help" data-help="통장에 입금이 됐는데 어느 학생이 보낸 건지 모를 때 사용. 일단 보관해뒀다가 나중에 학부모에게 확인되면 [입금 확인대기함]에서 학생과 매칭하면 됩니다.">?</span></span>
                         </label>
                     </div>
                     <details class="pay-ledger-extra" style="grid-column: 1 / -1;">
@@ -1862,15 +1866,15 @@
                 <div class="pay-ledger-hint"><i class="fas fa-info-circle"></i> 종합소득세(5월) 경비처리를 위해선 <b>적격증빙</b>(세금계산서·카드·현금영수증)이 있는 지출 위주로 등록하세요.</div>
                 <div class="pay-ledger-grid">
                     <div class="input-group">
-                        <label>지출일 <span class="pay-required-mark">*</span></label>
+                        <label>지출일 <span class="pay-required-mark">*</span> <span class="pay-term-help" data-help="실제로 돈이 나간 날. 카드명세서·통장 출금일 기준. 통장에 찍힌 날짜를 그대로 적으면 됩니다.">?</span></label>
                         <input type="date" id="expense-date" class="m-input">
                     </div>
                     <div class="input-group">
-                        <label>귀속월 <span class="pay-required-mark">*</span></label>
+                        <label>귀속월 <span class="pay-required-mark">*</span> <span class="pay-term-help" data-help="이 비용을 어느 달의 비용으로 잡을지. 보통 지출일과 같습니다. 단, 5월 사용한 월세를 6월에 결제했다면 귀속월은 5월(사용한 달), 지출일은 6월로 구분해 적습니다.">?</span></label>
                         <input type="month" id="expense-month-key" class="m-input">
                     </div>
                     <div class="input-group" style="grid-column: 1 / -1;">
-                        <label>비용 분류 <span class="pay-required-mark">*</span></label>
+                        <label>비용 분류 <span class="pay-required-mark">*</span> <span class="pay-term-help" data-help="종합소득세(5월) 신고 시 분류별 합계로 자동 집계됩니다. 임차료·인건비 같은 큰 항목은 따로 분류하면 단순/기준경비율 비교 시 편리합니다. 비품은 100만원 이상이면 감가상각(여러 해 나눠 비용처리) 대상.">?</span></label>
                         <select id="expense-category" class="m-input" onchange="toggleExpensePayrollFields(this.value)">
                             <optgroup label="고정비(매월)">
                                 <option value="임차료">임차료(월세·관리비)</option>
@@ -1913,11 +1917,11 @@
                         </select>
                     </div>
                     <div class="input-group">
-                        <label>거래처</label>
+                        <label>거래처 <span class="pay-term-help" data-help="돈을 지급한 상대방. 사업자(예: KT, ㅇㅇ문구점) 또는 강사명. 같은 거래처를 반복 입력하면 신고센터 분류 시 합계 추적이 쉽습니다.">?</span></label>
                         <input type="text" id="expense-vendor" class="m-input" placeholder="예: ㅇㅇ문구점, KT 등">
                     </div>
                     <div class="input-group">
-                        <label>증빙</label>
+                        <label>증빙 <span class="pay-term-help" data-help="종합소득세에서 100% 인정되는 적격증빙은 4가지 — 세금계산서·카드전표·현금영수증(지출증빙용)·간이영수증. 영수증이 없으면 '증빙 없음' 선택하되 세무서 사후 검증에서 불리할 수 있어 적격증빙을 받는 것이 안전합니다.">?</span></label>
                         <select id="expense-evidence-type" class="m-input">
                             <option value="세금계산서">세금계산서</option>
                             <option value="카드전표">카드전표</option>
@@ -1927,8 +1931,8 @@
                         </select>
                     </div>
                     <div class="input-group">
-                        <label>증빙번호</label>
-                        <input type="text" id="expense-evidence-number" class="m-input" placeholder="승인번호·계산서번호">
+                        <label>증빙번호 <span class="pay-term-help" data-help="발급받은 증빙의 고유번호. 세금계산서는 일련번호, 현금영수증은 국세청 승인번호. 카드전표는 카드 승인번호. 빠뜨려도 큰 문제는 없으나 적어두면 사후 추적이 편합니다.">?</span></label>
+                        <input type="text" id="expense-evidence-number" class="m-input" placeholder="세금계산서/현금영수증 승인번호">
                     </div>
                     <div class="input-group pay-vat-only">
                         <label>부가세 구분</label>
@@ -1955,7 +1959,7 @@
                         <div id="expense-payroll-help" class="pay-payroll-help">소득유형을 먼저 선택하면 필요한 항목이 자동 안내됩니다.</div>
                         <div class="pay-ledger-grid">
                             <div class="input-group">
-                                <label>소득유형</label>
+                                <label>소득유형 <span class="pay-term-help" data-help="비율제·프리랜서 강사는 '사업소득자'로 보고 지급액의 3.3%(원천세 3.0% + 지방소득세 0.3%)를 차감 후 다음달 10일까지 신고. 월급제 강사는 '근로소득자'로 4대보험·연말정산 의무가 추가됩니다.">?</span></label>
                                 <select id="expense-payroll-income-type" class="m-input" onchange="onExpensePayrollTypeChange()">
                                     <option value="">선택</option>
                                     <option value="비율제강사">비율제·프리랜서(사업소득 3.3%)</option>
@@ -1967,23 +1971,23 @@
                                 <input type="text" id="expense-payroll-target" class="m-input" placeholder="예: 홍길동">
                             </div>
                             <div class="input-group">
-                                <label>지급월</label>
+                                <label>지급월 <span class="pay-term-help" data-help="강사료가 실제로 지급된 달. 이 달의 다음달 10일까지 원천세 신고. 연말 합산해서 다음해 2월 말까지 지급명세서 제출.">?</span></label>
                                 <input type="month" id="expense-payroll-month" class="m-input">
                             </div>
                             <div class="input-group">
-                                <label>원천세 <span id="expense-payroll-withholding-badge" class="pay-field-badge is-auto">자동</span></label>
+                                <label>원천세 <span id="expense-payroll-withholding-badge" class="pay-field-badge is-auto">자동</span> <span class="pay-term-help" data-help="지급액에서 미리 떼는 소득세. 비율제는 3.0% 자동계산. 학원이 보관했다가 다음달 10일에 홈택스로 납부합니다.">?</span></label>
                                 <input type="text" id="expense-payroll-withholding" class="m-input pay-auto-input" placeholder="자동/직접" readonly oninput="formatNumberWithComma(this); onExpensePayrollDeductionInput()">
                             </div>
                             <div class="input-group">
-                                <label>지방소득세 <span id="expense-payroll-local-tax-badge" class="pay-field-badge is-auto">자동</span></label>
+                                <label>지방소득세 <span id="expense-payroll-local-tax-badge" class="pay-field-badge is-auto">자동</span> <span class="pay-term-help" data-help="원천세의 10%가 추가로 차감됩니다. 비율제 3.3% 중 마지막 0.3%가 이 항목. 지자체로 납부.">?</span></label>
                                 <input type="text" id="expense-payroll-local-tax" class="m-input pay-auto-input" placeholder="자동/직접" readonly oninput="formatNumberWithComma(this); onExpensePayrollDeductionInput()">
                             </div>
                             <div class="input-group">
-                                <label>4대보험·공제</label>
+                                <label>4대보험·공제 <span class="pay-term-help" data-help="월급제(근로소득자) 강사인 경우만 입력. 국민연금·건강보험·고용보험·산재보험. 비율제(사업소득)는 4대보험 의무 없음.">?</span></label>
                                 <input type="text" id="expense-payroll-insurance" class="m-input" placeholder="예: 120,000" oninput="formatNumberWithComma(this); onExpensePayrollDeductionInput()">
                             </div>
                             <div class="input-group" style="grid-column: 1 / -1;">
-                                <label>실지급액 <span class="pay-field-badge is-auto">자동</span></label>
+                                <label>실지급액 <span class="pay-field-badge is-auto">자동</span> <span class="pay-term-help" data-help="총 지급액에서 원천세·지방소득세·4대보험을 모두 뺀 금액. 강사 통장에 실제 입금되는 액수입니다.">?</span></label>
                                 <input type="text" id="expense-payroll-net" class="m-input pay-auto-input" placeholder="총액 - 원천세 - 지방소득세 - 공제" readonly>
                             </div>
                         </div>
