@@ -6775,7 +6775,8 @@ textarea:focus:not(:focus-visible) {
     flex-direction: column;
 }
 #pay-main-section-income,
-#pay-main-section-expense {
+#pay-main-section-expense,
+#pay-main-section-filing {
     flex: 1;
     min-height: 0;
     display: flex;
@@ -9537,4 +9538,317 @@ textarea:focus:not(:focus-visible) {
     background: var(--theme-header);
     color: #f87171;
     border-color: rgba(239,68,68,0.3);
+}
+
+/* ============================================
+   수납·기장 개편: 신고센터/온보딩/면세모드 (2026-05)
+   ============================================ */
+
+.pay-header-actions { display: flex; align-items: center; gap: 10px; }
+.pay-mode-chip {
+    background: #ecfdf5;
+    border: 1px solid #6ee7b7;
+    color: #047857;
+    border-radius: 999px;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    display: inline-flex; align-items: center; gap: 6px;
+    transition: all .15s;
+}
+.pay-mode-chip:hover { background: #d1fae5; }
+.pay-mode-chip.is-taxable {
+    background: #fef3c7; border-color: #fcd34d; color: #b45309;
+}
+
+body.pay-tax-mode-exempt .pay-vat-only { display: none !important; }
+
+.pay-onboard-banner {
+    display: flex; align-items: flex-start; gap: 14px;
+    background: linear-gradient(135deg, #eff6ff 0%, #ecfeff 100%);
+    border: 1px solid #bae6fd;
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin: 12px 14px 0 14px;
+    position: relative;
+}
+.pay-onboard-banner.hidden { display: none; }
+.pay-onboard-icon {
+    width: 36px; height: 36px; flex-shrink: 0;
+    border-radius: 50%;
+    background: #fde68a;
+    color: #b45309;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px;
+}
+.pay-onboard-body { flex: 1; min-width: 0; font-size: 13px; color: #0f172a; }
+.pay-onboard-body strong { display: block; font-size: 14px; margin-bottom: 6px; color: #0c4a6e; }
+.pay-onboard-steps { margin: 0; padding-left: 18px; line-height: 1.7; color: #334155; }
+.pay-onboard-steps li b { color: #0c4a6e; }
+.pay-onboard-close {
+    background: none; border: none; cursor: pointer;
+    color: #64748b; font-size: 14px;
+    padding: 4px;
+}
+.pay-onboard-close:hover { color: #1e293b; }
+
+.pay-checklist-compact {
+    margin-top: 8px;
+    padding: 10px 12px;
+    background: #fafafa;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+}
+.pay-checklist-compact-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: #334155;
+    margin-bottom: 8px;
+    display: flex; align-items: center; gap: 6px;
+}
+.pay-checklist-compact-title i { color: #6366f1; }
+
+.pay-month-csv-row {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px dashed var(--border);
+    align-items: center;
+}
+.pay-month-csv-label {
+    font-size: 11px; color: var(--text-secondary); font-weight: 700;
+    margin-right: 4px;
+}
+
+.pay-unmatched-hint {
+    font-size: 11px; color: var(--text-secondary);
+}
+
+.pay-close-card.pay-close-card-warning {
+    background: #fffbeb;
+    border-color: #fde68a;
+}
+.pay-close-card.pay-close-card-warning strong { color: #b45309; }
+
+.pay-ledger-hint {
+    background: #f1f5f9;
+    border-left: 3px solid #6366f1;
+    border-radius: 6px;
+    padding: 8px 12px;
+    margin-bottom: 14px;
+    font-size: 12px;
+    color: #334155;
+}
+.pay-ledger-hint i { color: #6366f1; margin-right: 6px; }
+.pay-ledger-hint b { color: #1e293b; }
+.pay-required-mark { color: #dc2626; margin-left: 2px; }
+
+.pay-ledger-extra {
+    border-top: 1px dashed var(--border);
+    padding-top: 10px;
+    margin-top: 4px;
+}
+.pay-ledger-extra > summary {
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 700;
+    color: #6366f1;
+    list-style: none;
+    padding: 4px 0;
+}
+.pay-ledger-extra > summary::before {
+    content: '+ ';
+    font-weight: 700;
+}
+.pay-ledger-extra[open] > summary::before { content: '− '; }
+.pay-ledger-extra[open] > .pay-ledger-grid { margin-top: 10px; }
+
+.pay-expense-categories {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 0 14px 10px 14px;
+}
+.pay-expense-cat-chip {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 6px 12px;
+    font-size: 12px;
+    color: #334155;
+    display: inline-flex; align-items: center; gap: 6px;
+}
+.pay-expense-cat-chip strong { color: #1e293b; font-weight: 700; }
+.pay-expense-cat-chip.is-empty { opacity: .55; }
+
+/* 신고센터 (Filing Center) */
+#pay-main-section-filing {
+    padding: 14px;
+    overflow-y: auto;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+.pay-filing-year-nav {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 14px;
+}
+.pay-filing-year-nav h3 {
+    margin: 0; font-size: 18px; font-weight: 800; color: #0f172a;
+}
+.pay-filing-year-note {
+    font-size: 12px; color: var(--text-secondary); margin-left: 8px;
+}
+
+.pay-filing-summary {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-bottom: 16px;
+}
+.pay-filing-summary-card {
+    padding: 14px 18px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: #fff;
+    display: flex; flex-direction: column; gap: 4px;
+}
+.pay-filing-summary-card strong {
+    font-size: 22px; font-weight: 800; color: #0f172a;
+    font-variant-numeric: tabular-nums;
+}
+.pay-filing-summary-label { font-size: 12px; color: var(--text-secondary); font-weight: 700; }
+.pay-filing-summary-sub { font-size: 11px; color: #94a3b8; }
+.pay-filing-summary-income { background: #f0fdf4; border-color: #bbf7d0; }
+.pay-filing-summary-income strong { color: #166534; }
+.pay-filing-summary-expense { background: #fef2f2; border-color: #fecaca; }
+.pay-filing-summary-expense strong { color: #b91c1c; }
+.pay-filing-summary-net { background: #eff6ff; border-color: #bfdbfe; }
+.pay-filing-summary-net strong { color: #1d4ed8; }
+
+.pay-filing-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+}
+.pay-filing-card {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px;
+    display: flex; flex-direction: column; gap: 10px;
+}
+.pay-filing-card-wide { grid-column: 1 / -1; }
+.pay-filing-card-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+}
+.pay-filing-card-head h4 {
+    margin: 0; font-size: 14px; font-weight: 800; color: #0f172a;
+    display: flex; align-items: center; gap: 6px;
+}
+.pay-filing-card-head h4 i { color: #6366f1; }
+.pay-filing-badge {
+    background: #ede9fe;
+    color: #6d28d9;
+    border-radius: 999px;
+    padding: 3px 10px;
+    font-size: 11px;
+    font-weight: 700;
+}
+.pay-filing-desc {
+    margin: 0;
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.55;
+}
+.pay-filing-desc b { color: #1e293b; }
+.pay-filing-mini-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 8px;
+}
+.pay-filing-mini-stats > div {
+    background: #f8fafc;
+    border-radius: 8px;
+    padding: 8px 10px;
+    display: flex; flex-direction: column; gap: 2px;
+}
+.pay-filing-mini-stats > div > span {
+    font-size: 11px; color: var(--text-secondary); font-weight: 600;
+}
+.pay-filing-mini-stats > div > strong {
+    font-size: 14px; font-weight: 800; color: #0f172a;
+    font-variant-numeric: tabular-nums;
+}
+.pay-filing-empty {
+    font-size: 12px; color: var(--gray);
+    padding: 12px; text-align: center;
+    background: #f8fafc; border-radius: 8px;
+    grid-column: 1 / -1;
+}
+.pay-filing-actions {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    margin-top: auto;
+    padding-top: 6px;
+    border-top: 1px dashed var(--border);
+}
+
+.pay-filing-monthly-table-wrap { overflow-x: auto; }
+.pay-filing-monthly-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+.pay-filing-monthly-table th,
+.pay-filing-monthly-table td {
+    padding: 8px 10px;
+    text-align: right;
+    border-bottom: 1px solid var(--border);
+    font-variant-numeric: tabular-nums;
+}
+.pay-filing-monthly-table th:first-child,
+.pay-filing-monthly-table td:first-child { text-align: left; font-weight: 700; }
+.pay-filing-monthly-table th {
+    background: #f8fafc; font-weight: 800; color: #334155;
+}
+.pay-filing-monthly-table tbody tr.is-total {
+    background: #f1f5f9;
+    font-weight: 800;
+}
+.pay-filing-monthly-table tbody td.is-negative { color: #b91c1c; }
+.pay-filing-monthly-table tbody td.is-positive { color: #166534; }
+
+.pay-filing-help { background: #fafaf9; }
+.pay-filing-help-row {
+    border-top: 1px solid var(--border);
+    padding: 8px 0;
+}
+.pay-filing-help-row:first-of-type { border-top: none; padding-top: 0; }
+.pay-filing-help-row > summary {
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 700;
+    color: #334155;
+    padding: 4px 0;
+    list-style: none;
+}
+.pay-filing-help-row > summary::before {
+    content: '▸ ';
+    color: #6366f1;
+}
+.pay-filing-help-row[open] > summary::before {
+    content: '▾ ';
+}
+.pay-filing-help-row > p {
+    margin: 6px 0 0 0;
+    font-size: 12px;
+    line-height: 1.65;
+    color: #475569;
+    padding-left: 16px;
+}
+.pay-filing-help-row > p b { color: #1e293b; }
+
+@media (max-width: 1100px) {
+    .pay-filing-summary { grid-template-columns: 1fr; }
+    .pay-filing-grid { grid-template-columns: 1fr; }
 }

@@ -416,6 +416,15 @@ function getExpenseRowsByMonth(monthKey) {
         });
 }
 
+const EXPENSE_CATEGORY_ORDER = [
+    '임차료', '공과금', '통신비',
+    '강사비', '인건비',
+    '소모품', '교재비', '광고선전비', '수수료', '차량유지비', '복리후생비', '운영비',
+    '비품', '세금공과', '기타'
+];
+const FIXED_CATEGORY_SET = new Set(['임차료', '공과금', '통신비']);
+const PAYROLL_CATEGORY_SET = new Set(['강사비', '인건비']);
+
 function updateExpenseSummary(monthKey) {
     const rows = getExpenseRowsByMonth(monthKey);
     const totalAmount = rows.reduce((acc, row) => acc + Math.max(0, parseAmount(row.amount)), 0);
@@ -424,11 +433,28 @@ function updateExpenseSummary(monthKey) {
         acc[key] = (acc[key] || 0) + Math.max(0, parseAmount(row.amount));
         return acc;
     }, {});
+    const fixedTotal = Array.from(FIXED_CATEGORY_SET).reduce((s, k) => s + (categoryTotals[k] || 0), 0);
+    const payrollTotal = Array.from(PAYROLL_CATEGORY_SET).reduce((s, k) => s + (categoryTotals[k] || 0), 0);
 
     setTextById('pay-expense-month-total', `${totalAmount.toLocaleString()}원`);
     setTextById('pay-expense-month-count', `${rows.length}건`);
-    setTextById('pay-expense-consumable-total', `${(categoryTotals['소모품'] || 0).toLocaleString()}원`);
-    setTextById('pay-expense-fixture-total', `${(categoryTotals['비품'] || 0).toLocaleString()}원`);
+    setTextById('pay-expense-fixed-total', `${fixedTotal.toLocaleString()}원`);
+    setTextById('pay-expense-payroll-total', `${payrollTotal.toLocaleString()}원`);
+
+    // 카테고리 칩 렌더링
+    const chipWrap = document.getElementById('pay-expense-categories');
+    if (chipWrap) {
+        const chips = EXPENSE_CATEGORY_ORDER
+            .map(cat => ({ cat, amount: categoryTotals[cat] || 0 }))
+            .filter(c => c.amount > 0);
+        if (chips.length === 0) {
+            chipWrap.innerHTML = '';
+        } else {
+            chipWrap.innerHTML = chips.map(c =>
+                `<span class="pay-expense-cat-chip"><span>${escapeHtml(c.cat)}</span><strong>${c.amount.toLocaleString()}원</strong></span>`
+            ).join('');
+        }
+    }
 }
 
 function renderExpenseList(monthKey) {
@@ -440,7 +466,16 @@ function renderExpenseList(monthKey) {
         return;
     }
 
-    container.innerHTML = rows.map(row => `
+    const isExemptMode = (typeof getPaymentTaxMode === 'function' && getPaymentTaxMode() === 'exempt');
+    container.innerHTML = rows.map(row => {
+        const vatMeta = isExemptMode ? '' : `
+                    <span>${escapeHtml(row.vatType || '-')}</span>
+                    <span>공급가액 ${Math.max(0, parseAmount(row.supplyAmount)).toLocaleString()}원</span>
+                    <span>세액 ${Math.max(0, parseAmount(row.vatAmount)).toLocaleString()}원</span>`;
+        const payrollMeta = isPayrollExpenseCategory(row.category) && row.payrollTarget
+            ? `<span>👤 ${escapeHtml(row.payrollTarget)} (${escapeHtml(row.payrollIncomeType || '비율제')})</span>`
+            : '';
+        return `
         <div class="pay-expense-item">
             <div class="pay-expense-item-main">
                 <div class="pay-expense-item-top">
@@ -450,20 +485,19 @@ function renderExpenseList(monthKey) {
                 <div class="pay-expense-item-meta">
                     <span>${escapeHtml(row.vendor || '-')}</span>
                     <span>${escapeHtml(row.method || '-')}</span>
-                    <span>${escapeHtml(row.vatType || '-')}</span>
-                    <span>공급가액 ${Math.max(0, parseAmount(row.supplyAmount)).toLocaleString()}원</span>
-                    <span>세액 ${Math.max(0, parseAmount(row.vatAmount)).toLocaleString()}원</span>
-                    <span>${escapeHtml(row.evidenceType || '증빙미기재')}</span>
-                    <span>${escapeHtml(row.evidenceNumber || '-')}</span>
+                    ${payrollMeta}
+                    ${vatMeta}
+                    <span>${escapeHtml(row.evidenceType || '증빙없음')}</span>
+                    ${row.evidenceNumber ? `<span>${escapeHtml(row.evidenceNumber)}</span>` : ''}
                 </div>
-                <div class="pay-expense-item-note">${escapeHtml(row.note || '')}</div>
+                ${row.note ? `<div class="pay-expense-item-note">${escapeHtml(row.note)}</div>` : ''}
             </div>
             <div class="pay-expense-item-side">
                 <strong>${Math.max(0, parseAmount(row.amount)).toLocaleString()}원</strong>
                 <button class="pay-unmatched-btn remove" onclick="deleteExpenseLedgerEntry('${row.id}')">삭제</button>
             </div>
-        </div>
-    `).join('');
+        </div>`;
+    }).join('');
 }
 
 function loadUnmatchedQueue() {
@@ -504,6 +538,7 @@ function addUnmatchedEntry(payload) {
         note: String(payload.note || '').trim(),
         evidenceType: String(payload.evidenceType || 'manual').trim(),
         evidenceName: String(payload.evidenceName || '').trim(),
+        incomeType: String(payload.incomeType || '수강료').trim() || '수강료',
     });
     saveUnmatchedQueue(queue);
 }
@@ -628,7 +663,8 @@ window.assignUnmatchedToStudent = function(entryId) {
             refundReason: entry.refundReason,
             note: `[미확인입금 매칭] ${entry.note || ''}`.trim(),
             evidenceType: entry.evidenceType || 'manual',
-            evidenceName: entry.evidenceName || ''
+            evidenceName: entry.evidenceName || '',
+            incomeType: entry.incomeType || '수강료'
         });
         removeUnmatchedEntry(entryId);
         saveData();
@@ -716,7 +752,8 @@ function getMonthLedgerRows(monthKey) {
             note: String(ledger.note || '').trim(),
             evidenceType: String(ledger.evidenceType || (item.summary.source === 'ledger' ? 'manual' : 'legacy')).trim(),
             evidenceNumber: String(ledger.evidenceNumber || '').trim(),
-            evidenceName: String(ledger.evidenceName || '').trim()
+            evidenceName: String(ledger.evidenceName || '').trim(),
+            incomeType: String(ledger.incomeType || '수강료').trim()
         };
     });
     return [...studentRows, ...getUnmatchedRowsByMonth(monthKey)];
@@ -1425,8 +1462,15 @@ function applyPaymentTaxAutoFill(force = false) {
     const currentSupply = Math.max(0, parseAmount(document.getElementById('ledger-supply-amount')?.value || 0));
     const currentVat = Math.max(0, parseAmount(document.getElementById('ledger-vat-amount')?.value || 0));
     if (!force && (currentSupply > 0 || currentVat > 0)) return;
-    setFormattedAmountInputById('ledger-supply-amount', paidAmount);
-    setFormattedAmountInputById('ledger-vat-amount', 0);
+    const taxable = typeof getPaymentTaxMode === 'function' && getPaymentTaxMode() === 'taxable';
+    if (taxable && paidAmount > 0) {
+        const calc = calcVatBreakdownFromGross(paidAmount);
+        setFormattedAmountInputById('ledger-supply-amount', calc.supplyAmount);
+        setFormattedAmountInputById('ledger-vat-amount', calc.vatAmount);
+    } else {
+        setFormattedAmountInputById('ledger-supply-amount', paidAmount);
+        setFormattedAmountInputById('ledger-vat-amount', 0);
+    }
 }
 
 function applyExpenseTaxAutoFill() {
@@ -1437,7 +1481,8 @@ function applyExpenseTaxAutoFill() {
         setFormattedAmountInputById('expense-vat-amount', 0);
         return;
     }
-    if (vatType === '부가세포함') {
+    const taxable = typeof getPaymentTaxMode === 'function' && getPaymentTaxMode() === 'taxable';
+    if (taxable && vatType === '부가세포함') {
         const calc = calcVatBreakdownFromGross(amount);
         setFormattedAmountInputById('expense-supply-amount', calc.supplyAmount);
         setFormattedAmountInputById('expense-vat-amount', calc.vatAmount);
@@ -1449,8 +1494,15 @@ function applyExpenseTaxAutoFill() {
 
 window.onPaymentPaidAmountInput = function(value) {
     const paidAmount = Math.max(0, parseAmount(value || 0));
-    setFormattedAmountInputById('ledger-supply-amount', paidAmount);
-    setFormattedAmountInputById('ledger-vat-amount', 0);
+    const taxable = typeof getPaymentTaxMode === 'function' && getPaymentTaxMode() === 'taxable';
+    if (taxable && paidAmount > 0) {
+        const calc = calcVatBreakdownFromGross(paidAmount);
+        setFormattedAmountInputById('ledger-supply-amount', calc.supplyAmount);
+        setFormattedAmountInputById('ledger-vat-amount', calc.vatAmount);
+    } else {
+        setFormattedAmountInputById('ledger-supply-amount', paidAmount);
+        setFormattedAmountInputById('ledger-vat-amount', 0);
+    }
 }
 
 window.onExpenseAmountInput = function() {
@@ -1549,25 +1601,31 @@ window.openPaymentModal = async function() {
 }
 
 window.switchPaymentManagementTab = function(tab) {
-    const next = tab === 'expense' ? 'expense' : 'income';
+    const validTabs = ['income', 'expense', 'filing'];
+    const next = validTabs.includes(tab) ? tab : 'income';
     currentPaymentManagementTab = next;
-    const incomeBtn = document.getElementById('pay-main-tab-income');
-    const expenseBtn = document.getElementById('pay-main-tab-expense');
-    const incomeSection = document.getElementById('pay-main-section-income');
-    const expenseSection = document.getElementById('pay-main-section-expense');
 
-    if (incomeBtn) incomeBtn.classList.toggle('active', next === 'income');
-    if (expenseBtn) expenseBtn.classList.toggle('active', next === 'expense');
-    if (incomeSection) incomeSection.classList.toggle('hidden', next !== 'income');
-    if (expenseSection) expenseSection.classList.toggle('hidden', next !== 'expense');
+    validTabs.forEach(t => {
+        const btn = document.getElementById(`pay-main-tab-${t}`);
+        const sec = document.getElementById(`pay-main-section-${t}`);
+        if (btn) btn.classList.toggle('active', next === t);
+        if (sec) sec.classList.toggle('hidden', next !== t);
+    });
 
     if (next === 'income') {
         renderPaymentList();
-    } else {
+    } else if (next === 'expense') {
         renderExpenseTab();
         syncExpenseLedgerFromRemote().then(synced => {
             if (synced && currentPaymentManagementTab === 'expense') {
                 renderExpenseTab();
+            }
+        });
+    } else if (next === 'filing') {
+        renderFilingCenter();
+        syncExpenseLedgerFromRemote().then(synced => {
+            if (synced && currentPaymentManagementTab === 'filing') {
+                renderFilingCenter();
             }
         });
     }
@@ -1625,7 +1683,8 @@ function getLedgerPrefill(student, monthKey) {
         unmatchedDeposit: Boolean(ledger.unmatchedDeposit),
         refundAmount: parseAmount(ledger.refundAmount || 0),
         refundReason: String(ledger.refundReason || ''),
-        note: ledger.note || ''
+        note: ledger.note || '',
+        incomeType: String(ledger.incomeType || '수강료')
     };
 }
 
@@ -1655,7 +1714,8 @@ function saveLedgerEntryByStudentId(studentId, monthKey, payload) {
         note: (payload.note || '').trim(),
         updatedAt: new Date().toISOString(),
         evidenceType: payload.evidenceType || 'manual',
-        evidenceName: (payload.evidenceName || '').trim()
+        evidenceName: (payload.evidenceName || '').trim(),
+        incomeType: String(payload.incomeType || '수강료').trim() || '수강료'
     };
 }
 
@@ -1916,6 +1976,8 @@ window.openPaymentLedgerModal = function(studentId = '', monthKey = '') {
     if (refundAmountInput) refundAmountInput.value = prefill.refundAmount ? prefill.refundAmount.toLocaleString() : '';
     if (refundReasonInput) refundReasonInput.value = prefill.refundReason || '';
     if (noteInput) noteInput.value = prefill.note;
+    const incomeTypeInput = document.getElementById('ledger-income-type');
+    if (incomeTypeInput) incomeTypeInput.value = prefill.incomeType || '수강료';
     resetModalRequiredMarks('payment-ledger-modal');
     applyPaymentTaxAutoFill(false);
     preparePayTermHelpButtons();
@@ -1972,6 +2034,7 @@ window.savePaymentLedger = function() {
         return;
     }
 
+    const incomeType = (document.getElementById('ledger-income-type')?.value || '수강료').trim();
     if (!studentId && unmatchedDeposit) {
         addUnmatchedEntry({
             monthKey,
@@ -1989,6 +2052,7 @@ window.savePaymentLedger = function() {
             note,
             evidenceType,
             evidenceName: '',
+            incomeType,
         });
         closeModal('payment-ledger-modal');
         renderPaymentList();
@@ -2013,6 +2077,7 @@ window.savePaymentLedger = function() {
             note,
             evidenceType,
             evidenceName: '',
+            incomeType,
         });
     } catch (err) {
         showToast(err.message || '원장 저장 실패', 'error');
@@ -2660,14 +2725,15 @@ window.openExpenseLedgerModal = function() {
 
     monthInput.value = monthKey || '';
     dateInput.value = monthStart || '';
-    categoryInput.value = '소모품';
+    categoryInput.value = '임차료';
     amountInput.value = '';
     if (supplyAmountInput) supplyAmountInput.value = '';
     if (vatAmountInput) vatAmountInput.value = '';
     methodInput.value = '계좌이체';
     vendorInput.value = '';
-    vatTypeInput.value = '부가세포함';
-    if (evidenceTypeInput) evidenceTypeInput.value = '세금계산서';
+    const isExemptMode = (typeof getPaymentTaxMode === 'function' && getPaymentTaxMode() === 'exempt');
+    vatTypeInput.value = isExemptMode ? '면세' : '부가세포함';
+    if (evidenceTypeInput) evidenceTypeInput.value = '카드전표';
     if (evidenceNumberInput) evidenceNumberInput.value = '';
     noteInput.value = '';
     if (payrollIncomeTypeInput) payrollIncomeTypeInput.value = '';
@@ -3349,3 +3415,362 @@ window.batchQuickPayAll = async function() {
         }
     }
 }
+
+// ============================================
+// 면세/과세 사업자 모드 토글 (학원 default = 면세)
+// ============================================
+const PAYMENT_TAX_MODE_KEY = 'payment_tax_mode';
+function getPaymentTaxMode() {
+    return localStorage.getItem(PAYMENT_TAX_MODE_KEY) === 'taxable' ? 'taxable' : 'exempt';
+}
+function applyPaymentTaxModeUi() {
+    const mode = getPaymentTaxMode();
+    document.body.classList.toggle('pay-tax-mode-exempt', mode === 'exempt');
+    const chip = document.getElementById('pay-mode-chip');
+    const label = document.getElementById('pay-mode-chip-label');
+    if (chip) chip.classList.toggle('is-taxable', mode === 'taxable');
+    if (label) label.textContent = mode === 'taxable' ? '과세' : '면세';
+}
+window.togglePaymentTaxMode = async function() {
+    const cur = getPaymentTaxMode();
+    const next = cur === 'exempt' ? 'taxable' : 'exempt';
+    const ok = await showConfirm(
+        next === 'taxable'
+            ? '과세 사업자 모드로 전환할까요? 부가세(공급가액·세액) 입력 필드가 표시됩니다.'
+            : '면세 사업자 모드로 전환할까요? 부가세 관련 입력 필드가 숨겨집니다. (학원·교습소는 보통 면세)',
+        { type: 'question', okText: '전환', cancelText: '취소' }
+    );
+    if (!ok) return;
+    localStorage.setItem(PAYMENT_TAX_MODE_KEY, next);
+    applyPaymentTaxModeUi();
+    showToast(`${next === 'taxable' ? '과세' : '면세'} 사업자 모드로 전환되었습니다.`, 'success');
+};
+
+// ============================================
+// 신규 운영자 안내 배너
+// ============================================
+const PAYMENT_ONBOARD_KEY = 'payment_onboard_dismissed';
+window.dismissPaymentOnboardBanner = function() {
+    localStorage.setItem(PAYMENT_ONBOARD_KEY, '1');
+    const banner = document.getElementById('pay-onboard-banner');
+    if (banner) banner.classList.add('hidden');
+};
+function applyPaymentOnboardBannerUi() {
+    const banner = document.getElementById('pay-onboard-banner');
+    if (!banner) return;
+    banner.classList.toggle('hidden', localStorage.getItem(PAYMENT_ONBOARD_KEY) === '1');
+}
+
+// ============================================
+// 신고센터 - 연간/분기/월 자동집계
+// ============================================
+let currentFilingYear = new Date().getFullYear() - 1; // 보통 전년도 신고
+
+function getCurrentFilingYear() { return currentFilingYear; }
+
+window.moveFilingYear = function(offset) {
+    currentFilingYear = Math.max(2020, Math.min(currentFilingYear + offset, new Date().getFullYear()));
+    renderFilingCenter();
+};
+
+function buildAnnualIncomeRows(year) {
+    const rows = [];
+    for (let m = 1; m <= 12; m++) {
+        const monthKey = `${year}-${String(m).padStart(2, '0')}`;
+        const monthRows = getMonthLedgerRows(monthKey);
+        monthRows.forEach(r => {
+            if ((r.paidNet || 0) <= 0) return;
+            rows.push({ ...r, month: m });
+        });
+    }
+    return rows;
+}
+
+function buildAnnualExpenseRows(year) {
+    const rows = [];
+    for (let m = 1; m <= 12; m++) {
+        const monthKey = `${year}-${String(m).padStart(2, '0')}`;
+        const monthRows = getExpenseRowsByMonth(monthKey) || [];
+        monthRows.forEach(r => {
+            rows.push({ ...r, month: m });
+        });
+    }
+    return rows;
+}
+
+function aggregateIncomeByCategory(incomeRows) {
+    const result = { 수강료: 0, 교재비: 0, 특강료: 0, 기타: 0, 현금영수증건수: 0 };
+    incomeRows.forEach(r => {
+        const cat = r.incomeType || '수강료';
+        result[cat] = (result[cat] || 0) + (r.paidNet || 0);
+        if ((r.evidenceType || '').includes('현금영수증')) result.현금영수증건수 += 1;
+    });
+    return result;
+}
+
+function aggregateExpenseByCategory(expenseRows) {
+    const result = {};
+    expenseRows.forEach(r => {
+        const cat = String(r.category || '기타');
+        const amount = Math.max(0, parseAmount(r.amount));
+        result[cat] = (result[cat] || 0) + amount;
+    });
+    return result;
+}
+
+function aggregateMonthlyFlow(incomeRows, expenseRows) {
+    const months = Array.from({length: 12}, (_, i) => ({
+        month: i + 1,
+        income: 0,
+        expense: 0
+    }));
+    incomeRows.forEach(r => { months[r.month - 1].income += (r.paidNet || 0); });
+    expenseRows.forEach(r => { months[r.month - 1].expense += Math.max(0, parseAmount(r.amount)); });
+    return months;
+}
+
+function aggregatePayrollByPerson(expenseRows) {
+    const result = {};
+    expenseRows.forEach(r => {
+        if (!isPayrollExpenseCategory(r.category)) return;
+        const name = String(r.payrollTarget || '').trim();
+        if (!name) return;
+        const gross = Math.max(0, parseAmount(r.amount));
+        const withholding = Math.max(0, parseAmount(r.payrollWithholding || 0));
+        const localTax = Math.max(0, parseAmount(r.payrollLocalTax || 0));
+        const insurance = Math.max(0, parseAmount(r.payrollInsurance || 0));
+        if (!result[name]) result[name] = {
+            name,
+            totalGross: 0, totalWithholding: 0, totalLocalTax: 0, totalInsurance: 0,
+            count: 0,
+            incomeType: r.payrollIncomeType || '비율제강사'
+        };
+        result[name].totalGross += gross;
+        result[name].totalWithholding += withholding;
+        result[name].totalLocalTax += localTax;
+        result[name].totalInsurance += insurance;
+        result[name].count += 1;
+    });
+    return Object.values(result).sort((a, b) => b.totalGross - a.totalGross);
+}
+
+function renderFilingCenter() {
+    const year = getCurrentFilingYear();
+    const title = document.getElementById('pay-filing-year-title');
+    if (title) title.textContent = `${year}년`;
+
+    const incomeRows = buildAnnualIncomeRows(year);
+    const expenseRows = buildAnnualExpenseRows(year);
+    const incomeTotal = incomeRows.reduce((s, r) => s + (r.paidNet || 0), 0);
+    const expenseTotal = expenseRows.reduce((s, r) => s + Math.max(0, parseAmount(r.amount)), 0);
+    const net = incomeTotal - expenseTotal;
+
+    setTextById('pay-filing-income-total', `${incomeTotal.toLocaleString()}원`);
+    setTextById('pay-filing-income-count', `${incomeRows.length}건`);
+    setTextById('pay-filing-expense-total', `${expenseTotal.toLocaleString()}원`);
+    setTextById('pay-filing-expense-count', `${expenseRows.length}건`);
+    setTextById('pay-filing-net-total', `${net.toLocaleString()}원`);
+
+    // 사업장현황신고 미니 통계
+    const incCat = aggregateIncomeByCategory(incomeRows);
+    setTextById('pay-filing-tuition-total', `${((incCat['수강료']||0) + (incCat['교재비']||0)).toLocaleString()}원`);
+    setTextById('pay-filing-special-total', `${((incCat['특강료']||0) + (incCat['기타']||0)).toLocaleString()}원`);
+    setTextById('pay-filing-cashreceipt-total', `${incCat.현금영수증건수}건`);
+
+    // 종소세용 비용 카테고리
+    const expCat = aggregateExpenseByCategory(expenseRows);
+    const expCatWrap = document.getElementById('pay-filing-expense-by-category');
+    if (expCatWrap) {
+        const ordered = EXPENSE_CATEGORY_ORDER
+            .map(cat => ({ cat, amount: expCat[cat] || 0 }))
+            .filter(c => c.amount > 0);
+        if (ordered.length === 0) {
+            expCatWrap.innerHTML = '<div class="pay-filing-empty">등록된 비용이 없습니다.</div>';
+        } else {
+            expCatWrap.innerHTML = ordered.map(c =>
+                `<div><span>${escapeHtml(c.cat)}</span><strong>${c.amount.toLocaleString()}원</strong></div>`
+            ).join('');
+        }
+    }
+
+    // 강사료 누적 (원천세/지급명세서)
+    const payrollPersons = aggregatePayrollByPerson(expenseRows);
+    const payrollBadge = document.getElementById('pay-filing-payroll-badge');
+    if (payrollBadge) payrollBadge.textContent = payrollPersons.length ? `강사 ${payrollPersons.length}명` : '강사 미고용';
+    const payrollWrap = document.getElementById('pay-filing-payroll-by-person');
+    if (payrollWrap) {
+        if (!payrollPersons.length) {
+            payrollWrap.innerHTML = '<div class="pay-filing-empty">강사 지급 내역이 없습니다. (강사 고용 시 비용탭에서 강사료 등록)</div>';
+        } else {
+            payrollWrap.innerHTML = payrollPersons.map(p =>
+                `<div><span>${escapeHtml(p.name)} (${escapeHtml(p.incomeType)}, ${p.count}회)</span><strong>${p.totalGross.toLocaleString()}원</strong></div>`
+            ).join('');
+        }
+    }
+
+    // 월별 흐름 테이블
+    const monthly = aggregateMonthlyFlow(incomeRows, expenseRows);
+    const tableBody = document.querySelector('#pay-filing-monthly-table tbody');
+    if (tableBody) {
+        const rowsHtml = monthly.map(m => {
+            const net = m.income - m.expense;
+            const cls = net >= 0 ? 'is-positive' : 'is-negative';
+            return `<tr>
+                <td>${m.month}월</td>
+                <td>${m.income.toLocaleString()}원</td>
+                <td>${m.expense.toLocaleString()}원</td>
+                <td class="${cls}">${net.toLocaleString()}원</td>
+            </tr>`;
+        }).join('');
+        const totalNet = incomeTotal - expenseTotal;
+        const totalCls = totalNet >= 0 ? 'is-positive' : 'is-negative';
+        tableBody.innerHTML = rowsHtml + `<tr class="is-total">
+            <td>합계</td>
+            <td>${incomeTotal.toLocaleString()}원</td>
+            <td>${expenseTotal.toLocaleString()}원</td>
+            <td class="${totalCls}">${totalNet.toLocaleString()}원</td>
+        </tr>`;
+    }
+}
+
+// 신고센터 CSV 다운로드
+window.downloadAnnualIncomeCsv = function() {
+    const year = getCurrentFilingYear();
+    const rows = buildAnnualIncomeRows(year);
+    if (!rows.length) { showToast('해당 연도에 수입 내역이 없습니다.', 'info'); return; }
+    downloadCsvFile(
+        `연간수입_${year}.csv`,
+        ['청구월','수납일','학생명','학년','수입분류','수납액','결제수단','증빙유형','증빙번호','거래확인번호','메모'],
+        rows.map(r => [
+            r.monthKey, r.paidAt, r.studentName, r.grade, r.incomeType || '수강료',
+            r.paidNet, r.method, r.evidenceType, r.evidenceNumber, r.referenceId, r.note
+        ])
+    );
+    showToast(`${year}년 연간 수입 CSV 다운로드 완료`, 'success');
+};
+
+window.downloadAnnualIncomeMonthlyCsv = function() {
+    const year = getCurrentFilingYear();
+    const incomeRows = buildAnnualIncomeRows(year);
+    const monthly = aggregateMonthlyFlow(incomeRows, []);
+    const cashReceiptByMonth = Array(12).fill(0);
+    const tuitionByMonth = Array(12).fill(0);
+    const otherByMonth = Array(12).fill(0);
+    incomeRows.forEach(r => {
+        const m = r.month - 1;
+        if ((r.evidenceType || '').includes('현금영수증')) cashReceiptByMonth[m] += 1;
+        const cat = r.incomeType || '수강료';
+        if (cat === '수강료' || cat === '교재비') tuitionByMonth[m] += (r.paidNet || 0);
+        else otherByMonth[m] += (r.paidNet || 0);
+    });
+    const rows = monthly.map((m, i) => [
+        `${year}-${String(m.month).padStart(2, '0')}`,
+        m.income,
+        tuitionByMonth[i],
+        otherByMonth[i],
+        cashReceiptByMonth[i]
+    ]);
+    const totalRow = [
+        `${year}년 합계`,
+        rows.reduce((s, r) => s + r[1], 0),
+        rows.reduce((s, r) => s + r[2], 0),
+        rows.reduce((s, r) => s + r[3], 0),
+        rows.reduce((s, r) => s + r[4], 0)
+    ];
+    downloadCsvFile(
+        `사업장현황신고용_${year}.csv`,
+        ['월','월매출합계','수강료/교재비','특강/기타','현금영수증건수'],
+        [...rows, totalRow]
+    );
+    showToast('사업장현황신고용 CSV 다운로드 완료. 홈택스 신고 시 참조용.', 'success');
+};
+
+window.downloadAnnualExpenseCsv = function() {
+    const year = getCurrentFilingYear();
+    const rows = buildAnnualExpenseRows(year);
+    if (!rows.length) { showToast('해당 연도에 비용 내역이 없습니다.', 'info'); return; }
+    downloadCsvFile(
+        `연간비용_${year}.csv`,
+        ['귀속월','지출일','분류','금액','결제수단','거래처','증빙유형','증빙번호','메모'],
+        rows.map(r => [
+            r.monthKey, r.expenseDate, r.category, Math.max(0, parseAmount(r.amount)),
+            r.method, r.vendor, r.evidenceType, r.evidenceNumber, r.note
+        ])
+    );
+    showToast(`${year}년 연간 비용 CSV 다운로드 완료`, 'success');
+};
+
+window.downloadAnnualExpenseByCategoryCsv = function() {
+    const year = getCurrentFilingYear();
+    const expenseRows = buildAnnualExpenseRows(year);
+    const expCat = aggregateExpenseByCategory(expenseRows);
+    const ordered = EXPENSE_CATEGORY_ORDER
+        .map(cat => ({ cat, amount: expCat[cat] || 0 }))
+        .filter(c => c.amount > 0);
+    if (!ordered.length) { showToast('해당 연도에 비용 내역이 없습니다.', 'info'); return; }
+    const total = ordered.reduce((s, c) => s + c.amount, 0);
+    downloadCsvFile(
+        `종합소득세_비용분류_${year}.csv`,
+        ['비용분류','연간합계','비중(%)'],
+        [
+            ...ordered.map(c => [c.cat, c.amount, total > 0 ? Math.round(c.amount / total * 1000) / 10 : 0]),
+            ['합계', total, 100]
+        ]
+    );
+    showToast('종합소득세용 비용분류 CSV 다운로드 완료', 'success');
+};
+
+window.downloadAnnualPayrollCsv = function() {
+    const year = getCurrentFilingYear();
+    const expenseRows = buildAnnualExpenseRows(year);
+    const persons = aggregatePayrollByPerson(expenseRows);
+    if (!persons.length) { showToast('해당 연도에 강사료 지급 내역이 없습니다.', 'info'); return; }
+    downloadCsvFile(
+        `강사별누적_${year}.csv`,
+        ['강사명','소득유형','지급횟수','연간 총지급액','연간 원천세 합계','연간 지방소득세 합계','실수령액'],
+        persons.map(p => [
+            p.name, p.incomeType, p.count,
+            p.totalGross, p.totalWithholding, p.totalLocalTax,
+            p.totalGross - p.totalWithholding - p.totalLocalTax
+        ])
+    );
+    showToast('강사별 누적 CSV 다운로드 완료. 지급명세서 작성 시 참조용.', 'success');
+};
+
+window.downloadAnnualWithholdingCsv = function() {
+    const year = getCurrentFilingYear();
+    const expenseRows = buildAnnualExpenseRows(year);
+    const payroll = expenseRows.filter(r => isPayrollExpenseCategory(r.category));
+    if (!payroll.length) { showToast('해당 연도에 강사료 지급 내역이 없습니다.', 'info'); return; }
+    const rows = payroll.map(r => [
+        r.payrollMonth || r.monthKey, r.expenseDate,
+        r.payrollTarget || '',
+        r.payrollIncomeType || '비율제강사',
+        Math.max(0, parseAmount(r.amount)),
+        Math.max(0, parseAmount(r.payrollWithholding || 0)),
+        Math.max(0, parseAmount(r.payrollLocalTax || 0)),
+        Math.max(0, parseAmount(r.payrollInsurance || 0)),
+        Math.max(0, parseAmount(r.payrollNetAmount || 0)),
+        r.method, r.vendor, r.evidenceNumber
+    ]);
+    downloadCsvFile(
+        `원천세신고용_${year}.csv`,
+        ['지급월','지급일','강사명','소득유형','지급액','원천세','지방소득세','4대보험·공제','실지급액','결제수단','거래처','증빙번호'],
+        rows
+    );
+    showToast('원천세 신고용 CSV 다운로드 완료', 'success');
+};
+
+// ============================================
+// openPaymentModal 진입 시 면세모드/배너 초기화 패치
+// ============================================
+const __origOpenPaymentModal = window.openPaymentModal;
+window.openPaymentModal = async function() {
+    applyPaymentTaxModeUi();
+    applyPaymentOnboardBannerUi();
+    return __origOpenPaymentModal.apply(this, arguments);
+};
+// 모드 UI는 페이지 로드 시점에도 적용
+document.addEventListener('DOMContentLoaded', () => {
+    try { applyPaymentTaxModeUi(); } catch (e) { /* ignore */ }
+});
