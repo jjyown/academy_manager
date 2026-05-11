@@ -958,19 +958,358 @@
         }
     }
 
-    // ── 파일 업로드 핸들러 ───────────────────────────────────────
-    // 학교 홈페이지에서 다운받은 학사일정 PDF/이미지를 사용자가 직접 업로드.
-    // Gemini multimodal 로 OCR·추출 → school_calendar_overrides 에 upsert.
-    const UPLOAD_ACCEPT = 'application/pdf,image/png,image/jpeg,image/jpg,image/webp,image/heic,image/heif';
-    const UPLOAD_MAX_BYTES = 14 * 1024 * 1024; // 14MB (Gemini inline 20MB base64 한도 안쪽)
-    async function _runUploadFromButton(btn, modal) {
-        if (typeof window.invokeInvestigateSchoolCalendar !== 'function'
-            || typeof window.fileToBase64ForEdge !== 'function') {
+    // ── 파일 업로드 + 직접 입력 모달 ─────────────────────────────
+    // 학교 홈페이지에서 다운받은 학사일정 PDF/이미지를 사용자가 업로드하면,
+    // 모달 좌측에 미리보기를 보여주고 우측에서 한 줄씩 일정을 입력 → 저장.
+    // AI 추출은 표 카운터('월15')를 날짜로 오해하는 오류가 잦아 제거하고,
+    // 사용자가 직접 보고 입력하는 가장 정확한 방식으로 전환.
+    const UPLOAD_ACCEPT = 'application/pdf,image/png,image/jpeg,image/jpg,image/webp,image/heic,image/heif,image/gif';
+    const UPLOAD_MAX_BYTES = 30 * 1024 * 1024; // 30MB (브라우저 미리보기만, 서버 전송 X)
+    const KIND_LABELS = {
+        exam: '시험',
+        vacation: '방학',
+        event: '행사',
+        other: '기타',
+    };
+
+    // 모달 상태 (한 번에 한 학교만 열림)
+    let _manualEntryState = null;
+
+    function _ensureManualEntryModalElement() {
+        let modal = document.getElementById('academic-manual-entry-modal');
+        if (modal) return modal;
+        modal = document.createElement('div');
+        modal.id = 'academic-manual-entry-modal';
+        modal.className = 'modal';
+        modal.style.display = 'none';
+        modal.setAttribute('role', 'dialog');
+        modal.setAttribute('aria-modal', 'true');
+        modal.innerHTML = `
+            <div class="modal-card amec-modal-card">
+                <div class="amec-header">
+                    <div>
+                        <h2 class="amec-title"><i class="fas fa-file-arrow-up"></i> 학사일정 직접 입력</h2>
+                        <p class="amec-subtitle" id="amec-school-name">학교명</p>
+                    </div>
+                    <button type="button" class="amec-close" aria-label="닫기"
+                        onclick="document.getElementById('academic-manual-entry-modal').style.display='none'">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="amec-body">
+                    <div class="amec-preview-pane">
+                        <div class="amec-preview-header">
+                            <span><i class="fas fa-file-pdf"></i> <strong id="amec-file-name">파일을 선택해주세요</strong></span>
+                            <button type="button" class="amec-pick-btn" id="amec-pick-btn">
+                                <i class="fas fa-folder-open"></i> 다른 파일
+                            </button>
+                        </div>
+                        <div class="amec-preview-content" id="amec-preview-content">
+                            <div class="amec-preview-empty">
+                                <i class="fas fa-file-import" aria-hidden="true"></i>
+                                <div>학사일정 PDF / 이미지를 선택하면<br>여기에 미리보기가 나타납니다.</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="amec-entry-pane">
+                        <div class="amec-section-title">
+                            <i class="fas fa-pen-to-square"></i> 일정 추가
+                        </div>
+                        <div class="amec-form-row">
+                            <input type="date" id="amec-input-date" class="amec-input amec-input-date">
+                            <select id="amec-input-kind" class="amec-input amec-input-kind">
+                                <option value="exam">시험</option>
+                                <option value="vacation">방학</option>
+                                <option value="event" selected>행사</option>
+                                <option value="other">기타</option>
+                            </select>
+                        </div>
+                        <div class="amec-form-row">
+                            <input type="text" id="amec-input-name" class="amec-input amec-input-name"
+                                placeholder="행사명 (예: 1학기 중간고사)" maxlength="80">
+                        </div>
+                        <div class="amec-form-row">
+                            <input type="text" id="amec-input-content" class="amec-input amec-input-content"
+                                placeholder="상세 (선택, 예: 1·2학년)" maxlength="200">
+                            <button type="button" class="amec-add-btn" id="amec-add-btn">
+                                <i class="fas fa-plus"></i> 추가
+                            </button>
+                        </div>
+                        <div class="amec-section-title amec-section-title-list">
+                            <i class="fas fa-list-check"></i> 입력한 일정
+                            <span class="amec-count-badge" id="amec-list-count">0</span>
+                        </div>
+                        <div class="amec-list" id="amec-list">
+                            <div class="amec-list-empty">아직 추가된 일정이 없습니다.</div>
+                        </div>
+                        <div class="amec-footer">
+                            <button type="button" class="amec-cancel-btn"
+                                onclick="document.getElementById('academic-manual-entry-modal').style.display='none'">
+                                취소
+                            </button>
+                            <button type="button" class="amec-save-btn" id="amec-save-btn">
+                                <i class="fas fa-floppy-disk"></i> 전체 저장
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+        document.body.appendChild(modal);
+
+        // 이벤트 바인딩 (모달 1회 생성 시점)
+        modal.querySelector('#amec-add-btn').addEventListener('click', _amecAddEvent);
+        modal.querySelector('#amec-save-btn').addEventListener('click', _amecSaveAll);
+        modal.querySelector('#amec-pick-btn').addEventListener('click', _amecPickFile);
+        // Enter 키로 추가
+        ['amec-input-name', 'amec-input-content'].forEach((id) => {
+            const el = modal.querySelector('#' + id);
+            if (el) el.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') { e.preventDefault(); _amecAddEvent(); }
+            });
+        });
+        // 모달 외부 클릭 시 닫기 (안전한 모달 카드 외부만)
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) modal.style.display = 'none';
+        });
+        return modal;
+    }
+
+    function _amecPickFile() {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = UPLOAD_ACCEPT;
+        input.style.display = 'none';
+        document.body.appendChild(input);
+        input.onchange = () => {
+            const file = input.files && input.files[0];
+            document.body.removeChild(input);
+            if (!file) return;
+            if (file.size > UPLOAD_MAX_BYTES) {
+                if (typeof window.showToast === 'function') {
+                    window.showToast(
+                        `파일이 너무 큽니다 (${(file.size / 1024 / 1024).toFixed(1)}MB). 30MB 이하로 줄여주세요.`,
+                        'error'
+                    );
+                }
+                return;
+            }
+            _amecLoadPreview(file);
+        };
+        input.click();
+    }
+
+    function _amecLoadPreview(file) {
+        if (!_manualEntryState) return;
+        // 이전 ObjectURL 해제 (메모리 누수 방지)
+        if (_manualEntryState.objectUrl) {
+            try { URL.revokeObjectURL(_manualEntryState.objectUrl); } catch (e) {}
+        }
+        const url = URL.createObjectURL(file);
+        _manualEntryState.file = file;
+        _manualEntryState.objectUrl = url;
+        const fnEl = document.getElementById('amec-file-name');
+        if (fnEl) fnEl.textContent = file.name;
+        const content = document.getElementById('amec-preview-content');
+        if (!content) return;
+        const mt = String(file.type || '').toLowerCase();
+        if (mt === 'application/pdf') {
+            content.innerHTML = `<iframe class="amec-preview-iframe" src="${url}#zoom=page-fit" title="학사일정 PDF 미리보기"></iframe>`;
+        } else if (mt.startsWith('image/')) {
+            content.innerHTML = `<img class="amec-preview-img" src="${url}" alt="학사일정 이미지 미리보기">`;
+        } else {
+            content.innerHTML = `<div class="amec-preview-empty"><i class="fas fa-file"></i><div>이 파일 형식은 미리보기가 어렵습니다.<br>파일을 직접 열어 참고해주세요.</div></div>`;
+        }
+    }
+
+    function _amecAddEvent() {
+        if (!_manualEntryState) return;
+        const dateEl = document.getElementById('amec-input-date');
+        const nameEl = document.getElementById('amec-input-name');
+        const kindEl = document.getElementById('amec-input-kind');
+        const contentEl = document.getElementById('amec-input-content');
+        const date = (dateEl && dateEl.value || '').trim();
+        const name = (nameEl && nameEl.value || '').trim();
+        const kind = (kindEl && kindEl.value || 'event').trim();
+        const content = (contentEl && contentEl.value || '').trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+            if (typeof window.showToast === 'function') window.showToast('날짜를 선택해주세요.', 'warning');
+            if (dateEl) dateEl.focus();
+            return;
+        }
+        if (!name) {
+            if (typeof window.showToast === 'function') window.showToast('행사명을 입력해주세요.', 'warning');
+            if (nameEl) nameEl.focus();
+            return;
+        }
+        // (date, name) 중복 방지
+        const dup = _manualEntryState.events.find((e) => e.date === date && e.name === name);
+        if (dup) {
+            if (typeof window.showToast === 'function') window.showToast('이미 추가된 일정입니다.', 'warning');
+            return;
+        }
+        _manualEntryState.events.push({ date, name, kind, content });
+        // 날짜 오름차순 정렬 (보기 편함)
+        _manualEntryState.events.sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name));
+        _amecRenderList();
+        // 다음 입력 편의: 행사명·상세만 비우고 날짜·종류는 유지
+        if (nameEl) nameEl.value = '';
+        if (contentEl) contentEl.value = '';
+        if (nameEl) nameEl.focus();
+    }
+
+    function _amecRemoveEvent(idx) {
+        if (!_manualEntryState) return;
+        _manualEntryState.events.splice(idx, 1);
+        _amecRenderList();
+    }
+
+    function _amecRenderList() {
+        const listEl = document.getElementById('amec-list');
+        const countEl = document.getElementById('amec-list-count');
+        if (!listEl || !_manualEntryState) return;
+        const evs = _manualEntryState.events;
+        if (countEl) countEl.textContent = String(evs.length);
+        if (evs.length === 0) {
+            listEl.innerHTML = '<div class="amec-list-empty">아직 추가된 일정이 없습니다.</div>';
+            return;
+        }
+        listEl.innerHTML = evs.map((e, i) => {
+            const sub = e.content
+                ? `<span class="amec-row-content">· ${_escape(e.content)}</span>`
+                : '';
+            return `<div class="amec-row" data-idx="${i}">
+                <div class="amec-row-date">${_escape(e.date)}</div>
+                <div class="amec-row-kind amec-row-kind-${_escape(e.kind)}">${_escape(KIND_LABELS[e.kind] || '행사')}</div>
+                <div class="amec-row-text">
+                    <span class="amec-row-name">${_escape(e.name)}</span>
+                    ${sub}
+                </div>
+                <button type="button" class="amec-row-remove" data-idx="${i}"
+                    aria-label="삭제" title="이 일정 삭제">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>`;
+        }).join('');
+        listEl.querySelectorAll('.amec-row-remove').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                const idx = parseInt(btn.dataset.idx, 10);
+                if (!Number.isNaN(idx)) _amecRemoveEvent(idx);
+            });
+        });
+    }
+
+    async function _amecSaveAll() {
+        if (!_manualEntryState) return;
+        if (typeof window.submitManualSchoolCalendarEvents !== 'function') {
             if (typeof window.showToast === 'function') {
-                window.showToast('업로드 기능을 사용할 수 없습니다. 페이지를 새로고침해주세요.', 'error');
+                window.showToast('저장 기능을 사용할 수 없습니다. 페이지 새로고침 후 다시 시도해주세요.', 'error');
             }
             return;
         }
+        const events = _manualEntryState.events;
+        if (events.length === 0) {
+            if (typeof window.showToast === 'function') {
+                window.showToast('추가된 일정이 없습니다. 한 건 이상 입력해주세요.', 'warning');
+            }
+            return;
+        }
+        const saveBtn = document.getElementById('amec-save-btn');
+        const originalHtml = saveBtn ? saveBtn.innerHTML : '';
+        if (saveBtn) {
+            saveBtn.disabled = true;
+            saveBtn.classList.add('is-loading');
+            saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 저장 중...';
+        }
+        try {
+            const school = _manualEntryState.school;
+            const sourceLabel = (_manualEntryState.file && _manualEntryState.file.name) || 'manual';
+            const result = await window.submitManualSchoolCalendarEvents(school, events, sourceLabel);
+            if (!result || !result.ok) {
+                if (saveBtn) { saveBtn.innerHTML = originalHtml; }
+                return;
+            }
+            _setInvestigationLogFor(school, {
+                lastAt: new Date().toISOString(),
+                lastTotal: result.total || events.length,
+                lastSourceUrl: 'manual:' + sourceLabel,
+                lastStrategy: 'manual_entry',
+            });
+            invalidateAcademicOverrideCacheForSchool(school.atpt, school.code);
+            if (typeof window.showToast === 'function') {
+                window.showToast(
+                    `${school.name}: ${result.total || events.length}건의 학사일정 저장 완료`,
+                    'success'
+                );
+            }
+            // 모달 닫기 + 부모 학사일정 모달 갱신 + 캘린더 재렌더
+            const m = document.getElementById('academic-manual-entry-modal');
+            if (m) m.style.display = 'none';
+            const parentModal = document.getElementById('academic-calendar-modal');
+            if (parentModal && parentModal.style.display !== 'none') {
+                _renderSubscribedList(parentModal);
+            }
+            const tasks = [];
+            if (typeof renderAcademicBadgesOnCalendar === 'function') {
+                tasks.push(renderAcademicBadgesOnCalendar());
+            }
+            if (typeof _renderPinnedAcademicEventsSidebar === 'function') {
+                tasks.push(_renderPinnedAcademicEventsSidebar());
+            }
+            await Promise.allSettled(tasks);
+        } catch (e) {
+            console.warn('[Academic] manual save 실패:', e);
+            if (typeof window.showToast === 'function') {
+                window.showToast(`저장 실패: ${e.message || ''}`, 'error');
+            }
+            if (saveBtn) { saveBtn.innerHTML = originalHtml; }
+        } finally {
+            if (saveBtn) {
+                saveBtn.disabled = false;
+                saveBtn.classList.remove('is-loading');
+            }
+        }
+    }
+
+    function _openManualEntryModal(school) {
+        const modal = _ensureManualEntryModalElement();
+        // 상태 초기화 (이전 모달 잔존 정리)
+        if (_manualEntryState && _manualEntryState.objectUrl) {
+            try { URL.revokeObjectURL(_manualEntryState.objectUrl); } catch (e) {}
+        }
+        _manualEntryState = {
+            school,
+            events: [],
+            file: null,
+            objectUrl: null,
+        };
+        // 모달 헤더·폼 초기화
+        const schoolNameEl = document.getElementById('amec-school-name');
+        if (schoolNameEl) {
+            const region = school.region ? ' · ' + school.region : '';
+            schoolNameEl.textContent = school.name + region;
+        }
+        const fnEl = document.getElementById('amec-file-name');
+        if (fnEl) fnEl.textContent = '파일을 선택해주세요';
+        const content = document.getElementById('amec-preview-content');
+        if (content) {
+            content.innerHTML = `<div class="amec-preview-empty">
+                <i class="fas fa-file-import" aria-hidden="true"></i>
+                <div>학사일정 PDF / 이미지를 선택하면<br>여기에 미리보기가 나타납니다.</div>
+            </div>`;
+        }
+        ['amec-input-date', 'amec-input-name', 'amec-input-content'].forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.value = '';
+        });
+        const kindEl = document.getElementById('amec-input-kind');
+        if (kindEl) kindEl.value = 'event';
+        _amecRenderList();
+        modal.style.display = 'flex';
+        // 파일 선택 다이얼로그 자동 열기 — 사용자가 PDF 부터 선택하는 흐름
+        setTimeout(() => _amecPickFile(), 80);
+    }
+
+    async function _runUploadFromButton(btn, modal) {
         if (btn.disabled) return;
         const school = {
             atpt: btn.dataset.atpt,
@@ -978,84 +1317,7 @@
             name: btn.dataset.name,
             region: btn.dataset.region || '',
         };
-        // 숨겨진 file input 생성 → 클릭 → 사용자가 선택하면 처리
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.accept = UPLOAD_ACCEPT;
-        input.style.display = 'none';
-        document.body.appendChild(input);
-        input.onchange = async () => {
-            const file = input.files && input.files[0];
-            document.body.removeChild(input);
-            if (!file) return;
-            if (file.size > UPLOAD_MAX_BYTES) {
-                if (typeof window.showToast === 'function') {
-                    window.showToast(
-                        `파일 크기가 너무 큽니다 (${(file.size / 1024 / 1024).toFixed(1)}MB). 14MB 이하로 줄여주세요.`,
-                        'error'
-                    );
-                }
-                return;
-            }
-            const originalHtml = btn.innerHTML;
-            btn.disabled = true;
-            btn.classList.add('is-loading');
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin" aria-hidden="true"></i> <span class="academic-upload-btn-label">분석 중...</span>';
-            if (typeof window.showToast === 'function') {
-                window.showToast(`${school.name}: ${file.name} 분석 시작 (10~30초)`, 'info');
-            }
-            try {
-                const base64 = await window.fileToBase64ForEdge(file);
-                const result = await window.invokeInvestigateSchoolCalendar(school, {
-                    base64,
-                    mimeType: file.type || 'application/octet-stream',
-                    name: file.name || '',
-                });
-                if (!result || !result.ok) {
-                    btn.innerHTML = originalHtml;
-                    return;
-                }
-                _setInvestigationLogFor(school, {
-                    lastAt: new Date().toISOString(),
-                    lastTotal: result.total || 0,
-                    lastSourceUrl: (result.sourceUrls && result.sourceUrls[0]) || '',
-                    lastStrategy: 'uploaded_file',
-                });
-                invalidateAcademicOverrideCacheForSchool(school.atpt, school.code);
-                if (typeof window.showToast === 'function') {
-                    if (result.total > 0) {
-                        window.showToast(
-                            `${school.name}: ${result.total}건의 학사일정 발견 (파일에서 추출 · 저장 완료)`,
-                            'success'
-                        );
-                    } else {
-                        window.showToast(
-                            `${school.name}: 파일에서 학사일정을 추출하지 못했습니다. ${result.note || ''}`.trim(),
-                            'warning'
-                        );
-                    }
-                }
-                _renderSubscribedList(modal);
-                const tasks = [];
-                if (typeof renderAcademicBadgesOnCalendar === 'function') {
-                    tasks.push(renderAcademicBadgesOnCalendar());
-                }
-                if (typeof _renderPinnedAcademicEventsSidebar === 'function') {
-                    tasks.push(_renderPinnedAcademicEventsSidebar());
-                }
-                await Promise.allSettled(tasks);
-            } catch (e) {
-                console.warn('[Academic] 파일 업로드 분석 실패:', e);
-                if (typeof window.showToast === 'function') {
-                    window.showToast(`${school.name} 분석 실패: ${e.message || ''}`, 'error');
-                }
-                btn.innerHTML = originalHtml;
-            } finally {
-                btn.disabled = false;
-                btn.classList.remove('is-loading');
-            }
-        };
-        input.click();
+        _openManualEntryModal(school);
     }
 
     function openAcademicCalendarModal() {

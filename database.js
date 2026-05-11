@@ -577,6 +577,62 @@ window.invokeInvestigateSchoolCalendar = async function(school, file) {
 };
 
 /**
+ * 사용자가 모달에서 직접 입력한 학사일정 events 배열을 edge function 으로 upsert.
+ * AI 추출(file 모드) 의 정확도 문제를 해결하기 위해 추가된 manual 경로.
+ *
+ * @param {{atpt:string, code:string, name:string, region?:string}} school
+ * @param {Array<{date:string, name:string, content?:string, kind?:string}>} events
+ * @param {string} [sourceLabel] - 사용자가 보고 입력한 자료의 라벨 (파일명 등). 미지정 시 'manual'.
+ */
+window.submitManualSchoolCalendarEvents = async function(school, events, sourceLabel) {
+    try {
+        if (!school || !school.atpt || !school.code || !school.name) {
+            if (typeof showToast === 'function') showToast('학교 정보가 부족합니다.', 'warning');
+            return null;
+        }
+        if (!Array.isArray(events) || events.length === 0) {
+            if (typeof showToast === 'function') showToast('입력된 일정이 없습니다.', 'warning');
+            return null;
+        }
+        const session = await _getSession();
+        if (!session) {
+            if (typeof showToast === 'function') showToast('로그인이 필요합니다.', 'warning');
+            return null;
+        }
+        const { data, error } = await supabase.functions.invoke('investigate-school-calendar', {
+            body: {
+                school,
+                mode: 'manual',
+                events,
+                sourceLabel: sourceLabel || 'manual',
+            },
+            headers: { Authorization: 'Bearer ' + session.access_token }
+        });
+        if (error) {
+            console.error('[submitManualSchoolCalendarEvents]', error);
+            if (typeof showToast === 'function') showToast('학사일정 저장에 실패했습니다.', 'error');
+            return null;
+        }
+        if (!data || !data.ok) {
+            const errMap = {
+                supabase_env_missing: '서버 환경변수가 누락되었습니다.',
+                school_missing: '학교 식별 정보가 누락되었습니다.',
+                db_upsert_failed: 'DB 저장 실패 — school_calendar_overrides 마이그레이션 적용 여부를 확인하세요.',
+                unauthorized: '다시 로그인해주세요.',
+            };
+            const msg = errMap[data && data.error] || ('학사일정 저장에 실패했습니다.' + (data && data.detail ? ' (' + data.detail + ')' : ''));
+            if (typeof showToast === 'function') showToast(msg, 'error');
+            return data || null;
+        }
+        return data;
+    } catch (e) {
+        console.error('[submitManualSchoolCalendarEvents]', e);
+        if (typeof showToast === 'function') showToast('학사일정 저장 중 오류가 발생했습니다.', 'error');
+        return null;
+    }
+};
+
+/**
  * File / Blob 객체를 Edge Function 전송용 base64(순수, data: prefix 없음) 으로 변환.
  * FileReader.readAsDataURL 결과는 "data:<mime>;base64,XXXX" 형태이므로 콤마 이후만 사용.
  */

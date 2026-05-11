@@ -568,12 +568,8 @@ serve(async (req: Request) => {
                 headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
         }
-        if (!GEMINI_API_KEY) {
-            return new Response(JSON.stringify({ ok: false, error: "gemini_not_configured" }), {
-                status: 200,
-                headers: { ...corsHeaders, "Content-Type": "application/json" },
-            });
-        }
+        // GEMINI_API_KEY 는 AI 추출 경로(file/auto) 에서만 필수 — manual 모드는 키 없이도 동작.
+        // 따라서 early-exit 하지 않고 분기 진입 시점에 검증.
 
         // 인증 — 원장 본인 호출만 허용
         const authHeader = req.headers.get("Authorization") ?? "";
@@ -598,6 +594,9 @@ serve(async (req: Request) => {
         const body = (await req.json().catch(() => ({}))) as {
             school?: SchoolInput;
             file?: { base64?: string; mimeType?: string; name?: string };
+            events?: Array<{ date?: string; name?: string; content?: string; kind?: string }>;
+            mode?: "manual" | "auto";
+            sourceLabel?: string;
         };
         const school = body.school || {};
         const atpt = String(school.atpt || "").trim();
@@ -610,14 +609,52 @@ serve(async (req: Request) => {
             });
         }
 
-        // ── 분기: 파일 업로드 경로 vs 홈페이지 자동 조사 경로 ──────
+        // ── 분기: 수동 입력 경로 → 파일 업로드 경로 → 홈페이지 자동 조사 경로 ──
         let events: ExtractedEvent[] = [];
         let sourceUrls: string[] = [];
         let strategy = "";
         let noteOnEmpty = "";
 
-        if (body.file && body.file.base64) {
-            // ── 5-A) 사용자가 학사일정 PDF/이미지를 직접 업로드한 경우 ──
+        const isManualMode = body.mode === "manual" || (Array.isArray(body.events) && body.events.length > 0);
+
+        if (isManualMode) {
+            // ── 5-Z) 사용자가 모달에서 직접 입력한 events 배열을 그대로 upsert ──
+            // AI 추출 없이 사용자가 PDF 미리보기 보며 손으로 입력한 결과. 가장 정확.
+            const rawEvents = Array.isArray(body.events) ? body.events : [];
+            const sanitized: ExtractedEvent[] = [];
+            const seenKeys = new Set<string>();
+            for (const it of rawEvents) {
+                const date = String((it && it.date) || "").trim();
+                const evName = String((it && it.name) || "").trim();
+                if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+                if (!evName) continue;
+                const kindRaw = String((it && it.kind) || "event").trim();
+                const kind = (["exam", "vacation", "event", "other"].includes(kindRaw)
+                    ? kindRaw : "event") as ExtractedEvent["kind"];
+                const key = `${date}|${evName}`;
+                if (seenKeys.has(key)) continue;
+                seenKeys.add(key);
+                sanitized.push({
+                    date,
+                    name: evName.slice(0, 80),
+                    content: String((it && it.content) || "").trim().slice(0, 200),
+                    kind,
+                });
+                if (sanitized.length >= 300) break;
+            }
+            events = sanitized;
+            strategy = "manual_entry";
+            const label = String(body.sourceLabel || "manual").slice(0, 200);
+            sourceUrls = [`manual:${label}`];
+            noteOnEmpty = "입력된 일정이 없습니다.";
+        } else if (body.file && body.file.base64) {
+            // ── 5-A) 사용자가 학사일정 PDF/이미지를 직접 업로드한 경우 (AI 추출) ──
+            if (!GEMINI_API_KEY) {
+                return new Response(JSON.stringify({ ok: false, error: "gemini_not_configured" }), {
+                    status: 200,
+                    headers: { ...corsHeaders, "Content-Type": "application/json" },
+                });
+            }
             const fileBase64 = String(body.file.base64);
             const mimeType = String(body.file.mimeType || "").toLowerCase();
             const fileName = String(body.file.name || "").slice(0, 200);
@@ -650,7 +687,13 @@ serve(async (req: Request) => {
             sourceUrls = fileName ? [`uploaded:${fileName}`] : ["uploaded"];
             noteOnEmpty = "업로드한 자료에서 학사일정을 추출하지 못했습니다. 일정표가 명확히 보이는 페이지 / 더 선명한 이미지로 다시 시도해주세요.";
         } else {
-            // ── 5-B) 학교 홈페이지 자동 조사 경로 (기존 동작) ───────
+            // ── 5-B) 학교 홈페이지 자동 조사 경로 (AI 추출) ───────
+            if (!GEMINI_API_KEY) {
+                return new Response(JSON.stringify({ ok: false, error: "gemini_not_configured" }), {
+                    status: 200,
+                    headers: { ...corsHeaders, "Content-Type": "application/json" },
+                });
+            }
             const investigation = await runInvestigation(school);
             events = investigation.events;
             sourceUrls = investigation.sourceUrls;
