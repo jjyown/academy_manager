@@ -118,6 +118,48 @@
 		.modal-box { background:var(--bg-card); border-radius:var(--radius); padding:20px; max-width:500px; width:90%; max-height:80vh; overflow-y:auto; }
 		.modal-title { font-size:16px; font-weight:700; margin-bottom:16px; display:flex; align-items:center; gap:8px; }
 
+		/* 교재 등록 진행 표시 */
+		.key-progress {
+			margin-top:14px;
+			padding:12px 14px;
+			background:rgba(99,102,241,0.08);
+			border:1px solid rgba(99,102,241,0.3);
+			border-radius:10px;
+			font-size:12px;
+		}
+		.key-progress-row {
+			display:flex; align-items:center; gap:10px;
+			margin-bottom:8px;
+		}
+		.key-progress-row > i { color:var(--primary,#6366f1); font-size:14px; }
+		.key-progress-stage { font-weight:600; color:var(--text); flex:1; }
+		.key-progress-elapsed { font-size:11px; color:var(--text-sec); font-variant-numeric:tabular-nums; }
+		.key-progress-track {
+			height:4px;
+			background:rgba(99,102,241,0.15);
+			border-radius:2px;
+			overflow:hidden;
+			margin-bottom:8px;
+		}
+		.key-progress-fill {
+			height:100%;
+			width:0%;
+			background:var(--primary,#6366f1);
+			transition:width 0.4s ease;
+		}
+		.key-progress-steps {
+			display:flex; gap:6px; flex-wrap:wrap;
+			font-size:10px; color:var(--text-sec);
+		}
+		.kp-step {
+			padding:2px 6px;
+			border-radius:4px;
+			background:rgba(99,102,241,0.06);
+			border:1px solid rgba(99,102,241,0.15);
+		}
+		.kp-step.active { background:var(--primary,#6366f1); color:#fff; border-color:var(--primary,#6366f1); }
+		.kp-step.done { background:rgba(16,185,129,0.15); color:#059669; border-color:rgba(16,185,129,0.3); }
+
 		/* 통계 */
 		.stat-row { display:flex; gap:8px; margin-bottom:8px; }
 		.stat-item { flex:1; text-align:center; padding:12px; background:var(--bg-elevated); border-radius:var(--radius); }
@@ -1278,6 +1320,24 @@
 		<div class="form-group">
 			<label class="form-label">예상 문제 수 <span style="color:var(--text-sec);font-weight:400;">(선택)</span></label>
 			<input class="input" id="key-total-hint" type="number" placeholder="예: 30">
+		</div>
+
+		<!-- 진행 표시 (파싱 중에만 표시) -->
+		<div id="key-progress" class="key-progress" style="display:none;">
+			<div class="key-progress-row">
+				<i class="fas fa-circle-notch fa-spin"></i>
+				<span class="key-progress-stage" id="key-progress-stage">시작 중...</span>
+				<span class="key-progress-elapsed" id="key-progress-elapsed">0초</span>
+			</div>
+			<div class="key-progress-track">
+				<div class="key-progress-fill" id="key-progress-fill"></div>
+			</div>
+			<div class="key-progress-steps">
+				<span class="kp-step" data-step="upload">① 업로드</span>
+				<span class="kp-step" data-step="parse">② 분석</span>
+				<span class="kp-step" data-step="ai">③ 정답 추출</span>
+				<span class="kp-step" data-step="images">④ 이미지</span>
+			</div>
 		</div>
 
 		<div style="display:flex;gap:8px;margin-top:16px;">
@@ -4154,6 +4214,85 @@ function resetFileDropZone() {
 	});
 })();
 
+// ============================================================
+// 교재 등록 진행 표시 — 서버가 단일 호출이라 클라이언트 측 추정 단계
+//   exam 모드: 업로드 → 페이지 이미지 (정답 추출 단계 skip)
+//   자동 모드: 업로드 → 분석 → 정답 추출 → 페이지 이미지
+// 경과 시간과 단계 바를 함께 표시해 "멈춘 거 아닌가?" 불안 해소.
+// ============================================================
+let _keyProgressTimer = null;
+let _keyProgressStart = 0;
+
+function _setKpStep(step, state) {
+	document.querySelectorAll('.kp-step').forEach((el) => {
+		const s = el.dataset.step;
+		if (s === step) el.className = 'kp-step ' + state;
+		else if (state === 'active' && el.classList.contains('active')) {
+			// 이전 active → done
+			el.className = 'kp-step done';
+		}
+	});
+}
+
+function startKeyProgress(mode) {
+	const box = document.getElementById('key-progress');
+	if (!box) return;
+	box.style.display = '';
+	_keyProgressStart = Date.now();
+	// 단계 정의: [t(ms) 누적, step id, 라벨, fill%]
+	// mode='exam' 이면 ③ 정답 추출 단계는 건너뜀.
+	const isExam = mode === 'exam';
+	const plan = isExam ? [
+		[0,     'upload', '📤 파일 업로드 중...',                15],
+		[1500,  'parse',  '🔍 PDF 페이지 변환 중...',            45],
+		[5000,  'images', '🖼️ 페이지 이미지 업로드 중...',       80],
+		[15000, 'images', '🖼️ 페이지 이미지 업로드 중 (조금 더 걸려요)...', 92],
+	] : [
+		[0,     'upload', '📤 파일 업로드 중...',                10],
+		[1500,  'parse',  '🔍 PDF 분석·정답 페이지 탐색 중...',  30],
+		[5000,  'ai',     '✨ AI가 정답 추출 중... (가장 오래 걸리는 단계)', 65],
+		[20000, 'ai',     '✨ AI 정답 추출 중 (거의 다 됐어요)...', 82],
+		[28000, 'images', '🖼️ 페이지 이미지 업로드 중...',       92],
+		[40000, 'images', '🖼️ 페이지 이미지 업로드 중 (드라이브 응답 대기)...', 96],
+	];
+
+	const stageEl = document.getElementById('key-progress-stage');
+	const elapsedEl = document.getElementById('key-progress-elapsed');
+	const fillEl = document.getElementById('key-progress-fill');
+	if (stageEl) stageEl.textContent = plan[0][2];
+	if (fillEl) fillEl.style.width = plan[0][3] + '%';
+	document.querySelectorAll('.kp-step').forEach((el) => { el.className = 'kp-step'; });
+	_setKpStep(plan[0][1], 'active');
+
+	let stageIdx = 0;
+	_keyProgressTimer = setInterval(() => {
+		const elapsed = Date.now() - _keyProgressStart;
+		if (elapsedEl) elapsedEl.textContent = `${Math.floor(elapsed / 1000)}초`;
+		// 다음 단계 시점 도달?
+		while (stageIdx + 1 < plan.length && elapsed >= plan[stageIdx + 1][0]) {
+			stageIdx++;
+			if (stageEl) stageEl.textContent = plan[stageIdx][2];
+			if (fillEl) fillEl.style.width = plan[stageIdx][3] + '%';
+			_setKpStep(plan[stageIdx][1], 'active');
+		}
+	}, 250);
+}
+
+function endKeyProgress(success) {
+	if (_keyProgressTimer) { clearInterval(_keyProgressTimer); _keyProgressTimer = null; }
+	const fillEl = document.getElementById('key-progress-fill');
+	const stageEl = document.getElementById('key-progress-stage');
+	if (success) {
+		if (fillEl) fillEl.style.width = '100%';
+		if (stageEl) stageEl.textContent = '✅ 완료';
+		document.querySelectorAll('.kp-step').forEach((el) => { el.className = 'kp-step done'; });
+	}
+	// 0.4s 후 숨김 (성공일 때만 잠깐 보여줌 / 실패는 즉시 숨김)
+	const box = document.getElementById('key-progress');
+	if (!box) return;
+	setTimeout(() => { box.style.display = 'none'; }, success ? 400 : 0);
+}
+
 let isRegistering = false;
 async function registerAnswerKey() {
 	if (isRegistering) return;
@@ -4194,6 +4333,14 @@ async function registerAnswerKey() {
 		const isExam = selectedKeyType === 'exam';
 		const isHml = pdfInput.files[0].name.toLowerCase().endsWith('.hml');
 		const isHmlOrHwp = pdfInput.files[0].name.toLowerCase().endsWith('.hml') || pdfInput.files[0].name.toLowerCase().endsWith('.hwp');
+		// 모달 내 인라인 진행 표시 + 등록 버튼 비활성화
+		const submitBtn = document.querySelector('#key-modal button.btn-primary');
+		const submitBtnOriginalHtml = submitBtn ? submitBtn.innerHTML : '';
+		if (submitBtn) {
+			submitBtn.disabled = true;
+			submitBtn.innerHTML = '<i class="fas fa-circle-notch fa-spin" style="margin-right:4px;"></i> 처리 중...';
+		}
+		startKeyProgress(isExam ? 'exam' : 'auto');
 		showToast(
 			isExam
 				? '시험지 등록 중 — 페이지 이미지만 생성합니다...'
@@ -4212,6 +4359,7 @@ async function registerAnswerKey() {
 				invalidateAnswerKeysCache();
 				const cnt = result.parsed_result?.total || 0;
 				const isExamMode = result.mode === 'exam' || isExam;
+				endKeyProgress(true);
 				if (isExamMode) {
 					showToast(
 						'시험지 등록 완료 — 페이지 이미지만 생성됨. 상세에서 [+ 문제 추가] 또는 [해설지 매핑]으로 정답을 보강하세요.',
@@ -4231,12 +4379,18 @@ async function registerAnswerKey() {
 				closeModal('key-modal');
 				loadAnswerKeys();
 			} else {
+				endKeyProgress(false);
 				showToast('등록 실패', 'error');
 			}
 		} catch (e) {
+			endKeyProgress(false);
 			showToast('서버 연결 실패: ' + e.message, 'error');
 		} finally {
 			isRegistering = false;
+			if (submitBtn) {
+				submitBtn.disabled = false;
+				submitBtn.innerHTML = submitBtnOriginalHtml;
+			}
 		}
 	} else {
 		// PDF 없이 수동 등록 (서버 API)
