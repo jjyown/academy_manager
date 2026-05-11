@@ -1469,9 +1469,14 @@
                     <div class="pay-expense-guide">
                         <i class="fas fa-info-circle"></i> 임차료·공과금·통신비·광고비·소모품·강사료를 분류해서 기록하면 5월 종합소득세 신고 시 그대로 활용할 수 있습니다.
                     </div>
-                    <button class="pay-ledger-btn" onclick="openExpenseLedgerModal()" title="비용 내역 등록">
-                        <i class="fas fa-plus"></i> 비용 등록
-                    </button>
+                    <div class="pay-expense-toolbar-actions">
+                        <button class="pay-ledger-btn pay-ledger-btn-secondary" onclick="openCardFeeModal()" title="카드사·결제대행사 수수료 빠른 등록">
+                            <i class="fas fa-percentage"></i> 수수료
+                        </button>
+                        <button class="pay-ledger-btn" onclick="openExpenseLedgerModal()" title="비용 내역 등록">
+                            <i class="fas fa-plus"></i> 비용 등록
+                        </button>
+                    </div>
                 </div>
                 <div class="pay-expense-summary">
                     <div class="pay-close-card">
@@ -1995,6 +2000,65 @@
                     </div>
                 </div>
                 <button class="btn-save-main" onclick="saveExpenseLedgerEntry()"><i class="fas fa-check"></i> 저장</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="card-fee-modal" class="modal" style="display: none;">
+        <div class="modal-card" style="max-width: 480px;">
+            <div class="modal-header">
+                <h2><i class="fas fa-percentage"></i> 카드 수수료 등록</h2>
+                <button class="btn-close-x" onclick="closeModal('card-fee-modal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body-scrollable custom-scroll" style="padding: 20px;">
+                <div class="pay-ledger-hint"><i class="fas fa-info-circle"></i> 매월 카드사·결제대행사가 차감하는 수수료를 빠르게 등록합니다. 자동으로 <b>비용원장 → 지급수수료</b>로 분류됩니다.</div>
+                <div class="pay-ledger-grid">
+                    <div class="input-group">
+                        <label>귀속월 <span class="pay-required-mark">*</span> <span class="pay-term-help" data-help="이 수수료가 어느 달 정산분인지. 보통 카드 명세서 기준 월.">?</span></label>
+                        <input type="month" id="card-fee-month-key" class="m-input">
+                    </div>
+                    <div class="input-group">
+                        <label>정산일(차감일) <span class="pay-required-mark">*</span> <span class="pay-term-help" data-help="카드사·결제대행사가 실제 통장에서 차감한 날짜. 명세서에 표시됩니다.">?</span></label>
+                        <input type="date" id="card-fee-date" class="m-input">
+                    </div>
+                    <div class="input-group" style="grid-column: 1 / -1;">
+                        <label>수수료 채널 <span class="pay-required-mark">*</span> <span class="pay-term-help" data-help="어디서 차감하는 수수료인지. 카드사 직접·결제대행사·동백전·PG사 등.">?</span></label>
+                        <select id="card-fee-channel" class="m-input" onchange="onCardFeeChannelChange()">
+                            <option value="우리카드">우리카드(가맹점 수수료)</option>
+                            <option value="KB국민카드">KB국민카드</option>
+                            <option value="신한카드">신한카드</option>
+                            <option value="삼성카드">삼성카드</option>
+                            <option value="현대카드">현대카드</option>
+                            <option value="롯데카드">롯데카드</option>
+                            <option value="BC카드">BC카드</option>
+                            <option value="하나카드">하나카드</option>
+                            <option value="결제선생">결제선생(PG)</option>
+                            <option value="비즐">비즐(PG)</option>
+                            <option value="동백전">동백전(지역화폐)</option>
+                            <option value="카카오페이">카카오페이</option>
+                            <option value="네이버페이">네이버페이</option>
+                            <option value="토스">토스</option>
+                            <option value="기타">기타</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
+                        <label>매출액(선택) <span class="pay-term-help" data-help="해당 채널로 받은 총 매출. 적으면 자동으로 수수료율(%)이 계산됩니다. 몰라도 됩니다.">?</span></label>
+                        <input type="text" id="card-fee-gross" class="m-input" placeholder="예: 3,500,000" oninput="formatNumberWithComma(this); onCardFeeGrossChange()">
+                    </div>
+                    <div class="input-group">
+                        <label>수수료 금액 <span class="pay-required-mark">*</span> <span class="pay-term-help" data-help="실제 차감된 수수료. 명세서에 적힌 금액 그대로.">?</span></label>
+                        <input type="text" id="card-fee-amount" class="m-input" placeholder="예: 52,500" oninput="formatNumberWithComma(this); onCardFeeAmountChange()">
+                    </div>
+                    <div class="input-group" style="grid-column: 1 / -1;">
+                        <label>수수료율(%) <span class="pay-field-badge is-auto">자동</span></label>
+                        <input type="text" id="card-fee-rate" class="m-input pay-auto-input" placeholder="매출액 입력 시 자동" readonly>
+                    </div>
+                    <div class="input-group" style="grid-column: 1 / -1;">
+                        <label>메모(선택)</label>
+                        <textarea id="card-fee-note" class="m-input" rows="2" placeholder="예: 2026년 4월분 카드매출 수수료"></textarea>
+                    </div>
+                </div>
+                <button class="btn-save-main" onclick="saveCardFee()"><i class="fas fa-check"></i> 수수료 저장</button>
             </div>
         </div>
     </div>

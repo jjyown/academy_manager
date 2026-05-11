@@ -10053,6 +10053,21 @@ body.pay-tax-mode-exempt .pay-vat-only { display: none !important; }
 .pay-ledger-extra[open] > summary::before { content: '− '; }
 .pay-ledger-extra[open] > .pay-ledger-grid { margin-top: 10px; }
 
+.pay-expense-toolbar-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+.pay-ledger-btn-secondary {
+    background: #fff !important;
+    color: #6366f1 !important;
+    border: 1px solid #c7d2fe !important;
+}
+.pay-ledger-btn-secondary:hover {
+    background: #eef2ff !important;
+    border-color: #6366f1 !important;
+}
+
 .pay-expense-categories {
     display: flex;
     flex-wrap: wrap;
