@@ -27,10 +27,17 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
-const GEMINI_MODEL = Deno.env.get("GEMINI_SCHOOL_CALENDAR_MODEL")
+// 텍스트 경로(홈페이지 자동 조사) — 가성비 우선. 빈도 높고 텍스트만 다룸.
+const GEMINI_TEXT_MODEL = Deno.env.get("GEMINI_SCHOOL_CALENDAR_MODEL")
     ?? Deno.env.get("GEMINI_ADMISSIONS_MODEL")
     ?? Deno.env.get("GEMINI_EVAL_MODEL")
     ?? "gemini-2.5-flash";
+// 파일 경로(PDF·이미지) — 정확도 우선. 한국 학교 학사일정 표는 셀 병합·축약 표기가
+// 많아 2.5-pro 의 OCR/추론 정밀도가 필수. 호출 빈도 낮아 비용 영향 작음.
+const GEMINI_FILE_MODEL = Deno.env.get("GEMINI_SCHOOL_CALENDAR_FILE_MODEL")
+    ?? "gemini-2.5-pro";
+// 호환용 (기존 코드 참조 — 텍스트 경로 모델로 폴백)
+const GEMINI_MODEL = GEMINI_TEXT_MODEL;
 
 const corsHeaders: Record<string, string> = {
     "Access-Control-Allow-Origin": "*",
@@ -231,7 +238,7 @@ function _parseGeminiEventsResponse(fullText: string): ExtractedEvent[] {
             content: String(o.content || "").trim().slice(0, 200),
             kind,
         });
-        if (events.length >= 80) break;
+        if (events.length >= 200) break;
     }
     return events;
 }
@@ -239,30 +246,61 @@ function _parseGeminiEventsResponse(fullText: string): ExtractedEvent[] {
 // 공통 추출 규칙 — 두 추출 경로에서 동일 시스템 프롬프트 사용.
 function _buildExtractionSystemPrompt(schoolName: string): string {
     const today = new Date().toISOString().slice(0, 10);
-    const year = new Date().getFullYear();
-    return `당신은 한국 학교의 학사일정을 정확히 추출하는 정보 추출 엔진입니다.
+    return `당신은 한국 초·중·고 학사일정을 표·달력 자료에서 빠짐없이 추출하는 정보 추출 엔진입니다.
 
 [작업]
-"${schoolName}" 의 학사일정 자료를 분석해, ${today} 기준으로 「앞으로 12개월 이내 / 지난 1개월 이내」 범위의 학사일정을 JSON 으로 추출합니다.
+"${schoolName}" 의 학사일정 자료(웹 페이지 본문 또는 학사일정 PDF·이미지)에서 1년치(현 학년도 + 다음 학년도까지 포함) 학사일정을 빠짐없이 JSON 으로 추출합니다. 자료가 표 / 달력 / 주별 그리드 형태면 각 셀을 OCR 로 정확히 읽고 펼치세요. 짧게 추출하지 말고, 자료에 적힌 일정은 거의 다 담는다 생각하고 추출하세요.
 
-[출력 형식 — 오직 JSON, 다른 텍스트·코드블록 없음]
+[출력 형식 — 오직 JSON 한 개, 다른 텍스트·코드블록 없음]
 {
   "events": [
     { "date": "YYYY-MM-DD", "name": "행사명", "content": "상세(없으면 빈 문자열)", "kind": "exam|vacation|event|other" }
-    ...
   ]
 }
 
-[추출 규칙]
-- date 는 반드시 YYYY-MM-DD. 범위로 적힌 일정(예: 6/24~6/28) 은 각 날짜로 분해해 개별 행으로 펼침. 단 7일 이상의 긴 일정(방학·여름방학 등) 은 시작일·종료일 두 행으로만 표기.
-- name 은 30자 이내 짧은 한국어. '제 1차 지필평가' / '여름방학 시작' / '체육대회' 등.
-- kind 는 시험(중간/기말/지필/수행 포함)=exam, 방학(여름/겨울/봄/짧은방학)=vacation, 일반 행사(체육대회/축제/입학식/졸업식 등)=event, 기타=other.
-- 연도가 명시되지 않아 모호하면 ${year} 또는 ${year + 1} 중 ${today} 이후가 되는 쪽으로 추정. 추정이 불가하면 그 행은 누락.
-- 자료가 다른 학교 / 다른 학년도 잔존본인 듯하면 (학교명 불일치 / 명백히 과거 학년도) 빈 events 로 응답.
-- 본문에 학사일정이 없거나 단순 안내문이면 events: [].
-- 단순 광고·공지·게시판 게시물 제목은 학사일정으로 보지 말 것. '지필평가 출제 안내' 같은 공지는 제외, '1학기 중간고사 (6/24~6/28)' 같은 일정은 포함.
-- 표·달력 형식 자료라면 각 셀의 텍스트를 모두 읽고 날짜에 맞게 펼침. 사진·이미지 자료의 경우 OCR 로 글자를 정확히 읽은 뒤 추출.
-- 최대 80건. 동일 일자·동일 이름 중복 금지.`;
+[한국 학교 학사일정 표 해독 가이드 — 매우 중요]
+한국 학교의 1년 학사일정표·연간 운영계획은 보통 「월 / 주 / 월·화·수·목·금 / 토 / 수업일수」 컬럼의 표입니다.
+각 요일 셀에는 '월8(중간고사)', '화10(중간고사)', '월18(방학식)', '화1(개학식)' 처럼
+'<요일><수업일수>(<주요행사>)' 또는 단순 '<요일><수업일수>' 형식으로 적혀 있고,
+표 좌측 또는 셀 옆 작은 글자에 그 행의 시작일(예: '27', '18')이 적혀 있습니다.
+또는 '주요 행사 일정' 칼럼에 '3(화) 시업식, 입학식', '11(금) 진로심리검사' 처럼 직접 적기도 합니다.
+
+추출 규칙:
+- 괄호 안 행사가 핵심 정보입니다. '월8(중간고사)' → 그 셀의 날짜에 '중간고사' 행 생성.
+- '월(수업일수)' 만 적혀 있고 행사가 없으면 일반 수업일이므로 추출하지 않음.
+- '대체공휴일', '개교기념일', '어린이날', '한글날', '제헌절', '성탄절', '신정', '노동절', '추석연휴', '지방선거일' 등 공휴일·기념일은 모두 event 로 추출.
+- '시업식', '입학식', '졸업식', '종업식', '개학식', '방학식' 도 event.
+- '체험학습', '체육대회', '축제', '동아리활동', '진로검사', '학교폭력예방교육', '장애인권교육' 등 행사도 모두 event.
+- '중간고사', '기말고사', '지필평가', '수행평가', '학평'(학력평가), '모평'(모의평가) 은 exam.
+- '여름방학', '겨울방학', '봄방학', '학년말방학', 단순 '방학' 은 vacation. 7일 이상 긴 방학은 시작일·종료일 두 행으로만 표기, 짧은 방학은 각 일자로 펼침.
+
+[date 결정 방법]
+- date 는 반드시 YYYY-MM-DD.
+- 자료 어딘가에 학년도(예: '2026학년도')가 명시되면 그 연도 기준으로 해석.
+  1학기 = 그 해 3월~7월, 2학기 = 그 해 8월~다음 해 2월.
+- 학년도 명시가 없으면 자료 상단의 '월' 컬럼 + ${today} 의 연/월 정보로 추정.
+- 표 셀 텍스트에 일자가 명시 안 됐어도, 같은 주의 다른 셀들로 그 주의 시작 월/일을 알 수 있다면 요일별로 +0, +1, +2, +3, +4 일 더해서 date 계산.
+
+[date 범위]
+- 자료에 적힌 1년치 전부를 추출. 과거 일정도 포함(이미 끝났더라도 학원 운영 참고용). 미래 1년 이내 일정도 포함.
+- 단, 명백히 다른 학년도(2024학년도, 2025학년도) 잔존본이면 그 학교의 현재 학년도(=자료 표제) 행만 추출.
+
+[name·content]
+- name 은 30자 이내 짧은 한국어. 핵심 단어만. ('1학기 중간고사', '여름방학 시작', '체육한마당', '대수능', '시업식, 입학식').
+- 한 셀에 여러 행사가 콤마·줄바꿈으로 나열되면 각각 별도 행으로 분해. ('시업식(1h), 입학식(1h)' → 2행).
+- 같은 일자에 같은 종류 행사가 여러 학년에 걸쳐 있어도 1행만('3학년 모의평가' 식 학년 구분이 있을 때만 별도).
+- content 는 비워도 됨. 시간/대상이 명시되면 그것만 짧게 ('1,2학년', '3학년', '오전' 정도).
+
+[제외]
+- 단순 게시판 공지 제목 ('지필평가 출제 안내' 같은 메타 공지) 은 제외. 단, 실제 일정 표·달력에 있는 항목은 모두 포함.
+- 페이지가 "다른 학교" 잔존본이면 events: []. 학교명이 일치하면 의심하지 말고 적극 추출.
+
+[수량]
+- 최대 200건. 자료에 30건 이상 일정이 보이면 그 정도 모두 추출하세요. 짧게 끊지 말 것.
+- 동일 (date, name) 중복 금지.
+
+[현재 시각]
+- ${today} (참고용 — 추출 범위 결정에 사용하지 말 것. 자료에 적힌 모든 일정을 추출.)`;
 }
 
 // ── 3-A) 업로드 파일(PDF/이미지) 로부터 Gemini multimodal 추출 ─────
@@ -290,10 +328,10 @@ async function extractEventsFromFileWithGemini(
     }
     const systemPrompt = _buildExtractionSystemPrompt(schoolName);
     const userPrompt =
-        `[학교명] ${schoolName}\n[자료] 학원장이 학교 홈페이지에서 다운받은 학사일정 파일 1개\n\n위 첨부 자료에서 학사일정을 JSON 으로 추출하세요. 응답은 오직 JSON 객체 한 개.`;
+        `[학교명] ${schoolName}\n[자료] 학원장이 학교 홈페이지에서 다운받은 학사일정 파일 1개 (PDF 또는 이미지)\n\n위 첨부 자료에서 학사일정을 빠짐없이 JSON 으로 추출하세요. 표·달력 형식이라면 모든 셀을 OCR 로 읽고 위 「표 해독 가이드」 대로 펼쳐 행으로 만드세요. 응답은 오직 JSON 객체 한 개.`;
     try {
         const apiUrl =
-            `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(GEMINI_API_KEY)}`;
+            `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_FILE_MODEL}:generateContent?key=${encodeURIComponent(GEMINI_API_KEY)}`;
         const res = await fetch(apiUrl, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -305,8 +343,8 @@ async function extractEventsFromFileWithGemini(
                     ],
                 }],
                 generationConfig: {
-                    temperature: 0.2,
-                    maxOutputTokens: 8192,
+                    temperature: 0.1,
+                    maxOutputTokens: 16384,
                     responseMimeType: "application/json",
                 },
             }),
@@ -319,7 +357,11 @@ async function extractEventsFromFileWithGemini(
         const fullText = String(
             j?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text || "").join("") || "",
         ).trim();
-        return { events: _parseGeminiEventsResponse(fullText), raw: fullText };
+        // 디버깅: 응답 길이/앞부분 로그 (실제 응답 내용은 너무 길어 200자로 컷)
+        console.log(`[investigate-file] ${schoolName} model=${GEMINI_FILE_MODEL} resp_len=${fullText.length} head=${fullText.slice(0, 200).replace(/\n/g, " ")}`);
+        const events = _parseGeminiEventsResponse(fullText);
+        console.log(`[investigate-file] ${schoolName} parsed events=${events.length}`);
+        return { events, raw: fullText };
     } catch (e) {
         console.warn("[investigate-file] Gemini call err", e);
         return { events: [], raw: "" };
@@ -352,7 +394,7 @@ async function extractEventsWithGemini(
 
     try {
         const apiUrl =
-            `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(GEMINI_API_KEY)}`;
+            `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_TEXT_MODEL}:generateContent?key=${encodeURIComponent(GEMINI_API_KEY)}`;
         const res = await fetch(apiUrl, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -360,7 +402,7 @@ async function extractEventsWithGemini(
                 contents: [{ parts: [{ text: systemPrompt + "\n\n" + userPrompt }] }],
                 generationConfig: {
                     temperature: 0.2,
-                    maxOutputTokens: 4096,
+                    maxOutputTokens: 16384,
                     responseMimeType: "application/json",
                 },
             }),
@@ -373,7 +415,10 @@ async function extractEventsWithGemini(
         const fullText = String(
             j?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text || "").join("") || "",
         ).trim();
-        return { events: _parseGeminiEventsResponse(fullText), raw: fullText };
+        console.log(`[investigate-text] ${schoolName} model=${GEMINI_TEXT_MODEL} resp_len=${fullText.length} pages=${pages.length}`);
+        const events = _parseGeminiEventsResponse(fullText);
+        console.log(`[investigate-text] ${schoolName} parsed events=${events.length}`);
+        return { events, raw: fullText };
     } catch (e) {
         console.warn("[investigate] Gemini call err", e);
         return { events: [], raw: "" };
