@@ -513,15 +513,19 @@ window.invokeAdmissionsKnowledgeCollect = async function(payload) {
 
 /**
  * investigate-school-calendar Edge Function 호출.
- * NEIS 에 학사일정이 누락된 학교의 공식 홈페이지를 조사해
- * school_calendar_overrides 에 보강 일정을 저장한다.
+ * 두 가지 경로:
+ *   1) 자동 조사: file 인자 없음 → 학교 공식 홈페이지 검색·스크래핑·Gemini 추출
+ *   2) 파일 업로드: file = { base64, mimeType, name } → Gemini multimodal 로 직접 추출
+ * 두 경로 모두 결과를 school_calendar_overrides 에 upsert.
  *
  * @param {{atpt:string, code:string, name:string, region?:string}} school
+ * @param {{base64:string, mimeType:string, name?:string}} [file]
+ *   업로드할 학사일정 자료 (PDF / PNG / JPG / WebP / HEIC). 생략 시 자동 조사 모드.
  * @returns {Promise<null|{ok:boolean, schoolName:string, inserted:number,
  *   total:number, events:Array, sourceUrls:string[], strategy:string,
  *   note?:string}>}
  */
-window.invokeInvestigateSchoolCalendar = async function(school) {
+window.invokeInvestigateSchoolCalendar = async function(school, file) {
     try {
         if (!school || !school.atpt || !school.code || !school.name) {
             if (typeof showToast === 'function') showToast('학교 정보가 부족합니다.', 'warning');
@@ -533,13 +537,21 @@ window.invokeInvestigateSchoolCalendar = async function(school) {
             return null;
         }
         const accessToken = session.access_token;
+        const requestBody = { school };
+        if (file && file.base64 && file.mimeType) {
+            requestBody.file = {
+                base64: file.base64,
+                mimeType: file.mimeType,
+                name: file.name || '',
+            };
+        }
         const { data, error } = await supabase.functions.invoke('investigate-school-calendar', {
-            body: { school },
+            body: requestBody,
             headers: { Authorization: 'Bearer ' + accessToken }
         });
         if (error) {
             console.error('[invokeInvestigateSchoolCalendar]', error);
-            if (typeof showToast === 'function') showToast('홈페이지 조사 호출에 실패했습니다.', 'error');
+            if (typeof showToast === 'function') showToast('학사일정 조사 호출에 실패했습니다.', 'error');
             return null;
         }
         if (!data || !data.ok) {
@@ -549,17 +561,38 @@ window.invokeInvestigateSchoolCalendar = async function(school) {
                 school_missing: '학교 식별 정보(atpt/code/name)가 누락되었습니다.',
                 db_upsert_failed: 'DB 저장 실패 — school_calendar_overrides 마이그레이션 적용 여부를 확인하세요.',
                 unauthorized: '다시 로그인해주세요.',
+                unsupported_file_type: '지원하지 않는 파일 형식입니다. PDF / PNG / JPG / WebP / HEIC 만 가능합니다.',
+                file_too_large: '파일이 너무 큽니다. 14MB 이하로 줄여서 업로드해주세요.',
             };
-            const msg = errMap[data && data.error] || ('홈페이지 조사에 실패했습니다.' + (data && data.detail ? ' (' + data.detail + ')' : ''));
+            const msg = errMap[data && data.error] || ('학사일정 조사에 실패했습니다.' + (data && data.detail ? ' (' + data.detail + ')' : ''));
             if (typeof showToast === 'function') showToast(msg, 'error');
             return data || null;
         }
         return data;
     } catch (e) {
         console.error('[invokeInvestigateSchoolCalendar]', e);
-        if (typeof showToast === 'function') showToast('홈페이지 조사 중 오류가 발생했습니다.', 'error');
+        if (typeof showToast === 'function') showToast('학사일정 조사 중 오류가 발생했습니다.', 'error');
         return null;
     }
+};
+
+/**
+ * File / Blob 객체를 Edge Function 전송용 base64(순수, data: prefix 없음) 으로 변환.
+ * FileReader.readAsDataURL 결과는 "data:<mime>;base64,XXXX" 형태이므로 콤마 이후만 사용.
+ */
+window.fileToBase64ForEdge = function(file) {
+    return new Promise((resolve, reject) => {
+        if (!file) { reject(new Error('파일이 없습니다.')); return; }
+        const reader = new FileReader();
+        reader.onload = () => {
+            const result = String(reader.result || '');
+            const comma = result.indexOf(',');
+            if (comma < 0) { reject(new Error('파일 인코딩 실패')); return; }
+            resolve(result.slice(comma + 1));
+        };
+        reader.onerror = () => reject(new Error('파일 읽기 실패'));
+        reader.readAsDataURL(file);
+    });
 };
 
 /**

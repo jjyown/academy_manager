@@ -1664,6 +1664,37 @@ textarea:focus:not(:focus-visible) {
     .academic-investigate-btn { padding: 5px 7px; }
 }
 
+/* 학사일정 파일 업로드 버튼 — 홈페이지 조사 실패 시 폴백, 또는 명시 PDF 보유 시 */
+.academic-upload-btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 5px 10px;
+    background: rgba(20,184,166,0.10);          /* teal-tint */
+    color: #0f766e;
+    border: 1px solid rgba(20,184,166,0.32);
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+}
+.academic-upload-btn:hover:not(:disabled) {
+    background: #14b8a6;
+    color: #fff;
+    border-color: #0d9488;
+    box-shadow: 0 1px 3px rgba(20,184,166,0.32);
+}
+.academic-upload-btn:disabled,
+.academic-upload-btn.is-loading {
+    opacity: 0.7;
+    cursor: not-allowed;
+}
+.academic-upload-btn > i { font-size: 11px; }
+@media (max-width: 480px) {
+    .academic-upload-btn-label { display: none; }
+    .academic-upload-btn { padding: 5px 7px; }
+}
+
 /* 학사일정 행 — 조사 출처 표시 (시간표 모달 / 날짜설정 모달 공용) */
 .tt-academic-event-source {
     display: inline-block;

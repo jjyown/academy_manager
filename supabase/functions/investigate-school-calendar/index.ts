@@ -201,32 +201,49 @@ async function fetchPage(url: string): Promise<FetchedPage | null> {
     return { url, title, text: htmlToText(html) };
 }
 
-// ── 3) Gemini 추출 ──────────────────────────────────────────────────
-async function extractEventsWithGemini(
-    schoolName: string,
-    pages: FetchedPage[],
-): Promise<{ events: ExtractedEvent[]; raw: string }> {
-    if (!GEMINI_API_KEY) return { events: [], raw: "" };
-    if (pages.length === 0) return { events: [], raw: "" };
+// ── 3-shared) Gemini 응답을 ExtractedEvent[] 로 파싱 ─────────────────
+// 두 추출 경로(웹 페이지 텍스트 / 업로드 파일)가 공통으로 사용.
+function _parseGeminiEventsResponse(fullText: string): ExtractedEvent[] {
+    if (!fullText) return [];
+    const cleaned = fullText.replace(/^```json\s*/i, "").replace(/```\s*$/i, "").trim();
+    let parsed: { events?: unknown };
+    try {
+        parsed = JSON.parse(cleaned);
+    } catch (_e) {
+        console.warn("[investigate] Gemini JSON parse failed:", cleaned.slice(0, 200));
+        return [];
+    }
+    const arr = Array.isArray(parsed?.events) ? parsed.events as unknown[] : [];
+    const events: ExtractedEvent[] = [];
+    for (const it of arr) {
+        if (!it || typeof it !== "object") continue;
+        const o = it as Record<string, unknown>;
+        const date = String(o.date || "").trim();
+        const name = String(o.name || "").trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+        if (!name) continue;
+        const kindRaw = String(o.kind || "event").trim();
+        const kind = (["exam", "vacation", "event", "other"].includes(kindRaw)
+            ? kindRaw : "event") as ExtractedEvent["kind"];
+        events.push({
+            date,
+            name: name.slice(0, 80),
+            content: String(o.content || "").trim().slice(0, 200),
+            kind,
+        });
+        if (events.length >= 80) break;
+    }
+    return events;
+}
 
+// 공통 추출 규칙 — 두 추출 경로에서 동일 시스템 프롬프트 사용.
+function _buildExtractionSystemPrompt(schoolName: string): string {
     const today = new Date().toISOString().slice(0, 10);
     const year = new Date().getFullYear();
-
-    // 각 페이지 본문은 8000자로 컷 + 전체 합산 24000자 컷 — 프롬프트 비용 통제
-    const PER_PAGE_CHARS = 8000;
-    const TOTAL_CHARS = 24000;
-    let acc = 0;
-    const pageBlocks = pages.map((p, i) => {
-        const remaining = Math.max(0, TOTAL_CHARS - acc);
-        const slice = p.text.slice(0, Math.min(PER_PAGE_CHARS, remaining));
-        acc += slice.length;
-        return `### [PAGE ${i + 1}] ${p.title || "(no title)"}\nURL: ${p.url}\n---\n${slice}`;
-    }).filter((b, i) => i === 0 || acc > 0).join("\n\n");
-
-    const systemPrompt = `당신은 한국 학교 홈페이지에서 학사일정을 정확히 추출하는 정보 추출 엔진입니다.
+    return `당신은 한국 학교의 학사일정을 정확히 추출하는 정보 추출 엔진입니다.
 
 [작업]
-"${schoolName}" 의 학사일정 관련 페이지 텍스트를 분석해, ${today} 기준으로 「앞으로 12개월 이내 / 지난 1개월 이내」 범위의 학사일정을 JSON 으로 추출합니다.
+"${schoolName}" 의 학사일정 자료를 분석해, ${today} 기준으로 「앞으로 12개월 이내 / 지난 1개월 이내」 범위의 학사일정을 JSON 으로 추출합니다.
 
 [출력 형식 — 오직 JSON, 다른 텍스트·코드블록 없음]
 {
@@ -241,11 +258,96 @@ async function extractEventsWithGemini(
 - name 은 30자 이내 짧은 한국어. '제 1차 지필평가' / '여름방학 시작' / '체육대회' 등.
 - kind 는 시험(중간/기말/지필/수행 포함)=exam, 방학(여름/겨울/봄/짧은방학)=vacation, 일반 행사(체육대회/축제/입학식/졸업식 등)=event, 기타=other.
 - 연도가 명시되지 않아 모호하면 ${year} 또는 ${year + 1} 중 ${today} 이후가 되는 쪽으로 추정. 추정이 불가하면 그 행은 누락.
-- 페이지가 다른 학교 / 다른 학년도 잔존본인 듯하면 (학교명 불일치 / 명백히 과거 학년도) 빈 events 로 응답.
-- 본문에 학사일정이 없거나(메뉴만 있고 내용 없음) 단순 안내문이면 events: [].
+- 자료가 다른 학교 / 다른 학년도 잔존본인 듯하면 (학교명 불일치 / 명백히 과거 학년도) 빈 events 로 응답.
+- 본문에 학사일정이 없거나 단순 안내문이면 events: [].
 - 단순 광고·공지·게시판 게시물 제목은 학사일정으로 보지 말 것. '지필평가 출제 안내' 같은 공지는 제외, '1학기 중간고사 (6/24~6/28)' 같은 일정은 포함.
+- 표·달력 형식 자료라면 각 셀의 텍스트를 모두 읽고 날짜에 맞게 펼침. 사진·이미지 자료의 경우 OCR 로 글자를 정확히 읽은 뒤 추출.
 - 최대 80건. 동일 일자·동일 이름 중복 금지.`;
+}
 
+// ── 3-A) 업로드 파일(PDF/이미지) 로부터 Gemini multimodal 추출 ─────
+// 학교 홈페이지에서 학사일정 PDF/이미지를 다운받아 직접 업로드하는 경우 사용.
+// HWP 등 미지원 포맷은 클라이언트에서 차단(필요 시 PDF 변환 안내).
+const SUPPORTED_UPLOAD_MIMES = new Set([
+    "application/pdf",
+    "image/png",
+    "image/jpeg",
+    "image/jpg",
+    "image/webp",
+    "image/heic",
+    "image/heif",
+]);
+async function extractEventsFromFileWithGemini(
+    schoolName: string,
+    fileBase64: string,
+    mimeType: string,
+): Promise<{ events: ExtractedEvent[]; raw: string }> {
+    if (!GEMINI_API_KEY) return { events: [], raw: "" };
+    if (!fileBase64) return { events: [], raw: "" };
+    const mt = String(mimeType || "").toLowerCase().trim();
+    if (!SUPPORTED_UPLOAD_MIMES.has(mt)) {
+        return { events: [], raw: "unsupported_mime" };
+    }
+    const systemPrompt = _buildExtractionSystemPrompt(schoolName);
+    const userPrompt =
+        `[학교명] ${schoolName}\n[자료] 학원장이 학교 홈페이지에서 다운받은 학사일정 파일 1개\n\n위 첨부 자료에서 학사일정을 JSON 으로 추출하세요. 응답은 오직 JSON 객체 한 개.`;
+    try {
+        const apiUrl =
+            `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(GEMINI_API_KEY)}`;
+        const res = await fetch(apiUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                contents: [{
+                    parts: [
+                        { text: systemPrompt + "\n\n" + userPrompt },
+                        { inline_data: { mime_type: mt, data: fileBase64 } },
+                    ],
+                }],
+                generationConfig: {
+                    temperature: 0.2,
+                    maxOutputTokens: 8192,
+                    responseMimeType: "application/json",
+                },
+            }),
+        });
+        if (!res.ok) {
+            console.warn("[investigate-file] Gemini HTTP", res.status, await res.text());
+            return { events: [], raw: "" };
+        }
+        const j = await res.json();
+        const fullText = String(
+            j?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text || "").join("") || "",
+        ).trim();
+        return { events: _parseGeminiEventsResponse(fullText), raw: fullText };
+    } catch (e) {
+        console.warn("[investigate-file] Gemini call err", e);
+        return { events: [], raw: "" };
+    }
+}
+
+// ── 3) Gemini 추출 ──────────────────────────────────────────────────
+async function extractEventsWithGemini(
+    schoolName: string,
+    pages: FetchedPage[],
+): Promise<{ events: ExtractedEvent[]; raw: string }> {
+    if (!GEMINI_API_KEY) return { events: [], raw: "" };
+    if (pages.length === 0) return { events: [], raw: "" };
+
+    const today = new Date().toISOString().slice(0, 10);
+
+    // 각 페이지 본문은 8000자로 컷 + 전체 합산 24000자 컷 — 프롬프트 비용 통제
+    const PER_PAGE_CHARS = 8000;
+    const TOTAL_CHARS = 24000;
+    let acc = 0;
+    const pageBlocks = pages.map((p, i) => {
+        const remaining = Math.max(0, TOTAL_CHARS - acc);
+        const slice = p.text.slice(0, Math.min(PER_PAGE_CHARS, remaining));
+        acc += slice.length;
+        return `### [PAGE ${i + 1}] ${p.title || "(no title)"}\nURL: ${p.url}\n---\n${slice}`;
+    }).filter((b, i) => i === 0 || acc > 0).join("\n\n");
+
+    const systemPrompt = _buildExtractionSystemPrompt(schoolName);
     const userPrompt = `[학교명] ${schoolName}\n[조사일] ${today}\n[페이지 수] ${pages.length}\n\n${pageBlocks}\n\n위 페이지들에서 학사일정만 JSON 으로 추출하세요. 응답은 오직 JSON 객체 한 개.`;
 
     try {
@@ -271,36 +373,7 @@ async function extractEventsWithGemini(
         const fullText = String(
             j?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text || "").join("") || "",
         ).trim();
-        if (!fullText) return { events: [], raw: "" };
-        const cleaned = fullText.replace(/^```json\s*/i, "").replace(/```\s*$/i, "").trim();
-        let parsed: { events?: unknown };
-        try {
-            parsed = JSON.parse(cleaned);
-        } catch (_e) {
-            console.warn("[investigate] Gemini JSON parse failed:", cleaned.slice(0, 200));
-            return { events: [], raw: fullText };
-        }
-        const arr = Array.isArray(parsed?.events) ? parsed.events as unknown[] : [];
-        const events: ExtractedEvent[] = [];
-        for (const it of arr) {
-            if (!it || typeof it !== "object") continue;
-            const o = it as Record<string, unknown>;
-            const date = String(o.date || "").trim();
-            const name = String(o.name || "").trim();
-            if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
-            if (!name) continue;
-            const kindRaw = String(o.kind || "event").trim();
-            const kind = (["exam", "vacation", "event", "other"].includes(kindRaw)
-                ? kindRaw : "event") as ExtractedEvent["kind"];
-            events.push({
-                date,
-                name: name.slice(0, 80),
-                content: String(o.content || "").trim().slice(0, 200),
-                kind,
-            });
-            if (events.length >= 80) break;
-        }
-        return { events, raw: fullText };
+        return { events: _parseGeminiEventsResponse(fullText), raw: fullText };
     } catch (e) {
         console.warn("[investigate] Gemini call err", e);
         return { events: [], raw: "" };
@@ -425,6 +498,7 @@ serve(async (req: Request) => {
 
         const body = (await req.json().catch(() => ({}))) as {
             school?: SchoolInput;
+            file?: { base64?: string; mimeType?: string; name?: string };
         };
         const school = body.school || {};
         const atpt = String(school.atpt || "").trim();
@@ -437,9 +511,59 @@ serve(async (req: Request) => {
             });
         }
 
-        const investigation = await runInvestigation(school);
+        // ── 분기: 파일 업로드 경로 vs 홈페이지 자동 조사 경로 ──────
+        let events: ExtractedEvent[] = [];
+        let sourceUrls: string[] = [];
+        let strategy = "";
+        let noteOnEmpty = "";
 
-        if (investigation.events.length === 0) {
+        if (body.file && body.file.base64) {
+            // ── 5-A) 사용자가 학사일정 PDF/이미지를 직접 업로드한 경우 ──
+            const fileBase64 = String(body.file.base64);
+            const mimeType = String(body.file.mimeType || "").toLowerCase();
+            const fileName = String(body.file.name || "").slice(0, 200);
+
+            if (!SUPPORTED_UPLOAD_MIMES.has(mimeType)) {
+                return new Response(JSON.stringify({
+                    ok: false,
+                    error: "unsupported_file_type",
+                    detail: `지원 포맷: PDF / PNG / JPG / WebP / HEIC. 받은 타입: ${mimeType || "(empty)"} (HWP 는 PDF 로 저장 후 업로드)`,
+                }), {
+                    status: 200,
+                    headers: { ...corsHeaders, "Content-Type": "application/json" },
+                });
+            }
+            // 20MB inline 한도 — base64 는 원본 대비 ~33% 크므로 14MB 정도까지 안전
+            if (fileBase64.length > 18 * 1024 * 1024) {
+                return new Response(JSON.stringify({
+                    ok: false,
+                    error: "file_too_large",
+                    detail: "원본 파일은 14MB 이하여야 합니다. 큰 PDF 는 페이지를 나누거나 압축 후 업로드해주세요.",
+                }), {
+                    status: 200,
+                    headers: { ...corsHeaders, "Content-Type": "application/json" },
+                });
+            }
+
+            const r = await extractEventsFromFileWithGemini(name, fileBase64, mimeType);
+            events = r.events;
+            strategy = "uploaded_file";
+            sourceUrls = fileName ? [`uploaded:${fileName}`] : ["uploaded"];
+            noteOnEmpty = "업로드한 자료에서 학사일정을 추출하지 못했습니다. 일정표가 명확히 보이는 페이지 / 더 선명한 이미지로 다시 시도해주세요.";
+        } else {
+            // ── 5-B) 학교 홈페이지 자동 조사 경로 (기존 동작) ───────
+            const investigation = await runInvestigation(school);
+            events = investigation.events;
+            sourceUrls = investigation.sourceUrls;
+            strategy = investigation.strategy;
+            noteOnEmpty = investigation.strategy === "search_no_candidates"
+                ? "공식 홈페이지를 검색에서 찾지 못했습니다."
+                : investigation.strategy === "fetch_empty"
+                    ? "홈페이지를 열었으나 학사일정 페이지 본문을 찾지 못했습니다."
+                    : "학사일정으로 추출할 만한 정보가 없었습니다. PDF/이미지 직접 업로드 버튼으로 다시 시도해보세요.";
+        }
+
+        if (events.length === 0) {
             return new Response(JSON.stringify({
                 ok: true,
                 schoolName: name,
@@ -447,13 +571,9 @@ serve(async (req: Request) => {
                 updated: 0,
                 total: 0,
                 events: [],
-                sourceUrls: investigation.sourceUrls,
-                strategy: investigation.strategy,
-                note: investigation.strategy === "search_no_candidates"
-                    ? "공식 홈페이지를 검색에서 찾지 못했습니다."
-                    : investigation.strategy === "fetch_empty"
-                        ? "홈페이지를 열었으나 학사일정 페이지 본문을 찾지 못했습니다."
-                        : "학사일정으로 추출할 만한 정보가 없었습니다.",
+                sourceUrls,
+                strategy,
+                note: noteOnEmpty,
             }), {
                 status: 200,
                 headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -462,8 +582,8 @@ serve(async (req: Request) => {
 
         // 5-1. DB 업서트 (service role)
         const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-        const sourceUrl = investigation.sourceUrls[0] || "";
-        const rows = investigation.events.map((ev) => ({
+        const sourceUrl = sourceUrls[0] || "";
+        const rows = events.map((ev) => ({
             atpt,
             school_code: code,
             school_name: name,
@@ -500,9 +620,9 @@ serve(async (req: Request) => {
             schoolName: name,
             inserted: data?.length ?? rows.length,
             total: rows.length,
-            events: investigation.events,
-            sourceUrls: investigation.sourceUrls,
-            strategy: investigation.strategy,
+            events,
+            sourceUrls,
+            strategy,
         }), {
             status: 200,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
