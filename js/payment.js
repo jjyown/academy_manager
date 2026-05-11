@@ -1386,6 +1386,23 @@ function initPayTermHelpInteractions() {
         hidePayTermHelpPopup();
     });
 
+    // 마우스 hover로도 도움말 표시 (데스크탑 사용성)
+    document.addEventListener('mouseover', (event) => {
+        const btn = event.target?.closest?.('.pay-term-help');
+        if (!btn) return;
+        if (payTermHelpActiveBtn === btn) return;
+        if (payTermHelpActiveBtn) payTermHelpActiveBtn.classList.remove('is-open');
+        showPayTermHelpPopup(btn);
+    });
+    document.addEventListener('mouseout', (event) => {
+        const btn = event.target?.closest?.('.pay-term-help');
+        if (!btn) return;
+        if (payTermHelpActiveBtn !== btn) return;
+        const related = event.relatedTarget;
+        if (related && (related.closest?.('.pay-term-help') === btn || related.closest?.('#pay-term-help-popup'))) return;
+        hidePayTermHelpPopup();
+    });
+
     document.addEventListener('keydown', (event) => {
         if (event.key === 'Escape') hidePayTermHelpPopup();
         const btn = event.target?.closest?.('.pay-term-help');
@@ -3762,15 +3779,129 @@ window.downloadAnnualWithholdingCsv = function() {
 };
 
 // ============================================
-// openPaymentModal 진입 시 면세모드/배너 초기화 패치
+// 신고일 D-day 칩 + 일일 사전 알림 토스트
+// ============================================
+function getUpcomingTaxDeadlines(todayYmd, withinDays = 30) {
+    const today = new Date(`${todayYmd}T00:00:00`);
+    const dayMs = 24 * 60 * 60 * 1000;
+    const items = [];
+    const years = [today.getFullYear(), today.getFullYear() + 1];
+
+    years.forEach(y => {
+        items.push({
+            id: `business_status_${y}`,
+            title: '사업장현황신고',
+            dueYmd: `${y}-02-10`,
+            filingYear: y - 1,
+            desc: `${y - 1}년도 면세사업자 수입금액 신고`,
+        });
+        items.push({
+            id: `income_tax_${y}`,
+            title: '종합소득세',
+            dueYmd: `${y}-05-31`,
+            filingYear: y - 1,
+            desc: `${y - 1}년도 수입·필요경비 신고`,
+        });
+    });
+
+    // 원천세: 강사료 지급 있으면 다음달 10일까지
+    try {
+        const prevMonthKey = getRelativeMonthKey(today, -1);
+        if (hasPayrollInMonth(prevMonthKey)) {
+            const m = String(today.getMonth() + 1).padStart(2, '0');
+            items.push({
+                id: `withholding_${today.getFullYear()}_${m}`,
+                title: '원천세 신고',
+                dueYmd: `${today.getFullYear()}-${m}-10`,
+                filingYear: today.getFullYear(),
+                desc: `${prevMonthKey} 인건비 지급분`,
+            });
+        }
+    } catch (e) { /* hasPayrollInMonth 사전 데이터 로드 전 무시 */ }
+
+    return items
+        .map(it => {
+            const dueDate = new Date(`${it.dueYmd}T00:00:00`);
+            const diffDays = Math.floor((dueDate - today) / dayMs);
+            return { ...it, daysLeft: diffDays };
+        })
+        .filter(it => it.daysLeft >= 0 && it.daysLeft <= withinDays)
+        .sort((a, b) => a.daysLeft - b.daysLeft);
+}
+
+function getPendingUpcomingDeadlines(todayYmd, withinDays = 30) {
+    const upcoming = getUpcomingTaxDeadlines(todayYmd, withinDays);
+    const state = loadTaxReminderState();
+    return upcoming.filter(item => !state[item.id]?.doneAt);
+}
+
+function renderPaymentDeadlineChip() {
+    const chip = document.getElementById('pay-deadline-chip');
+    const label = document.getElementById('pay-deadline-chip-label');
+    if (!chip || !label) return;
+    const todayYmd = getTodayLocalYmd();
+    const pending = getPendingUpcomingDeadlines(todayYmd, 30);
+    if (!pending.length) {
+        chip.classList.add('hidden');
+        return;
+    }
+    const nearest = pending[0];
+    chip.classList.remove('hidden');
+    chip.classList.toggle('is-urgent', nearest.daysLeft <= 7);
+    const dLabel = nearest.daysLeft === 0 ? 'D-DAY' : `D-${nearest.daysLeft}`;
+    label.textContent = `${nearest.title} ${dLabel}`;
+    chip.dataset.deadlineId = nearest.id;
+    chip.dataset.filingYear = String(nearest.filingYear);
+    chip.title = `${nearest.title} (${nearest.dueYmd}) — ${nearest.desc}. 클릭하면 신고센터로 이동`;
+}
+
+window.goToFilingFromDeadlineChip = function() {
+    const chip = document.getElementById('pay-deadline-chip');
+    const fy = chip?.dataset?.filingYear;
+    if (fy) {
+        const n = parseInt(fy, 10);
+        if (!Number.isNaN(n)) currentFilingYear = n;
+    }
+    switchPaymentManagementTab('filing');
+};
+
+const TAX_DAILY_TOAST_PREFIX = 'payment_tax_daily_toast';
+function getTaxDailyToastKey() {
+    return `${TAX_DAILY_TOAST_PREFIX}:${getCurrentOwnerIdForPayment()}`;
+}
+function maybeShowDailyTaxToast() {
+    if (typeof showToast !== 'function') return;
+    const todayYmd = getTodayLocalYmd();
+    const storageKey = getTaxDailyToastKey();
+    if (localStorage.getItem(storageKey) === todayYmd) return;
+    const pending = getPendingUpcomingDeadlines(todayYmd, 30);
+    localStorage.setItem(storageKey, todayYmd);
+    if (!pending.length) return;
+    const nearest = pending[0];
+    const dLabel = nearest.daysLeft === 0 ? 'D-DAY' : `D-${nearest.daysLeft}`;
+    const msg = `📅 ${nearest.title} ${dLabel} (${nearest.dueYmd}) — 수납·기장 메뉴 → 신고센터에서 자료를 받으세요`;
+    showToast(msg, nearest.daysLeft <= 7 ? 'warning' : 'info');
+}
+
+// ============================================
+// openPaymentModal 진입 시 면세모드/배너/D-day 칩 갱신
 // ============================================
 const __origOpenPaymentModal = window.openPaymentModal;
 window.openPaymentModal = async function() {
     applyPaymentTaxModeUi();
     applyPaymentOnboardBannerUi();
+    renderPaymentDeadlineChip();
+    try { preparePayTermHelpButtons(); } catch (e) { /* ignore */ }
     return __origOpenPaymentModal.apply(this, arguments);
 };
-// 모드 UI는 페이지 로드 시점에도 적용
+
+// 페이지 로드 시 모드 적용 + 사전 알림 토스트(데이터 로드 후 일정 시간 지연)
 document.addEventListener('DOMContentLoaded', () => {
     try { applyPaymentTaxModeUi(); } catch (e) { /* ignore */ }
+});
+window.addEventListener('load', () => {
+    // students/payments 데이터 로드 완료를 충분히 기다린 뒤 1회
+    setTimeout(() => {
+        try { maybeShowDailyTaxToast(); } catch (e) { /* ignore */ }
+    }, 3500);
 });

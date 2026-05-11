@@ -50,6 +50,8 @@ const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_
 		detectSessionInUrl: false
 	}
 });
+// AcademicEventsClient(학사일정 보강 모듈) 가 school_calendar_overrides 를 조회할 수 있도록 노출.
+window.supabaseClient = supabaseClient;
 
 const _isLocal = ['localhost','127.0.0.1'].includes(location.hostname);
 const GRADING_SERVER_URL_HW = (localStorage.getItem('grading_server_url') || '').trim()

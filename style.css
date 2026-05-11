@@ -1607,6 +1607,79 @@ textarea:focus:not(:focus-visible) {
     border-color: var(--red, #dc2626);
 }
 
+/* 구독 학교 액션 묶음 (조사 버튼 + 구독 해제 버튼) */
+.academic-subscribed-actions {
+    display: inline-flex; align-items: center; gap: 6px;
+    flex-shrink: 0;
+}
+/* 마지막 조사 정보 라인 — 학교명 아래 노출 */
+.academic-subscribed-investigation {
+    display: inline-flex; align-items: center; gap: 4px;
+    margin-top: 4px;
+    padding: 1px 6px;
+    background: rgba(99,102,241,0.10);
+    color: #4338ca;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1.4;
+    white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+    max-width: 100%;
+}
+.academic-subscribed-investigation > i {
+    font-size: 9px;
+    color: #4f46e5;
+}
+/* 학교 홈페이지 조사 버튼 — NEIS 미등록 시험·방학 보강용 */
+.academic-investigate-btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 5px 10px;
+    background: rgba(99,102,241,0.08);
+    color: #4338ca;
+    border: 1px solid rgba(99,102,241,0.28);
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+}
+.academic-investigate-btn:hover:not(:disabled) {
+    background: #6366f1;
+    color: #fff;
+    border-color: #4f46e5;
+    box-shadow: 0 1px 3px rgba(99,102,241,0.30);
+}
+.academic-investigate-btn:disabled,
+.academic-investigate-btn.is-loading {
+    opacity: 0.7;
+    cursor: not-allowed;
+}
+.academic-investigate-btn > i {
+    font-size: 11px;
+}
+@media (max-width: 480px) {
+    .academic-investigate-btn-label { display: none; }
+    .academic-investigate-btn { padding: 5px 7px; }
+}
+
+/* 학사일정 행 — 조사 출처 표시 (시간표 모달 / 날짜설정 모달 공용) */
+.tt-academic-event-source {
+    display: inline-block;
+    background: rgba(99,102,241,0.18);
+    color: #4338ca;
+    padding: 0 5px;
+    border-radius: 3px;
+    font-size: 9px;
+    font-weight: 800;
+    line-height: 1.6;
+    margin-left: 4px;
+    vertical-align: 1px;
+    letter-spacing: 0.3px;
+    cursor: help;
+}
+
 /* 시간표 — 시간대별 밀집도 요약 패널 (운영 분석용) */
 .tt-density-summary {
     display: flex; flex-wrap: wrap; gap: 8px;
@@ -9562,6 +9635,35 @@ textarea:focus:not(:focus-visible) {
     background: #fef3c7; border-color: #fcd34d; color: #b45309;
 }
 
+.pay-deadline-chip {
+    background: #fef3c7;
+    border: 1px solid #fcd34d;
+    color: #b45309;
+    border-radius: 999px;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    display: inline-flex; align-items: center; gap: 6px;
+    transition: filter .15s;
+    animation: pay-deadline-pulse 2s infinite;
+}
+.pay-deadline-chip:hover { filter: brightness(0.96); }
+.pay-deadline-chip.is-urgent {
+    background: #fee2e2;
+    border-color: #fca5a5;
+    color: #991b1b;
+    animation-name: pay-deadline-pulse-urgent;
+}
+@keyframes pay-deadline-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(252, 211, 77, 0.55); }
+    50%      { box-shadow: 0 0 0 6px rgba(252, 211, 77, 0); }
+}
+@keyframes pay-deadline-pulse-urgent {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(252, 165, 165, 0.65); }
+    50%      { box-shadow: 0 0 0 8px rgba(252, 165, 165, 0); }
+}
+
 body.pay-tax-mode-exempt .pay-vat-only { display: none !important; }
 
 .pay-onboard-banner {
@@ -9695,9 +9797,29 @@ body.pay-tax-mode-exempt .pay-vat-only { display: none !important; }
 }
 .pay-filing-year-nav h3 {
     margin: 0; font-size: 18px; font-weight: 800; color: #0f172a;
+    min-width: 90px; text-align: center;
 }
 .pay-filing-year-note {
     font-size: 12px; color: var(--text-secondary); margin-left: 8px;
+}
+/* 신고센터 연도 화살표 - 흰 배경 위에 보이도록 어두운 색 */
+.pay-filing-year-nav .pay-month-btn,
+.pay-filing-year-nav .pay-month-btn i {
+    color: #1e293b !important;
+}
+.pay-filing-year-nav .pay-month-btn {
+    background: #e2e8f0 !important;
+    border: 1px solid #94a3b8 !important;
+    width: 36px; height: 36px;
+    font-size: 14px;
+}
+.pay-filing-year-nav .pay-month-btn:hover,
+.pay-filing-year-nav .pay-month-btn:hover i {
+    color: #0f172a !important;
+}
+.pay-filing-year-nav .pay-month-btn:hover {
+    background: #cbd5e1 !important;
+    border-color: #64748b !important;
 }
 
 .pay-filing-summary {

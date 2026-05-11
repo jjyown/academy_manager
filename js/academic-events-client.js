@@ -17,7 +17,10 @@
     const NEIS_BASE = 'https://open.neis.go.kr/hub';
     const SCHOOL_CACHE_PREFIX = 'aev_school_';
     const MONTH_CACHE_PREFIX = 'aev_month_';
+    const OVERRIDE_CACHE_PREFIX = 'aev_override_';
     const TTL_MS = 24 * 60 * 60 * 1000;
+    // override 캐시는 더 짧게 — 원장이 조사 직후 학부모/학생 화면에서도 빠르게 반영되어야 함.
+    const OVERRIDE_TTL_MS = 30 * 60 * 1000; // 30m
 
     function _cacheGet(key) {
         try {
@@ -71,8 +74,99 @@
         }
     }
 
-    /** 한 학교의 yyyymm 학사일정 → [{ date, name, content }]. 실패/없음은 []. */
-    async function fetchMonth(school, yyyymm) {
+    /**
+     * 한 학교의 yyyymm 보강 학사일정(school_calendar_overrides) 조회.
+     * 학부모 포털/숙제관리(익명 또는 별도 세션)에서도 동작.
+     * window.supabase 가 있을 때만 시도하고, 없거나 실패하면 [].
+     *
+     * @returns {Promise<Array<{date, name, content, kind, sourceUrl, _source:'override'}>>}
+     */
+    /**
+     * 페이지마다 Supabase 클라이언트를 노출하는 변수명이 달라 다중 후보를 검사.
+     *  - 메인 앱(script.js): window.supabase (=== 클라이언트, supabase-config.js 에서 덮어씀)
+     *  - 학부모 포털(report.js): window.supabaseClient (페이지에서 명시 노출 시)
+     *  - 숙제관리(homework/index.html): window.db (페이지에서 명시 노출 시)
+     *  - 라이브러리만 노출된 경우 (.createClient 만 있고 .from 없음) 은 건너뜀.
+     */
+    function _resolveSupabaseClient() {
+        if (typeof window === 'undefined') return null;
+        const candidates = [
+            window.supabaseClient,
+            window.db,
+            window.supabase,
+        ];
+        for (const sb of candidates) {
+            if (sb && typeof sb.from === 'function') return sb;
+        }
+        return null;
+    }
+    async function fetchMonthOverrides(school, yyyymm) {
+        if (!school || !school.atpt || !school.code) return [];
+        const sb = _resolveSupabaseClient();
+        if (!sb) return [];
+        const ck = `${OVERRIDE_CACHE_PREFIX}${school.atpt}_${school.code}_${yyyymm}`;
+        const cached = _cacheGet(ck);
+        if (Array.isArray(cached)) return cached;
+        try {
+            const year = parseInt(yyyymm.slice(0, 4), 10);
+            const month = parseInt(yyyymm.slice(4, 6), 10);
+            if (!year || !month) return [];
+            const fromDate = `${yyyymm.slice(0,4)}-${yyyymm.slice(4,6)}-01`;
+            const lastDay = new Date(year, month, 0).getDate();
+            const toDate = `${yyyymm.slice(0,4)}-${yyyymm.slice(4,6)}-${String(lastDay).padStart(2,'0')}`;
+            const { data, error } = await sb
+                .from('school_calendar_overrides')
+                .select('event_date, event_name, event_content, event_kind, source_url')
+                .eq('atpt', school.atpt)
+                .eq('school_code', school.code)
+                .gte('event_date', fromDate)
+                .lte('event_date', toDate)
+                .order('event_date', { ascending: true });
+            if (error) {
+                console.warn('[acev] override fetch err', error);
+                _cacheSet(ck, [], OVERRIDE_TTL_MS);
+                return [];
+            }
+            const events = (data || []).map((r) => ({
+                date: r.event_date,
+                name: r.event_name,
+                content: r.event_content || '',
+                kind: r.event_kind || 'event',
+                sourceUrl: r.source_url || '',
+                _source: 'override',
+            }));
+            _cacheSet(ck, events, OVERRIDE_TTL_MS);
+            return events;
+        } catch (e) {
+            console.warn('[acev] override fetch err', e);
+            return [];
+        }
+    }
+
+    /** NEIS + override 를 (date, normalized name) 으로 dedupe-merge. NEIS 우선. */
+    function _normEvtName(s) {
+        return String(s || '').replace(/\s+/g, '').toLowerCase();
+    }
+    function _mergeEvents(neisEvents, overrideEvents) {
+        const seen = new Set();
+        const out = [];
+        (neisEvents || []).forEach((ev) => {
+            const k = `${ev.date}|${_normEvtName(ev.name)}`;
+            if (seen.has(k)) return;
+            seen.add(k);
+            out.push(Object.assign({}, ev, { _source: ev._source || 'neis' }));
+        });
+        (overrideEvents || []).forEach((ev) => {
+            const k = `${ev.date}|${_normEvtName(ev.name)}`;
+            if (seen.has(k)) return;
+            seen.add(k);
+            out.push(ev);
+        });
+        return out;
+    }
+
+    /** 한 학교의 yyyymm NEIS 학사일정 — override 머지 전 raw. */
+    async function _fetchMonthNeis(school, yyyymm) {
         if (!school || !school.atpt || !school.code) return [];
         const ck = `${MONTH_CACHE_PREFIX}${school.atpt}_${school.code}_${yyyymm}`;
         const cached = _cacheGet(ck);
@@ -104,6 +198,21 @@
             console.warn('[acev] fetchMonth err', e);
             return [];
         }
+    }
+
+    /**
+     * 한 학교의 yyyymm 학사일정.
+     * NEIS + school_calendar_overrides 머지 → [{ date, name, content, _source }].
+     * 학부모 포털·숙제관리 같은 단일 학생 페이지에서 NEIS 미등록 학교의
+     * 시험·방학을 보강하기 위해 override 도 함께 가져옴.
+     */
+    async function fetchMonth(school, yyyymm) {
+        if (!school || !school.atpt || !school.code) return [];
+        const [neis, overrides] = await Promise.all([
+            _fetchMonthNeis(school, yyyymm),
+            fetchMonthOverrides(school, yyyymm),
+        ]);
+        return _mergeEvents(neis, overrides);
     }
 
     function _esc(s) {
@@ -174,23 +283,30 @@
                 // 셀이 좁아 잘리는 경우를 대비해 title 으로 전체 정보 보존(호버 fallback)
                 const fullTip = `${school.name}\n` + events.map((e) => {
                     const sub = e.content && e.content !== e.name ? ` · ${e.content}` : '';
-                    return `· ${e.name}${sub}`;
+                    const src = e._source === 'override' ? ' [조사]' : '';
+                    return `· ${e.name}${src}${sub}`;
                 }).join('\n');
                 wrap.title = fullTip;
                 events.slice(0, 2).forEach((e) => {
                     const line = document.createElement('div');
-                    line.className = 'acev-text-line';
+                    line.className = 'acev-text-line'
+                        + (e._source === 'override' ? ' acev-text-line-override' : '');
                     line.textContent = e.name;
-                    line.title = e.content && e.content !== e.name
+                    const baseTitle = e.content && e.content !== e.name
                         ? `${e.name} · ${e.content}`
                         : e.name;
+                    line.title = e._source === 'override'
+                        ? `${baseTitle} (학교 홈페이지 조사)`
+                        : baseTitle;
                     wrap.appendChild(line);
                 });
                 if (events.length > 2) {
                     const more = document.createElement('div');
                     more.className = 'acev-text-more';
                     more.textContent = `+${events.length - 2}건`;
-                    more.title = events.slice(2).map((e) => e.name).join(', ');
+                    more.title = events.slice(2).map((e) => {
+                        return e._source === 'override' ? `${e.name} [조사]` : e.name;
+                    }).join(', ');
                     wrap.appendChild(more);
                 }
                 cell.appendChild(wrap);
@@ -200,7 +316,8 @@
             // 기본: 우상단 졸업모자 배지 + 호버 툴팁
             const tooltip = `${school.name} 학사일정\n` + events.map((e) => {
                 const sub = e.content && e.content !== e.name ? ` · ${e.content}` : '';
-                return `· ${e.name}${sub}`;
+                const src = e._source === 'override' ? ' [조사]' : '';
+                return `· ${e.name}${src}${sub}`;
             }).join('\n');
             const badge = document.createElement('div');
             badge.className = 'acev-badge';
@@ -293,6 +410,12 @@
     max-width: 100%;
     box-shadow: 0 1px 1px rgba(0, 0, 0, 0.15);
 }
+/* 학교 홈페이지 조사로 보강된 일정 — 점선 테두리로 NEIS 와 구분 */
+.acev-text-line-override {
+    background: #4f46e5;
+    border: 1px dashed rgba(255,255,255,0.55);
+    padding: 0 4px;
+}
 .acev-text-more {
     font-size: 9px;
     color: #ffffff;
@@ -319,6 +442,7 @@
     window.AcademicEventsClient = {
         resolveSchool,
         fetchMonth,
+        fetchMonthOverrides,
         renderBadgesOnGrid,
     };
 })();
