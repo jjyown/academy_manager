@@ -153,8 +153,23 @@ async def parse_answer_key(
     pdf_file: UploadFile = File(None),
     answer_page_range: str = Form(""),
     total_hint: int = Form(None),
+    source_type: str = Form(""),
 ):
+    """교재/시험지 등록 + 파싱.
+
+    source_type:
+      - ''(빈값) | 'book' | 'custom' | 'manual' : 기존 동작 (정답 자동 추출 시도)
+      - 'exam' : 시험지 모드 — PDF 파싱 skip, 페이지 이미지만 생성. parsed=False 로 마킹.
+                  정답은 [+ 문제 추가] 또는 외부 해설(solution_source) 매핑으로 보강.
+
+    parsed 의미 강화:
+      - exam 모드: 항상 False
+      - 자동 추출 모드: total_questions > 0 일 때만 True (0건이면 False)
+        → UI 가 "✅ 파싱완료 / ⚠️ 정답 미추출" 을 정확히 구분할 수 있음.
+    """
     grade_level = (grade_level or "").strip()
+    source_type_norm = (source_type or "").strip().lower()
+    is_exam_mode = source_type_norm == "exam"
     file_bytes = None
     file_ext = ""
     central_token = await get_central_admin_token()
@@ -173,7 +188,18 @@ async def parse_answer_key(
         raise HTTPException(400, "PDF 또는 HML 파일이 필요합니다")
 
     raw_page_images = []
-    if file_ext == "hml":
+    if is_exam_mode:
+        # 시험지 모드 — 정답 추출은 건너뛰고 페이지 이미지만 생성.
+        # HML 도 동일하게 답 추출 skip (시험지·모의고사는 보통 PDF 형식).
+        from grading.pdf_parser import _pdf_to_thumbnails  # noqa: WPS433
+        logger.info(f"[Parse-Exam] '{title}' 시험지 모드 — 정답 추출 skip, 페이지 이미지만 생성")
+        try:
+            raw_page_images = _pdf_to_thumbnails(file_bytes) if file_ext == "pdf" else []
+        except Exception as e:
+            logger.warning(f"[Parse-Exam] 페이지 썸네일 생성 실패: {e}")
+            raw_page_images = []
+        result = {"answers": {}, "types": {}, "total": 0}
+    elif file_ext == "hml":
         logger.info(f"[Parse] HML 파일 파싱: '{title}'")
         result = await extract_answers_from_hml(file_bytes)
         raw_page_images = build_hml_answer_preview_images(title, result)
@@ -212,23 +238,52 @@ async def parse_answer_key(
                 })
             logger.info(f"[Parse] '{title}' 페이지 이미지 {len(page_images_json)}장 base64 fallback 저장")
 
+    total_q = int(result.get("total", 0) or 0)
+    # parsed = True 의 의미: "자동 추출에 성공해 정답이 들어있음".
+    # 시험지 모드는 항상 False, 자동 모드는 total>0 일 때만 True.
+    parsed_flag = (not is_exam_mode) and total_q > 0
+
     key_data = {
         "teacher_id": teacher_id,
         "title": title,
         "subject": subject,
         "grade_level": grade_level or "",
         "drive_file_id": drive_file_id,
-        "total_questions": result.get("total", 0),
+        "total_questions": total_q,
         "answers_json": result.get("answers", {}),
         "question_types_json": result.get("types", {}),
         "page_images_json": page_images_json,
-        "parsed": True,
+        "parsed": parsed_flag,
     }
+    if source_type_norm in ("book", "custom", "manual", "exam"):
+        key_data["source_type"] = source_type_norm
+
     saved = await upsert_answer_key(key_data)
-    logger.info(f"[Parse] '{title}' 정답 {result.get('total', 0)}문제 저장 완료 "
-                 f"(파서: {'HML' if file_ext == 'hml' else 'PDF'}, "
-                 f"페이지 이미지: {len(page_images_json)}장)")
-    return {"data": saved, "parsed_result": result}
+
+    if is_exam_mode:
+        warning_msg = None
+        mode_label = "시험지 모드 — 정답 추출 skip, 페이지 이미지만 생성"
+    elif total_q == 0:
+        warning_msg = (
+            "PDF에서 정답을 자동 추출하지 못했습니다. "
+            "이 PDF에 정답·해설 페이지가 없다면 [교재 유형 → 시험지]로 다시 등록하거나, "
+            "상세 페이지에서 [+ 문제 추가] 또는 [해설지 매핑]으로 정답을 보강하세요."
+        )
+        mode_label = f"자동 추출 모드(파서: {'HML' if file_ext == 'hml' else 'PDF'}) — 추출 실패"
+    else:
+        warning_msg = None
+        mode_label = f"자동 추출 모드(파서: {'HML' if file_ext == 'hml' else 'PDF'}) — {total_q}문제 추출"
+
+    logger.info(
+        f"[Parse] '{title}' 저장 완료 — {mode_label}, 페이지 이미지 {len(page_images_json)}장, "
+        f"parsed={parsed_flag}, source_type={source_type_norm or '(미지정)'}"
+    )
+    return {
+        "data": saved,
+        "parsed_result": result,
+        "mode": "exam" if is_exam_mode else "auto",
+        "warning": warning_msg,
+    }
 
 
 @router.get("/drive-pdfs")

@@ -1185,14 +1185,18 @@
 		<!-- 교재 유형 선택 -->
 		<div class="form-group">
 			<label class="form-label">교재 유형</label>
-			<div style="display:flex;gap:8px;">
+			<div style="display:flex;gap:8px;flex-wrap:wrap;">
 				<button class="btn btn-sm" id="key-type-print" onclick="selectKeyType('print')"
-					style="flex:1;padding:10px;border:2px solid var(--primary);background:var(--primary);color:var(--bg-card);border-radius:10px;font-size:13px;">
+					style="flex:1;min-width:130px;padding:10px;border:2px solid var(--primary);background:var(--primary);color:var(--bg-card);border-radius:10px;font-size:13px;">
 					<i class="fas fa-print"></i> 프린트 과제
 				</button>
 				<button class="btn btn-sm" id="key-type-book" onclick="selectKeyType('book')"
-					style="flex:1;padding:10px;border:2px solid var(--border);background:var(--card);color:var(--text);border-radius:10px;font-size:13px;">
+					style="flex:1;min-width:130px;padding:10px;border:2px solid var(--border);background:var(--card);color:var(--text);border-radius:10px;font-size:13px;">
 					<i class="fas fa-book-open"></i> 시중 교재
+				</button>
+				<button class="btn btn-sm" id="key-type-exam" onclick="selectKeyType('exam')"
+					style="flex:1;min-width:130px;padding:10px;border:2px solid var(--border);background:var(--card);color:var(--text);border-radius:10px;font-size:13px;">
+					<i class="fas fa-file-lines"></i> 시험지/모의고사
 				</button>
 			</div>
 		</div>
@@ -1239,6 +1243,15 @@
 				<i class="fas fa-magic" style="margin-right:4px;"></i>
 				<b>프린트 과제</b>: 정답을 자동으로 추출합니다.<br>
 				<span style="font-size:11px;color:#64748b;">HML(수학비서) → 미주에서 정답 100% 정확 추출<br>PDF → AI가 정답/해설 페이지에서 추출</span>
+			</p>
+		</div>
+
+		<!-- 시험지/모의고사 안내 (숨김) -->
+		<div id="key-exam-info" style="display:none;background:#fef3f2;border-radius:10px;padding:12px;margin-bottom:12px;">
+			<p style="font-size:12px;color:#9a3412;margin:0;">
+				<i class="fas fa-file-lines" style="margin-right:4px;"></i>
+				<b>시험지/모의고사</b>: 정답·해설 페이지가 없는 PDF용. <b>정답 자동 추출은 건너뜁니다.</b><br>
+				<span style="font-size:11px;color:#64748b;">페이지 이미지만 생성됩니다. 등록 후 상세 페이지에서 <b>[+ 문제 추가]</b>로 정답을 직접 입력하거나, <b>[해설지 매핑]</b>에 시험명을 적어 외부 해설을 연동하세요.</span>
 			</p>
 		</div>
 
@@ -3870,14 +3883,36 @@ async function deleteAssignment(id) {
 let allAnswerKeys = [];
 let keysGradeFilter = '';
 
+function _renderKeyStatus(k) {
+	// 3가지 상태로 명확히 구분:
+	//   1) 시험지 모드(source_type=exam): 정답 추출 skip → 수동 입력·매핑 안내
+	//   2) 자동 추출 성공(parsed=true, total>0): 완료
+	//   3) 자동 추출 실패(parsed=false 또는 total=0): 정답 미추출
+	const hasMapping = k && k.solution_source && typeof k.solution_source === 'object'
+		&& (k.solution_source.exam_name || k.solution_source.pair_series);
+	if (k.source_type === 'exam') {
+		return hasMapping
+			? '📋 시험지 (해설 매핑됨)'
+			: '📋 시험지 (수동 입력·매핑 필요)';
+	}
+	if (k.parsed && (k.total_questions || 0) > 0) return '✅ 파싱완료';
+	if (k.parsed === false || (k.total_questions || 0) === 0) {
+		return hasMapping
+			? '⚠️ 정답 미추출 (해설 매핑됨)'
+			: '⚠️ 정답 미추출 (수동 추가 필요)';
+	}
+	return '⏳ 파싱중';
+}
+
 function _renderKeyItem(k) {
 	const gradeTag = k.grade_level ? `<span style="display:inline-block;font-size:10px;font-weight:700;background:var(--primary);color:var(--bg-card);border-radius:4px;padding:1px 5px;margin-right:4px;">${escapeHtml(k.grade_level)}</span>` : '';
+	const status = _renderKeyStatus(k);
 	return `<div class="list-item" style="position:relative;">
 		<div style="display:flex;align-items:center;gap:12px;flex:1;cursor:pointer;" onclick="openKeyDetail(${k.id})">
-			<div class="list-item-icon" style="background:rgba(20,184,166,0.15);">📚</div>
+			<div class="list-item-icon" style="background:rgba(20,184,166,0.15);">${k.source_type === 'exam' ? '📋' : '📚'}</div>
 			<div class="list-item-info" style="flex:1;">
 				<div class="list-item-title">${gradeTag}${escapeHtml(k.title)}</div>
-				<div class="list-item-sub">${k.subject || '과목 미정'} · ${k.total_questions}문제 · ${k.parsed ? '✅ 파싱완료' : '⏳ 파싱중'}</div>
+				<div class="list-item-sub">${k.subject || '과목 미정'} · ${k.total_questions}문제 · ${status}</div>
 			</div>
 		</div>
 		<button onclick="event.stopPropagation();deleteAnswerKey(${k.id}, '${escapeHtml(k.title)}')" title="삭제"
@@ -3998,29 +4033,45 @@ let selectedKeyType = 'print';
 
 function selectKeyType(type) {
 	selectedKeyType = type;
-	const printBtn = document.getElementById('key-type-print');
-	const bookBtn = document.getElementById('key-type-book');
-	const printInfo = document.getElementById('key-print-info');
-	const bookInfo = document.getElementById('key-book-info');
+	const btnMap = {
+		print: document.getElementById('key-type-print'),
+		book: document.getElementById('key-type-book'),
+		exam: document.getElementById('key-type-exam'),
+	};
+	const infoMap = {
+		print: document.getElementById('key-print-info'),
+		book: document.getElementById('key-book-info'),
+		exam: document.getElementById('key-exam-info'),
+	};
+	// 모든 버튼 비활성 스타일로 초기화 + 안내 박스 숨김
+	Object.values(btnMap).forEach((b) => {
+		if (!b) return;
+		b.style.background = 'var(--card)';
+		b.style.color = 'var(--text)';
+		b.style.borderColor = 'var(--border)';
+	});
+	Object.values(infoMap).forEach((el) => { if (el) el.style.display = 'none'; });
 
-	if (type === 'print') {
-		printBtn.style.background = 'var(--primary)';
-		printBtn.style.color = '#fff';
-		printBtn.style.borderColor = 'var(--primary)';
-		bookBtn.style.background = 'var(--card)';
-		bookBtn.style.color = 'var(--text)';
-		bookBtn.style.borderColor = 'var(--border)';
-		printInfo.style.display = '';
-		bookInfo.style.display = 'none';
-	} else {
-		bookBtn.style.background = 'var(--primary)';
-		bookBtn.style.color = '#fff';
-		bookBtn.style.borderColor = 'var(--primary)';
-		printBtn.style.background = 'var(--card)';
-		printBtn.style.color = 'var(--text)';
-		printBtn.style.borderColor = 'var(--border)';
-		printInfo.style.display = 'none';
-		bookInfo.style.display = '';
+	// 선택된 유형만 활성
+	const activeBtn = btnMap[type];
+	if (activeBtn) {
+		activeBtn.style.background = 'var(--primary)';
+		activeBtn.style.color = '#fff';
+		activeBtn.style.borderColor = 'var(--primary)';
+	}
+	const activeInfo = infoMap[type];
+	if (activeInfo) activeInfo.style.display = '';
+
+	// 시험지 모드는 정답 추출 안 함 → "정답 페이지 범위"는 의미 없음.
+	const bookSettings = document.getElementById('key-book-info');
+	if (bookSettings && type !== 'book') bookSettings.style.display = 'none';
+
+	// 등록 버튼 라벨도 모드에 맞춰 변경
+	const submitBtn = document.querySelector('#key-modal button.btn-primary');
+	if (submitBtn) {
+		submitBtn.innerHTML = type === 'exam'
+			? '<i class="fas fa-upload" style="margin-right:4px;"></i> 등록 (페이지 이미지만)'
+			: '<i class="fas fa-upload" style="margin-right:4px;"></i> 등록 및 정답 추출';
 	}
 }
 
@@ -4135,11 +4186,20 @@ async function registerAnswerKey() {
 		formData.append('pdf_file', pdfInput.files[0]);
 		if (pageRange) formData.append('answer_page_range', pageRange);
 		if (totalHint) formData.append('total_hint', totalHint);
+		// 시험지 모드: 백엔드가 정답 추출 skip, 페이지 이미지만 생성하고 parsed=false 저장.
+		if (selectedKeyType === 'exam') formData.append('source_type', 'exam');
+		else if (selectedKeyType === 'book') formData.append('source_type', 'book');
 
 		isRegistering = true;
+		const isExam = selectedKeyType === 'exam';
 		const isHml = pdfInput.files[0].name.toLowerCase().endsWith('.hml');
 		const isHmlOrHwp = pdfInput.files[0].name.toLowerCase().endsWith('.hml') || pdfInput.files[0].name.toLowerCase().endsWith('.hwp');
-		showToast(isHmlOrHwp ? '한글 파일에서 정답 추출 중...' : '정답 추출 중... (최대 30초 소요)', 'info');
+		showToast(
+			isExam
+				? '시험지 등록 중 — 페이지 이미지만 생성합니다...'
+				: (isHmlOrHwp ? '한글 파일에서 정답 추출 중...' : '정답 추출 중... (최대 30초 소요)'),
+			'info'
+		);
 
 		try {
 			const res = await fetch(GRADING_SERVER_URL + '/api/answer-keys/parse', {
@@ -4151,7 +4211,19 @@ async function registerAnswerKey() {
 			if (result.data) {
 				invalidateAnswerKeysCache();
 				const cnt = result.parsed_result?.total || 0;
-				if (isHmlOrHwp) {
+				const isExamMode = result.mode === 'exam' || isExam;
+				if (isExamMode) {
+					showToast(
+						'시험지 등록 완료 — 페이지 이미지만 생성됨. 상세에서 [+ 문제 추가] 또는 [해설지 매핑]으로 정답을 보강하세요.',
+						'success'
+					);
+				} else if (cnt === 0) {
+					showToast(
+						result.warning ||
+						'정답을 자동 추출하지 못했습니다 — 시험지면 [교재 유형 → 시험지/모의고사]로 다시 등록하거나 수동 입력하세요.',
+						'warning'
+					);
+				} else if (isHmlOrHwp) {
 					showToast(`교재 등록 완료! ${cnt}문제 추출 (HML 페이지 미리보기 이미지 생성/업로드)`, 'success');
 				} else {
 					showToast(`교재 등록 완료! ${cnt}문제 추출 — 페이지 이미지 백그라운드 업로드 중`, 'success');
