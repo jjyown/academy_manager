@@ -9803,17 +9803,23 @@ body.pay-tax-mode-exempt .pay-vat-only { display: none !important; }
     font-size: 12px; color: var(--text-secondary); margin-left: 8px;
 }
 /* 신고센터 연도 화살표 - 흰 배경 위에 보이도록 어두운 색 */
+.pay-filing-year-nav .pay-month-btn,
+.pay-filing-year-nav .pay-month-btn i {
+    color: #1e293b !important;
+}
 .pay-filing-year-nav .pay-month-btn {
-    background: #f1f5f9;
-    color: #475569;
-    border: 1px solid var(--border);
-    width: 34px; height: 34px;
+    background: #e2e8f0 !important;
+    border: 1px solid #94a3b8 !important;
+    width: 36px; height: 36px;
     font-size: 14px;
 }
+.pay-filing-year-nav .pay-month-btn:hover,
+.pay-filing-year-nav .pay-month-btn:hover i {
+    color: #0f172a !important;
+}
 .pay-filing-year-nav .pay-month-btn:hover {
-    background: #e2e8f0;
-    color: #0f172a;
-    border-color: #cbd5e1;
+    background: #cbd5e1 !important;
+    border-color: #64748b !important;
 }
 
 .pay-filing-summary {
