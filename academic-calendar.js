@@ -817,13 +817,6 @@
                     ${logHtml}
                 </div>
                 <div class="academic-subscribed-actions">
-                    <button type="button" class="academic-investigate-btn"
-                        data-atpt="${_escape(sc.atpt)}" data-code="${_escape(sc.code)}"
-                        data-name="${_escape(sc.name)}" data-region="${_escape(sc.region)}"
-                        title="NEIS 에 누락된 시험·방학 일정을 학교 공식 홈페이지에서 직접 조사합니다.">
-                        <i class="fas fa-magnifying-glass-chart" aria-hidden="true"></i>
-                        <span class="academic-investigate-btn-label">홈페이지 조사</span>
-                    </button>
                     <button type="button" class="academic-upload-btn"
                         data-atpt="${_escape(sc.atpt)}" data-code="${_escape(sc.code)}"
                         data-name="${_escape(sc.name)}" data-region="${_escape(sc.region)}"
@@ -847,9 +840,6 @@
                     window.renderCalendar(true);
                 }
             });
-        });
-        listEl.querySelectorAll('.academic-investigate-btn').forEach((b) => {
-            b.addEventListener('click', () => _runInvestigateFromButton(b, modal));
         });
         listEl.querySelectorAll('.academic-upload-btn').forEach((b) => {
             b.addEventListener('click', () => _runUploadFromButton(b, modal));
