@@ -1710,17 +1710,30 @@
             if (ok) result.removed.push(sub.name);
         }
 
-        if (!silent && (result.added.length || result.removed.length)) {
-            const parts = [];
-            if (result.added.length) parts.push(`${result.added.length}개 추가`);
-            if (result.removed.length) parts.push(`${result.removed.length}개 제거`);
-            if (typeof window.showToast === 'function') {
-                window.showToast(`학사일정 학교 구독 자동 동기화: ${parts.join(', ')}`, 'info');
+        // 변경이 있으면 화면 갱신 — silent 옵션은 토스트만 끄고, 시각 반영은 항상 수행.
+        if (result.added.length || result.removed.length) {
+            if (!silent) {
+                const parts = [];
+                if (result.added.length) parts.push(`${result.added.length}개 추가`);
+                if (result.removed.length) parts.push(`${result.removed.length}개 제거`);
+                if (typeof window.showToast === 'function') {
+                    window.showToast(`학사일정 학교 구독 자동 동기화: ${parts.join(', ')}`, 'info');
+                }
             }
-            // 캘린더 배지 즉시 재렌더 (옵션)
-            if (typeof window.renderCalendar === 'function') {
-                try { window.renderCalendar(true); } catch (e) {}
-            }
+            // 캘린더 셀 배지 + 사이드바 즉시 재렌더 (구독 변경 반영)
+            try {
+                if (typeof renderAcademicBadgesOnCalendar === 'function') {
+                    renderAcademicBadgesOnCalendar();
+                }
+                if (typeof _renderPinnedAcademicEventsSidebar === 'function') {
+                    _renderPinnedAcademicEventsSidebar();
+                }
+            } catch (e) { /* 무시 */ }
+            // 학사일정 모달이 열려있으면 구독 목록도 갱신
+            try {
+                const m = document.getElementById('academic-calendar-modal');
+                if (m && m.style.display !== 'none') _renderSubscribedList(m);
+            } catch (e) {}
         }
         return result;
     }
