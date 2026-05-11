@@ -824,6 +824,13 @@
                         <i class="fas fa-magnifying-glass-chart" aria-hidden="true"></i>
                         <span class="academic-investigate-btn-label">홈페이지 조사</span>
                     </button>
+                    <button type="button" class="academic-upload-btn"
+                        data-atpt="${_escape(sc.atpt)}" data-code="${_escape(sc.code)}"
+                        data-name="${_escape(sc.name)}" data-region="${_escape(sc.region)}"
+                        title="학교 홈페이지에서 다운받은 학사일정 PDF·이미지를 업로드해 직접 추출합니다.">
+                        <i class="fas fa-file-arrow-up" aria-hidden="true"></i>
+                        <span class="academic-upload-btn-label">파일 업로드</span>
+                    </button>
                     <button type="button" class="academic-remove-btn"
                         data-atpt="${_escape(sc.atpt)}" data-code="${_escape(sc.code)}"
                         aria-label="구독 해제" title="구독 해제">
@@ -843,6 +850,9 @@
         });
         listEl.querySelectorAll('.academic-investigate-btn').forEach((b) => {
             b.addEventListener('click', () => _runInvestigateFromButton(b, modal));
+        });
+        listEl.querySelectorAll('.academic-upload-btn').forEach((b) => {
+            b.addEventListener('click', () => _runUploadFromButton(b, modal));
         });
     }
 
@@ -956,6 +966,106 @@
             btn.disabled = false;
             btn.classList.remove('is-loading');
         }
+    }
+
+    // ── 파일 업로드 핸들러 ───────────────────────────────────────
+    // 학교 홈페이지에서 다운받은 학사일정 PDF/이미지를 사용자가 직접 업로드.
+    // Gemini multimodal 로 OCR·추출 → school_calendar_overrides 에 upsert.
+    const UPLOAD_ACCEPT = 'application/pdf,image/png,image/jpeg,image/jpg,image/webp,image/heic,image/heif';
+    const UPLOAD_MAX_BYTES = 14 * 1024 * 1024; // 14MB (Gemini inline 20MB base64 한도 안쪽)
+    async function _runUploadFromButton(btn, modal) {
+        if (typeof window.invokeInvestigateSchoolCalendar !== 'function'
+            || typeof window.fileToBase64ForEdge !== 'function') {
+            if (typeof window.showToast === 'function') {
+                window.showToast('업로드 기능을 사용할 수 없습니다. 페이지를 새로고침해주세요.', 'error');
+            }
+            return;
+        }
+        if (btn.disabled) return;
+        const school = {
+            atpt: btn.dataset.atpt,
+            code: btn.dataset.code,
+            name: btn.dataset.name,
+            region: btn.dataset.region || '',
+        };
+        // 숨겨진 file input 생성 → 클릭 → 사용자가 선택하면 처리
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = UPLOAD_ACCEPT;
+        input.style.display = 'none';
+        document.body.appendChild(input);
+        input.onchange = async () => {
+            const file = input.files && input.files[0];
+            document.body.removeChild(input);
+            if (!file) return;
+            if (file.size > UPLOAD_MAX_BYTES) {
+                if (typeof window.showToast === 'function') {
+                    window.showToast(
+                        `파일 크기가 너무 큽니다 (${(file.size / 1024 / 1024).toFixed(1)}MB). 14MB 이하로 줄여주세요.`,
+                        'error'
+                    );
+                }
+                return;
+            }
+            const originalHtml = btn.innerHTML;
+            btn.disabled = true;
+            btn.classList.add('is-loading');
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin" aria-hidden="true"></i> <span class="academic-upload-btn-label">분석 중...</span>';
+            if (typeof window.showToast === 'function') {
+                window.showToast(`${school.name}: ${file.name} 분석 시작 (10~30초)`, 'info');
+            }
+            try {
+                const base64 = await window.fileToBase64ForEdge(file);
+                const result = await window.invokeInvestigateSchoolCalendar(school, {
+                    base64,
+                    mimeType: file.type || 'application/octet-stream',
+                    name: file.name || '',
+                });
+                if (!result || !result.ok) {
+                    btn.innerHTML = originalHtml;
+                    return;
+                }
+                _setInvestigationLogFor(school, {
+                    lastAt: new Date().toISOString(),
+                    lastTotal: result.total || 0,
+                    lastSourceUrl: (result.sourceUrls && result.sourceUrls[0]) || '',
+                    lastStrategy: 'uploaded_file',
+                });
+                invalidateAcademicOverrideCacheForSchool(school.atpt, school.code);
+                if (typeof window.showToast === 'function') {
+                    if (result.total > 0) {
+                        window.showToast(
+                            `${school.name}: ${result.total}건의 학사일정 발견 (파일에서 추출 · 저장 완료)`,
+                            'success'
+                        );
+                    } else {
+                        window.showToast(
+                            `${school.name}: 파일에서 학사일정을 추출하지 못했습니다. ${result.note || ''}`.trim(),
+                            'warning'
+                        );
+                    }
+                }
+                _renderSubscribedList(modal);
+                const tasks = [];
+                if (typeof renderAcademicBadgesOnCalendar === 'function') {
+                    tasks.push(renderAcademicBadgesOnCalendar());
+                }
+                if (typeof _renderPinnedAcademicEventsSidebar === 'function') {
+                    tasks.push(_renderPinnedAcademicEventsSidebar());
+                }
+                await Promise.allSettled(tasks);
+            } catch (e) {
+                console.warn('[Academic] 파일 업로드 분석 실패:', e);
+                if (typeof window.showToast === 'function') {
+                    window.showToast(`${school.name} 분석 실패: ${e.message || ''}`, 'error');
+                }
+                btn.innerHTML = originalHtml;
+            } finally {
+                btn.disabled = false;
+                btn.classList.remove('is-loading');
+            }
+        };
+        input.click();
     }
 
     function openAcademicCalendarModal() {
