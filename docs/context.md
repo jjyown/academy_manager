@@ -15,6 +15,7 @@
 | 날짜 | 결정 | 이유 | 영향 범위 |
 |---|---|---|---|
 | 2026-05-12 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | grading-server/grading/pdf_parser.py |
+| 2026-05-12 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | grading-server/grading/pdf_parser.py |
 | 2026-05-12 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | grading-server/grading/pdf_parser.py, grading-server/integrations/drive.py, grading-server/routers/answer_keys.py |
 | 2026-05-12 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | grading-server/grading/pdf_parser.py, grading-server/integrations/drive.py, grading-server/routers/answer_keys.py |
 | 2026-05-12 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | grading-server/routers/answer_keys.py, migrations/0041_answer_keys_problems_json_20260512.sql |

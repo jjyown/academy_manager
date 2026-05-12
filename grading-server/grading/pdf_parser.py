@@ -265,10 +265,11 @@ async def extract_answers_from_pdf(
                     f"누락 추정 {len(missing)}건({missing[:5]}{'...' if len(missing)>5 else ''}) "
                     f"→ 페이지별 Vision 으로 보강 시도"
                 )
-                # 빠른정답은 보통 마지막 페이지에 있음. 마지막 1~2 페이지를
-                # 한 페이지씩 단일 호출로 보내 안정적으로 보강.
+                # 빠른정답은 보통 PDF 최후 1페이지에 있음. vision-diagnose 와 동일하게
+                # 마지막 1페이지만 호출 (이전 2페이지 호출은 LLM 컨텍스트 혼선으로
+                # 일부만 반환되는 stochastic regression 야기).
                 total_pages = _get_total_pages(pdf_bytes)
-                tail_count = min(2, total_pages)
+                tail_count = 1
                 tail_indices = list(range(total_pages - tail_count, total_pages))
                 tail = await _extract_answers_per_page_vision(
                     pdf_bytes, tail_indices, expected_numbers=missing,
@@ -740,12 +741,8 @@ def split_markdown_by_problem(page_md: dict, problem_numbers: list[str]) -> dict
     genai.configure(api_key=GEMINI_API_KEY)
     model = genai.GenerativeModel(GEMINI_MODEL)
 
-    expected_hint = ""
-    if expected_numbers:
-        nums = sorted([int(n) for n in expected_numbers if n.isdigit()])
-        if nums:
-            expected_hint = f"\n참고: 이 PDF 빠른정답표에는 보통 {nums[0]}번~{nums[-1]}번이 있습니다."
-
+    # vision-diagnose 와 동일 prompt 통일 — expected_hint 제거. LLM 이 expected
+    # 범위를 좁게 해석해서 일부만 반환하는 stochastic regression 회피.
     all_answers: dict[str, str] = {}
     all_types: dict[str, str] = {}
 
@@ -758,23 +755,15 @@ def split_markdown_by_problem(page_md: dict, problem_numbers: list[str]) -> dict
                 continue
             img_bytes = images[0]
 
-            prompt = f"""이 이미지에서 모든 "답안 패턴"을 찾아 JSON 으로 반환하세요.
+            prompt = """이 이미지에서 "N) [정답] X" 패턴을 모두 찾아 JSON 으로 반환하세요.
 
-찾을 패턴:
-- "1) [정답] ②"        → num="1",  ans="②",         type="mc"
-- "17) [정답] a=3, b=7, c=1" → num="17", ans="a=3, b=7, c=1", type="short"
-- "18) [정답] 45, 75"   → num="18", ans="45, 75",   type="short"
-- "19) [정답] 2√3"      → num="19", ans="2√3",      type="short"
-- "1) ②"  또는 "1. ③"   → 동일 (간략 표기)
-
-분류 규칙:
-- 답이 ①②③④⑤ → "mc"
-- 답이 그 외 (숫자/수식/변수=값/콤마구분 다답) → "short"
-
-답안 패턴이 보이지 않으면 빈 배열: {{"items": []}}{expected_hint}
+예시:
+- "1) [정답] ②"            → {"num": "1", "ans": "②", "type": "mc"}
+- "17) [정답] a=3, b=7, c=1" → {"num": "17", "ans": "a=3, b=7, c=1", "type": "short"}
+- "18) [정답] 45, 75"       → {"num": "18", "ans": "45, 75", "type": "short"}
 
 JSON 만 출력 (다른 텍스트 X):
-{{"items": [{{"num": "1", "ans": "②", "type": "mc"}}, ...]}}"""
+{"items": [{"num": "1", "ans": "②", "type": "mc"}, ...]}"""
 
             b64 = base64.b64encode(img_bytes).decode("utf-8")
             parts = [prompt, {"mime_type": "image/jpeg", "data": b64}]
