@@ -70,10 +70,25 @@ async def extract_answers_from_pdf(
             if result.get("total", 0) > 0:
                 logger.info(f"[Vision] 정답 추출 완료: {result['total']}문제")
             else:
-                logger.warning("[Vision] 정답을 찾지 못함, 텍스트 방식으로 재시도")
+                logger.warning("[Vision] 정답을 찾지 못함, 마지막 페이지 답안표 전용 재시도")
                 result = None
         except Exception as e:
-            logger.warning(f"[Vision] 실패: {e}, 텍스트 방식으로 재시도")
+            logger.warning(f"[Vision] 실패: {e}, 마지막 페이지 답안표 전용 재시도")
+
+    # 2.5차 fallback: 마지막 1~3 페이지를 "답안표 전용" 프롬프트로 재시도.
+    # 일반 Vision 프롬프트는 "보기(①②③④⑤)가 있는 문제만 mc"로 보수적이라
+    # 빠른정답 페이지처럼 "1) [정답] ② / 2) [정답] ①" 형태(보기 없음, 답만 나열)
+    # 에서 0건 반환하는 경우가 있어 답안표 전용 프롬프트로 회수율 보강.
+    # page_range가 명시되지 않은 경우만 발동 (사용자가 범위 지정했으면 그 안에서만).
+    if not result and not page_range:
+        try:
+            result = await _extract_tail_answer_table(pdf_bytes, total_hint)
+            if result and result.get("total", 0) > 0:
+                logger.info(f"[Tail] 마지막 페이지 답안표 추출 완료: {result['total']}문제")
+            else:
+                result = None
+        except Exception as e:
+            logger.warning(f"[Tail] 실패: {e}, 텍스트 방식으로 재시도")
 
     # 3차 fallback: pdfplumber 텍스트 추출 → Gemini 텍스트 파싱
     if not result:
@@ -308,6 +323,101 @@ essay (서술형): 풀이 과정을 서술하는 문제
         "total": len(all_answers),
     }
     return result
+
+
+async def _extract_tail_answer_table(
+    pdf_bytes: bytes,
+    total_hint: int | None = None,
+) -> dict | None:
+    """마지막 2~3 페이지를 "답안표 전용" 프롬프트로 시도하는 fallback.
+
+    배경: 일반 Vision 추출은 "정답이 안 보이면 건너뛰라"는 보수적 프롬프트라
+    빠른정답 페이지에 헤더("빠른정답" 등)가 없거나 컴팩트한 표만 있으면
+    Gemini 가 답을 안 뽑는 경우가 있다. 사용자 양식이 보통 "문제+빠른정답"
+    구조라, 마지막 1~3 페이지를 답안표 전용 프롬프트로 한 번 더 시도해
+    회수율을 끌어올린다.
+    """
+    import google.generativeai as genai
+    from config import GEMINI_API_KEY, GEMINI_MODEL
+
+    total = _get_total_pages(pdf_bytes)
+    if total == 0:
+        return None
+    # 마지막 1~3 페이지 (전체 페이지 수에 따라)
+    tail_count = min(3, total)
+    tail_indices = list(range(total - tail_count, total))
+
+    images = _pdf_to_images(pdf_bytes, page_indices=tail_indices)
+    if not images:
+        return None
+
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel(GEMINI_MODEL)
+
+    hint_line = f"예상 총 문제 수: {total_hint}" if total_hint else ""
+    prompt = f"""이 이미지는 수학 문제집 PDF의 **마지막 {tail_count}페이지**입니다.
+여기에 **빠른정답표 / 답안표 / 정답표**가 있는지 보고, 있다면 **모든 답**을 추출하세요.
+
+답안표는 보통 이런 형태입니다:
+- 작은 표·격자에 "1. ③  2. ①  3. ②  ..." 같이 번호와 답이 짝지어진 형태
+- 또는 "1) ③  2) ①  3) ②" / "1 ③  2 ①  3 ②"
+- 헤더가 "빠른정답", "정답", "정답표" 등일 수도, **헤더 없이 표만** 있을 수도 있음
+
+★ 헤더가 없어도 됩니다 — **번호 + 답이 짝지어진 패턴**만 보이면 추출.
+★ 풀이/해설은 무시하세요. 빠른정답 표가 우선.
+
+문제번호 규칙:
+- 1, 2, 3 ... 그대로
+- 소문제는 "1(1)", "1(2)" 형식
+- 단원/교시별로 번호가 초기화되더라도 그대로 유지
+
+답 형식 규칙:
+- 객관식(원형숫자 보기 ①②③④⑤): "①" "②" "③" "④" "⑤" 그대로 → type=mc
+- 단답형(빈칸·구하시오·수식): "3", "-5", "14", "2√3" 그대로 → type=short
+- 숫자만 적혀 있으면 short, 원형숫자면 mc
+
+{hint_line}
+
+**답안표가 전혀 안 보이면 빈 객체 반환**:
+{{"answers": {{}}, "types": {{}}, "total": 0}}
+
+답안표가 있으면 JSON 형식으로만 응답:
+{{"answers": {{"1": "③", "2": "12", ...}}, "types": {{"1": "mc", "2": "short", ...}}, "total": 문제수}}"""
+
+    parts = [prompt]
+    for img_bytes in images:
+        b64 = base64.b64encode(img_bytes).decode("utf-8")
+        parts.append({"mime_type": "image/jpeg", "data": b64})
+
+    total_size = sum(len(b) for b in images)
+    logger.info(f"[Tail] 마지막 {tail_count}p 답안표 전용 추출 시도 ({total_size//1024}KB)")
+
+    try:
+        response = model.generate_content(parts)
+        text = (response.text or "").strip()
+        logger.info(f"[Tail] 응답: {text[:200]}")
+
+        from ocr.engines import _robust_json_parse
+        result = _robust_json_parse(text)
+        if not result or not isinstance(result, dict):
+            logger.warning("[Tail] JSON 파싱 실패")
+            return None
+
+        answers = result.get("answers") or {}
+        types = result.get("types") or {}
+        if not answers:
+            logger.info("[Tail] 답안표 미발견 (빈 응답)")
+            return None
+        answers, types = _validate_answer_types(answers, types)
+        logger.info(f"[Tail] 답안표 추출 성공: {len(answers)}문제")
+        return {
+            "answers": answers,
+            "types": types,
+            "total": len(answers),
+        }
+    except Exception as e:
+        logger.warning(f"[Tail] 추출 실패: {e}")
+        return None
 
 
 def _validate_answer_types(answers: dict, types: dict) -> tuple[dict, dict]:
