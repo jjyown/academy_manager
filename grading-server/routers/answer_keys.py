@@ -322,6 +322,12 @@ async def drive_diagnose():
     import traceback
     from config import GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
 
+    # client_id 의 앞 12자만 노출 — 프론트(supabase-config.js)와 비교용
+    # (전체 client_id 는 public OK 이지만 secret 은 절대 노출 X)
+    cid_prefix = GOOGLE_CLIENT_ID[:12] + "..." if GOOGLE_CLIENT_ID else None
+    cid_len = len(GOOGLE_CLIENT_ID) if GOOGLE_CLIENT_ID else 0
+    secret_len = len(GOOGLE_CLIENT_SECRET) if GOOGLE_CLIENT_SECRET else 0
+
     result = {
         "step_1_token_in_db": None,
         "step_2_oauth_refresh": None,
@@ -329,7 +335,10 @@ async def drive_diagnose():
         "step_4_root_folder": None,
         "config_check": {
             "google_client_id_present": bool(GOOGLE_CLIENT_ID),
+            "google_client_id_prefix": cid_prefix,  # 프론트 값과 비교
+            "google_client_id_length": cid_len,
             "google_client_secret_present": bool(GOOGLE_CLIENT_SECRET),
+            "google_client_secret_length": secret_len,
         },
         "errors": [],
     }
