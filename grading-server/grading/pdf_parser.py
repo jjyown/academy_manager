@@ -241,7 +241,61 @@ async def extract_answers_from_pdf(
         fast = None
 
     if fast:
-        # 정규식으로 답안표를 잡은 경우, 페이지 썸네일만 추가해 즉시 반환
+        # Fast path 가 잡지 못한 번호(보통 PDF 수학 폰트 깨짐으로 텍스트 추출
+        # 실패한 단답·서술형)를 Tail Vision 으로 보강. 마지막 페이지 이미지는
+        # 정상 렌더링되니 AI 가 직접 보고 채울 수 있다.
+        try:
+            fast_keys = set(fast["answers"].keys())
+            max_fast = max((int(k) for k in fast_keys if k.isdigit()), default=0)
+
+            # 예상 최대 번호 추정:
+            #  - total_hint 우선
+            #  - 없으면 max_fast + 5 (4~5문항 추가 가능성 보수적 추정)
+            expected_max = total_hint or (max_fast + 5)
+            missing = [str(n) for n in range(1, expected_max + 1) if str(n) not in fast_keys]
+
+            if missing and len(missing) >= 1:
+                logger.info(
+                    f"[FastPath] {len(fast_keys)}건 추출, "
+                    f"누락 추정 {len(missing)}건({missing[:5]}{'...' if len(missing)>5 else ''}) "
+                    f"→ Tail Vision 으로 보강 시도"
+                )
+                tail = await _extract_tail_answer_table(pdf_bytes, total_hint)
+                if tail and tail.get("answers"):
+                    merged_answers = dict(fast["answers"])
+                    merged_types = dict(fast["types"])
+                    added = 0
+                    for q, ans in tail["answers"].items():
+                        # fast 가 이미 잡은 건 신뢰(텍스트 레이어는 깨끗했단 의미).
+                        # 누락 분만 채움.
+                        if q in merged_answers:
+                            continue
+                        # Tail 결과도 깨진 글리프면 제외
+                        if _is_corrupted_pdf_glyphs(str(ans)):
+                            continue
+                        merged_answers[q] = ans
+                        merged_types[q] = tail.get("types", {}).get(q, "short")
+                        added += 1
+                    if added > 0:
+                        # 보강 후 서술형 재감지
+                        essay_nums = _detect_essay_problem_numbers(
+                            text_for_fast, list(merged_answers.keys())
+                        )
+                        for q in essay_nums:
+                            if merged_types.get(q) == "short":
+                                merged_types[q] = "essay"
+                        logger.info(
+                            f"[FastPath+Tail] 보강 {added}건 → 총 {len(merged_answers)}문제"
+                        )
+                        fast = {
+                            "answers": merged_answers,
+                            "types": merged_types,
+                            "total": len(merged_answers),
+                        }
+        except Exception as e:
+            logger.warning(f"[FastPath+Tail merge] 실패(fast 결과만 사용): {e}")
+
+        # 정규식으로 답안표를 잡은 경우, 페이지 썸네일 추가해 반환
         page_images = _pdf_to_thumbnails(pdf_bytes)
         fast["page_images"] = page_images
         return fast
@@ -557,22 +611,32 @@ async def _extract_tail_answer_table(
     prompt = f"""이 이미지는 수학 문제집 PDF의 **마지막 {tail_count}페이지**입니다.
 여기에 **빠른정답표 / 답안표 / 정답표**가 있는지 보고, 있다면 **모든 답**을 추출하세요.
 
-답안표는 보통 이런 형태입니다:
-- 작은 표·격자에 "1. ③  2. ①  3. ②  ..." 같이 번호와 답이 짝지어진 형태
-- 또는 "1) ③  2) ①  3) ②" / "1 ③  2 ①  3 ②"
-- 헤더가 "빠른정답", "정답", "정답표" 등일 수도, **헤더 없이 표만** 있을 수도 있음
+답안표는 보통 이런 형태입니다 (자주 등장하는 패턴 순):
+
+**패턴 1 — `[정답]` 표기 (가장 흔함):**
+- "1) [정답] ②"  ← 객관식
+- "17) [정답] a=3, b=7, c=1"  ← 단답형 (변수+값 형식)
+- "18) [정답] 45, 75"  ← 단답형 (다답)
+- "19) [정답] 2√3"  ← 단답형 (수식)
+
+**패턴 2 — 간결 표기:**
+- "1. ③  2. ①  3. ②" / "1) ③  2) ①" / "1 ③  2 ①"
+
+**패턴 3 — 헤더 변형:**
+- "빠른정답", "정답표", "정답 및 해설" 헤더가 있을 수도, 없을 수도 있음
 
 ★ 헤더가 없어도 됩니다 — **번호 + 답이 짝지어진 패턴**만 보이면 추출.
-★ 풀이/해설은 무시하세요. 빠른정답 표가 우선.
+★ 풀이/해설 본문은 무시 — 답안표(또는 [정답] 표기)가 우선.
+★ 단답형이 다답("45, 75" / "a=3, b=7, c=1")이면 **그대로 콤마 포함해 추출**.
 
 문제번호 규칙:
-- 1, 2, 3 ... 그대로
+- 1, 2, 3, ..., 20 그대로
 - 소문제는 "1(1)", "1(2)" 형식
 - 단원/교시별로 번호가 초기화되더라도 그대로 유지
 
-답 형식 규칙:
-- 객관식(원형숫자 보기 ①②③④⑤): "①" "②" "③" "④" "⑤" 그대로 → type=mc
-- 단답형(빈칸·구하시오·수식): "3", "-5", "14", "2√3" 그대로 → type=short
+답 형식·유형 규칙:
+- 객관식 원형숫자 보기(①②③④⑤): 그대로 "①" "②" "③" "④" "⑤" → type=mc
+- 단답형 (숫자/수식/변수=값/콤마구분 다답): 그대로 "3", "-5", "14", "2√3", "a=3, b=7, c=1", "45, 75" → type=short
 - 숫자만 적혀 있으면 short, 원형숫자면 mc
 
 {hint_line}
@@ -580,8 +644,8 @@ async def _extract_tail_answer_table(
 **답안표가 전혀 안 보이면 빈 객체 반환**:
 {{"answers": {{}}, "types": {{}}, "total": 0}}
 
-답안표가 있으면 JSON 형식으로만 응답:
-{{"answers": {{"1": "③", "2": "12", ...}}, "types": {{"1": "mc", "2": "short", ...}}, "total": 문제수}}"""
+답안표가 있으면 JSON 형식으로만 응답 (다른 텍스트 X):
+{{"answers": {{"1": "③", "17": "a=3, b=7, c=1", "18": "45, 75", ...}}, "types": {{"1": "mc", "17": "short", "18": "short", ...}}, "total": 문제수}}"""
 
     parts = [prompt]
     for img_bytes in images:
