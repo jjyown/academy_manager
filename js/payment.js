@@ -417,12 +417,12 @@ function getExpenseRowsByMonth(monthKey) {
 }
 
 const EXPENSE_CATEGORY_ORDER = [
-    '임차료', '공과금', '통신비',
+    '임차료', '공과금', '통신비', '보험료', '렌탈료',
     '강사비', '인건비',
     '소모품', '교재비', '광고선전비', '수수료', '차량유지비', '복리후생비', '운영비',
     '비품', '세금공과', '기타'
 ];
-const FIXED_CATEGORY_SET = new Set(['임차료', '공과금', '통신비']);
+const FIXED_CATEGORY_SET = new Set(['임차료', '공과금', '통신비', '보험료', '렌탈료']);
 const PAYROLL_CATEGORY_SET = new Set(['강사비', '인건비']);
 
 function updateExpenseSummary(monthKey) {
