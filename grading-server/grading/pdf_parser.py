@@ -31,6 +31,79 @@ ANSWER_PAGE_KEYWORDS = [
 ]
 
 
+def _extract_simple_answer_table_from_text(text: str) -> dict | None:
+    """텍스트 레이어에서 명확한 답안표 패턴을 정규식으로 즉시 추출 (AI 불필요).
+
+    지원 패턴 (한 줄 단위 매칭):
+      - "1) [정답] ②"            ← 사용자 표준 양식
+      - "1) [정답] -3"
+      - "1. [정답] ③"
+      - "1번 정답: ②"
+      - "1: ③"  /  "1.③"  (compact, 보수적으로만 매칭)
+
+    답 형식:
+      - 원형숫자(①②③④⑤) → mc
+      - 그 외 토큰 (숫자/수식/콤마구분 다답) → short
+
+    임계값: 최소 3문항 이상 매칭 시에만 채택 (오탐 방지).
+    """
+    if not text:
+        return None
+
+    CIRCLE_NUMS = {"①", "②", "③", "④", "⑤"}
+
+    # 패턴별 정규식 — 한 번에 (문제번호, 정답토큰) 캡처
+    # 정답은 가능한 한 넓게 잡되, 공백/괄호/탭 등은 토큰 끝으로 처리
+    patterns = [
+        # "1) [정답] ②"  /  "1) [정답] -3"  /  "1) [정답] (1) 14 (2) -3"
+        r"^\s*(\d+)\s*[\)\.]\s*\[\s*정답\s*\]\s*(.+?)(?:\s*$)",
+        # "1번 정답: ②"  /  "1번 정답 ②"
+        r"^\s*(\d+)\s*번?\s*정답\s*[:：]?\s*(.+?)(?:\s*$)",
+        # "1. ③" (콤팩트, 보기 없이 답만)
+        r"^\s*(\d+)\s*[\)\.]\s*([①②③④⑤])\s*$",
+    ]
+
+    best: dict | None = None
+    for pat in patterns:
+        try:
+            matches = re.findall(pat, text, flags=re.MULTILINE)
+        except re.error:
+            continue
+        if len(matches) < 3:
+            continue
+        answers: dict[str, str] = {}
+        types: dict[str, str] = {}
+        for num, raw in matches:
+            q = str(num).strip()
+            ans = str(raw).strip()
+            # 답 정제: 후행 잡음(페이지표 등) 컷
+            ans = ans.split("\n")[0].strip()
+            # 너무 길면 잡음 — 60자 초과는 거름
+            if not ans or len(ans) > 60:
+                continue
+            # 콤마·공백·구두점만 있는 답은 PDF 텍스트 레이어가 수학 수식·숫자를
+            # 못 읽은 케이스 (예: "17) [정답] , , " ← 실제 답은 "5, 7, 13" 류).
+            # 이런 항목은 저장하지 않아 빈 답으로 채점·표시되는 혼란을 막는다.
+            ans_no_noise = re.sub(r"[\s,，·、ㆍ;:.]", "", ans)
+            if not ans_no_noise:
+                continue
+            answers[q] = ans
+            if any(c in ans for c in CIRCLE_NUMS) and len(ans) <= 3:
+                types[q] = "mc"
+            else:
+                types[q] = "short"
+        if len(answers) < 3:
+            continue
+        # 가장 많이 잡은 패턴 결과 채택
+        if best is None or len(answers) > len(best.get("answers", {})):
+            best = {"answers": answers, "types": types, "total": len(answers)}
+
+    if best:
+        logger.info(f"[FastPath] 텍스트 정규식으로 {best['total']}문제 즉시 추출")
+        return best
+    return None
+
+
 async def extract_answers_from_pdf(
     pdf_bytes: bytes,
     total_hint: int | None = None,
@@ -47,6 +120,21 @@ async def extract_answers_from_pdf(
         {"answers": {...}, "types": {...}, "total": int,
          "page_images": [{"page": 1, "image_bytes": bytes}, ...]}
     """
+    # 0차 fast path: 텍스트 레이어에 명확한 답안표 패턴이 있으면 정규식으로 즉시 추출
+    # AI 호출 없이 결정적·즉각적 — 사용자 표준 양식("1) [정답] ②") 100% 회수.
+    try:
+        text_for_fast = _extract_text_from_pdf(pdf_bytes, page_range)
+        fast = _extract_simple_answer_table_from_text(text_for_fast) if text_for_fast.strip() else None
+    except Exception as e:
+        logger.warning(f"[FastPath] 실패(무시): {e}")
+        fast = None
+
+    if fast:
+        # 정규식으로 답안표를 잡은 경우, 페이지 썸네일만 추가해 즉시 반환
+        page_images = _pdf_to_thumbnails(pdf_bytes)
+        fast["page_images"] = page_images
+        return fast
+
     primary = await _resolve_primary_engine()
     result = None
 
