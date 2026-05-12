@@ -23,6 +23,109 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/answer-keys", tags=["answer-keys"])
 
 
+# ============================================================
+# 문제 단위 통합 데이터 빌더 (Phase 1)
+#   해설지 제작 questionVisuals.ts 패턴 도입.
+#   answers_json + types + page_images 를 problem_no 기준으로 묶어
+#   채점·해설 노출·학생별 약점 분석을 위한 정형 배열을 만든다.
+# ============================================================
+def _build_problems_json(
+    answers: dict,
+    types: dict,
+    page_images: list,
+    pdf_bytes: bytes | None = None,
+) -> list:
+    """문제 단위 통합 데이터 배열 생성.
+
+    각 요소:
+      {"num": "1", "answer": "②", "type": "mc", "page": 1,
+       "image_url": "https://...", "explanation": ""}
+
+    Phase 1 — image_url 은 그 문제가 있는 페이지 이미지 URL (페이지 단위 재활용).
+    Phase 2 에서 문제별 영역 크롭 → 개별 이미지로 교체 예정.
+    explanation 은 아직 비어있음(Phase 4 에서 해설 페이지 추출 도입).
+
+    인자:
+      answers: {"1": "②", ...}
+      types:   {"1": "mc", ...}
+      page_images: [{"page": 1, "url": "..."}, ...]
+      pdf_bytes: PDF 원본 바이트 (제공되면 page 번호 추정에 활용; 미제공 시 None)
+
+    반환: 정렬된 list (문제 번호 오름차순)
+    """
+    if not answers:
+        return []
+
+    # page 번호 추정 — pdf_bytes 가 있으면 텍스트 레이어에서 문제 헤더 위치로 추정
+    num_to_page: dict[str, int] = {}
+    if pdf_bytes:
+        num_to_page = _estimate_problem_pages(pdf_bytes, list(answers.keys()))
+
+    # 페이지 번호 → image_url 매핑
+    page_to_url: dict[int, str] = {}
+    for item in (page_images or []):
+        try:
+            p = int(item.get("page", 0))
+            url = item.get("url") or ""
+            if p > 0 and url:
+                page_to_url[p] = url
+        except (TypeError, ValueError):
+            continue
+
+    problems: list[dict] = []
+    for num, ans in answers.items():
+        page = num_to_page.get(num)
+        problems.append({
+            "num": str(num),
+            "answer": str(ans),
+            "type": types.get(num, "short"),
+            "page": page,
+            "image_url": page_to_url.get(page, "") if page else "",
+            "explanation": "",  # Phase 4 — 해설 페이지 추출 후 채움
+        })
+
+    # 문제 번호 오름차순 정렬 (1, 2, ..., 10, 11; 소문제 1(1) 은 1 그룹 안에서)
+    def _sort_key(p):
+        raw = str(p.get("num", ""))
+        main = raw.split("(")[0]
+        try:
+            return (int(main), raw)
+        except (TypeError, ValueError):
+            return (10**6, raw)
+
+    problems.sort(key=_sort_key)
+    return problems
+
+
+def _estimate_problem_pages(pdf_bytes: bytes, problem_numbers: list[str]) -> dict[str, int]:
+    """PDF 텍스트 레이어에서 문제 번호 헤더 위치로 page 번호 추정.
+
+    각 문제 번호 N 에 대해 "\\nN." 또는 "\\nN)" 가 처음 등장하는 페이지를 찾음.
+    실패 시 해당 번호 미수록 (호출자는 fallback 으로 page=None 처리).
+    """
+    import fitz
+    result: dict[str, int] = {}
+    try:
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        try:
+            for page_idx, page in enumerate(doc):
+                text = page.get_text("text") or ""
+                if not text:
+                    continue
+                for num in problem_numbers:
+                    if num in result:
+                        continue
+                    main = num.split("(")[0]
+                    # "\nN." 또는 "\nN)" 패턴
+                    if f"\n{main}." in text or f"\n{main})" in text:
+                        result[num] = page_idx + 1  # 1-based
+        finally:
+            doc.close()
+    except Exception as e:
+        logger.warning(f"[_estimate_problem_pages] 실패(빈 매핑 반환): {e}")
+    return result
+
+
 @router.get("")
 async def list_answer_keys(teacher_id: str):
     keys = await get_answer_keys_by_teacher(teacher_id)
@@ -264,6 +367,16 @@ async def parse_answer_key(
     # drive_file_id: 폼에서 받은 값 우선, 없으면 방금 업로드한 PDF id
     effective_drive_file_id = drive_file_id or (pdf_drive_meta.get("id") if pdf_drive_meta else "")
 
+    # problems_json: 문제 단위 통합 데이터 (해설지 제작 questionVisuals 패턴).
+    # answers_json + question_types_json + (페이지 이미지 URL) 을 problem_no 기준으로 묶음.
+    # Phase 1 — 이미지는 페이지 단위 URL 재활용. Phase 2 에서 문제별 크롭 도입 예정.
+    problems_json = _build_problems_json(
+        answers=result.get("answers", {}),
+        types=result.get("types", {}),
+        page_images=page_images_json,
+        pdf_bytes=file_bytes if (file_ext == "pdf" and not is_exam_mode) else None,
+    )
+
     key_data = {
         "teacher_id": teacher_id,
         "title": title,
@@ -274,6 +387,7 @@ async def parse_answer_key(
         "answers_json": result.get("answers", {}),
         "question_types_json": result.get("types", {}),
         "page_images_json": page_images_json,
+        "problems_json": problems_json,
         "parsed": parsed_flag,
     }
     if source_type_norm in ("book", "custom", "manual", "exam"):
