@@ -584,13 +584,17 @@ window.invokeInvestigateSchoolCalendar = async function(school, file) {
  * @param {Array<{date:string, name:string, content?:string, kind?:string}>} events
  * @param {string} [sourceLabel] - 사용자가 보고 입력한 자료의 라벨 (파일명 등). 미지정 시 'manual'.
  */
-window.submitManualSchoolCalendarEvents = async function(school, events, sourceLabel) {
+window.submitManualSchoolCalendarEvents = async function(school, events, sourceLabel, options) {
     try {
         if (!school || !school.atpt || !school.code || !school.name) {
             if (typeof showToast === 'function') showToast('학교 정보가 부족합니다.', 'warning');
             return null;
         }
-        if (!Array.isArray(events) || events.length === 0) {
+        const opts = options || {};
+        const replaceForSchool = opts.replaceForSchool === true;
+        if (!Array.isArray(events)) events = [];
+        // replace 모드면 빈 events 도 허용 (= 학교 전체 일정 비우기). 일반 모드는 비어있으면 거부.
+        if (events.length === 0 && !replaceForSchool) {
             if (typeof showToast === 'function') showToast('입력된 일정이 없습니다.', 'warning');
             return null;
         }
@@ -605,6 +609,7 @@ window.submitManualSchoolCalendarEvents = async function(school, events, sourceL
                 mode: 'manual',
                 events,
                 sourceLabel: sourceLabel || 'manual',
+                replaceForSchool,
             },
             headers: { Authorization: 'Bearer ' + session.access_token }
         });
@@ -629,6 +634,43 @@ window.submitManualSchoolCalendarEvents = async function(school, events, sourceL
         console.error('[submitManualSchoolCalendarEvents]', e);
         if (typeof showToast === 'function') showToast('학사일정 저장 중 오류가 발생했습니다.', 'error');
         return null;
+    }
+};
+
+/**
+ * 한 학교의 모든 override 학사일정을 일자순으로 조회 (월 단위가 아닌 전체).
+ * 학사일정 직접입력 모달이 "현재 DB 상태" 를 사용자에게 보여주기 위해 사용.
+ *
+ * @param {string} atpt
+ * @param {string} code
+ * @returns {Promise<Array<{date:string, name:string, content:string, kind:string,
+ *   sourceUrl?:string, investigatedAt?:string}>>}
+ */
+window.fetchSchoolCalendarOverridesForSchool = async function(atpt, code) {
+    try {
+        if (!atpt || !code) return [];
+        const { data, error } = await supabase
+            .from('school_calendar_overrides')
+            .select('event_date, event_name, event_content, event_kind, source_url, investigated_at')
+            .eq('atpt', atpt)
+            .eq('school_code', code)
+            .order('event_date', { ascending: true })
+            .order('event_name', { ascending: true });
+        if (error) {
+            console.warn('[fetchSchoolCalendarOverridesForSchool]', error);
+            return [];
+        }
+        return (data || []).map((r) => ({
+            date: r.event_date,
+            name: r.event_name,
+            content: r.event_content || '',
+            kind: r.event_kind || 'event',
+            sourceUrl: r.source_url || '',
+            investigatedAt: r.investigated_at || '',
+        }));
+    } catch (e) {
+        console.warn('[fetchSchoolCalendarOverridesForSchool]', e);
+        return [];
     }
 };
 

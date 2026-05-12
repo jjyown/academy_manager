@@ -1366,11 +1366,26 @@
             return;
         }
         const events = _manualEntryState.events;
+        // existingLoaded 면 모달이 학교의 진실 — 빈 리스트도 의도된 "전체 삭제" 로 해석 가능.
+        // 단, 빈 상태로 저장은 사용자 확인 필요.
+        const existingLoaded = !!_manualEntryState.existingLoaded;
         if (events.length === 0) {
-            if (typeof window.showToast === 'function') {
-                window.showToast('추가된 일정이 없습니다. 한 건 이상 입력해주세요.', 'warning');
+            if (!existingLoaded) {
+                if (typeof window.showToast === 'function') {
+                    window.showToast('추가된 일정이 없습니다. 한 건 이상 입력해주세요.', 'warning');
+                }
+                return;
             }
-            return;
+            // 안전장치: 빈 상태 저장 = 학교 전체 일정 삭제. 사용자 확인.
+            const confirmFn = (typeof window.showConfirm === 'function') ? window.showConfirm : null;
+            const okMsg = `${_manualEntryState.school.name} 의 저장된 학사일정을 모두 삭제하시겠습니까?`;
+            let proceed = false;
+            if (confirmFn) {
+                proceed = await confirmFn(okMsg, { type: 'danger', title: '전체 삭제 확인', okText: '삭제' });
+            } else {
+                proceed = window.confirm(okMsg);
+            }
+            if (!proceed) return;
         }
         const saveBtn = document.getElementById('amec-save-btn');
         const originalHtml = saveBtn ? saveBtn.innerHTML : '';
@@ -1382,7 +1397,12 @@
         try {
             const school = _manualEntryState.school;
             const sourceLabel = (_manualEntryState.file && _manualEntryState.file.name) || 'manual';
-            const result = await window.submitManualSchoolCalendarEvents(school, events, sourceLabel);
+            // existingLoaded=true 면 replaceForSchool 모드 — DB 가 모달 상태와 정확히 일치하도록 갱신.
+            // existingLoaded=false (fetch 실패 등) 면 일반 upsert — 기존 DB 데이터 안전하게 보존.
+            const result = await window.submitManualSchoolCalendarEvents(
+                school, events, sourceLabel,
+                { replaceForSchool: existingLoaded }
+            );
             if (!result || !result.ok) {
                 if (saveBtn) { saveBtn.innerHTML = originalHtml; }
                 return;
@@ -1440,6 +1460,9 @@
             events: [],
             file: null,
             objectUrl: null,
+            // DB 로드 성공 시 true — 저장 시 replaceForSchool 모드 사용 가능 여부 판단.
+            // 로드 실패 시 false 로 두면 일반 upsert 모드라 모달 빈 상태로 저장해도 DB 안 지워짐.
+            existingLoaded: false,
         };
         // 모달 헤더·폼 초기화
         const schoolNameEl = document.getElementById('amec-school-name');
@@ -1465,13 +1488,50 @@
         _amecRenderList();
         _amecSetPreviewStatus(null);
         modal.style.display = 'flex';
-        // 모달 열 때 우선 클라우드 저장본 자동 로드 시도 → 없으면 파일 선택 다이얼로그 자동 오픈
+
+        // ── 모달 진입 시 비동기 부트스트랩 (병렬):
+        //    1) 클라우드 PDF 자동 로드 (있으면)
+        //    2) DB 에 저장된 기존 일정 fetch → events 목록에 채움
+        // 둘 다 끝나면 PDF 없으면 파일 picker, 일정 있으면 picker 안 띄움(사용자가 봤다는 의미로).
         setTimeout(async () => {
-            const loaded = await _amecTryAutoLoadFromStorage(school);
-            if (!loaded) {
+            const [loadedPdf] = await Promise.all([
+                _amecTryAutoLoadFromStorage(school),
+                _amecLoadExistingEvents(school),
+            ]);
+            const hasEvents = _manualEntryState && _manualEntryState.events.length > 0;
+            // PDF 없고 일정도 없으면 → 처음 작업하는 학교 → file picker 자동 오픈
+            if (!loadedPdf && !hasEvents) {
                 _amecPickFile();
             }
         }, 80);
+    }
+
+    /** DB 에서 해당 학교의 모든 override 일정을 fetch → 모달 목록에 채움.
+     *  성공하면 existingLoaded=true 로 마킹 (저장 시 replace 모드 안전하게 사용 가능). */
+    async function _amecLoadExistingEvents(school) {
+        if (!school || !_manualEntryState) return;
+        if (typeof window.fetchSchoolCalendarOverridesForSchool !== 'function') {
+            console.warn('[amec] fetchSchoolCalendarOverridesForSchool 헬퍼 없음');
+            return;
+        }
+        try {
+            const rows = await window.fetchSchoolCalendarOverridesForSchool(school.atpt, school.code);
+            if (!_manualEntryState) return; // 모달 이미 닫혔으면 무시
+            _manualEntryState.events = (rows || []).map((r) => ({
+                date: r.date,
+                name: r.name,
+                content: r.content || '',
+                kind: r.kind || 'event',
+            }));
+            _manualEntryState.existingLoaded = true;
+            _amecRenderList();
+            if ((rows || []).length > 0 && typeof window.showToast === 'function') {
+                window.showToast(`${school.name}: 저장된 일정 ${rows.length}건 불러옴`, 'info');
+            }
+        } catch (e) {
+            console.warn('[amec] _amecLoadExistingEvents 실패:', e);
+            _manualEntryState.existingLoaded = false;
+        }
     }
 
     async function _runUploadFromButton(btn, modal) {

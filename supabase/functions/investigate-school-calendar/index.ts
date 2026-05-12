@@ -597,6 +597,9 @@ serve(async (req: Request) => {
             events?: Array<{ date?: string; name?: string; content?: string; kind?: string }>;
             mode?: "manual" | "auto";
             sourceLabel?: string;
+            // manual 모드 한정: true 면 해당 학교 기존 모든 행 삭제 후 events 로 교체.
+            // 모달이 "현재 학교의 진실" 을 표현하므로 모달에서 삭제한 일정이 DB 에서도 빠짐.
+            replaceForSchool?: boolean;
         };
         const school = body.school || {};
         const atpt = String(school.atpt || "").trim();
@@ -615,7 +618,11 @@ serve(async (req: Request) => {
         let strategy = "";
         let noteOnEmpty = "";
 
-        const isManualMode = body.mode === "manual" || (Array.isArray(body.events) && body.events.length > 0);
+        // manual 모드 판정: explicit mode='manual' OR events 배열이 있으면 manual.
+        // replaceForSchool 만 단독으로 와도(빈 events 로 학교 데이터 전체 삭제) manual 로 본다.
+        const isManualMode = body.mode === "manual"
+            || Array.isArray(body.events)
+            || body.replaceForSchool === true;
 
         if (isManualMode) {
             // ── 5-Z) 사용자가 모달에서 직접 입력한 events 배열을 그대로 upsert ──
@@ -705,25 +712,51 @@ serve(async (req: Request) => {
                     : "학사일정으로 추출할 만한 정보가 없었습니다. PDF/이미지 직접 업로드 버튼으로 다시 시도해보세요.";
         }
 
+        // 5-1. DB 업서트 (service role)
+        const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+        let deletedCount = 0;
+        // replaceForSchool: manual 모드에서만 동작. 학교의 모든 기존 행을 삭제한 뒤 insert.
+        // 모달이 "현재 학교의 진실" 을 표현 — 모달에서 삭제한 일정이 DB 에서도 빠짐.
+        if (body.replaceForSchool === true && isManualMode) {
+            const { data: delData, error: delErr } = await admin
+                .from("school_calendar_overrides")
+                .delete()
+                .eq("atpt", atpt)
+                .eq("school_code", code)
+                .select("id");
+            if (delErr) {
+                console.error("[investigate-school-calendar] replace delete err", delErr);
+                return new Response(JSON.stringify({
+                    ok: false, error: "db_delete_failed", detail: delErr.message,
+                }), {
+                    status: 200,
+                    headers: { ...corsHeaders, "Content-Type": "application/json" },
+                });
+            }
+            deletedCount = delData?.length || 0;
+        }
+
+        // events 가 비어있으면 (replace 모드의 빈 events = 학교 데이터 전체 삭제) 여기서 종료
         if (events.length === 0) {
             return new Response(JSON.stringify({
                 ok: true,
                 schoolName: name,
                 inserted: 0,
                 updated: 0,
+                deleted: deletedCount,
                 total: 0,
                 events: [],
                 sourceUrls,
                 strategy,
-                note: noteOnEmpty,
+                note: deletedCount > 0
+                    ? `${deletedCount}건의 기존 일정을 모두 삭제했습니다.`
+                    : noteOnEmpty,
             }), {
                 status: 200,
                 headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
         }
 
-        // 5-1. DB 업서트 (service role)
-        const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
         const sourceUrl = sourceUrls[0] || "";
         const rows = events.map((ev) => ({
             atpt,
@@ -738,7 +771,8 @@ serve(async (req: Request) => {
             investigated_at: new Date().toISOString(),
         }));
 
-        // upsert: 동일 (atpt, code, date, name) 충돌 시 content/source/시간만 갱신
+        // upsert: 동일 (atpt, code, date, name) 충돌 시 content/source/시간만 갱신.
+        // replaceForSchool 케이스는 이미 위에서 DELETE 했으므로 사실상 INSERT 동작.
         const { data, error } = await admin
             .from("school_calendar_overrides")
             .upsert(rows, {
@@ -761,6 +795,7 @@ serve(async (req: Request) => {
             ok: true,
             schoolName: name,
             inserted: data?.length ?? rows.length,
+            deleted: deletedCount,
             total: rows.length,
             events,
             sourceUrls,
