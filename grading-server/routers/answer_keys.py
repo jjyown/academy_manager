@@ -437,6 +437,141 @@ async def drive_diagnose():
     return result
 
 
+@router.get("/vision-diagnose/{key_id}")
+async def vision_diagnose(key_id: int):
+    """특정 answer_key 의 PDF 마지막 페이지에 Gemini Vision 직접 호출 → 원본 응답 그대로 반환.
+
+    배경: per-page Vision 보강이 0건 반환하는 경우, 코드의 어디서 끊기는지 확인 불가.
+    이 엔드포인트가 Vision 호출 자체와 응답을 그대로 보여줘서 진짜 원인 식별.
+
+    체크 항목:
+      - Drive 에서 PDF 다운로드 성공 여부
+      - PDF → 이미지 변환 성공
+      - Gemini API 호출 성공·실패
+      - 응답 텍스트 원문 (앞 2000자)
+      - JSON 파싱 가능 여부
+    """
+    import base64
+    import traceback
+    from config import GEMINI_API_KEY, GEMINI_MODEL
+    from grading.pdf_parser import _pdf_to_images, _get_total_pages
+    from ocr.engines import _robust_json_parse
+
+    result = {
+        "key_id": key_id,
+        "step_db_lookup": None,
+        "step_drive_download": None,
+        "step_pdf_to_image": None,
+        "step_gemini_call": None,
+        "step_json_parse": None,
+        "gemini_model": GEMINI_MODEL,
+        "errors": [],
+    }
+
+    # 1) DB row 조회
+    try:
+        sb = get_supabase()
+        row_res = await run_query(
+            sb.table("answer_keys").select("drive_file_id, title").eq("id", key_id).limit(1).execute
+        )
+        if not row_res.data:
+            result["errors"].append(f"row id={key_id} not found")
+            return result
+        row = row_res.data[0]
+        drive_file_id = (row.get("drive_file_id") or "").strip()
+        title = row.get("title")
+        result["step_db_lookup"] = True
+        result["title"] = title
+        result["drive_file_id"] = drive_file_id
+        if not drive_file_id:
+            result["errors"].append("drive_file_id 비어있음 — Drive 저장 안 된 row")
+            return result
+    except Exception as e:
+        result["step_db_lookup"] = False
+        result["errors"].append(f"DB 조회 예외: {e}")
+        return result
+
+    # 2) Drive 다운로드
+    try:
+        central_token = await get_central_admin_token()
+        if not central_token:
+            result["step_drive_download"] = False
+            result["errors"].append("Drive admin token 없음")
+            return result
+        pdf_bytes = download_file_central(central_token, drive_file_id)
+        if not pdf_bytes:
+            result["step_drive_download"] = False
+            result["errors"].append("Drive 다운로드 결과 비어있음")
+            return result
+        result["step_drive_download"] = True
+        result["pdf_size_kb"] = len(pdf_bytes) // 1024
+    except Exception as e:
+        result["step_drive_download"] = False
+        result["errors"].append(f"Drive 다운로드 예외: {e}")
+        return result
+
+    # 3) PDF → 마지막 페이지 이미지
+    try:
+        total_pages = _get_total_pages(pdf_bytes)
+        result["total_pages"] = total_pages
+        last_page_idx = max(0, total_pages - 1)
+        images = _pdf_to_images(pdf_bytes, page_indices=[last_page_idx])
+        if not images:
+            result["step_pdf_to_image"] = False
+            result["errors"].append("이미지 변환 결과 비어있음")
+            return result
+        result["step_pdf_to_image"] = True
+        result["page_used"] = last_page_idx + 1
+        result["image_size_kb"] = len(images[0]) // 1024
+    except Exception as e:
+        result["step_pdf_to_image"] = False
+        result["errors"].append(f"이미지 변환 예외: {e}\n{traceback.format_exc()[:500]}")
+        return result
+
+    # 4) Gemini Vision 호출
+    try:
+        import google.generativeai as genai
+        genai.configure(api_key=GEMINI_API_KEY)
+        model = genai.GenerativeModel(GEMINI_MODEL)
+
+        prompt = """이 이미지에서 "N) [정답] X" 패턴을 모두 찾아 JSON 으로 반환하세요.
+
+예시:
+- "1) [정답] ②"            → {"num": "1", "ans": "②", "type": "mc"}
+- "17) [정답] a=3, b=7, c=1" → {"num": "17", "ans": "a=3, b=7, c=1", "type": "short"}
+- "18) [정답] 45, 75"       → {"num": "18", "ans": "45, 75", "type": "short"}
+
+JSON 만 출력 (다른 텍스트 X):
+{"items": [{"num": "1", "ans": "②", "type": "mc"}, ...]}"""
+
+        b64 = base64.b64encode(images[0]).decode("utf-8")
+        parts = [prompt, {"mime_type": "image/jpeg", "data": b64}]
+
+        response = model.generate_content(parts)
+        raw_text = (response.text or "").strip()
+        result["step_gemini_call"] = True
+        result["gemini_response_raw"] = raw_text[:2000]
+        result["gemini_response_length"] = len(raw_text)
+    except Exception as e:
+        result["step_gemini_call"] = False
+        result["errors"].append(f"Gemini 호출 예외: {e}\n{traceback.format_exc()[:1500]}")
+        return result
+
+    # 5) JSON 파싱
+    try:
+        parsed = _robust_json_parse(raw_text)
+        result["step_json_parse"] = parsed is not None
+        if parsed:
+            items = parsed.get("items") if isinstance(parsed, dict) else None
+            result["parsed_items_count"] = len(items) if isinstance(items, list) else None
+            result["parsed_sample"] = items[:5] if isinstance(items, list) else None
+    except Exception as e:
+        result["step_json_parse"] = False
+        result["errors"].append(f"JSON 파싱 예외: {e}")
+
+    return result
+
+
 @router.get("/drive-pdfs")
 async def list_drive_pdfs():
     central_token = await get_central_admin_token()
