@@ -1004,6 +1004,7 @@
                                 <i class="fas fa-folder-open"></i> 다른 파일
                             </button>
                         </div>
+                        <div id="amec-preview-status" class="amec-preview-status"></div>
                         <div class="amec-preview-content" id="amec-preview-content">
                             <div class="amec-preview-empty">
                                 <i class="fas fa-file-import" aria-hidden="true"></i>
@@ -1089,7 +1090,7 @@
         input.accept = UPLOAD_ACCEPT;
         input.style.display = 'none';
         document.body.appendChild(input);
-        input.onchange = () => {
+        input.onchange = async () => {
             const file = input.files && input.files[0];
             document.body.removeChild(input);
             if (!file) return;
@@ -1102,9 +1103,81 @@
                 }
                 return;
             }
+            // 1) 즉시 로컬 미리보기 (UX 빠름)
             _amecLoadPreview(file);
+            // 2) 백그라운드로 Storage 업로드 → 다음 세션에 자동 로드되게
+            if (_manualEntryState && _manualEntryState.school
+                && typeof window.uploadSchoolCalendarFile === 'function') {
+                const school = _manualEntryState.school;
+                _amecSetPreviewStatus('upload', '클라우드에 업로드 중...');
+                try {
+                    const res = await window.uploadSchoolCalendarFile(school, file);
+                    if (res && res.ok) {
+                        _amecSetPreviewStatus('ok', `클라우드 저장 완료 — 다음 세션부터 자동 로드`);
+                        if (typeof window.showToast === 'function') {
+                            window.showToast(`${file.name} 클라우드 저장 완료`, 'success');
+                        }
+                    } else {
+                        _amecSetPreviewStatus('warn', '클라우드 업로드 실패 — 이번 세션만 사용 가능');
+                    }
+                } catch (e) {
+                    console.warn('[amec] upload err', e);
+                    _amecSetPreviewStatus('warn', '클라우드 업로드 실패');
+                }
+            }
         };
         input.click();
+    }
+
+    /** 미리보기 영역 상단의 상태 라벨 갱신. type: 'ok' | 'warn' | 'upload' | 'info' */
+    function _amecSetPreviewStatus(type, text) {
+        const el = document.getElementById('amec-preview-status');
+        if (!el) return;
+        if (!text) { el.textContent = ''; el.className = 'amec-preview-status'; return; }
+        el.textContent = text;
+        el.className = `amec-preview-status amec-preview-status-${type || 'info'}`;
+    }
+
+    /** Storage 에 저장된 파일을 fetch → Blob → ObjectURL 로 미리보기 */
+    async function _amecTryAutoLoadFromStorage(school) {
+        if (!school || typeof window.fetchSchoolCalendarFile !== 'function') return false;
+        try {
+            _amecSetPreviewStatus('info', '클라우드에 저장된 파일 확인 중...');
+            const meta = await window.fetchSchoolCalendarFile(school.atpt, school.code);
+            if (!meta || !meta.url) {
+                _amecSetPreviewStatus('info', '저장된 파일 없음 — 파일을 선택해주세요');
+                return false;
+            }
+            // Signed URL 로 직접 iframe/img src 설정 (Blob 변환 불필요)
+            if (!_manualEntryState) return false;
+            // ObjectURL 미사용 (서명 URL 1시간 유효)
+            if (_manualEntryState.objectUrl) {
+                try { URL.revokeObjectURL(_manualEntryState.objectUrl); } catch (e) {}
+                _manualEntryState.objectUrl = null;
+            }
+            _manualEntryState.file = { name: meta.fileName, type: meta.mimeType, size: meta.size };
+            _manualEntryState.cloudUrl = meta.url;
+            const fnEl = document.getElementById('amec-file-name');
+            if (fnEl) fnEl.textContent = meta.fileName;
+            const content = document.getElementById('amec-preview-content');
+            if (content) {
+                const mt = String(meta.mimeType || '').toLowerCase();
+                if (mt === 'application/pdf') {
+                    content.innerHTML = `<iframe class="amec-preview-iframe" src="${meta.url}#zoom=page-fit" title="학사일정 PDF 미리보기"></iframe>`;
+                } else if (mt.startsWith('image/')) {
+                    content.innerHTML = `<img class="amec-preview-img" src="${meta.url}" alt="학사일정 이미지 미리보기">`;
+                } else {
+                    content.innerHTML = `<div class="amec-preview-empty"><i class="fas fa-file"></i><div>이 파일 형식은 미리보기가 어렵습니다.</div></div>`;
+                }
+            }
+            const uploadedAt = meta.uploadedAt ? new Date(meta.uploadedAt).toLocaleString('ko-KR') : '';
+            _amecSetPreviewStatus('ok', `클라우드에서 로드됨${uploadedAt ? ' · ' + uploadedAt : ''}`);
+            return true;
+        } catch (e) {
+            console.warn('[amec] auto load err', e);
+            _amecSetPreviewStatus('warn', '저장된 파일 로드 실패');
+            return false;
+        }
     }
 
     function _amecLoadPreview(file) {
@@ -1390,9 +1463,15 @@
         const kindEl = document.getElementById('amec-input-kind');
         if (kindEl) kindEl.value = 'event';
         _amecRenderList();
+        _amecSetPreviewStatus(null);
         modal.style.display = 'flex';
-        // 파일 선택 다이얼로그 자동 열기 — 사용자가 PDF 부터 선택하는 흐름
-        setTimeout(() => _amecPickFile(), 80);
+        // 모달 열 때 우선 클라우드 저장본 자동 로드 시도 → 없으면 파일 선택 다이얼로그 자동 오픈
+        setTimeout(async () => {
+            const loaded = await _amecTryAutoLoadFromStorage(school);
+            if (!loaded) {
+                _amecPickFile();
+            }
+        }, 80);
     }
 
     async function _runUploadFromButton(btn, modal) {

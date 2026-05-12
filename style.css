@@ -1773,6 +1773,26 @@ textarea:focus:not(:focus-visible) {
     transition: all 0.15s ease;
 }
 .amec-pick-btn:hover { background: #14b8a6; color: #fff; }
+/* 클라우드 저장 상태 라인 — 헤더 바로 아래, 작은 글씨로 */
+.amec-preview-status {
+    padding: 0 14px;
+    min-height: 0;
+    font-size: 11px;
+    line-height: 1.4;
+    color: #94a3b8;
+    background: #0b1220;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    transition: padding 0.15s, min-height 0.15s;
+    overflow: hidden;
+}
+.amec-preview-status:not(:empty) {
+    padding: 7px 14px;
+    min-height: 22px;
+}
+.amec-preview-status-ok { color: #6ee7b7; }
+.amec-preview-status-warn { color: #fcd34d; }
+.amec-preview-status-upload { color: #93c5fd; }
+.amec-preview-status-info { color: #cbd5e1; }
 .amec-preview-content {
     flex: 1; min-height: 0;
     display: flex; align-items: center; justify-content: center;
