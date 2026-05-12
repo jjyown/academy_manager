@@ -1016,7 +1016,11 @@
                             <i class="fas fa-pen-to-square"></i> 일정 추가
                         </div>
                         <div class="amec-form-row">
-                            <input type="date" id="amec-input-date" class="amec-input amec-input-date">
+                            <input type="date" id="amec-input-date" class="amec-input amec-input-date"
+                                aria-label="시작일">
+                            <span class="amec-range-sep">~</span>
+                            <input type="date" id="amec-input-end-date" class="amec-input amec-input-date"
+                                aria-label="종료일 (선택, 기간일정용)" title="종료일 비워두면 단일 일정">
                             <select id="amec-input-kind" class="amec-input amec-input-kind">
                                 <option value="exam">시험</option>
                                 <option value="vacation">방학</option>
@@ -1034,6 +1038,11 @@
                             <button type="button" class="amec-add-btn" id="amec-add-btn">
                                 <i class="fas fa-plus"></i> 추가
                             </button>
+                        </div>
+                        <div class="amec-form-hint">
+                            <i class="fas fa-circle-info"></i>
+                            <span>종료일을 입력하면 기간 전체에 일정 자동 생성.
+                                <strong>방학 7일 이상</strong>은 시작·종료일만 자동 입력됩니다.</span>
                         </div>
                         <div class="amec-section-title amec-section-title-list">
                             <i class="fas fa-list-check"></i> 입력한 일정
@@ -1121,18 +1130,56 @@
         }
     }
 
+    /** 'YYYY-MM-DD' 문자열을 로컬 Date 로 변환 (UTC 오프셋 영향 없는 정오 기준) */
+    function _parseYmd(s) {
+        const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s || ''));
+        if (!m) return null;
+        return new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10), 12, 0, 0);
+    }
+    function _fmtYmd(d) {
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${dd}`;
+    }
+    /** 시작·종료일 + 종류 → 펼친 날짜 배열.
+     *   방학(vacation) + 7일 이상 = 시작·종료 2건 (name 에 '시작'/'종료' 자동 부착)
+     *   그 외 = 모든 날짜 펼침. */
+    function _expandDateRange(startDate, endDate, kind) {
+        const s = _parseYmd(startDate);
+        const e = endDate ? _parseYmd(endDate) : s;
+        if (!s || !e) return [];
+        if (e < s) return [];
+        const dayMs = 24 * 60 * 60 * 1000;
+        const days = Math.round((e - s) / dayMs) + 1;
+        const dates = [];
+        if (kind === 'vacation' && days >= 7) {
+            // 긴 방학은 시작·종료만 — 추가/저장 시 _expandRangeEvents 가 name 보정
+            dates.push({ date: _fmtYmd(s), suffix: ' 시작' });
+            dates.push({ date: _fmtYmd(e), suffix: ' 종료' });
+        } else {
+            for (let i = 0; i < days; i++) {
+                const d = new Date(s.getTime() + i * dayMs);
+                dates.push({ date: _fmtYmd(d), suffix: '' });
+            }
+        }
+        return dates;
+    }
+
     function _amecAddEvent() {
         if (!_manualEntryState) return;
         const dateEl = document.getElementById('amec-input-date');
+        const endDateEl = document.getElementById('amec-input-end-date');
         const nameEl = document.getElementById('amec-input-name');
         const kindEl = document.getElementById('amec-input-kind');
         const contentEl = document.getElementById('amec-input-content');
-        const date = (dateEl && dateEl.value || '').trim();
+        const startDate = (dateEl && dateEl.value || '').trim();
+        const endDate = (endDateEl && endDateEl.value || '').trim();
         const name = (nameEl && nameEl.value || '').trim();
         const kind = (kindEl && kindEl.value || 'event').trim();
         const content = (contentEl && contentEl.value || '').trim();
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-            if (typeof window.showToast === 'function') window.showToast('날짜를 선택해주세요.', 'warning');
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
+            if (typeof window.showToast === 'function') window.showToast('시작일을 선택해주세요.', 'warning');
             if (dateEl) dateEl.focus();
             return;
         }
@@ -1141,19 +1188,58 @@
             if (nameEl) nameEl.focus();
             return;
         }
-        // (date, name) 중복 방지
-        const dup = _manualEntryState.events.find((e) => e.date === date && e.name === name);
-        if (dup) {
-            if (typeof window.showToast === 'function') window.showToast('이미 추가된 일정입니다.', 'warning');
+        // 종료일 유효성
+        if (endDate && !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+            if (typeof window.showToast === 'function') window.showToast('종료일 형식이 올바르지 않습니다.', 'warning');
             return;
         }
-        _manualEntryState.events.push({ date, name, kind, content });
+        if (endDate && endDate < startDate) {
+            if (typeof window.showToast === 'function') window.showToast('종료일이 시작일보다 빠릅니다.', 'warning');
+            if (endDateEl) endDateEl.focus();
+            return;
+        }
+        // 펼치기
+        const expanded = _expandDateRange(startDate, endDate, kind);
+        if (expanded.length === 0) {
+            if (typeof window.showToast === 'function') window.showToast('유효한 날짜 범위가 아닙니다.', 'warning');
+            return;
+        }
+        // 안전 캡 — 1년 이상 펼치면 안내 후 잘라냄
+        const SAFE_CAP = 366;
+        let cappedNote = '';
+        let safeList = expanded;
+        if (safeList.length > SAFE_CAP) {
+            safeList = safeList.slice(0, SAFE_CAP);
+            cappedNote = ` (366일 초과분 제외)`;
+        }
+        // 중복 제거 + 추가
+        let added = 0, skipped = 0;
+        safeList.forEach(({ date, suffix }) => {
+            const finalName = (name + (suffix || '')).slice(0, 80);
+            const dup = _manualEntryState.events.find((e) => e.date === date && e.name === finalName);
+            if (dup) { skipped++; return; }
+            _manualEntryState.events.push({ date, name: finalName, kind, content });
+            added++;
+        });
         // 날짜 오름차순 정렬 (보기 편함)
         _manualEntryState.events.sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name));
         _amecRenderList();
-        // 다음 입력 편의: 행사명·상세만 비우고 날짜·종류는 유지
+        // 사용자 피드백
+        if (typeof window.showToast === 'function') {
+            if (added === 0) {
+                window.showToast('이미 추가된 일정입니다.', 'warning');
+            } else if (added > 1) {
+                const range = endDate ? `${startDate} ~ ${endDate}` : startDate;
+                window.showToast(
+                    `${range} 기간 ${added}건 추가${skipped ? ` · ${skipped}건 중복 건너뜀` : ''}${cappedNote}`,
+                    'success'
+                );
+            }
+        }
+        // 다음 입력 편의: 행사명·상세·종료일 비우고 시작일·종류는 유지
         if (nameEl) nameEl.value = '';
         if (contentEl) contentEl.value = '';
+        if (endDateEl) endDateEl.value = '';
         if (nameEl) nameEl.focus();
     }
 
@@ -1297,7 +1383,7 @@
                 <div>학사일정 PDF / 이미지를 선택하면<br>여기에 미리보기가 나타납니다.</div>
             </div>`;
         }
-        ['amec-input-date', 'amec-input-name', 'amec-input-content'].forEach((id) => {
+        ['amec-input-date', 'amec-input-end-date', 'amec-input-name', 'amec-input-content'].forEach((id) => {
             const el = document.getElementById(id);
             if (el) el.value = '';
         });

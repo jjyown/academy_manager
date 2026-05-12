@@ -1835,8 +1835,31 @@ textarea:focus:not(:focus-visible) {
     font-family: inherit;
 }
 .amec-input:focus { outline: none; border-color: #6366f1; box-shadow: 0 0 0 2px rgba(99,102,241,0.18); }
-.amec-input-date { flex: 0 0 150px; }
-.amec-input-kind { flex: 0 0 110px; }
+.amec-input-date { flex: 0 0 138px; }
+.amec-input-kind { flex: 0 0 88px; }
+/* 기간 입력 — 시작일 ~ 종료일 사이 구분자 */
+.amec-range-sep {
+    flex: 0 0 auto;
+    align-self: center;
+    color: var(--text-sec, #94a3b8);
+    font-weight: 700;
+    font-size: 14px;
+    padding: 0 1px;
+}
+/* 기간 안내 힌트 */
+.amec-form-hint {
+    display: flex; align-items: flex-start; gap: 6px;
+    margin: 2px 0 10px;
+    padding: 7px 10px;
+    background: rgba(99,102,241,0.06);
+    border: 1px solid rgba(99,102,241,0.18);
+    border-radius: 6px;
+    color: #4338ca;
+    font-size: 11px;
+    line-height: 1.5;
+}
+.amec-form-hint i { color: #6366f1; margin-top: 2px; font-size: 10px; flex-shrink: 0; }
+.amec-form-hint strong { font-weight: 700; }
 .amec-add-btn {
     flex: 0 0 auto;
     padding: 7px 14px;
