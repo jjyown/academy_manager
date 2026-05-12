@@ -10091,6 +10091,51 @@ body.pay-tax-mode-exempt .pay-vat-only { display: none !important; }
     border-color: #6366f1 !important;
 }
 
+.pay-billing-start-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+    padding: 8px 10px;
+    border-top: 1px dashed var(--border);
+    flex-wrap: wrap;
+    font-size: 12px;
+}
+.pay-billing-start-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 700;
+    color: #475569;
+    cursor: help;
+}
+.pay-billing-start-label i { color: #6366f1; }
+.pay-billing-start-input {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 12px;
+    color: #1e293b;
+    background: #fff;
+    min-width: 130px;
+}
+.pay-billing-start-input:hover { border-color: #6366f1; }
+.pay-billing-start-hint {
+    color: #94a3b8;
+    font-size: 11px;
+}
+.pay-billing-start-reset {
+    background: #fff;
+    color: #ef4444;
+    border: 1px solid #fecaca;
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+}
+.pay-billing-start-reset:hover { background: #fef2f2; border-color: #f87171; }
+
 .pay-expense-categories {
     display: flex;
     flex-wrap: wrap;
