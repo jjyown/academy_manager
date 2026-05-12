@@ -791,6 +791,244 @@ async def _extract_tail_answer_table(
         return None
 
 
+def crop_problems_from_pdf(
+    pdf_bytes: bytes,
+    problem_numbers: list[str],
+    dpi: int = 220,
+) -> list[dict]:
+    """PDF 페이지에서 각 문제 영역을 자동 검출 + 크롭 (해설지 제작 questionVisuals 패턴).
+
+    동작:
+      1) 각 페이지에서 fitz.Page.search_for 로 문제 번호 헤더("N." / "N)") bbox 검출
+      2) 페이지 내 헤더들을 y 좌표 오름차순 정렬
+      3) 문제 N 영역 = [헤더 y0] ~ [다음 헤더 y0] (또는 페이지 끝)
+      4) 그 영역만 220 DPI JPEG 으로 렌더링
+
+    반환: [{"num": "1", "image_bytes": b"...", "page_num": 1}, ...]
+    """
+    if not problem_numbers:
+        return []
+    # 메인 번호만 추출 (소문제 1(1) 은 main=1 그룹)
+    main_nums = sorted(set(
+        n.split("(")[0] for n in problem_numbers if n.split("(")[0].isdigit()
+    ), key=lambda s: int(s))
+    if not main_nums:
+        return []
+
+    from PIL import Image
+    HEADER_RE = re.compile(r"^\s*(\d+)\s*[\)\.]")
+    main_set = set(main_nums)
+    crops: list[dict] = []
+    seen_global: set = set()  # 한 num 은 PDF 전체에서 첫 헤더 한 번만 사용
+    try:
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        try:
+            for page_idx in range(len(doc)):
+                page = doc[page_idx]
+                # 페이지를 텍스트 블록으로 분해 후, 블록 내 어느 라인이든 "N." 또는 "N)"
+                # 패턴으로 시작하면 그 라인의 bbox 를 헤더로 인정.
+                # 블록 단위 + 라인 단위 양쪽을 동시에 보기 위해 dict 모드 사용.
+                headers: list[tuple[str, "fitz.Rect"]] = []
+                try:
+                    page_dict = page.get_text("dict")
+                except Exception:
+                    page_dict = {"blocks": []}
+
+                def _try_match_text_to_header(text: str, bbox):
+                    if not text or not bbox or len(bbox) < 4:
+                        return None
+                    m = HEADER_RE.match(text)
+                    if not m:
+                        return None
+                    num = m.group(1)
+                    if num not in main_set or num in seen_global:
+                        return None
+                    return num, fitz.Rect(*bbox)
+
+                for blk in page_dict.get("blocks", []):
+                    if blk.get("type") != 0:
+                        continue
+                    # 블록 첫 라인 시도
+                    lines = blk.get("lines", [])
+                    if not lines:
+                        continue
+                    first_line = lines[0]
+                    first_text = "".join(s.get("text", "") for s in first_line.get("spans", []))
+                    result_match = _try_match_text_to_header(first_text, blk.get("bbox"))
+                    if result_match:
+                        num, rect = result_match
+                        headers.append((num, rect))
+                        seen_global.add(num)
+                        continue
+                    # 폴백: 블록 내 다른 라인이 헤더 패턴인 경우
+                    for line in lines:
+                        line_text = "".join(s.get("text", "") for s in line.get("spans", []))
+                        result_match = _try_match_text_to_header(line_text, line.get("bbox"))
+                        if result_match:
+                            num, rect = result_match
+                            headers.append((num, rect))
+                            seen_global.add(num)
+                            break  # 한 블록에 같은 헤더 여러 번 매칭 방지
+
+                if not headers:
+                    continue
+
+                # 동일 페이지에 같은 번호가 여러 곳에 나오는 경우(보기 안 등) 거름:
+                # y0 오름차순 정렬 + 중복 num 시 최상단 1개만
+                headers.sort(key=lambda x: x[1].y0)
+                seen: set = set()
+                deduped: list[tuple[str, "fitz.Rect"]] = []
+                for num, rect in headers:
+                    if num in seen:
+                        continue
+                    seen.add(num)
+                    deduped.append((num, rect))
+                deduped.sort(key=lambda x: x[1].y0)
+
+                page_rect = page.rect
+                mat = fitz.Matrix(dpi / 72, dpi / 72)
+
+                for i, (num, rect) in enumerate(deduped):
+                    top = max(page_rect.y0, rect.y0 - 6)  # 위 여유 6pt
+                    if i + 1 < len(deduped):
+                        bottom = min(page_rect.y1, deduped[i + 1][1].y0 - 4)
+                    else:
+                        bottom = page_rect.y1
+                    if bottom - top < 20:  # 너무 작은 영역은 skip (잘못된 매칭)
+                        continue
+                    clip = fitz.Rect(page_rect.x0, top, page_rect.x1, bottom)
+                    try:
+                        pix = page.get_pixmap(matrix=mat, clip=clip)
+                        img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                        buf = io.BytesIO()
+                        img.save(buf, format="JPEG", quality=82)
+                        crops.append({
+                            "num": num,
+                            "image_bytes": buf.getvalue(),
+                            "page_num": page_idx + 1,
+                        })
+                    except Exception as e:
+                        logger.warning(f"[Crop] page {page_idx+1} 문제 {num} 영역 렌더 실패: {e}")
+        finally:
+            doc.close()
+    except Exception as e:
+        logger.warning(f"[Crop] 전체 실패(빈 리스트 반환): {e}")
+        return []
+
+    logger.info(f"[Crop] 총 {len(crops)} 문제 영역 크롭 완료")
+    return crops
+
+
+# ============================================================
+# 해설 페이지 추출 (Phase 4)
+# ============================================================
+EXPLANATION_PROBLEM_PATTERNS = [
+    # "1. 답 ... 해설:" / "1) ... [해설]" 처럼 답 라벨 뒤에 풀이가 오는 형태
+    r"(?:^|\n)\s*(\d+)\s*[\)\.]\s*(?:\[?해설\]?[:：]?|풀이[:：]?)\s*(.+?)(?=(?:\n\s*\d+\s*[\)\.])|$)",
+    # "[1] 해설" 형태
+    r"(?:^|\n)\s*\[\s*(\d+)\s*\]\s*(?:해설|풀이)[:：]?\s*(.+?)(?=(?:\n\s*\[\s*\d+\s*\])|$)",
+    # 가장 일반적: 문제 번호로 시작하고 다음 번호 전까지 모두 해설로 간주
+    r"(?:^|\n)\s*(\d+)\s*[\)\.]\s*(.+?)(?=(?:\n\s*\d+\s*[\)\.])|$)",
+]
+
+
+def extract_explanations_from_pdf_text(pdf_bytes: bytes) -> dict:
+    """해설 페이지가 있으면 각 문제번호의 해설 텍스트 추출.
+
+    동작:
+      1) _find_answer_page_indices 의 해설 시작 페이지(explanation_start)부터
+      2) 그 페이지들의 텍스트 추출
+      3) 위 정규식으로 "번호 + 해설 본문" 매칭, 가장 많이 잡힌 패턴 채택
+      4) 깨진 글리프 답은 제외
+
+    반환: {"1": "해설 본문...", "2": "...", ...}  (해설 없으면 빈 dict)
+    """
+    if not pdf_bytes:
+        return {}
+    # 해설 페이지 식별 — _find_answer_page_indices 가 ranges 만 반환하므로
+    # 여기선 직접 키워드 스캔으로 해설 시작 페이지 찾는다.
+    EXPLANATION_KEYWORDS = ["해설", "풀이"]
+    QUICK_KEYWORDS = ["빠른정답", "빠른 정답", "정답표"]
+    explanation_start = -1
+    quick_start = -1
+    try:
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        try:
+            for i, page in enumerate(doc):
+                text = page.get_text("text") or ""
+                if not text:
+                    continue
+                first_300 = text[:300].replace(" ", "")
+                if quick_start < 0:
+                    for kw in QUICK_KEYWORDS:
+                        if kw.replace(" ", "") in first_300:
+                            quick_start = i
+                            break
+                if explanation_start < 0:
+                    for kw in EXPLANATION_KEYWORDS:
+                        if kw in first_300:
+                            explanation_start = i
+                            break
+            # 해설 시작은 빠른정답 뒤에 있어야 의미 있음(시험지 본문의 "풀이 과정" 마커 회피)
+            if explanation_start >= 0 and quick_start >= 0 and explanation_start < quick_start:
+                # 시험지 본문의 "풀이 과정을 쓰시오" 같은 마커일 가능성 — 그 다음 풀이 페이지 탐색
+                for i in range(quick_start + 1, len(doc)):
+                    t = (doc[i].get_text("text") or "")[:300].replace(" ", "")
+                    if any(kw in t for kw in EXPLANATION_KEYWORDS):
+                        explanation_start = i
+                        break
+                else:
+                    explanation_start = -1
+
+            if explanation_start < 0:
+                logger.info("[Explanations] 해설 페이지 미감지 — 빈 dict 반환")
+                return {}
+
+            # 해설 페이지부터 끝까지 텍스트 모음
+            tail_text_parts = []
+            for i in range(explanation_start, len(doc)):
+                t = doc[i].get_text("text") or ""
+                if t:
+                    tail_text_parts.append(t)
+            tail_text = "\n".join(tail_text_parts)
+        finally:
+            doc.close()
+    except Exception as e:
+        logger.warning(f"[Explanations] PDF 처리 실패: {e}")
+        return {}
+
+    if not tail_text.strip():
+        return {}
+
+    # 패턴별 매칭 시도 — 가장 많이 잡힌 결과 채택
+    best: dict[str, str] = {}
+    for pat in EXPLANATION_PROBLEM_PATTERNS:
+        try:
+            matches = re.findall(pat, tail_text, flags=re.MULTILINE | re.DOTALL)
+        except re.error:
+            continue
+        if not matches:
+            continue
+        explanations: dict[str, str] = {}
+        for num, body in matches:
+            n = str(num).strip()
+            text = str(body).strip()
+            # 후행 잡음 컷 (페이지 번호, 단위 라벨 등 첫 ~600자 제한)
+            text = re.sub(r"\s+", " ", text)[:600]
+            if not text or len(text) < 5:
+                continue
+            if _is_corrupted_pdf_glyphs(text):
+                continue
+            if n not in explanations or len(text) > len(explanations[n]):
+                explanations[n] = text
+        if len(explanations) > len(best):
+            best = explanations
+
+    if best:
+        logger.info(f"[Explanations] {len(best)} 문제 해설 추출")
+    return best
+
+
 def _validate_answer_types(answers: dict, types: dict) -> tuple[dict, dict]:
     """AI가 분류한 문제 유형을 검증·보정
 

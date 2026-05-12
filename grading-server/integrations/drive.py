@@ -376,6 +376,65 @@ def upload_page_images_to_central(
     return results
 
 
+def upload_problem_crops_to_central(
+    central_token: str,
+    title: str,
+    problem_crops: list[dict],
+    grade_level: str | None = None,
+) -> list[dict]:
+    """문제별 영역 크롭 이미지를 Drive 업로드 (해설지 제작 questionVisuals 패턴).
+
+    저장 위치: 숙제 관리/교재/{학년}/{교재}/q_{문제번호}.jpg
+    (페이지 이미지와 같은 폴더 — 검수·재처리 일원화)
+
+    인자:
+      problem_crops: [{"num": "1", "image_bytes": b"...", "page_num": 1}, ...]
+
+    반환: [{"num", "drive_file_id", "url", "page_num"}, ...]
+    """
+    service = _build_service(central_token)
+    _ensure_homework_structure_with_service(service)
+
+    central_root = resolve_central_root_folder_id(service)
+    material_root = _find_or_create_folder(service, CENTRAL_GRADING_MATERIAL_FOLDER, central_root)
+
+    normalized_grade = (grade_level or "").strip()
+    if normalized_grade and normalized_grade in CENTRAL_GRADE_LEVEL_FOLDERS:
+        grade_root_id = _find_or_create_folder(service, normalized_grade, material_root)
+        book_parent_id = grade_root_id
+    else:
+        if normalized_grade:
+            logger.warning("[Drive] 알 수 없는 grade_level '%s' → 레거시 폴백", normalized_grade)
+        root_id = _find_or_create_folder(service, CENTRAL_PAGE_IMAGES_FOLDER, material_root)
+        book_parent_id = root_id
+
+    book_id = _find_or_create_folder(service, title, book_parent_id)
+
+    results: list[dict] = []
+    for item in problem_crops:
+        num = str(item.get("num") or "").strip()
+        img_bytes = item.get("image_bytes")
+        page_num = item.get("page_num")
+        if not num or not img_bytes:
+            continue
+        # 파일명: q_01.jpg, q_17.jpg 등 (소문제는 q_1_1 같이 정규화)
+        safe_num = num.replace("(", "_").replace(")", "")
+        filename = f"q_{safe_num.zfill(2) if safe_num.isdigit() else safe_num}.jpg"
+        try:
+            uploaded = _upload_file(service, book_id, filename, img_bytes, "image/jpeg")
+            results.append({
+                "num": num,
+                "drive_file_id": uploaded["id"],
+                "url": uploaded["url"],
+                "page_num": page_num,
+            })
+        except Exception as e:
+            logger.warning(f"[Drive] 문제 {num} 크롭 업로드 실패: {e}")
+
+    logger.info(f"[Drive] '{title}' 문제별 크롭 {len(results)}/{len(problem_crops)}장 업로드 완료")
+    return results
+
+
 # ──────────────────────────────────────────────
 # 공통 함수
 # ──────────────────────────────────────────────

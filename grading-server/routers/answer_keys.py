@@ -12,10 +12,15 @@ from integrations.supabase_client import (
 )
 from integrations.drive import (
     download_file_central, upload_page_images_to_central,
+    upload_problem_crops_to_central,
     search_answer_pdfs_central, delete_page_images_folder,
     upload_homework_material_pdf, upload_book_pdf_to_central,
 )
-from grading.pdf_parser import extract_answers_from_pdf
+from grading.pdf_parser import (
+    extract_answers_from_pdf,
+    crop_problems_from_pdf,
+    extract_explanations_from_pdf_text,
+)
 from grading.hml_parser import extract_answers_from_hml, build_hml_answer_preview_images
 from file_utils import parse_page_range
 
@@ -34,6 +39,8 @@ def _build_problems_json(
     types: dict,
     page_images: list,
     pdf_bytes: bytes | None = None,
+    problem_crop_urls: dict | None = None,
+    explanations: dict | None = None,
 ) -> list:
     """문제 단위 통합 데이터 배열 생성.
 
@@ -75,13 +82,22 @@ def _build_problems_json(
     problems: list[dict] = []
     for num, ans in answers.items():
         page = num_to_page.get(num)
+        # image_url 우선순위: 문제별 크롭(Phase 2) > 페이지 단위(Phase 1 폴백)
+        crop_url = ""
+        if problem_crop_urls:
+            crop_url = problem_crop_urls.get(str(num), "")
+        page_url = page_to_url.get(page, "") if page else ""
+        explanation_text = ""
+        if explanations:
+            explanation_text = explanations.get(str(num), "")
         problems.append({
             "num": str(num),
             "answer": str(ans),
             "type": types.get(num, "short"),
             "page": page,
-            "image_url": page_to_url.get(page, "") if page else "",
-            "explanation": "",  # Phase 4 — 해설 페이지 추출 후 채움
+            "image_url": crop_url or page_url,
+            "page_image_url": page_url,  # 페이지 단위 이미지(전체 페이지 참조용)
+            "explanation": explanation_text,
         })
 
     # 문제 번호 오름차순 정렬 (1, 2, ..., 10, 11; 소문제 1(1) 은 1 그룹 안에서)
@@ -367,14 +383,66 @@ async def parse_answer_key(
     # drive_file_id: 폼에서 받은 값 우선, 없으면 방금 업로드한 PDF id
     effective_drive_file_id = drive_file_id or (pdf_drive_meta.get("id") if pdf_drive_meta else "")
 
+    # ========== Phase 2 — 문제별 영역 크롭 + Drive 업로드 ==========
+    # 멀티컬럼(2단) 레이아웃에서 y좌표 정렬만으로는 일부 헤더가 인접 영역과 겹쳐
+    # 잘림. 같은 페이지에서 일부만 잡혔으면 일관성 위해 그 페이지 전체 폴백.
+    problem_crop_urls: dict[str, str] = {}
+    if file_ext == "pdf" and not is_exam_mode and result.get("answers"):
+        try:
+            answer_keys_list = list(result["answers"].keys())
+            crops = crop_problems_from_pdf(file_bytes, answer_keys_list)
+            # 페이지 일관성 검증: 같은 페이지의 expected vs got
+            num_to_page_est = _estimate_problem_pages(file_bytes, answer_keys_list)
+            page_expected: dict[int, set] = {}
+            for n, p in num_to_page_est.items():
+                page_expected.setdefault(p, set()).add(n)
+            page_got: dict[int, set] = {}
+            for c in crops:
+                page_got.setdefault(c["page_num"], set()).add(str(c["num"]))
+            # 일부 누락된 페이지의 crop 은 제거 → 페이지 단위 이미지로 폴백
+            consistent_crops = [
+                c for c in crops
+                if page_got.get(c["page_num"], set()) == page_expected.get(c["page_num"], set())
+            ]
+            dropped = len(crops) - len(consistent_crops)
+            if dropped > 0:
+                logger.info(
+                    f"[Parse] '{title}' 멀티컬럼 페이지 감지 — {dropped}건 크롭 제거 후 페이지 이미지 폴백"
+                )
+
+            if consistent_crops and central_token:
+                try:
+                    uploaded_crops = upload_problem_crops_to_central(
+                        central_token, title, consistent_crops, grade_level=grade_level or None,
+                    )
+                    for item in uploaded_crops:
+                        problem_crop_urls[str(item["num"])] = item["url"]
+                    logger.info(
+                        f"[Parse] '{title}' 문제별 크롭 {len(problem_crop_urls)}장 Drive 업로드"
+                    )
+                except Exception as e:
+                    logger.warning(f"[Parse] 문제별 크롭 Drive 업로드 실패: {e}")
+        except Exception as e:
+            logger.warning(f"[Parse] 문제별 크롭 생성 실패(페이지 이미지로 폴백): {e}")
+
+    # ========== Phase 4 — 해설 페이지 자동 추출 ==========
+    explanations: dict[str, str] = {}
+    if file_ext == "pdf" and not is_exam_mode and result.get("answers"):
+        try:
+            explanations = extract_explanations_from_pdf_text(file_bytes)
+            if explanations:
+                logger.info(f"[Parse] '{title}' 해설 {len(explanations)}개 자동 추출")
+        except Exception as e:
+            logger.warning(f"[Parse] 해설 추출 실패: {e}")
+
     # problems_json: 문제 단위 통합 데이터 (해설지 제작 questionVisuals 패턴).
-    # answers_json + question_types_json + (페이지 이미지 URL) 을 problem_no 기준으로 묶음.
-    # Phase 1 — 이미지는 페이지 단위 URL 재활용. Phase 2 에서 문제별 크롭 도입 예정.
     problems_json = _build_problems_json(
         answers=result.get("answers", {}),
         types=result.get("types", {}),
         page_images=page_images_json,
         pdf_bytes=file_bytes if (file_ext == "pdf" and not is_exam_mode) else None,
+        problem_crop_urls=problem_crop_urls,
+        explanations=explanations,
     )
 
     key_data = {
