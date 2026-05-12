@@ -51,3 +51,6 @@ qa-artifacts/quick-recheck-report.json
 
 # Supabase CLI 로컬 캐시(연결 프로젝트 정보 등 — 사용자별 상태)
 supabase/.temp/
+
+# Claude Code 개인 권한·세션(매뉴얼 CLAUDE*.md 는 추적)
+.claude/settings.local.json
