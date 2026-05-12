@@ -12,7 +12,7 @@ from integrations.supabase_client import (
 )
 from integrations.drive import (
     download_file_central, upload_page_images_to_central,
-    upload_problem_crops_to_central,
+    upload_problem_crops_to_central, upload_markdown_to_central,
     search_answer_pdfs_central, delete_page_images_folder,
     upload_homework_material_pdf, upload_book_pdf_to_central,
 )
@@ -20,6 +20,8 @@ from grading.pdf_parser import (
     extract_answers_from_pdf,
     crop_problems_from_pdf,
     extract_explanations_from_pdf_text,
+    extract_markdown_per_page_vision,
+    split_markdown_by_problem,
 )
 from grading.hml_parser import extract_answers_from_hml, build_hml_answer_preview_images
 from file_utils import parse_page_range
@@ -41,6 +43,7 @@ def _build_problems_json(
     pdf_bytes: bytes | None = None,
     problem_crop_urls: dict | None = None,
     explanations: dict | None = None,
+    problem_markdowns: dict | None = None,
 ) -> list:
     """문제 단위 통합 데이터 배열 생성.
 
@@ -90,6 +93,9 @@ def _build_problems_json(
         explanation_text = ""
         if explanations:
             explanation_text = explanations.get(str(num), "")
+        markdown_text = ""
+        if problem_markdowns:
+            markdown_text = problem_markdowns.get(str(num), "")
         problems.append({
             "num": str(num),
             "answer": str(ans),
@@ -98,6 +104,7 @@ def _build_problems_json(
             "image_url": crop_url or page_url,
             "page_image_url": page_url,  # 페이지 단위 이미지(전체 페이지 참조용)
             "explanation": explanation_text,
+            "markdown": markdown_text,  # Phase 5a — 정제된 마크다운 (수식 LaTeX 포함)
         })
 
     # 문제 번호 오름차순 정렬 (1, 2, ..., 10, 11; 소문제 1(1) 은 1 그룹 안에서)
@@ -435,6 +442,27 @@ async def parse_answer_key(
         except Exception as e:
             logger.warning(f"[Parse] 해설 추출 실패: {e}")
 
+    # ========== Phase 5a — Gemini Vision 마크다운 정제 + 문제별 분리 ==========
+    # 각 페이지를 Gemini Vision 으로 마크다운(수식 LaTeX) 변환 → 문제별 분리.
+    # 결과는 problems_json.markdown 필드 + Drive 의 index.md 통합 파일.
+    # 향후 학생 채점 결과(per-problem 정답/오답) 와 결합해 약점 분석에 활용.
+    problem_markdowns: dict[str, str] = {}
+    full_markdown = ""
+    if file_ext == "pdf" and not is_exam_mode and result.get("answers"):
+        try:
+            page_md = await extract_markdown_per_page_vision(file_bytes)
+            if page_md:
+                full_markdown = "\n\n".join(page_md[k] for k in sorted(page_md.keys()))
+                problem_markdowns = split_markdown_by_problem(
+                    page_md, list(result["answers"].keys())
+                )
+                logger.info(
+                    f"[Parse] '{title}' 마크다운 정제: {len(page_md)} 페이지, "
+                    f"문제별 분리 {len(problem_markdowns)} 건"
+                )
+        except Exception as e:
+            logger.warning(f"[Parse] 마크다운 정제 실패: {e}")
+
     # problems_json: 문제 단위 통합 데이터 (해설지 제작 questionVisuals 패턴).
     problems_json = _build_problems_json(
         answers=result.get("answers", {}),
@@ -443,7 +471,21 @@ async def parse_answer_key(
         pdf_bytes=file_bytes if (file_ext == "pdf" and not is_exam_mode) else None,
         problem_crop_urls=problem_crop_urls,
         explanations=explanations,
+        problem_markdowns=problem_markdowns,
     )
+
+    # ========== Phase 5a — Drive 에 통합 index.md 업로드 ==========
+    # 같은 교재 폴더 안에 정제된 마크다운을 사람이 검토할 수 있는 단일 파일로 저장.
+    if full_markdown and central_token and grade_level:
+        try:
+            md_meta = upload_markdown_to_central(
+                central_token, title, full_markdown,
+                grade_level=grade_level, filename="index.md",
+            )
+            if md_meta:
+                logger.info(f"[Parse] '{title}' index.md Drive 업로드: file_id={md_meta.get('id')}")
+        except Exception as e:
+            logger.warning(f"[Parse] index.md 업로드 실패(non-fatal): {e}")
 
     key_data = {
         "teacher_id": teacher_id,

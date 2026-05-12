@@ -585,11 +585,142 @@ essay (서술형): 풀이 과정을 서술하는 문제
     return result
 
 
-async def _extract_answers_per_page_vision(
+async def extract_markdown_per_page_vision(
     pdf_bytes: bytes,
-    page_indices: list[int],
-    expected_numbers: list[str] | None = None,
+    page_indices: list[int] | None = None,
 ) -> dict:
+    """페이지별로 Gemini Vision 호출 → 마크다운 텍스트 반환 (Phase 5a 정제).
+
+    각 페이지를 단일 이미지로 보내고, "수학 문제 페이지를 마크다운으로 변환"하는
+    프롬프트로 정제된 텍스트를 받음. 수식은 $...$ LaTeX, 객관식 보기는 - ① 형식.
+
+    반환: {1: "# 문제 1\\n...", 2: "...", ...}  (page_num → markdown)
+    """
+    import google.generativeai as genai
+    from config import GEMINI_API_KEY, GEMINI_MODEL
+
+    if not pdf_bytes:
+        return {}
+
+    # 페이지 인덱스 기본값 — 전체
+    if page_indices is None:
+        try:
+            page_indices = list(range(_get_total_pages(pdf_bytes)))
+        except Exception:
+            return {}
+    if not page_indices:
+        return {}
+
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel(GEMINI_MODEL)
+
+    PROMPT = """이 이미지는 한국 수학 문제집 / 시험지 페이지입니다.
+페이지 내용을 **정제된 마크다운(GitHub Flavored Markdown + LaTeX 수식)** 으로 변환하세요.
+
+규칙:
+1. 문제 번호로 시작하는 라인은 다음 형식:
+   `## 문제 N` (문제 번호만, 본문 X)
+   바로 다음 줄부터 본문.
+2. 객관식 보기 ①②③④⑤ 는 마크다운 리스트:
+   ```
+   - ① 보기 1 내용
+   - ② 보기 2 내용
+   ...
+   ```
+3. 수식은 **LaTeX 형식 $...$ 또는 $$...$$** — 예: `\\frac{1}{2}`, `\\sqrt{x}`, `x^2`
+4. 표·도형은 텍스트로 설명 — 예: `[그림: 한 변 5cm 정사각형]`
+5. 페이지 헤더/푸터(페이지번호, 교시명 등)는 무시
+6. 빠른정답 페이지면: `# 빠른정답` 후 `- 1) ②` 같은 리스트
+7. 해설 페이지면: `## 해설 N` 후 풀이 본문
+
+반드시 마크다운 텍스트만 출력. JSON 감싸지 마세요."""
+
+    result_md: dict = {}
+    for page_idx in page_indices:
+        try:
+            images = _pdf_to_images(pdf_bytes, page_indices=[page_idx])
+            if not images:
+                continue
+            b64 = base64.b64encode(images[0]).decode("utf-8")
+            parts = [PROMPT, {"mime_type": "image/jpeg", "data": b64}]
+            logger.info(f"[Markdown] page {page_idx+1} Vision OCR 호출 ({len(images[0])//1024}KB)")
+            response = model.generate_content(parts)
+            text = (response.text or "").strip()
+            if not text:
+                continue
+            # 코드블록(```markdown ... ``` 또는 ``` ... ```) 감쌌으면 벗기기
+            if text.startswith("```"):
+                lines = text.split("\n")
+                if lines[0].startswith("```"):
+                    lines = lines[1:]
+                if lines and lines[-1].strip() == "```":
+                    lines = lines[:-1]
+                text = "\n".join(lines).strip()
+            result_md[page_idx + 1] = text
+            logger.info(f"[Markdown] page {page_idx+1} → {len(text)} chars")
+        except Exception as e:
+            logger.warning(f"[Markdown] page {page_idx+1} 실패: {e}")
+            continue
+    return result_md
+
+
+def split_markdown_by_problem(page_md: dict, problem_numbers: list[str]) -> dict:
+    """페이지별 마크다운 → 문제별 분리.
+
+    인자:
+      page_md: {1: "# 문제 1\\n...\\n## 문제 2\\n...", 2: "..."} (page → md)
+      problem_numbers: ['1', '2', ..., '20']
+
+    반환: {'1': "## 문제 1\\n본문...", '2': "..."}
+    """
+    if not page_md or not problem_numbers:
+        return {}
+
+    # 모든 페이지 합치기 (페이지 순서대로)
+    all_md = "\n\n".join(page_md[k] for k in sorted(page_md.keys()))
+
+    # 문제 헤더 패턴: "## 문제 N" 또는 "# 문제 N" 또는 줄 시작 "N." / "N)"
+    # 가장 안정적: "## 문제 N\\n" 또는 "# 문제 N\\n"
+    main_nums = sorted(set(n.split("(")[0] for n in problem_numbers if n.split("(")[0].isdigit()),
+                        key=lambda s: int(s))
+
+    # 각 문제 헤더 위치 찾기
+    header_positions: list[tuple[str, int]] = []
+    for num in main_nums:
+        # 우선순위: "## 문제 N\\n" > "# 문제 N\\n" > 줄시작 "N. " > 줄시작 "N) "
+        patterns = [
+            (f"\n## 문제 {num}\n", "##"),
+            (f"\n# 문제 {num}\n", "#"),
+            (f"\n{num}. ", "raw."),
+            (f"\n{num}) ", "raw)"),
+        ]
+        # 시작에 있으면 \n 없이도 매치
+        also_patterns = [(p[len("\n"):], k) for p, k in patterns]
+        positions = []
+        for pat, kind in patterns + also_patterns:
+            idx = all_md.find(pat)
+            if idx >= 0:
+                positions.append((idx, kind, pat))
+        if not positions:
+            continue
+        # 가장 빠른 위치 (첫 등장) 선택
+        positions.sort(key=lambda x: x[0])
+        header_positions.append((num, positions[0][0]))
+
+    if not header_positions:
+        return {}
+
+    # 위치순 정렬
+    header_positions.sort(key=lambda x: x[1])
+
+    # 각 문제 영역 = 이 헤더 위치 ~ 다음 헤더 직전
+    result: dict = {}
+    for i, (num, pos) in enumerate(header_positions):
+        end = header_positions[i + 1][1] if i + 1 < len(header_positions) else len(all_md)
+        block = all_md[pos:end].strip()
+        if block:
+            result[num] = block
+    return result
     """페이지를 **하나씩** Gemini Vision 으로 보내 답안 추출 (단일 이미지 호출).
 
     배경: 멀티 이미지 + 복잡 프롬프트로 보내면 모델이 컨텍스트 혼란을 일으켜

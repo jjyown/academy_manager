@@ -376,6 +376,55 @@ def upload_page_images_to_central(
     return results
 
 
+def upload_markdown_to_central(
+    central_token: str,
+    title: str,
+    markdown_text: str,
+    grade_level: str | None = None,
+    filename: str = "index.md",
+) -> dict | None:
+    """정제된 마크다운(.md) 파일을 교재 폴더에 업로드.
+
+    저장 경로: 숙제 관리/교재/{학년}/{교재}/index.md
+    (PDF·페이지 이미지와 같은 폴더 — 사람이 검토하기 좋게 한 곳 모음)
+
+    Phase 5a 정제 결과 — Gemini Vision OCR 기반 마크다운.
+
+    Returns: {"id", "url", "web_url", "filename"} 또는 None (실패 시).
+    """
+    if not markdown_text or not markdown_text.strip():
+        return None
+    service = _build_service(central_token)
+    _ensure_homework_structure_with_service(service)
+
+    central_root = resolve_central_root_folder_id(service)
+    material_root = _find_or_create_folder(service, CENTRAL_GRADING_MATERIAL_FOLDER, central_root)
+
+    normalized_grade = (grade_level or "").strip()
+    if normalized_grade and normalized_grade in CENTRAL_GRADE_LEVEL_FOLDERS:
+        grade_root_id = _find_or_create_folder(service, normalized_grade, material_root)
+        book_parent_id = grade_root_id
+    else:
+        root_id = _find_or_create_folder(service, CENTRAL_PAGE_IMAGES_FOLDER, material_root)
+        book_parent_id = root_id
+
+    book_id = _find_or_create_folder(service, title, book_parent_id)
+
+    try:
+        md_bytes = markdown_text.encode("utf-8")
+        uploaded = _upload_file(service, book_id, filename, md_bytes, "text/markdown")
+        logger.info(f"[Drive] '{title}' {filename} 업로드 완료 ({len(md_bytes)} bytes)")
+        return {
+            "id": uploaded["id"],
+            "url": uploaded["url"],
+            "web_url": uploaded.get("web_url", ""),
+            "filename": filename,
+        }
+    except Exception as e:
+        logger.warning(f"[Drive] '{title}' {filename} 업로드 실패: {e}")
+        return None
+
+
 def upload_problem_crops_to_central(
     central_token: str,
     title: str,
