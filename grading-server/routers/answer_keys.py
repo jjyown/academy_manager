@@ -214,6 +214,24 @@ async def parse_answer_key(
         result = await extract_answers_from_pdf(file_bytes, total_hint=total_hint, page_range=page_range)
         raw_page_images = result.pop("page_images", [])
 
+    # 원본 PDF 도 학년 폴더에 보존 — 향후 재파싱·검수 시 재업로드 불필요.
+    # 페이지 이미지와 같은 폴더(숙제 관리/교재/{grade}/{title}/)에 {title}.pdf 로 저장.
+    # 학년이 화이트리스트(중1~고3) 안에 있을 때만 시도 (그 외엔 페이지 이미지만 보존).
+    pdf_drive_meta = None
+    if pdf_file and file_ext == "pdf" and central_token and grade_level:
+        from config import CENTRAL_GRADE_LEVEL_FOLDERS  # noqa: WPS433
+        if grade_level in CENTRAL_GRADE_LEVEL_FOLDERS:
+            try:
+                pdf_drive_meta = upload_book_pdf_to_central(
+                    central_token, grade_level, title, file_bytes,
+                )
+                logger.info(
+                    f"[Parse] '{title}' PDF 원본 Drive 업로드: "
+                    f"grade={grade_level} file_id={pdf_drive_meta.get('id')}"
+                )
+            except Exception as e:
+                logger.warning(f"[Parse] PDF 원본 Drive 업로드 실패(파싱·페이지 이미지는 계속): {e}")
+
     page_images_json = []
     if raw_page_images:
         if central_token:
@@ -243,12 +261,15 @@ async def parse_answer_key(
     # 시험지 모드는 항상 False, 자동 모드는 total>0 일 때만 True.
     parsed_flag = (not is_exam_mode) and total_q > 0
 
+    # drive_file_id: 폼에서 받은 값 우선, 없으면 방금 업로드한 PDF id
+    effective_drive_file_id = drive_file_id or (pdf_drive_meta.get("id") if pdf_drive_meta else "")
+
     key_data = {
         "teacher_id": teacher_id,
         "title": title,
         "subject": subject,
         "grade_level": grade_level or "",
-        "drive_file_id": drive_file_id,
+        "drive_file_id": effective_drive_file_id,
         "total_questions": total_q,
         "answers_json": result.get("answers", {}),
         "question_types_json": result.get("types", {}),
