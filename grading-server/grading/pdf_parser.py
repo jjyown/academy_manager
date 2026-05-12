@@ -258,9 +258,16 @@ async def extract_answers_from_pdf(
                 logger.info(
                     f"[FastPath] {len(fast_keys)}건 추출, "
                     f"누락 추정 {len(missing)}건({missing[:5]}{'...' if len(missing)>5 else ''}) "
-                    f"→ Tail Vision 으로 보강 시도"
+                    f"→ 페이지별 Vision 으로 보강 시도"
                 )
-                tail = await _extract_tail_answer_table(pdf_bytes, total_hint)
+                # 빠른정답은 보통 마지막 페이지에 있음. 마지막 1~2 페이지를
+                # 한 페이지씩 단일 호출로 보내 안정적으로 보강.
+                total_pages = _get_total_pages(pdf_bytes)
+                tail_count = min(2, total_pages)
+                tail_indices = list(range(total_pages - tail_count, total_pages))
+                tail = await _extract_answers_per_page_vision(
+                    pdf_bytes, tail_indices, expected_numbers=missing,
+                )
                 if tail and tail.get("answers"):
                     merged_answers = dict(fast["answers"])
                     merged_types = dict(fast["types"])
@@ -576,6 +583,107 @@ essay (서술형): 풀이 과정을 서술하는 문제
         "total": len(all_answers),
     }
     return result
+
+
+async def _extract_answers_per_page_vision(
+    pdf_bytes: bytes,
+    page_indices: list[int],
+    expected_numbers: list[str] | None = None,
+) -> dict:
+    """페이지를 **하나씩** Gemini Vision 으로 보내 답안 추출 (단일 이미지 호출).
+
+    배경: 멀티 이미지 + 복잡 프롬프트로 보내면 모델이 컨텍스트 혼란을 일으켜
+    빈 객체를 반환하는 경우가 잦음. 페이지별 단일 호출 + 최소 프롬프트로
+    안정성·회수율을 끌어올린다.
+
+    반환: {"answers": {...}, "types": {...}, "total": int}  (실패 시 total=0)
+    """
+    import google.generativeai as genai
+    from config import GEMINI_API_KEY, GEMINI_MODEL
+
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel(GEMINI_MODEL)
+
+    expected_hint = ""
+    if expected_numbers:
+        nums = sorted([int(n) for n in expected_numbers if n.isdigit()])
+        if nums:
+            expected_hint = f"\n참고: 이 PDF 빠른정답표에는 보통 {nums[0]}번~{nums[-1]}번이 있습니다."
+
+    all_answers: dict[str, str] = {}
+    all_types: dict[str, str] = {}
+
+    from ocr.engines import _robust_json_parse
+
+    for page_idx in page_indices:
+        try:
+            images = _pdf_to_images(pdf_bytes, page_indices=[page_idx])
+            if not images:
+                continue
+            img_bytes = images[0]
+
+            prompt = f"""이 이미지에서 모든 "답안 패턴"을 찾아 JSON 으로 반환하세요.
+
+찾을 패턴:
+- "1) [정답] ②"        → num="1",  ans="②",         type="mc"
+- "17) [정답] a=3, b=7, c=1" → num="17", ans="a=3, b=7, c=1", type="short"
+- "18) [정답] 45, 75"   → num="18", ans="45, 75",   type="short"
+- "19) [정답] 2√3"      → num="19", ans="2√3",      type="short"
+- "1) ②"  또는 "1. ③"   → 동일 (간략 표기)
+
+분류 규칙:
+- 답이 ①②③④⑤ → "mc"
+- 답이 그 외 (숫자/수식/변수=값/콤마구분 다답) → "short"
+
+답안 패턴이 보이지 않으면 빈 배열: {{"items": []}}{expected_hint}
+
+JSON 만 출력 (다른 텍스트 X):
+{{"items": [{{"num": "1", "ans": "②", "type": "mc"}}, ...]}}"""
+
+            b64 = base64.b64encode(img_bytes).decode("utf-8")
+            parts = [prompt, {"mime_type": "image/jpeg", "data": b64}]
+
+            logger.info(f"[PerPage] page {page_idx+1} Vision 호출 (이미지 {len(img_bytes)//1024}KB)")
+            response = model.generate_content(parts)
+            text = (response.text or "").strip()
+            logger.info(f"[PerPage] page {page_idx+1} 응답: {text[:200]}")
+
+            data = _robust_json_parse(text)
+            if not data or not isinstance(data, dict):
+                continue
+            items = data.get("items")
+            if not isinstance(items, list):
+                continue
+
+            page_added = 0
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                num = str(item.get("num", "")).strip()
+                ans = str(item.get("ans", "")).strip()
+                qtype = str(item.get("type", "short")).strip().lower()
+                if not num or not ans:
+                    continue
+                if _is_corrupted_pdf_glyphs(ans):
+                    continue
+                if num in all_answers:
+                    continue
+                all_answers[num] = ans
+                all_types[num] = qtype if qtype in ("mc", "short", "essay") else "short"
+                page_added += 1
+            logger.info(f"[PerPage] page {page_idx+1} → {page_added}건 추출 (누적 {len(all_answers)}건)")
+        except Exception as e:
+            logger.warning(f"[PerPage] page {page_idx+1} 예외(다음 페이지로): {e}")
+            continue
+
+    if not all_answers:
+        return {"answers": {}, "types": {}, "total": 0}
+    all_answers, all_types = _validate_answer_types(all_answers, all_types)
+    return {
+        "answers": all_answers,
+        "types": all_types,
+        "total": len(all_answers),
+    }
 
 
 async def _extract_tail_answer_table(
