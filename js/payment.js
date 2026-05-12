@@ -2930,10 +2930,17 @@ window.deleteExpenseLedgerEntry = async function(entryId) {
 
 function isStudentEligibleForPaymentMonth(student, monthKey) {
     if (!student || !monthKey) return true;
-    const regDate = student.registerDate || '';
-    if (!regDate || regDate.length < 7) return true;
-    const regMonthKey = regDate.slice(0, 7);
-    return regMonthKey <= monthKey;
+    // 청구 시작 기준 우선순위:
+    //   1) billingStartMonth (서비스성 조정 등 수동 지정) — 'YYYY-MM'
+    //   2) enrollmentStartDate (실제 수업 시작일)
+    //   3) registerDate (행정상 등록일)
+    const explicit = String(student.billingStartMonth || '').trim();
+    if (explicit && explicit.length >= 7) {
+        return explicit.slice(0, 7) <= monthKey;
+    }
+    const startDate = String(student.enrollmentStartDate || student.registerDate || '').trim();
+    if (!startDate || startDate.length < 7) return true;
+    return startDate.slice(0, 7) <= monthKey;
 }
 
 function buildPaymentData(monthKey) {
@@ -3128,10 +3135,56 @@ function buildPayCard(item) {
                         <i class="fas fa-receipt"></i> 원장 입력 ${hasLedger ? '수정' : '등록'}
                     </button>
                 </div>
+                ${(() => {
+                    const billingStart = String(student.billingStartMonth || '').trim();
+                    const fallbackStart = String(student.enrollmentStartDate || student.registerDate || '').slice(0, 7);
+                    const effective = billingStart || fallbackStart || '';
+                    const sourceLabel = billingStart
+                        ? '수동지정'
+                        : (student.enrollmentStartDate ? '수업 시작일 기준' : (student.registerDate ? '등록일 기준' : '기준 미지정'));
+                    return `
+                    <div class="pay-billing-start-row">
+                        <span class="pay-billing-start-label" title="이 학생의 청구 시작월을 조정합니다. 변경 즉시 이전 월에는 수납 카드가 자동 숨겨집니다. 예: 3월말 등록 → 4월부터 청구">
+                            <i class="fas fa-calendar-day"></i> 청구 시작월
+                        </span>
+                        <input type="month" class="pay-billing-start-input" value="${effective}"
+                               onchange="updateStudentBillingStartMonth('${student.id}', this.value)">
+                        <span class="pay-billing-start-hint">${sourceLabel}</span>
+                        ${billingStart ? `<button class="pay-billing-start-reset" onclick="clearStudentBillingStartMonth('${student.id}')" title="기본값(시작일·등록일)으로 되돌리기">초기화</button>` : ''}
+                    </div>`;
+                })()}
                 </div>
             </div>
         </div>`;
 }
+
+// ============================================
+// 청구 시작월 (billingStartMonth) 수정 — 서비스성 조정 케이스 지원
+// ============================================
+window.updateStudentBillingStartMonth = function(studentId, monthValue) {
+    const sIdx = (students || []).findIndex(s => String(s.id) === String(studentId));
+    if (sIdx === -1) return;
+    const student = students[sIdx];
+    const next = String(monthValue || '').trim();
+    if (next && !/^\d{4}-\d{2}$/.test(next)) {
+        showToast('청구 시작월 형식이 올바르지 않습니다.', 'warning');
+        return;
+    }
+    student.billingStartMonth = next;
+    if (typeof saveData === 'function') saveData(true);
+    if (typeof renderPaymentList === 'function') renderPaymentList();
+    showToast(next ? `청구 시작월이 ${next}로 설정되었습니다.` : '청구 시작월 수동지정을 해제했습니다.', 'success');
+    // Supabase 동기화 (가능한 경우)
+    try {
+        if (typeof supabase !== 'undefined' && supabase?.from && student.id != null) {
+            void supabase.from('students').update({ billing_start_month: next || null }).eq('id', student.id);
+        }
+    } catch (e) { /* schema 미존재 시 무시 */ }
+};
+
+window.clearStudentBillingStartMonth = function(studentId) {
+    window.updateStudentBillingStartMonth(studentId, '');
+};
 
 window.togglePaymentDetail = function(sid) {
     const card = document.getElementById(`payment-row-${sid}`);
