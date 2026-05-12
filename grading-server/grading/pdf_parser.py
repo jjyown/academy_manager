@@ -104,13 +104,18 @@ def _is_corrupted_pdf_glyphs(s: str) -> bool:
     if not s:
         return True
 
-    # (a) 라틴 확장/IPA/결합기호 영역 — 거의 항상 깨진 글리프
+    # (a) 라틴 확장/IPA/결합기호가 다수 — 깨진 글리프로 판정 (단순 1자 임계값은 너무 엄격해
+    # AI Vision 응답에 가끔 섞이는 비ASCII 1~2자(예: nbsp, soft hyphen)로 정상 답을 잘못 거르는
+    # 사례 발생. 30% 이상일 때만 깨진 것으로 보수적으로 판단.
+    suspicious_count = 0
     for c in s:
         cp = ord(c)
         if 0x0080 <= cp <= 0x024F or 0x02B0 <= cp <= 0x036F:
-            return True
+            suspicious_count += 1
+    if suspicious_count / max(1, len(s)) > 0.30:
+        return True
 
-    # (b) 정상 문자 비율
+    # (b) 정상 문자 비율 — 50% 미만이면 깨진 것 (60% 보다 관대)
     allowed_extra = set(" ,.()-+*/=:;√π^_<>≤≥≠×÷±°∠△□○●◇◆⋅⋯…⟨⟩〈〉《》『』「」、，·ㆍ?!~@#$%&'\"\\")
     normal = 0
     for c in s:
@@ -123,7 +128,7 @@ def _is_corrupted_pdf_glyphs(s: str) -> bool:
         elif c in allowed_extra:
             normal += 1
     ratio = normal / max(1, len(s))
-    return ratio < 0.6
+    return ratio < 0.50
 
 
 def _extract_simple_answer_table_from_text(text: str) -> dict | None:
