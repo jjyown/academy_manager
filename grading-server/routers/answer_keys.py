@@ -307,6 +307,127 @@ async def parse_answer_key(
     }
 
 
+@router.get("/drive-diagnose")
+async def drive_diagnose():
+    """Drive 인증·연결 상태 진단 — 실패 원인을 정확히 식별.
+
+    체크 순서:
+      1) 중앙 관리자 토큰 DB 조회 (teachers.is_central_admin=true, google_drive_connected=true)
+      2) Google OAuth refresh → access token 교환 (가장 자주 실패하는 지점)
+      3) Drive API 호출(권한·스코프 확인)
+      4) "숙제 관리" 루트 폴더 접근
+
+    각 단계의 성공·실패와 에러 메시지를 반환해 운영자가 어디서 끊겼는지 즉시 파악.
+    """
+    import traceback
+    from config import GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
+
+    result = {
+        "step_1_token_in_db": None,
+        "step_2_oauth_refresh": None,
+        "step_3_drive_api": None,
+        "step_4_root_folder": None,
+        "config_check": {
+            "google_client_id_present": bool(GOOGLE_CLIENT_ID),
+            "google_client_secret_present": bool(GOOGLE_CLIENT_SECRET),
+        },
+        "errors": [],
+    }
+
+    # Step 1: DB 토큰 확인
+    try:
+        token = await get_central_admin_token()
+        if not token:
+            result["step_1_token_in_db"] = False
+            result["errors"].append("중앙 관리자 refresh token 이 DB 에 없음 (teachers.is_central_admin=true & google_drive_connected=true 조건 확인)")
+            return result
+        result["step_1_token_in_db"] = True
+    except Exception as e:
+        result["step_1_token_in_db"] = False
+        result["errors"].append(f"DB 토큰 조회 실패: {e}")
+        return result
+
+    if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
+        result["step_2_oauth_refresh"] = False
+        result["errors"].append("Railway env 에 GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET 가 비어 있음 — 환경변수 확인 필요")
+        return result
+
+    # Step 2: OAuth refresh → access token
+    try:
+        import requests
+        resp = requests.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "client_id": GOOGLE_CLIENT_ID,
+                "client_secret": GOOGLE_CLIENT_SECRET,
+                "refresh_token": token,
+                "grant_type": "refresh_token",
+            },
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            result["step_2_oauth_refresh"] = False
+            try:
+                body = resp.json()
+            except Exception:
+                body = {"raw": resp.text[:300]}
+            result["errors"].append(
+                f"OAuth refresh 실패 (HTTP {resp.status_code}): {body}"
+            )
+            return result
+        access_token = resp.json().get("access_token")
+        if not access_token:
+            result["step_2_oauth_refresh"] = False
+            result["errors"].append("OAuth 응답에 access_token 없음")
+            return result
+        result["step_2_oauth_refresh"] = True
+    except Exception as e:
+        result["step_2_oauth_refresh"] = False
+        result["errors"].append(f"OAuth refresh 요청 예외: {e}")
+        return result
+
+    # Step 3: Drive API about 호출 (권한·스코프)
+    try:
+        import requests
+        resp = requests.get(
+            "https://www.googleapis.com/drive/v3/about?fields=user,storageQuota",
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            result["step_3_drive_api"] = False
+            try:
+                body = resp.json()
+            except Exception:
+                body = {"raw": resp.text[:300]}
+            result["errors"].append(
+                f"Drive API about 실패 (HTTP {resp.status_code}): {body}"
+            )
+            return result
+        about = resp.json()
+        result["step_3_drive_api"] = True
+        result["drive_user_email"] = (about.get("user") or {}).get("emailAddress")
+    except Exception as e:
+        result["step_3_drive_api"] = False
+        result["errors"].append(f"Drive API 예외: {e}")
+        return result
+
+    # Step 4: 숙제 관리 루트 폴더 접근
+    try:
+        from integrations.drive import _build_service, resolve_central_root_folder_id
+        service = _build_service(token)
+        root_id = resolve_central_root_folder_id(service)
+        result["step_4_root_folder"] = bool(root_id)
+        result["root_folder_id"] = root_id
+        if not root_id:
+            result["errors"].append("중앙 루트 폴더('숙제 관리') 를 찾거나 생성할 수 없음")
+    except Exception as e:
+        result["step_4_root_folder"] = False
+        result["errors"].append(f"루트 폴더 접근 예외: {e}\n{traceback.format_exc()[:500]}")
+
+    return result
+
+
 @router.get("/drive-pdfs")
 async def list_drive_pdfs():
     central_token = await get_central_admin_token()
