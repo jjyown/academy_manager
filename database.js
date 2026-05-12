@@ -633,6 +633,189 @@ window.submitManualSchoolCalendarEvents = async function(school, events, sourceL
 };
 
 /**
+ * 학사일정 자료 파일(PDF·이미지)을 Supabase Storage 에 업로드 + 메타 upsert.
+ * 학교당 1개 파일만 유지 — 동일 (atpt, code) 재업로드 시 Storage 도 덮어쓰기,
+ * school_calendar_files 도 ON CONFLICT 로 행 갱신.
+ *
+ * @param {{atpt:string, code:string, name:string}} school
+ * @param {File} file — 사용자가 선택한 PDF·이미지
+ * @returns {Promise<null|{ok:true, filePath:string, fileName:string, mimeType:string, size:number, url:string}>}
+ */
+window.uploadSchoolCalendarFile = async function(school, file) {
+    try {
+        if (!school || !school.atpt || !school.code || !school.name) {
+            if (typeof showToast === 'function') showToast('학교 정보가 부족합니다.', 'warning');
+            return null;
+        }
+        if (!file) {
+            if (typeof showToast === 'function') showToast('파일이 없습니다.', 'warning');
+            return null;
+        }
+        const session = await _getSession();
+        if (!session) {
+            if (typeof showToast === 'function') showToast('로그인이 필요합니다.', 'warning');
+            return null;
+        }
+        const userId = session.user && session.user.id;
+        // Storage 경로: {atpt}_{code}/{filename}. 한 학교 폴더 내 파일명은 통일.
+        // 확장자 추출 (안전한 폴백: .bin)
+        const origName = String(file.name || 'file');
+        const dot = origName.lastIndexOf('.');
+        const ext = (dot > 0 && dot < origName.length - 1) ? origName.slice(dot).toLowerCase() : '';
+        const safeExt = /^\.[a-z0-9]{1,8}$/.test(ext) ? ext : '';
+        const folder = `${school.atpt}_${school.code}`;
+        const filePath = `${folder}/calendar${safeExt}`;
+
+        // Storage 업로드 (upsert: 같은 경로 덮어쓰기)
+        const { error: upErr } = await supabase
+            .storage
+            .from('school-calendar-files')
+            .upload(filePath, file, {
+                upsert: true,
+                contentType: file.type || 'application/octet-stream',
+                cacheControl: '3600',
+            });
+        if (upErr) {
+            console.error('[uploadSchoolCalendarFile] storage', upErr);
+            // bucket_not_found / row_level_security 등 안내
+            const m = String(upErr.message || '');
+            if (/Bucket not found/i.test(m)) {
+                if (typeof showToast === 'function') showToast('Storage 버킷 \'school-calendar-files\' 가 없습니다. Dashboard 에서 생성해주세요.', 'error');
+            } else if (/row-level security|RLS/i.test(m)) {
+                if (typeof showToast === 'function') showToast('업로드 권한이 없습니다. 마이그레이션 0042 적용 여부 확인.', 'error');
+            } else {
+                if (typeof showToast === 'function') showToast('파일 업로드 실패: ' + m, 'error');
+            }
+            return null;
+        }
+
+        // 메타 upsert
+        const meta = {
+            atpt: school.atpt,
+            school_code: school.code,
+            school_name: school.name,
+            file_path: filePath,
+            file_name: origName.slice(0, 200),
+            mime_type: (file.type || 'application/octet-stream').slice(0, 80),
+            file_size: file.size || null,
+            uploaded_by: userId,
+            uploaded_at: new Date().toISOString(),
+        };
+        const { error: dbErr } = await supabase
+            .from('school_calendar_files')
+            .upsert(meta, { onConflict: 'atpt,school_code' });
+        if (dbErr) {
+            console.error('[uploadSchoolCalendarFile] meta upsert', dbErr);
+            if (typeof showToast === 'function') showToast('파일 메타 저장 실패: ' + dbErr.message, 'error');
+            return null;
+        }
+
+        // 미리보기용 서명 URL (1시간) — 비공개 버킷이라 직접 URL 안 통함
+        const { data: signed, error: urlErr } = await supabase
+            .storage
+            .from('school-calendar-files')
+            .createSignedUrl(filePath, 60 * 60);
+        if (urlErr) {
+            console.warn('[uploadSchoolCalendarFile] signedUrl', urlErr);
+        }
+        return {
+            ok: true,
+            filePath,
+            fileName: origName,
+            mimeType: meta.mime_type,
+            size: meta.file_size || 0,
+            url: signed ? signed.signedUrl : '',
+        };
+    } catch (e) {
+        console.error('[uploadSchoolCalendarFile]', e);
+        if (typeof showToast === 'function') showToast('파일 업로드 중 오류: ' + (e.message || ''), 'error');
+        return null;
+    }
+};
+
+/**
+ * 한 학교에 저장된 학사일정 자료 파일이 있는지 조회. 있으면 서명 URL 까지 만들어 반환.
+ * 모달 열 때 호출해 자동 미리보기 로드.
+ *
+ * @param {string} atpt
+ * @param {string} code
+ * @returns {Promise<null|{filePath:string, fileName:string, mimeType:string, size:number,
+ *   uploadedAt:string, url:string}>}
+ */
+window.fetchSchoolCalendarFile = async function(atpt, code) {
+    try {
+        if (!atpt || !code) return null;
+        const { data, error } = await supabase
+            .from('school_calendar_files')
+            .select('file_path, file_name, mime_type, file_size, uploaded_at')
+            .eq('atpt', atpt)
+            .eq('school_code', code)
+            .maybeSingle();
+        if (error) {
+            console.warn('[fetchSchoolCalendarFile] meta', error);
+            return null;
+        }
+        if (!data || !data.file_path) return null;
+        const { data: signed, error: urlErr } = await supabase
+            .storage
+            .from('school-calendar-files')
+            .createSignedUrl(data.file_path, 60 * 60);
+        if (urlErr) {
+            console.warn('[fetchSchoolCalendarFile] signedUrl', urlErr);
+            return null;
+        }
+        return {
+            filePath: data.file_path,
+            fileName: data.file_name,
+            mimeType: data.mime_type,
+            size: data.file_size || 0,
+            uploadedAt: data.uploaded_at,
+            url: signed.signedUrl,
+        };
+    } catch (e) {
+        console.warn('[fetchSchoolCalendarFile]', e);
+        return null;
+    }
+};
+
+/**
+ * 학교 학사일정 자료 파일 삭제 (Storage 객체 + 메타 행 모두 제거).
+ */
+window.deleteSchoolCalendarFile = async function(atpt, code) {
+    try {
+        if (!atpt || !code) return false;
+        // 메타 조회 → 파일 경로 확보
+        const { data, error } = await supabase
+            .from('school_calendar_files')
+            .select('file_path')
+            .eq('atpt', atpt)
+            .eq('school_code', code)
+            .maybeSingle();
+        if (error || !data || !data.file_path) return false;
+        // Storage 삭제
+        const { error: rmErr } = await supabase
+            .storage
+            .from('school-calendar-files')
+            .remove([data.file_path]);
+        if (rmErr) console.warn('[deleteSchoolCalendarFile] storage', rmErr);
+        // 메타 삭제
+        const { error: dbErr } = await supabase
+            .from('school_calendar_files')
+            .delete()
+            .eq('atpt', atpt)
+            .eq('school_code', code);
+        if (dbErr) {
+            console.warn('[deleteSchoolCalendarFile] meta', dbErr);
+            return false;
+        }
+        return true;
+    } catch (e) {
+        console.warn('[deleteSchoolCalendarFile]', e);
+        return false;
+    }
+};
+
+/**
  * File / Blob 객체를 Edge Function 전송용 base64(순수, data: prefix 없음) 으로 변환.
  * FileReader.readAsDataURL 결과는 "data:<mime>;base64,XXXX" 형태이므로 콤마 이후만 사용.
  */
