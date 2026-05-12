@@ -31,6 +31,101 @@ ANSWER_PAGE_KEYWORDS = [
 ]
 
 
+def _detect_essay_problem_numbers(full_text: str, candidate_numbers: list[str]) -> set:
+    """주어진 문제 번호들 중 "서술형"으로 추정되는 것을 식별.
+
+    문제 텍스트 본문에 다음 마커 중 하나라도 있으면 essay:
+      - "풀이 과정을 자세히 쓰시오" (가장 흔함)
+      - "[서술형]" / "(서술형)"
+      - "서술하시오"
+      - "이유를 설명하시오" / "이유를 쓰시오"
+      - "과정을 쓰시오" / "과정을 서술하시오"
+
+    감지 방법: 각 문제 번호의 텍스트 영역(다음 문제 번호 전까지)을 잘라
+    공백·줄바꿈 정규화 후 마커 substring 매칭.
+    """
+    ESSAY_MARKERS_COMPACT = [
+        "풀이과정을자세히쓰시오",
+        "풀이과정을자세히",
+        "[서술형]",
+        "(서술형)",
+        "서술하시오",
+        "이유를설명하시오",
+        "이유를쓰시오",
+        "과정을쓰시오",
+        "과정을서술하시오",
+    ]
+    essay_set: set = set()
+    if not full_text or not candidate_numbers:
+        return essay_set
+    text = full_text
+    for num in candidate_numbers:
+        try:
+            n = int(num)
+        except (TypeError, ValueError):
+            continue
+        # 문제 시작 위치 — "\nNN." 또는 "\nNN)" 형식
+        start_idx = -1
+        for pat in [f"\n{n}.", f"\n{n})"]:
+            idx = text.find(pat)
+            if idx >= 0 and (start_idx < 0 or idx < start_idx):
+                start_idx = idx
+        if start_idx < 0:
+            continue
+        # 다음 문제 시작 위치
+        next_idx = len(text)
+        for nn in range(n + 1, n + 4):  # 다음 3개 번호까지만 탐색
+            for pat in [f"\n{nn}.", f"\n{nn})"]:
+                idx = text.find(pat, start_idx + 1)
+                if idx >= 0 and idx < next_idx:
+                    next_idx = idx
+        block = text[start_idx:next_idx]
+        block_compact = re.sub(r"\s+", "", block)
+        for marker in ESSAY_MARKERS_COMPACT:
+            if marker in block_compact:
+                essay_set.add(num)
+                break
+    return essay_set
+
+
+def _is_corrupted_pdf_glyphs(s: str) -> bool:
+    """PDF 텍스트 레이어가 수학·특수 폰트의 글리프 매핑 실패로 깨진 문자열인지 판별.
+
+    증상: "ºåå, ˜å å", "ò̀, åå" 같이 라틴 확장 영역(å, Å, ò, Ò, ˜, º 등)이 다수 등장.
+    실제 답은 한글·숫자·수식이어야 하므로, 그 외 글자가 일정 비율 이상이면 깨진 것으로 본다.
+
+    판정 기준 (둘 중 하나라도 만족하면 깨진 것):
+      a) 라틴 확장(U+0080~U+02FF, ASCII 외 첫 블록) 문자가 1자 이상
+      b) "정상 문자(한글·영숫자·일반 수학기호·원형숫자·공백·구두점)" 비율이 60% 미만
+    """
+    if not s:
+        return True
+    s = s.strip()
+    if not s:
+        return True
+
+    # (a) 라틴 확장/IPA/결합기호 영역 — 거의 항상 깨진 글리프
+    for c in s:
+        cp = ord(c)
+        if 0x0080 <= cp <= 0x024F or 0x02B0 <= cp <= 0x036F:
+            return True
+
+    # (b) 정상 문자 비율
+    allowed_extra = set(" ,.()-+*/=:;√π^_<>≤≥≠×÷±°∠△□○●◇◆⋅⋯…⟨⟩〈〉《》『』「」、，·ㆍ?!~@#$%&'\"\\")
+    normal = 0
+    for c in s:
+        if c.isalnum():  # 한글·영문·숫자 모두 포함
+            normal += 1
+        elif '가' <= c <= '힯':  # 한글 음절(중복이지만 명시)
+            normal += 1
+        elif c in "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮":
+            normal += 1
+        elif c in allowed_extra:
+            normal += 1
+    ratio = normal / max(1, len(s))
+    return ratio < 0.6
+
+
 def _extract_simple_answer_table_from_text(text: str) -> dict | None:
     """텍스트 레이어에서 명확한 답안표 패턴을 정규식으로 즉시 추출 (AI 불필요).
 
@@ -87,6 +182,10 @@ def _extract_simple_answer_table_from_text(text: str) -> dict | None:
             ans_no_noise = re.sub(r"[\s,，·、ㆍ;:.]", "", ans)
             if not ans_no_noise:
                 continue
+            # 깨진 글리프(라틴 확장·결합 기호로 가득 찬 답) 도 제외 — 사용자가
+            # + 문제 추가 로 수동 입력하도록 유도. 잘못된 답으로 채점되는 것보다 안전.
+            if _is_corrupted_pdf_glyphs(ans):
+                continue
             answers[q] = ans
             if any(c in ans for c in CIRCLE_NUMS) and len(ans) <= 3:
                 types[q] = "mc"
@@ -99,7 +198,19 @@ def _extract_simple_answer_table_from_text(text: str) -> dict | None:
             best = {"answers": answers, "types": types, "total": len(answers)}
 
     if best:
-        logger.info(f"[FastPath] 텍스트 정규식으로 {best['total']}문제 즉시 추출")
+        # 서술형 자동 감지 — 문제 본문에 "풀이 과정을 자세히 쓰시오" 등 마커가
+        # 있으면 short → essay 로 격상. 객관식(mc)은 격상하지 않음.
+        essay_nums = _detect_essay_problem_numbers(text, list(best["answers"].keys()))
+        if essay_nums:
+            for q in essay_nums:
+                if best["types"].get(q) == "short":
+                    best["types"][q] = "essay"
+            logger.info(
+                f"[FastPath] 텍스트 정규식 {best['total']}문제 추출 "
+                f"(서술형 마커 감지: {sorted(essay_nums)})"
+            )
+        else:
+            logger.info(f"[FastPath] 텍스트 정규식으로 {best['total']}문제 즉시 추출")
         return best
     return None
 
