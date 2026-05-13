@@ -306,7 +306,12 @@ async def extract_answers_from_pdf(
                             "total": len(merged_answers),
                         }
         except Exception as e:
-            logger.warning(f"[FastPath+Tail merge] 실패(fast 결과만 사용): {e}")
+            # 코드 결함(NameError·AttributeError)이 WARNING 1줄로 묻혀
+            # 운영까지 흘러간 회귀가 있어 ERROR 로 승격. 폴백 동작은 유지.
+            logger.error(
+                f"[FastPath+Tail merge] 실패(fast 결과만 사용): "
+                f"{type(e).__name__}: {e}"
+            )
 
         # 정규식으로 답안표를 잡은 경우, 페이지 썸네일 추가해 반환
         page_images = _pdf_to_thumbnails(pdf_bytes)
@@ -803,6 +808,82 @@ JSON 만 출력 (다른 텍스트 X):
 
     if not all_answers:
         return {"answers": {}, "types": {}, "total": 0}
+    all_answers, all_types = _validate_answer_types(all_answers, all_types)
+    return {
+        "answers": all_answers,
+        "types": all_types,
+        "total": len(all_answers),
+    }
+
+
+async def _extract_answers_per_page_vision(
+    pdf_bytes: bytes,
+    page_indices: list[int],
+    *,
+    expected_numbers: list[str] | None = None,
+) -> dict | None:
+    """누락 번호 보강용 단일 페이지 Vision 호출.
+
+    vision-diagnose 와 동일한 짧은 prompt 로 지정 페이지(보통 마지막 1페이지)
+    이미지에서 "N) [정답] X" 패턴을 회수. expected_numbers 는 prompt 에 넣지
+    않음 — 범위 힌트가 stochastic regression(17~20 누락) 유발. 호출자가 merge
+    단계에서 누락분만 필터링한다.
+    """
+    import google.generativeai as genai
+    from config import GEMINI_API_KEY, GEMINI_MODEL
+
+    if not page_indices:
+        return None
+
+    images = _pdf_to_images(pdf_bytes, page_indices=page_indices)
+    if not images:
+        return None
+
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel(GEMINI_MODEL)
+
+    prompt = """이 이미지에서 "N) [정답] X" 패턴을 모두 찾아 JSON 으로 반환하세요.
+
+예시:
+- "1) [정답] ②"            → {"num": "1", "ans": "②", "type": "mc"}
+- "17) [정답] a=3, b=7, c=1" → {"num": "17", "ans": "a=3, b=7, c=1", "type": "short"}
+- "18) [정답] 45, 75"       → {"num": "18", "ans": "45, 75", "type": "short"}
+
+JSON 만 출력 (다른 텍스트 X):
+{"items": [{"num": "1", "ans": "②", "type": "mc"}, ...]}"""
+
+    all_answers: dict = {}
+    all_types: dict = {}
+
+    for idx, img_bytes in zip(page_indices, images):
+        try:
+            b64 = base64.b64encode(img_bytes).decode("utf-8")
+            parts = [prompt, {"mime_type": "image/jpeg", "data": b64}]
+            logger.info(f"[PerPage] page {idx+1} Vision 보강 ({len(img_bytes)//1024}KB)")
+            response = model.generate_content(parts)
+            text = (response.text or "").strip()
+
+            from ocr.engines import _robust_json_parse
+            parsed = _robust_json_parse(text)
+            if not parsed or not isinstance(parsed, dict):
+                logger.warning(f"[PerPage] page {idx+1} JSON 파싱 실패")
+                continue
+
+            for item in parsed.get("items", []) or []:
+                num = str(item.get("num", "")).strip()
+                ans = str(item.get("ans", "")).strip()
+                qtype = str(item.get("type", "short")).strip() or "short"
+                if not num or not ans:
+                    continue
+                all_answers[num] = ans
+                all_types[num] = qtype
+        except Exception as e:
+            logger.warning(f"[PerPage] page {idx+1} 예외(다음 페이지로): {e}")
+            continue
+
+    if not all_answers:
+        return {"answers": {}, "types": {}, "total": 0}
+
     all_answers, all_types = _validate_answer_types(all_answers, all_types)
     return {
         "answers": all_answers,
