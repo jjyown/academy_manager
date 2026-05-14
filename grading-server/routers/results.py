@@ -779,53 +779,70 @@ async def _full_regrade_from_submission(
         raise HTTPException(404, "원본 숙제 제출을 찾을 수 없습니다. 숙제를 다시 제출해주세요.")
     submission = sub_res.data[0]
 
-    zip_drive_id = _zip_drive_id_from_submission(submission)
-    if not zip_drive_id:
-        raise HTTPException(400, "원본 파일 정보가 없습니다. 숙제를 다시 제출해주세요.")
+    # Stage 1: files_json 개별 파일 경로 (ZIP 없는 신규 제출) ─ _load_submission_zip_images와 동일 패턴
+    files_json_entries = submission.get("files_json") or []
+    if files_json_entries:
+        central_token = await get_central_admin_token()
+        if not central_token:
+            raise HTTPException(400, "중앙 관리 드라이브가 연결되지 않았습니다")
+        image_bytes_list: list[bytes] = []
+        for entry in sorted(files_json_entries, key=lambda e: e.get("idx", 0)):
+            try:
+                file_bytes = download_file_central(central_token, entry["drive_file_id"])
+                image_bytes_list.extend(_images_from_single_file(file_bytes, entry.get("file_name") or ""))
+            except Exception as e:
+                logger.warning(f"[FullRegrade] 파일 다운로드 실패 ({entry.get('file_name')}): {e}")
+        if not image_bytes_list:
+            raise HTTPException(400, "원본 파일에서 채점 가능한 이미지를 찾지 못했습니다. 숙제를 다시 제출해주세요.")
+    else:
+        # 레거시: ZIP 경로
+        zip_drive_id = _zip_drive_id_from_submission(submission)
+        if not zip_drive_id:
+            raise HTTPException(400, "원본 파일 정보가 없습니다. 숙제를 다시 제출해주세요.")
 
-    central_token = await get_central_admin_token()
-    if not central_token:
-        raise HTTPException(400, "중앙 관리 드라이브가 연결되지 않았습니다")
+        central_token = await get_central_admin_token()
+        if not central_token:
+            raise HTTPException(400, "중앙 관리 드라이브가 연결되지 않았습니다")
 
-    try:
-        zip_data = download_file_central(central_token, zip_drive_id)
-    except Exception as e:
-        logger.error(f"[FullRegrade] Drive 다운로드 실패 (file_id={zip_drive_id}): {e}")
-        raise HTTPException(502, f"Drive 원본 다운로드 실패: {str(e)[:200]}")
+        try:
+            zip_data = download_file_central(central_token, zip_drive_id)
+        except Exception as e:
+            logger.error(f"[FullRegrade] Drive 다운로드 실패 (file_id={zip_drive_id}): {e}")
+            raise HTTPException(502, f"Drive 원본 다운로드 실패: {str(e)[:200]}")
 
-    if not zip_data:
-        raise HTTPException(400, "원본 ZIP이 비어 있습니다. 숙제를 다시 제출해주세요.")
+        if not zip_data:
+            raise HTTPException(400, "원본 ZIP이 비어 있습니다. 숙제를 다시 제출해주세요.")
 
-    try:
-        with zipfile.ZipFile(io.BytesIO(zip_data)) as zf:
-            entries = [name for name in zf.namelist() if not name.endswith("/")]
-            if not entries:
-                raise HTTPException(400, "원본 ZIP에 파일이 없습니다. 숙제를 다시 제출해주세요.")
-            broken_name = zf.testzip()
-            if broken_name:
-                raise HTTPException(
-                    400,
-                    f"원본 ZIP이 손상되었습니다(오류 파일: {broken_name}). 숙제를 다시 제출해주세요.",
-                )
-    except HTTPException:
-        raise
-    except zipfile.BadZipFile:
-        raise HTTPException(400, "원본 파일이 ZIP 형식이 아닙니다. ZIP으로 다시 제출해주세요.")
-    except Exception as e:
-        logger.error(f"[FullRegrade] ZIP 구조 검사 실패 (file_id={zip_drive_id}): {e}")
-        raise HTTPException(500, f"원본 ZIP 검사 실패: {str(e)[:200]}")
+        try:
+            with zipfile.ZipFile(io.BytesIO(zip_data)) as zf:
+                entries = [name for name in zf.namelist() if not name.endswith("/")]
+                if not entries:
+                    raise HTTPException(400, "원본 ZIP에 파일이 없습니다. 숙제를 다시 제출해주세요.")
+                broken_name = zf.testzip()
+                if broken_name:
+                    raise HTTPException(
+                        400,
+                        f"원본 ZIP이 손상되었습니다(오류 파일: {broken_name}). 숙제를 다시 제출해주세요.",
+                    )
+        except HTTPException:
+            raise
+        except zipfile.BadZipFile:
+            raise HTTPException(400, "원본 파일이 ZIP 형식이 아닙니다. ZIP으로 다시 제출해주세요.")
+        except Exception as e:
+            logger.error(f"[FullRegrade] ZIP 구조 검사 실패 (file_id={zip_drive_id}): {e}")
+            raise HTTPException(500, f"원본 ZIP 검사 실패: {str(e)[:200]}")
 
-    try:
-        image_bytes_list = extract_images_from_zip(zip_data)
-    except Exception as e:
-        logger.error(f"[FullRegrade] ZIP 이미지 추출 중 예외 발생 (file_id={zip_drive_id}): {e}")
-        raise HTTPException(500, f"원본 ZIP 이미지 추출 실패: {str(e)[:200]}")
+        try:
+            image_bytes_list = extract_images_from_zip(zip_data)
+        except Exception as e:
+            logger.error(f"[FullRegrade] ZIP 이미지 추출 중 예외 발생 (file_id={zip_drive_id}): {e}")
+            raise HTTPException(500, f"원본 ZIP 이미지 추출 실패: {str(e)[:200]}")
 
-    if not image_bytes_list:
-        raise HTTPException(
-            400,
-            "원본 ZIP에서 채점 가능한 이미지(JPG/PNG/HEIC/PDF)를 찾지 못했습니다.",
-        )
+        if not image_bytes_list:
+            raise HTTPException(
+                400,
+                "원본 ZIP에서 채점 가능한 이미지(JPG/PNG/HEIC/PDF)를 찾지 못했습니다.",
+            )
 
     student_id = result.get("student_id")
     teacher_id = result.get("teacher_id", "")
