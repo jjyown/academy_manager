@@ -2322,7 +2322,6 @@ function renderCalendar() {
 		const cellDate = new Date(year, month, d);
 		const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
 		const isFuture = cellDate > todayMidnight;
-		if (isFuture) cls += ' future';
 
 		// 주말 색상
 		if (dow === 0) cls += ' sun-day';
@@ -2341,6 +2340,8 @@ function renderCalendar() {
 			// 관리자 모드에서 수업 있는 날 편집 가능 표시
 			if (isAdminMode && ds.scheduleTime && !isFuture) cls += ' admin-editable';
 		}
+		// 미래지만 pending 과제가 있는 날짜는 선택 가능 (조기 제출)
+		if (isFuture && !(ds && ds.status === 'pending')) cls += ' future';
 
 		cell.className = cls;
 		cell.textContent = '';
@@ -2373,7 +2374,7 @@ function renderCalendar() {
 		}
 		if (meta.childNodes.length) cell.appendChild(meta);
 
-		if (!isFuture) {
+		if (!isFuture || (ds && ds.status === 'pending')) {
 			cell.onclick = () => selectCalDate(dateStr);
 		}
 
