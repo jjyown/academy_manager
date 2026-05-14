@@ -6243,7 +6243,7 @@ function loadCurrentImage() {
 		if (hint && window.currentDetailResultForImage) {
 			const r = window.currentDetailResultForImage;
 			if (r.status !== 'confirmed' && r.homework_submission_id) {
-				hint.textContent = '페이지 미리보기가 안 되면 아래 링크에서 제출 ZIP을 여세요. (채점 서버 최신 배포 시 이 영역에 사진이 바로 뜹니다.) 확정 후에는 채점 표시가 반영된 이미지가 학생·학부모에게 보입니다.';
+				hint.textContent = '페이지 미리보기가 안 되면 아래 링크에서 제출 원본 파일을 여세요. (채점 서버 최신 배포 시 이 영역에 사진이 바로 뜹니다.) 확정 후에는 채점 표시가 반영된 이미지가 학생·학부모에게 보입니다.';
 			} else {
 				hint.textContent = '채점 이미지가 없습니다';
 			}
@@ -6255,7 +6255,7 @@ function loadCurrentImage() {
 			a.href = openZip;
 			a.target = '_blank';
 			a.rel = 'noopener noreferrer';
-			a.textContent = '제출 원본(ZIP) — Google Drive에서 열기';
+			a.textContent = '제출 원본 파일 — Google Drive에서 열기';
 			a.style.color = 'var(--gold, #d4a853)';
 			a.style.textDecoration = 'underline';
 			zipBox.appendChild(a);

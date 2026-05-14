@@ -49,6 +49,28 @@ def _zip_drive_id_from_submission(sub: dict) -> str:
     )
 
 
+def _images_from_single_file(file_bytes: bytes, filename: str) -> list[bytes]:
+    """단일 파일(이미지/PDF/ZIP)에서 표시용 이미지 목록 추출."""
+    fn = filename.lower()
+    if fn.endswith(".pdf"):
+        result = []
+        try:
+            import fitz
+            doc = fitz.open(stream=file_bytes, filetype="pdf")
+            for i in range(len(doc)):
+                pix = doc[i].get_pixmap(dpi=150)
+                result.append(pix.tobytes("jpeg"))
+            doc.close()
+        except Exception as e:
+            logger.warning(f"[SourcePreview] PDF 변환 실패 ({filename}): {e}")
+        return result
+    elif fn.endswith(".zip"):
+        from file_utils import extract_images_from_zip
+        return extract_images_from_zip(file_bytes)
+    else:
+        return [file_bytes]
+
+
 async def _load_submission_zip_images(submission_id: int) -> list[bytes]:
     now = time.monotonic()
     async with _source_images_lock:
@@ -63,6 +85,26 @@ async def _load_submission_zip_images(submission_id: int) -> list[bytes]:
     if not sub_res.data:
         raise HTTPException(404, "숙제 제출을 찾을 수 없습니다.")
     submission = sub_res.data[0]
+
+    # Stage 1: files_json 개별 파일 경로 (ZIP 없는 신규 제출)
+    files_json_entries = submission.get("files_json") or []
+    if files_json_entries:
+        central_token = await get_central_admin_token()
+        if not central_token:
+            raise HTTPException(503, "중앙 드라이브 연결을 확인해주세요.")
+        images: list[bytes] = []
+        for entry in sorted(files_json_entries, key=lambda e: e.get("idx", 0)):
+            try:
+                file_bytes = download_file_central(central_token, entry["drive_file_id"])
+                images.extend(_images_from_single_file(file_bytes, entry.get("file_name") or ""))
+            except Exception as e:
+                logger.warning(f"[SourcePreview] 파일 다운로드 실패 ({entry.get('file_name')}): {e}")
+        async with _source_images_lock:
+            _SOURCE_IMAGES_CACHE[submission_id] = (time.monotonic(), images)
+        logger.info(f"[SourcePreview] files_json {len(files_json_entries)}개 → {len(images)}장")
+        return images
+
+    # 레거시: ZIP 경로
     zip_drive_id = _zip_drive_id_from_submission(submission)
     if not zip_drive_id:
         raise HTTPException(400, "제출 파일(Drive) 정보가 없습니다.")
