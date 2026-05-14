@@ -172,6 +172,22 @@ async def grade_homework(
         zip_data = download_file_central(central_token, zip_drive_id)
         logger.info(f"[Grade] Drive ZIP 다운로드 완료: {len(zip_data)} bytes")
         image_bytes_list = extract_images_from_zip(zip_data)
+    elif homework_submission_id:
+        # Stage 1: files_json 에서 개별 파일 다운로드
+        sb = get_supabase()
+        sub_res = await run_query(
+            sb.table("homework_submissions").select("files_json").eq("id", homework_submission_id).single().execute
+        )
+        files_json_entries = ((sub_res.data or {}).get("files_json") or [])
+        if files_json_entries:
+            for entry in sorted(files_json_entries, key=lambda e: e.get("idx", 0)):
+                file_bytes = download_file_central(central_token, entry["drive_file_id"])
+                fn = (entry.get("file_name") or "").lower()
+                if fn.endswith(".zip"):
+                    image_bytes_list.extend(extract_images_from_zip(file_bytes))
+                else:
+                    image_bytes_list.append(file_bytes)
+            logger.info(f"[Grade] files_json {len(files_json_entries)}개 다운로드 → 이미지 {len(image_bytes_list)}장")
 
     logger.info(f"[Grade] 추출된 이미지: {len(image_bytes_list)}장 "
                 f"(크기: {[len(b)//1024 for b in image_bytes_list[:10]]}KB)")

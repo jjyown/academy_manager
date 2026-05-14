@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import JSZip from "npm:jszip";
 
 const GOOGLE_CLIENT_ID = Deno.env.get("GOOGLE_CLIENT_ID");
 const GOOGLE_CLIENT_SECRET = Deno.env.get("GOOGLE_CLIENT_SECRET");
@@ -21,6 +22,18 @@ function _safe(s?: string): string {
     /((?:access|refresh|id)[_-]?token|client[_-]?secret|service[_-]?role[_-]?key|anon[_-]?key|authorization|bearer|apikey)[=:\s]+[^\s,"&]+/gi,
     "$1=<redacted>"
   );
+}
+
+function _getMimeType(filename: string): string {
+  const ext = (filename.toLowerCase().split(".").pop() || "") as string;
+  const map: Record<string, string> = {
+    jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png",
+    gif: "image/gif", webp: "image/webp", bmp: "image/bmp",
+    heic: "image/heic", heif: "image/heif",
+    pdf: "application/pdf",
+    zip: "application/zip",
+  };
+  return map[ext] || "application/octet-stream";
 }
 
 /** Drive 루트(중앙 관리 계정). grading-server `CENTRAL_*` 와 동일한 기본값 유지 */
@@ -209,14 +222,15 @@ async function uploadFileToDrive(
   accessToken: string,
   folderId: string,
   fileName: string,
-  fileData: Uint8Array
+  fileData: Uint8Array,
+  mimeType = "application/octet-stream"
 ): Promise<{ fileId: string; fileUrl: string }> {
   const boundary = "homework_upload_boundary_" + Date.now();
 
   const metadata = JSON.stringify({
     name: fileName,
     parents: [folderId],
-    mimeType: "application/zip",
+    mimeType,
   });
 
   const encoder = new TextEncoder();
@@ -224,7 +238,7 @@ async function uploadFileToDrive(
     `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n`
   );
   const filePart = encoder.encode(
-    `--${boundary}\r\nContent-Type: application/zip\r\n\r\n`
+    `--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`
   );
   const ending = encoder.encode(`\r\n--${boundary}--`);
 
@@ -280,27 +294,53 @@ serve(async (req: Request) => {
     }
 
     const formData = await req.formData();
-    const file = formData.get("file") as File | null;
     const teacherId = formData.get("teacher_id") as string | null;
     const studentId = formData.get("student_id") as string | null;
     const studentName = formData.get("student_name") as string | null;
     const ownerUserId = formData.get("owner_user_id") as string | null; // legacy input (검증용)
     const submissionDate = formData.get("submission_date") as string | null;
-  const gradingAssignmentIdRaw = formData.get("grading_assignment_id") as string | null;
+    const gradingAssignmentIdRaw = formData.get("grading_assignment_id") as string | null;
     const answerKeyId = formData.get("answer_key_id") as string | null;
     const portalStudentCode = formData.get("student_code") as string | null;
 
-    if (!file || !teacherId || !studentId || !studentName || !submissionDate) {
+    // 신규: 다중 'files' 필드 수신, 구형 단일 'file' 폴백
+    let rawFiles: File[] = (formData.getAll("files") as File[]).filter(
+      (f) => f instanceof File && f.size > 0
+    );
+    if (rawFiles.length === 0) {
+      const legacy = formData.get("file") as File | null;
+      if (legacy instanceof File && legacy.size > 0) rawFiles = [legacy];
+    }
+
+    if (rawFiles.length === 0 || !teacherId || !studentId || !studentName || !submissionDate) {
       return new Response(
         JSON.stringify({
           error: "필수 항목이 누락되었습니다.",
-          required: "file, teacher_id, student_id, student_name, submission_date",
+          required: "files(또는 file), teacher_id, student_id, student_name, submission_date",
         }),
         {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         }
       );
+    }
+
+    // J1 — 파일 수·크기 한도
+    const MAX_FILES = parseInt(Deno.env.get("MAX_FILES_PER_SUBMISSION") || "20");
+    const MAX_FILE_MB = parseInt(Deno.env.get("MAX_FILE_MB") || "50");
+    if (rawFiles.length > MAX_FILES) {
+      return new Response(
+        JSON.stringify({ error: `파일 최대 ${MAX_FILES}개`, code: "TOO_MANY_FILES" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+    for (const f of rawFiles) {
+      if (f.size > MAX_FILE_MB * 1024 * 1024) {
+        return new Response(
+          JSON.stringify({ error: `파일 1개 최대 ${MAX_FILE_MB}MB`, code: "FILE_TOO_LARGE" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
     }
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
@@ -531,18 +571,47 @@ serve(async (req: Request) => {
       }
     }
 
-    const fileBuffer = new Uint8Array(await file.arrayBuffer());
+    // ─── 2) zip 해제 후 파일별 Drive 업로드 ───
+    type FileEntry = { name: string; data: Uint8Array; mime: string };
+    const expanded: FileEntry[] = [];
+    for (const f of rawFiles) {
+      if (f.type === "application/zip" || f.name.toLowerCase().endsWith(".zip")) {
+        const zip = await JSZip.loadAsync(await f.arrayBuffer());
+        const entries = (Object.values(zip.files) as JSZip.JSZipObject[])
+          .filter((e) => !e.dir)
+          .sort((a, b) => a.name.localeCompare(b.name, "ko", { numeric: true }));
+        for (const entry of entries) {
+          const data = new Uint8Array(await entry.async("arraybuffer"));
+          expanded.push({ name: entry.name, data, mime: _getMimeType(entry.name) });
+        }
+      } else {
+        const data = new Uint8Array(await f.arrayBuffer());
+        expanded.push({ name: f.name, data, mime: f.type || _getMimeType(f.name) });
+      }
+    }
+    // zip 해제 후 재검증
+    if (expanded.length > MAX_FILES) {
+      return new Response(
+        JSON.stringify({ error: `압축 해제 후 파일 최대 ${MAX_FILES}개`, code: "TOO_MANY_FILES" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
-    // ─── 2) 중앙 드라이브(jjyown@gmail.com)에 원본 업로드 ───
     const centralAccessToken = await getAccessToken(centralAdmin.google_drive_refresh_token);
     const centralFolderId = await getOrCreateFolderPath(centralAccessToken, year, month, day, studentName);
-    await deleteExistingFiles(centralAccessToken, centralFolderId, fileName);
-    const { fileId: centralFileId, fileUrl: centralFileUrl } = await uploadFileToDrive(
-      centralAccessToken,
-      centralFolderId,
-      fileName,
-      fileBuffer
-    );
+
+    type FilesJsonEntry = { idx: number; drive_file_id: string; drive_url: string; file_name: string; mime: string; size: number };
+    const filesJson: FilesJsonEntry[] = [];
+    let centralFileId = "";
+    let centralFileUrl = "";
+
+    for (let idx = 0; idx < expanded.length; idx++) {
+      const { name, data, mime } = expanded[idx];
+      await deleteExistingFiles(centralAccessToken, centralFolderId, name);
+      const { fileId, fileUrl } = await uploadFileToDrive(centralAccessToken, centralFolderId, name, data, mime);
+      filesJson.push({ idx, drive_file_id: fileId, drive_url: fileUrl, file_name: name, mime, size: data.length });
+      if (idx === 0) { centralFileId = fileId; centralFileUrl = fileUrl; }
+    }
 
     // ─── 3) DB에 제출 기록 저장 ───
     const { error: insertError } = await supabase
@@ -553,13 +622,13 @@ serve(async (req: Request) => {
         student_id: parsedStudentId,
         submission_date: submissionDate,
         grading_assignment_id: gradingAssignmentId,
-        file_name: fileName,
-        // 기존 호환: drive_file_id/url은 중앙 드라이브 기준
+        file_name: expanded[0]?.name || fileName,
         drive_file_id: centralFileId,
         drive_file_url: centralFileUrl,
         central_drive_file_id: centralFileId,
         central_drive_file_url: centralFileUrl,
-        file_size: fileBuffer.length,
+        file_size: expanded.reduce((s, e) => s + e.data.length, 0),
+        files_json: filesJson,
         status: "uploaded",
         grading_status: "pending",
       });
@@ -604,7 +673,7 @@ serve(async (req: Request) => {
         gradeForm.append("student_id", studentId);
         gradeForm.append("teacher_id", teacherUid);
         gradeForm.append("mode", "assigned");
-        gradeForm.append("zip_drive_id", centralFileId);
+        // Stage 1: zip_drive_id 대신 homework_submission_id 로 grading server 가 files_json 조회
         if (gradingAssignmentId != null) {
           gradeForm.append("assignment_id", String(gradingAssignmentId));
         }

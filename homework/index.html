@@ -3176,7 +3176,7 @@ function showUploadPage(isRestore, dueDateStr) {
 	document.getElementById('upload-date').textContent = getDateDisplay(uploadDueDate);
 
 	// 제출 정보
-	document.getElementById('zip-filename').textContent = getZipFilename(currentStudent.name) + ' (배정 여러 개면 과제별로 파일명이 달라질 수 있음)';
+	document.getElementById('zip-filename').textContent = '파일 원본 그대로 제출 (압축 불필요)';
 	document.getElementById('info-teacher').textContent = currentTeacher ? currentTeacher.name + ' 선생님' : '미배정';
 
 	// Drive 연결 상태 (중앙 드라이브 사용이므로 항상 연결됨 표시)
@@ -3408,36 +3408,11 @@ async function handleSubmit() {
 	progressWrap.classList.add('show');
 
 	try {
-		// 1단계: JSZip으로 압축
-		progressLabel.textContent = '파일 압축 중...';
+		// 파일 준비 (압축 없이 원본 그대로 전송)
+		progressLabel.textContent = '파일 준비 중...';
 		progressPercent.textContent = '0%';
 		progressBar.style.width = '0%';
 
-		const zip = new JSZip();
-		
-		for (let i = 0; i < selectedFiles.length; i++) {
-			const file = selectedFiles[i];
-			const arrayBuffer = await file.arrayBuffer();
-			zip.file(file.name, arrayBuffer);
-			
-			const pct = Math.round(((i + 1) / selectedFiles.length) * 40);
-			progressBar.style.width = pct + '%';
-			progressPercent.textContent = pct + '%';
-		}
-
-		progressLabel.textContent = 'ZIP 생성 중...';
-		progressBar.style.width = '45%';
-		progressPercent.textContent = '45%';
-
-		const zipBlob = await zip.generateAsync({
-			type: 'blob',
-			compression: 'DEFLATE',
-			compressionOptions: { level: 6 }
-		}, function(metadata) {
-			const pct = 40 + Math.round(metadata.percent * 0.2);
-			progressBar.style.width = pct + '%';
-			progressPercent.textContent = pct + '%';
-		});
 
 		const checkedIds = [...document.querySelectorAll('.upload-assign-chk:checked')]
 			.map((cb) => parseInt(cb.value, 10))
@@ -3467,7 +3442,6 @@ async function handleSubmit() {
 		let result = null;
 		for (let ji = 0; ji < nJobs; ji++) {
 			const job = jobs[ji];
-			const zipFileName = getZipFilename(currentStudent.name, job.id != null ? job.id : '');
 
 			progressLabel.textContent =
 				nJobs > 1
@@ -3478,7 +3452,9 @@ async function handleSubmit() {
 			progressPercent.textContent = p65 + '%';
 
 			const formData = new FormData();
-			formData.append('file', zipBlob, zipFileName);
+			for (const _f of selectedFiles) {
+				formData.append('files', _f);
+			}
 			formData.append('teacher_id', currentStudent.teacher_id);
 			formData.append('student_id', String(currentStudent.id));
 			formData.append('student_name', currentStudent.name);
