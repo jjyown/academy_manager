@@ -13,6 +13,16 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
+/** 500 응답에 throw.message · stack 을 노출하기 전 토큰성 문자열만 redact.
+ *  Error.message 에 fetch 응답 본문이 echo 되는 케이스 대비 (access_token=ya29.xxx 등).
+ *  플랜 Stage 0-followup. */
+function _safe(s?: string): string {
+  return (s || "").replace(
+    /((?:access|refresh|id)[_-]?token|client[_-]?secret|service[_-]?role[_-]?key|anon[_-]?key|authorization|bearer|apikey)[=:\s]+[^\s,"&]+/gi,
+    "$1=<redacted>"
+  );
+}
+
 /** Drive 루트(중앙 관리 계정). grading-server `CENTRAL_*` 와 동일한 기본값 유지 */
 const DRIVE_ROOT_FOLDER = "숙제 관리";
 const DRIVE_MATERIAL_FOLDER = "교재";
@@ -652,8 +662,9 @@ serve(async (req: Request) => {
       }
     );
   } catch (error: unknown) {
-    const errMsg = error instanceof Error ? error.message : String(error);
-    console.error("Upload homework error:", errMsg);
+    const e = error instanceof Error ? error : undefined;
+    const errMsg = e?.message ?? String(error);
+    console.error("Upload homework error:", e?.stack || errMsg);
 
     if (
       errMsg.includes("Token refresh failed") ||
@@ -671,8 +682,14 @@ serve(async (req: Request) => {
       );
     }
 
+    // Stage 0-followup — 일반 500 응답에 throw 의 정확한 message · name · 첫 stack frame
+    // 을 노출(클라이언트 콘솔에서 분기 즉시 식별). 토큰성 문자열은 _safe() 로 redact.
     return new Response(
-      JSON.stringify({ error: errMsg || "서버 오류가 발생했습니다." }),
+      JSON.stringify({
+        error: _safe(errMsg) || "서버 오류가 발생했습니다.",
+        name: e?.name,
+        stack_first: _safe(e?.stack?.split("\n")[1]?.trim()),
+      }),
       {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
