@@ -14,6 +14,7 @@
 ## 최근 의사결정 로그
 | 날짜 | 결정 | 이유 | 영향 범위 |
 |---|---|---|---|
+| 2026-05-14 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | supabase/functions/upload-homework/index.ts |
 | 2026-05-14 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | homework/index.html, migrations/0044_hw_submissions_unique_idx_20260514.sql |
 | 2026-05-14 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | grading-server/routers/homework_submissions.py |
 | 2026-05-14 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | grading-server/routers/results.py, grading/index.html |

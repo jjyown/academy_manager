@@ -613,6 +613,7 @@ serve(async (req: Request) => {
     }
 
     // ─── 3) DB에 제출 기록 저장 ───
+    const totalFileSize = expanded.reduce((s, e) => s + e.data.length, 0);
     const { error: insertError } = await supabase
       .from("homework_submissions")
       .insert({
@@ -626,7 +627,7 @@ serve(async (req: Request) => {
         drive_file_url: centralFileUrl,
         central_drive_file_id: centralFileId,
         central_drive_file_url: centralFileUrl,
-        file_size: expanded.reduce((s, e) => s + e.data.length, 0),
+        file_size: totalFileSize,
         files_json: filesJson,
         status: "uploaded",
         grading_status: "pending",
@@ -640,7 +641,7 @@ serve(async (req: Request) => {
           fileName,
           driveFileId: centralFileId,
           driveFileUrl: centralFileUrl,
-          fileSize: fileBuffer.length,
+          fileSize: totalFileSize,
           dbSaved: false,
           dbError: insertError.message || 'DB 저장 실패',
         }),
@@ -721,7 +722,7 @@ serve(async (req: Request) => {
         fileName,
         driveFileId: centralFileId,
         driveFileUrl: centralFileUrl,
-        fileSize: fileBuffer.length,
+        fileSize: totalFileSize,
         dbSaved: true,
       }),
       {
