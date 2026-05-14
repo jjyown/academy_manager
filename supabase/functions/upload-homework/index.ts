@@ -334,6 +334,22 @@ serve(async (req: Request) => {
       }
     }
 
+    const { data: teacherRow, error: teacherError } = await supabase
+      .from("teachers")
+      .select("id, owner_user_id")
+      .eq("id", teacherId)
+      .single();
+
+    if (teacherError || !teacherRow) {
+      return new Response(
+        JSON.stringify({ error: "Teacher not found" }),
+        {
+          status: 404,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
     // 배정 과제 제출 중복 방지(가능하면 재업로드를 막는다)
     // - failed만 있는 경우는 재시도 허용
     if (gradingAssignmentId != null) {
@@ -352,22 +368,6 @@ serve(async (req: Request) => {
           { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
-    }
-
-    const { data: teacherRow, error: teacherError } = await supabase
-      .from("teachers")
-      .select("id, owner_user_id")
-      .eq("id", teacherId)
-      .single();
-
-    if (teacherError || !teacherRow) {
-      return new Response(
-        JSON.stringify({ error: "Teacher not found" }),
-        {
-          status: 404,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
     }
 
     const { data: studentRow, error: studentError } = await supabase
