@@ -1,4 +1,5 @@
 """숙제 제출 조회 — 채점 관리 UI (Service Role, 학원 소속 검증)"""
+import asyncio
 import logging
 from datetime import date
 
@@ -10,8 +11,10 @@ from integrations.supabase_client import (
     get_supabase,
     get_student,
     get_homework_submissions_by_owner_student_dates,
+    get_central_admin_token,
     run_query,
 )
+from integrations.drive import delete_file
 
 logger = logging.getLogger(__name__)
 
@@ -148,7 +151,7 @@ async def delete_homework_submission(
     try:
         sub_row = await run_query(
             sb.table("homework_submissions")
-            .select("id, owner_user_id, student_id")
+            .select("id, owner_user_id, student_id, drive_file_id, files_json")
             .eq("id", submission_id)
             .limit(1)
             .execute
@@ -162,6 +165,35 @@ async def delete_homework_submission(
 
         # 소속 검증(안전장치)
         await _assert_student_in_academy(int(row.get("student_id")), owner)
+
+        # Drive 파일 ID 수집: 레거시 ZIP + files_json 개별 파일 + 채점 결과 이미지
+        result_rows = await run_query(
+            sb.table("grading_results")
+            .select("central_graded_drive_ids, central_original_drive_ids")
+            .eq("homework_submission_id", submission_id)
+            .execute
+        )
+        drive_ids: list[str] = []
+        if row.get("drive_file_id"):
+            drive_ids.append(row["drive_file_id"])
+        for entry in (row.get("files_json") or []):
+            if entry.get("drive_file_id"):
+                drive_ids.append(entry["drive_file_id"])
+        for r in (result_rows.data or []):
+            drive_ids.extend(r.get("central_graded_drive_ids") or [])
+            drive_ids.extend(r.get("central_original_drive_ids") or [])
+        drive_ids = list(dict.fromkeys(fid for fid in drive_ids if fid))
+
+        if drive_ids:
+            central_token = await get_central_admin_token()
+            if central_token:
+                async def _del(fid: str) -> None:
+                    try:
+                        await asyncio.to_thread(delete_file, central_token, fid)
+                    except Exception as de:
+                        logger.warning(f"[DeleteSub] Drive 파일 {fid} 삭제 실패(무시): {de}")
+                await asyncio.gather(*(_del(fid) for fid in drive_ids), return_exceptions=False)
+                logger.info(f"[DeleteSub] submission #{submission_id}: Drive 파일 {len(drive_ids)}개 삭제 시도")
 
         # 1) 결과 삭제 (grading_items는 grading_results FK ON DELETE CASCADE)
         await run_query(
