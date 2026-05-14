@@ -1332,7 +1332,8 @@ let uploadAvailableGradingAssignments = []; // API returned for uploadDueDate (a
 // 비어있는 상태에서도 Edge upload-homework에 student_code를 반드시 전달한다.
 let lastPortalStudentCodeNormalized = sessionStorage.getItem('hw_portal_student_code') || '';
 const _isLocal = ['localhost','127.0.0.1'].includes(location.hostname);
-const GRADING_SERVER_URL_HW = localStorage.getItem('grading_server_url') || (_isLocal ? 'https://academymanager-production.up.railway.app' : '');
+const GRADING_SERVER_URL_HW = (localStorage.getItem('grading_server_url') || '').trim()
+	|| 'https://academymanager-production.up.railway.app';
 
 // ============================================================
 // Toast
@@ -3502,6 +3503,10 @@ async function handleSubmit() {
 			});
 
 			if (fnError) {
+				try {
+					const body = await fnError.context?.json?.();
+					if (body) console.error('[upload-homework] response body:', body);
+				} catch (e) { /* swallow */ }
 				throw new Error(
 					(nJobs > 1 ? `[${ji + 1}/${nJobs}] ` : '') +
 						(fnError.message || '업로드에 실패했습니다.')

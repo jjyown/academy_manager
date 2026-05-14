@@ -47,9 +47,7 @@ function escapeHtml(value) {
 function getPaymentHelperServerUrl() {
     const configured = (localStorage.getItem('grading_server_url') || '').trim();
     if (configured) return configured.replace(/\/$/, '');
-    const host = window.location.hostname || '';
-    const isLocal = window.location.protocol === 'file:' || host === 'localhost' || host === '127.0.0.1';
-    return isLocal ? 'https://academymanager-production.up.railway.app' : '';
+    return 'https://academymanager-production.up.railway.app';
 }
 
 async function getAuthHeadersForPaymentHelper() {
