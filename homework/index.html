@@ -3100,8 +3100,6 @@ async function loadUploadAssignmentSelection() {
 		// (old data) grading_assignment_id가 누락된 제출이 있다면, 안전하게 전체를 제외 처리(= 선택 불가)
 		if (submittedSet.size === 0 && hasAnySubmission) {
 			available = [];
-		} else if (submittedSet.size > 0) {
-			available = assignments.filter((a) => !submittedSet.has(String(a.id)));
 		}
 
 		// sort: due_time 오름차순(없으면 뒤)
@@ -3136,7 +3134,9 @@ async function loadUploadAssignmentSelection() {
 				.join(' ');
 			const lbl = document.createElement('label');
 			lbl.className = 'upload-assign-label';
-			lbl.innerHTML = `<input type="checkbox" class="upload-assign-chk" value="${a.id}" checked> <span>${escapeHtml(label)}</span>`;
+			const isResubmit = submittedSet.has(String(a.id));
+			const resubmitTag = isResubmit ? ' <span style="font-size:11px;color:#f59e0b;">(재제출)</span>' : '';
+			lbl.innerHTML = `<input type="checkbox" class="upload-assign-chk" value="${a.id}" checked> <span>${escapeHtml(label)}</span>${resubmitTag}`;
 			box.appendChild(lbl);
 		});
 		wrap.appendChild(box);

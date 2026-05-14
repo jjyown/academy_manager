@@ -390,8 +390,7 @@ serve(async (req: Request) => {
       );
     }
 
-    // 배정 과제 제출 중복 방지(가능하면 재업로드를 막는다)
-    // - failed만 있는 경우는 재시도 허용
+    // 재제출 허용: 기존 uploaded/manual 레코드를 soft-delete 후 신규 제출 진행
     if (gradingAssignmentId != null) {
       const { data: existingRow } = await supabase
         .from("homework_submissions")
@@ -403,10 +402,10 @@ serve(async (req: Request) => {
         .limit(1);
 
       if (existingRow && existingRow.length > 0) {
-        return new Response(
-          JSON.stringify({ error: "This grading assignment has already been submitted" }),
-          { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+        await supabase
+          .from("homework_submissions")
+          .update({ status: "deleted" })
+          .eq("id", existingRow[0].id);
       }
     }
 
