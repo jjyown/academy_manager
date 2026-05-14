@@ -664,7 +664,8 @@ serve(async (req: Request) => {
   } catch (error: unknown) {
     const e = error instanceof Error ? error : undefined;
     const errMsg = e?.message ?? String(error);
-    console.error("Upload homework error:", e?.stack || errMsg);
+    // Supabase Logs 저장소에도 secret leak 차단(plan H1)
+    console.error("Upload homework error:", _safe(e?.stack || errMsg));
 
     if (
       errMsg.includes("Token refresh failed") ||

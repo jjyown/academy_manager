@@ -3505,7 +3505,10 @@ async function handleSubmit() {
 			if (fnError) {
 				try {
 					const body = await fnError.context?.json?.();
-					if (body) console.error('[upload-homework] response body:', body);
+					if (body) {
+						console.error('[upload-homework] response body:', body);
+						console.error('[upload-homework] body json:', JSON.stringify(body));
+					}
 				} catch (e) { /* swallow */ }
 				throw new Error(
 					(nJobs > 1 ? `[${ji + 1}/${nJobs}] ` : '') +
