@@ -165,13 +165,14 @@ async def grade_homework(
             img_data = await uf.read()
             fn = (uf.filename or "").lower()
             if fn.endswith(".zip"):
-                image_bytes_list.extend(extract_images_from_zip(img_data))
+                chunks = await asyncio.to_thread(extract_images_from_zip, img_data)
+                image_bytes_list.extend(chunks)
             else:
                 image_bytes_list.append(img_data)
     elif zip_drive_id:
-        zip_data = download_file_central(central_token, zip_drive_id)
+        zip_data = await asyncio.to_thread(download_file_central, central_token, zip_drive_id)
         logger.info(f"[Grade] Drive ZIP 다운로드 완료: {len(zip_data)} bytes")
-        image_bytes_list = extract_images_from_zip(zip_data)
+        image_bytes_list = await asyncio.to_thread(extract_images_from_zip, zip_data)
     elif homework_submission_id:
         # Stage 1: files_json 에서 개별 파일 다운로드
         sb = get_supabase()
@@ -181,12 +182,14 @@ async def grade_homework(
         files_json_entries = ((sub_res.data or {}).get("files_json") or [])
         if files_json_entries:
             for entry in sorted(files_json_entries, key=lambda e: e.get("idx", 0)):
-                file_bytes = download_file_central(central_token, entry["drive_file_id"])
+                file_bytes = await asyncio.to_thread(download_file_central, central_token, entry["drive_file_id"])
                 fn = (entry.get("file_name") or "").lower()
                 if fn.endswith(".zip"):
-                    image_bytes_list.extend(extract_images_from_zip(file_bytes))
+                    chunks = await asyncio.to_thread(extract_images_from_zip, file_bytes)
+                    image_bytes_list.extend(chunks)
                 elif fn.endswith(".pdf"):
-                    image_bytes_list.extend(convert_pdf_to_images(file_bytes, fn))
+                    chunks = await asyncio.to_thread(convert_pdf_to_images, file_bytes, fn)
+                    image_bytes_list.extend(chunks)
                 else:
                     image_bytes_list.append(file_bytes)
             logger.info(f"[Grade] files_json {len(files_json_entries)}개 다운로드 → 이미지 {len(image_bytes_list)}장")
