@@ -6,6 +6,8 @@ import zipfile
 
 logger = logging.getLogger(__name__)
 
+MAX_PDF_PAGES = 30
+
 
 def parse_page_range(range_str: str) -> tuple[int, int] | None:
     """페이지 범위 문자열 파싱 (예: "45-48" → (45, 48), "30" → (30, 30))"""
@@ -41,7 +43,7 @@ def extract_images_from_zip(zip_bytes: bytes) -> list[bytes]:
                 elif lower.endswith(HEIC_EXTS):
                     images.extend(_convert_heic_to_jpeg(zf.read(name), name))
                 elif lower.endswith(PDF_EXTS):
-                    images.extend(_convert_pdf_to_images(zf.read(name), name))
+                    images.extend(convert_pdf_to_images(zf.read(name), name))
                 else:
                     logger.warning(f"[ZIP] 지원되지 않는 파일 형식 건너뜀: {name}")
 
@@ -72,19 +74,20 @@ def _convert_heic_to_jpeg(heic_bytes: bytes, filename: str) -> list[bytes]:
         return []
 
 
-def _convert_pdf_to_images(pdf_bytes: bytes, filename: str) -> list[bytes]:
+def convert_pdf_to_images(pdf_bytes: bytes, filename: str) -> list[bytes]:
     result = []
     try:
         import fitz
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-        logger.info(f"[ZIP] PDF 변환 시작: {filename} ({len(doc)}페이지)")
-        for page_num in range(len(doc)):
-            page = doc[page_num]
-            pix = page.get_pixmap(dpi=200)
-            img_bytes = pix.tobytes("jpeg")
-            result.append(img_bytes)
+        total = len(doc)
+        if total > MAX_PDF_PAGES:
+            logger.warning(f"[PDF] {filename}: {total}페이지 → 앞 {MAX_PDF_PAGES}페이지만 처리")
+        logger.info(f"[PDF] 변환 시작: {filename} ({min(total, MAX_PDF_PAGES)}/{total}페이지)")
+        for page_num in range(min(total, MAX_PDF_PAGES)):
+            pix = doc[page_num].get_pixmap(dpi=200)
+            result.append(pix.tobytes("jpeg"))
         doc.close()
-        logger.info(f"[ZIP] PDF 변환 완료: {filename} → {len(result)}장 이미지")
+        logger.info(f"[PDF] 변환 완료: {filename} → {len(result)}장")
     except Exception as e:
-        logger.error(f"[ZIP] PDF 변환 실패 ({filename}): {e}")
+        logger.error(f"[PDF] 변환 실패 ({filename}): {e}")
     return result

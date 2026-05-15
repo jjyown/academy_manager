@@ -22,7 +22,7 @@ from config import (
     USE_PROCESS_REVIEWER,
 )
 from progress import update_progress
-from file_utils import extract_images_from_zip
+from file_utils import extract_images_from_zip, convert_pdf_to_images
 from ocr.engines import ocr_gemini, cross_validate_ocr
 from ocr.preprocessor import preprocess_batch
 from grading.grader import grade_submission
@@ -185,6 +185,8 @@ async def grade_homework(
                 fn = (entry.get("file_name") or "").lower()
                 if fn.endswith(".zip"):
                     image_bytes_list.extend(extract_images_from_zip(file_bytes))
+                elif fn.endswith(".pdf"):
+                    image_bytes_list.extend(convert_pdf_to_images(file_bytes, fn))
                 else:
                     image_bytes_list.append(file_bytes)
             logger.info(f"[Grade] files_json {len(files_json_entries)}개 다운로드 → 이미지 {len(image_bytes_list)}장")

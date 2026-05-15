@@ -16,6 +16,7 @@ from integrations.supabase_client import (
     get_grading_results_by_teacher, get_grading_results_by_student,
     update_grading_result, get_student, update_submission_grading_status,
 )
+from file_utils import extract_images_from_zip, convert_pdf_to_images
 from integrations.drive import delete_file, download_file_central
 from integrations import highroad_solution
 from grading.confirm_drive_publish import publish_graded_images_on_confirm
@@ -50,22 +51,11 @@ def _zip_drive_id_from_submission(sub: dict) -> str:
 
 
 def _images_from_single_file(file_bytes: bytes, filename: str) -> list[bytes]:
-    """단일 파일(이미지/PDF/ZIP)에서 표시용 이미지 목록 추출."""
+    """단일 파일(이미지/PDF/ZIP)에서 이미지 목록 추출."""
     fn = filename.lower()
     if fn.endswith(".pdf"):
-        result = []
-        try:
-            import fitz
-            doc = fitz.open(stream=file_bytes, filetype="pdf")
-            for i in range(len(doc)):
-                pix = doc[i].get_pixmap(dpi=150)
-                result.append(pix.tobytes("jpeg"))
-            doc.close()
-        except Exception as e:
-            logger.warning(f"[SourcePreview] PDF 변환 실패 ({filename}): {e}")
-        return result
+        return convert_pdf_to_images(file_bytes, filename)
     elif fn.endswith(".zip"):
-        from file_utils import extract_images_from_zip
         return extract_images_from_zip(file_bytes)
     else:
         return [file_bytes]
@@ -121,8 +111,6 @@ async def _load_submission_zip_images(submission_id: int) -> list[bytes]:
 
     if not zip_data:
         raise HTTPException(400, "원본 ZIP이 비어 있습니다.")
-
-    from file_utils import extract_images_from_zip
 
     images = extract_images_from_zip(zip_data)
     if not images:
@@ -764,7 +752,6 @@ async def _full_regrade_from_submission(
     """문항 데이터가 없을 때 원본 제출물을 다시 다운로드하여 전체 채점을 재실행"""
     from integrations.supabase_client import get_central_admin_token
     from integrations.drive import download_file_central
-    from file_utils import extract_images_from_zip
     from routers.grading import _run_grading_background
 
     submission_id = result.get("homework_submission_id")
