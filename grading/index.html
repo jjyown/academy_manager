@@ -2362,7 +2362,7 @@ function shouldRunProgressPolling() {
 	return currentPage === 'main' && currentMainTab === 'homework-mgmt' && !document.hidden;
 }
 
-async function _pollingFetchJson(url, timeoutMs = 8000) {
+async function _pollingFetchJson(url, timeoutMs = 20000) {
 	const controller = new AbortController();
 	const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 	try {
