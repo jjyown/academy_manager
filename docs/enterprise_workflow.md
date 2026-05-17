@@ -92,6 +92,7 @@
 
 ## 9) 자동 업데이트 로그
 - 2026-05-17 | AUTO-20260517 | staged 1개 파일 기준 문서 연동 자동기록 | gates: A:PASS,B:PASS,C:PASS,D:PASS,E:PASS | note: 연동 자동 기록
+- 2026-05-17 | AUTO-20260517 | staged 1개 파일 기준 문서 연동 자동기록 | gates: A:PASS,B:PASS,C:PASS,D:PASS,E:PASS | note: 연동 자동 기록
 - 2026-05-16 | AUTO-20260516 | staged 1개 파일 기준 문서 연동 자동기록 | gates: A:PASS,B:PASS,C:PASS,D:PASS,E:PASS | note: 연동 자동 기록
 - 2026-05-16 | AUTO-20260516 | staged 1개 파일 기준 문서 연동 자동기록 | gates: A:PASS,B:PASS,C:PASS,D:PASS,E:PASS | note: 연동 자동 기록
 - 2026-05-15 | AUTO-20260515 | staged 3개 파일 기준 문서 연동 자동기록 | gates: A:PASS,B:PASS,C:PASS,D:PASS,E:PASS | note: 연동 자동 기록

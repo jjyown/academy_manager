@@ -378,11 +378,19 @@ async def delete_result(result_id: int):
         await run_query(sb.table("grading_results").delete().eq("id", result_id).execute)
 
         # 채점 결과 삭제 후 숙제 제출 상태를 재채점 가능 상태로 되돌려 동기화
+        # 삭제 = "완전 리셋" 의미로 grading_assignment_id 도 해제 → 학생 페이지 "(재제출)" 레이블 제거
+        # (단순 AI 재실행은 별도 재채점 버튼 사용)
         submission_id = result_row.get("homework_submission_id")
         if submission_id:
             try:
                 await update_submission_grading_status(int(submission_id), "pending")
-                logger.info(f"[Delete] submission #{submission_id}: grading_status -> pending")
+                await run_query(
+                    sb.table("homework_submissions")
+                    .update({"grading_assignment_id": None})
+                    .eq("id", int(submission_id))
+                    .execute
+                )
+                logger.info(f"[Delete] submission #{submission_id}: grading_status=pending, grading_assignment_id=null")
             except Exception as sub_e:
                 logger.warning(f"[Delete] submission 상태 동기화 실패 (id={submission_id}): {sub_e}")
 
