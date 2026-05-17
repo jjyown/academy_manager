@@ -543,6 +543,15 @@ async def _execute_grading(
         except Exception as e:
             logger.warning(f"[OCR-Polish] 정제 조교 실패(채점 진행은 계속): {e}")
 
+    # ── OCR 전수 실패 검출 ──
+    # 모든 페이지 answers·full_text 빈 경우 = OCR 자체 실패 (백지엔 보통 헤더/문제번호 텍스트가 남음)
+    _set_stage(run_ctx, result_id=result_id, stage="ocr_validate", detail="OCR 결과 검증")
+    if all((not r.get("answers")) and (not (r.get("full_text") or "").strip()) for r in ocr_results):
+        raise Exception(
+            "OCR 인식 실패: 모든 페이지에서 답안을 추출하지 못했습니다. "
+            "사진 화질·각도·조명을 확인해 다시 제출해주세요."
+        )
+
     # ── AI 에이전트: 개별 문제 집중 검증 (3단계) ──
     if USE_GRADING_AGENT:
         try:
