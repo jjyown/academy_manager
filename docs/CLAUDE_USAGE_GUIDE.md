@@ -881,6 +881,91 @@ Claude: "academy-developer가 구현 시작합니다.
 
 ---
 
+## 🔟-5 신규 LLM PR 체크리스트 (PR-A' 산출, 2026-05-18 토의)
+
+> 본 프로젝트에서 새 LLM/OCR 호출 추가, fallback 변경, 자동화 toggle 도입 시 사용하는 체크리스트.
+> 2026-05-09 $36 비용 spike 회귀 차단 목적. **사후 알림(GCP Budget Alert lag 6~24h)이 아닌 사전 차단**이 핵심.
+
+### 적용 대상
+
+다음 변경에 본 체크리스트 강제 적용:
+- 신규 Gemini/OpenAI/Claude API 호출 추가
+- 기존 LLM 호출의 fallback 모델 추가·순서 변경
+- OCR 호출 추가 (Gemini Vision — Mathpix는 폐기)
+- 자동화 toggle 신설 (스케줄·폴링·자동 진행)
+- 외부 LLM 호출 prompt 변경 (범위 힌트·hint 주입은 금지)
+
+### 체크리스트 (PR 머지 전 모두 체크)
+
+#### A. 안전가드 3종 (필수)
+
+| 항목 | 구현 위치 | 검증 방법 |
+|---|---|---|
+| ① **비활성 toggle** (기본 OFF) | env 변수 또는 DB flag | 토글 OFF 상태에서 PR 머지 → 라이브 동작 안 함 확인 |
+| ② **일일 비용 hard cap** | GCP API Quota override **+** Supabase `cost_counter` 테이블 진입 가드 | quota 임계 도달 시 API 호출 403 확인 / cost_counter 임계 초과 시 진입 차단 409 확인 |
+| ③ **in-flight 가드 + 실패 모니터링** | 모듈 전역 progressState + 409 패턴 (memory `feedback_backend_in_flight_guard`) | 동시 요청 2회 → 두 번째 409 확인 |
+
+> **사후 알림만으론 부족**: GCP Budget Alert lag 6~24h, Railway 알림 분 단위지만 둘 다 발생 후 통보. 2026-05-09 사례에서 5분 폭주로 $36 발생. 사전 차단(quota hard cap + cost_counter 진입 가드)이 핵심.
+
+#### B. LLM fallback 룰 (memory `feedback_llm_fallback_order`)
+
+- [ ] fallback 순서가 **싼→비싼 자동 진급 아님** — 단일 모델 + backoff 우선
+- [ ] 다중 fallback은 **같거나 싼 단가만** (output 8배 단가 모델 자동 진급 금지)
+- [ ] fallback 트리거 조건 명시 (timeout / rate limit / quota 등)
+- [ ] fallback 횟수 한도 명시 (무한 재시도 금지)
+
+#### C. 프롬프트 룰 (memory `feedback_grading_llm_prompt_hints`)
+
+- [ ] **expected_hint / 범위 힌트 주입 금지** — 17~20 누락 회귀 사례
+- [ ] 프롬프트 분기 금지 — 단일 프롬프트 전체 적용
+- [ ] 측정 가능한 룰 사용 ("비약 금지" 같은 모호 표현 X, "한 줄에 한 변형만" 같이)
+
+#### D. catch handler 표준 (memory `feedback_catch_handler_verbosity_sanitize`)
+
+- [ ] catch handler 본문에 throw 위치(파일:라인) 자동 식별 로그
+- [ ] access_token / service_role_key / API key 등 sanitize 정규식 적용
+- [ ] 500 회귀 시 진단 비용 최소화 — 사용자가 원인 라인 즉시 식별 가능
+
+#### E. self-check / 검증 로직 추가 시 (PR-C 학습)
+
+- [ ] 실패 시 후속 흐름 명시 — 재생성 / 폐기 / 사람 검수 큐 중 어느 것
+- [ ] **재생성 한도 명시** (1회 한도 기본, 무한 재생성 시 spike 회귀)
+- [ ] 실패 표본 "사람 검수 필요" 플래그 (자동 큐 X, 단순 마킹 OK)
+
+#### F. 비용 영향 정량 (cost-monitor 책무)
+
+- [ ] 일일 baseline 호출량 측정 (7일치 사전 export)
+- [ ] 변경 후 예상 호출량 증가율 명시
+- [ ] 최악 시나리오 일일 비용 추정 ($)
+- [ ] hard cap이 정상 운영 false-positive 일으키지 않는지 검증
+
+### 검토 페르소나 자동 호출
+
+본 체크리스트 적용 PR은 다음 페르소나 자동 호출:
+1. **cost-monitor** — A·B·F 항목 검토
+2. **academy-reviewer** 또는 **haeseol-reviewer** — D 항목 + 회귀 위험
+3. **solution-writer** (LLM 출력이 풀이일 때) — C·E 항목
+4. **security-reviewer** (cost_counter 신규 테이블 등 RLS 영향 시) — RLS 정책
+
+검토 통과 못한 항목은 chief-reviewer가 "조건부" 또는 "불가" 판정. 모든 항목 충족 시 배포 가능.
+
+### 회귀 사고 이력 (체크리스트 도입 배경)
+
+- **2026-05-09 $36 spike**: OCR×3모델 + 풀이×2모델 fallback 자동 진급 + 사용자 자동완성 반복 클릭. 사후 알림만 있었음 → $36 발생 후 통보. 본 체크리스트 A② hard cap + B fallback 룰로 차단.
+- **expected_hint 17~20 누락**: 프롬프트 hint 주입으로 범위 외 문항 누락. 본 체크리스트 C로 차단.
+- **2026-05-09 RLS 회귀**: 본 LLM 체크리스트와 별개 — RLS `auth.uid()` 래핑 금지(CLAUDE.md §5 DON'T 참조).
+
+### 면제 조건 (chief-reviewer 또는 cost-monitor 판단)
+
+다음은 본 체크리스트 면제:
+- 비-LLM 호출 (예: Google Drive 메타데이터, Supabase SELECT)
+- 프롬프트 typo 수정 (호출량·단가 변화 없음)
+- 응답 파싱 로직 수정 (LLM 호출 자체 변경 없음)
+
+> 모델 ID 단순 교체는 면제 **아님** — 단가 변동 가능성. cost-monitor 검토 필수.
+
+---
+
 ## 1️⃣1️⃣ 본 프로젝트 안전 룰 (memory 반영)
 
 memory에 박혀있어 자동 적용되지만 본인도 의식해두면 좋음:
