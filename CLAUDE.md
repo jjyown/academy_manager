@@ -43,6 +43,11 @@
 - 시크릿은 `.env.local` / Supabase Secrets / Vercel 환경변수에. 코드/커밋/로그에 절대 X.
 - 마이그레이션은 트랜잭션 + 적용 후 검증 SELECT 포함.
 - 커밋 메시지는 한국어 + Conventional Commits (`feat(grading): ...`, `fix(rls): ...`).
+- **자동 토의 + 자율 협업** — 다음 신호 감지 시 `docs/DISCUSSIONS.md` 에 시간순 회의록 누적하며 자동 토의 진행: 새 기능 추가, DB 스키마/마이그레이션, 인증·RLS 변경, LLM/OCR 호출 추가 또는 fallback, 외부 API 신규 호출, 자동화 toggle, 영향 파일 3개 이상. 총 16개 페르소나 — 이 프로젝트에서 14개 호출 가능 (글로벌 12 + 매니저 전용 2: `academy-developer`/`academy-reviewer`). 해설 전용 2개(`haeseol-developer`/`haeseol-reviewer`)는 해설 작업창에서만. 자기들끼리 토의, 사용자는 의뢰인 입장. **각 페르소나는 다른 의견 무조건 수용 금지** — 본인 도메인 관점에서 독립 판단, 결론은 "할만하다/조건부/불가" 명시, 불가 시 대안 제시 필수. 자세한 흐름은 [docs/CLAUDE_USAGE_GUIDE.md §10-3](docs/CLAUDE_USAGE_GUIDE.md).
+- **자율 학습 누적** — 페르소나가 작업/토의 중 발견한 룰(꼭 해야 함 / 안 됨 / 패턴)을 해당 페르소나 마크다운 `## 학습 노트` 섹션에 자동 누적. 의뢰인 명령("이 룰 [페르소나]에 학습시켜줘")으로도 추가. 자세한 흐름은 [docs/CLAUDE_USAGE_GUIDE.md §10-4](docs/CLAUDE_USAGE_GUIDE.md).
+- **현 상태 안주 금지 — 대안 적극 제시** — 토의 시 페르소나들은 현재 스택(Supabase / Vercel / Railway / Google Drive / Gemini)에 갇히지 말 것. 더 나은 도구·서비스·아키텍처(AWS, Cloudflare, OpenAI, Claude API 등)가 본 도메인에 명확히 유리한 경우 **과감히 제시**. 형식: "현재 [도구 A] vs 대안 [도구 B] / B가 나은 점 / 마이그레이션 비용 / 권장 여부". 단 비전공자 1인 운영 부담을 항상 고려 — 새 도구는 "지금 당장은 미루자" 결론도 가능.
+- **git 히스토리 참고 필수** — 모든 페르소나는 작업·토의 시 `git log` / `git diff` / `git blame` / 최근 commit message를 자체 조회. 코드 현재 상태만 보고 추측 금지 — **항상 변경 맥락 확인**. 특히 검토자(academy-reviewer / haeseol-reviewer / security-reviewer / cost-monitor)는 최근 30일 commit 패턴 점검 후 의견 작성. 회귀 사고 이력(2026-05-09 RLS / 비용 spike)은 git log로 재현 가능.
+- **마무리까지 체크 (현업 라이프사이클)** — 작업은 `git commit`/`git push`로 끝 X. **다음까지 완료해야 종결**: ① 검증 명령 실행 결과 명시 ② 배포 후 즉시 모니터링 (Vercel deploy log / Railway log / Supabase advisor) ③ 학습 노트 추가 (페르소나 마크다운 `## 학습 노트`) ④ DISCUSSIONS.md 후속 변경 섹션 채우기 + 토의 상태 [종결]로 변경. ⑤ 회귀 발견 시 즉시 토의 재개 또는 롤백.
 
 ## 5. DON'T
 - **RLS `auth.uid()` → `(select auth.uid())` 래핑 금지** (advisor `auth_rls_initplan` 경고는 수용). 본 코드베이스에서 클라이언트가 `current_owner_id`를 잃고 `?owner_user_id=eq.null` 400 에러 대량 발생 회귀 사례 있음(2026-05-09 0028 마이그레이션 롤백).
@@ -61,3 +66,5 @@
 - "**마이그레이션 만들어줘**" → `migrations/NNNN_*_YYYYMMDD.sql` 템플릿(트랜잭션+검증 SELECT)으로 작성 후 SQL Editor 안내
 - "**해설 제작**" / "**채점**" → `grading-server/` 모듈 우선 탐색
 - "**숙제 제출 흐름**" → `homework/` + Edge Function `upload-homework` / `exchange-google-token`
+- "**토의해주세요**" → `docs/DISCUSSIONS.md` 시간순 회의록 형식으로 자율 토의 시작
+- "**[페르소나명]에 학습시켜줘**" → 해당 페르소나 `.claude/agents/<name>.md` 의 `## 학습 노트` 섹션에 룰 추가
