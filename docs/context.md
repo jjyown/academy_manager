@@ -14,6 +14,7 @@
 ## 최근 의사결정 로그
 | 날짜 | 결정 | 이유 | 영향 범위 |
 |---|---|---|---|
+| 2026-05-18 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/DISCUSSIONS.md |
 | 2026-05-18 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | .claude/agents/academy-backend-developer.md, .claude/agents/academy-developer.md, .claude/agents/academy-frontend-developer.md, .claude/agents/academy-supabase-developer.md |
 | 2026-05-18 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | migrations/0045_homework_anon_delete_revoke_20260518.sql |
 | 2026-05-18 | 커밋 시 문서 4종을 자동 연동 업데이트한다 | 작업 중 수동 문서 기록 누락과 문서 간 불일치를 방지하기 위해 | docs/DISCUSSIONS.md |
