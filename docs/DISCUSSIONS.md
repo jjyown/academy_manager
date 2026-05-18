@@ -104,6 +104,105 @@
 
 <!-- 최신이 위. 아래로 누적. -->
 
+## 2026-05-18 17:00 아카데미매니저 숙제관리파트 — 현 상태 유지 vs 개편 [종결]
+
+**의뢰인 요청**: "아카데미매니저 숙제관리파트 이대로가는게 나을지 개편하는게나을지 토의진행해주세요"
+**참여 페르소나**: product-manager, education-expert, academy-developer, ui-ux-designer, cost-monitor, student-tester, security-reviewer, academy-reviewer, chief-reviewer (9명, 누적 발언 15회)
+**미참여 (도메인 무관)**: curriculum-designer, problem-author, solution-writer, textbook-designer, school-math-teacher
+
+### 라운드 0 — 사전 탐색 (Explore 3 병렬)
+- 학생/운영자/학부모 3축 코드 영역 매핑, 최근 90일 commit 26건 중 fix 7건 (TDZ 3 / race 2 / sync 2)
+- 운영 불편 Top 3: ① 운영자 3단 클릭 + 배정 없으면 인정 안 됨 ② Drive 누적·월 리포트 수동 ③ 학부모 알림 부재
+
+### 라운드 1 — 독립 의견 (6명 병렬)
+
+**17:05 product-manager 발언**
+운영자 3단 클릭 월 3시간은 견딜만, 그러나 배정 없으면 인정 안 되는 데이터 무결성 사고 위험 > 자동화 비용. MVP 1픽: **자동 배정 매칭**. SaaS 대체 불가 (Gemini Vision 채점이 코어). 결론: **조건부 개편**.
+
+**17:08 education-expert 발언**
+저녁 7시 학생 30명 등원 + 수업·전화 + 90클릭 = 일과 끝 20분 노동 = "오늘 패스" 트리거. 학부모 알림 부재 = "옆 학원은 카톡 오던데" 재원율 직격. MVP 1픽: **일괄 채점 + 학부모 Web Push** 2종 묶음. 결론: **조건부 개편**.
+
+**17:11 academy-developer 발언**
+TDZ/스코핑 회귀 3회 = ESLint 부재 신호, `npx eslint homework/` 1줄로 차단. Edge Function `upload-homework` 720라인 분할은 보상 트랜잭션 위험으로 분할 대신 try/catch 강화. MVP 1픽: **ESLint 도입 + homework/index.html 5페이지 분리** (사용자 승인 후). 결론: **조건부 개편**.
+
+**17:13 ui-ux-designer 발언**
+학생 포털 5페이지 display:none 토글 = 모바일 뒤로가기 사고. ✓△✕ 색의존 = WCAG AA 위반 (색맹 8%). 학부모 passive 조회 = 캘린더가 박물관. MVP 1픽: **운영자 일괄 채점 액션**. 결론: **조건부 개편**.
+
+**17:15 cost-monitor 발언**
+시험기간 spike 시나리오: 자동채점 ON + Pro fallback = $60~150/일 (8~20만원). 현재 수동 트리거 = 비용 brake. 자동화 추가 시 안전가드 3종 (toggle / 일일 한도 / OCR 캐싱) 사전 내장 필수. spike 위험 별 4/5. 결론: **조건부 개편**.
+
+**17:17 student-tester 발언**
+고등학생 후기 — "즉시 점수 안 뜨는데 왜 굳이 디지털?" / "내 숙제인데 왜 엄마가 먼저 봐?" 이탈 신호. 학부모 1차 필터 거치는 학생 결과 UX 는 동기 저해. 결론: **불가** (현 구조 그대로면 고등학생 이탈).
+
+### 라운드 2 — 보안·회귀 위험 검토 (2명 병렬)
+
+**17:25 security-reviewer 발언 (Critical 새 발견)**
+`migrations/0006_homework_setup.sql:102-129` RLS 정책에 **본인 student_code 일치 검증 부재** — anon PostgREST 직통 INSERT 로 같은 학원 다른 학생 submission 까지 통과 가능. 개편과 무관 즉시 fix 필요. 학부모 카톡 도입 시 PIPA 동의 별도 (`phone_consent_log` 테이블). 결론: **조건부 개편**.
+
+**17:30 academy-reviewer 발언**
+회귀 위험 점수 — ④ RLS 확장 5/5 (2026-05-09 회귀 표면) / ① 일괄 채점 4/5 / ⑤ 자동 배정 4/5 / ③ ESLint 3/5 / ② 학부모 알림 2/5. **cool-down 7일 권고**. 동시 금지 — ④+⑤ / ①+②. 작업 순서: ③ → ② → ① → ⑤ → ④. 결론: **조건부 개편**.
+
+### 라운드 3 — chief-reviewer 1차 종합
+
+**17:40 chief-reviewer 종합**
+부분 개편 / GO-with-conditions. Top 3: ① security RLS Critical fix (즉시) ② ESLint lint-only ③ 학생 본인 결과 열람 + Web Push. 충돌 조정: 자동 배정(PM) vs 일괄 채점(EDU+UX) = 일괄 채점 먼저 / 카톡 vs Web Push = Web Push 먼저 (PIPA 부담 회피).
+
+**17:45 의뢰인 발언**
+Top 3 그대로 진행 + ESLint 먼저, `homework/index.html` 분할 보류 + 운영자 일괄 채점은 별도 토의 예약 선택.
+
+### 라운드 4 — 의뢰인 검토 R1 → 분기 토의 (5명 병렬)
+
+**17:50 의뢰인 검토 R1 발언**
+plan v1 검토 결과 등급 A−. fact 정정 (`homework/index.html` 1500 → 3570라인). 3가지 대안 추가 제시:
+- C1: anon INSERT 차단 + Edge Function 단일 (Strongly Recommended)
+- C2: Web Push 대신 SMS (Recommended, 도달률 100%)
+- C4: homework/index.html 분할 + ESLint 묶기 (Recommended)
++ E1/E2 검증 요청.
+
+**17:55 메인 Claude 검증**
+- E1 ✅: `upload-homework/index.ts:272` JSON.stringify 가 상위 catch (라인 755~761) 의 `_safe()` 로 sanitize 적용됨. 별도 fix 불필요.
+- E2 ❌: `homework/index.html:2959, 2998` 에서 `db.from('homework_submissions').insert()` 직통 호출 발견. **C1 즉시 채택 시 학생 포털 부서짐 확정**.
+
+**18:00 security-reviewer 재발언**
+E2 결과로 C1 즉시 채택 불가. **혼합안 (c) 추천** — anon DELETE 만 차단 + INSERT 는 RLS 본문 student_code 본인 일치 검증. C2 = SMS + 학생 등록 동의서에 "문자 발송 위탁(수탁자: SOLAPI)" 1줄.
+
+**18:02 academy-developer 재발언**
+혼합안 작업량 = 마이그레이션 1개 30분. C1 전면 클라이언트 리팩토링 = 4~8시간 + 회귀 위험. C4 분할 = 15~25시간, ESLint 가 단일 파일에도 충분히 동작 — **분리 미루기**.
+
+**18:04 academy-reviewer 재발언**
+C1 = 단계적 혼합안. ① DELETE 차단 → cool-down 7일 → ② INSERT Edge Function → 1주 → ③ anon INSERT 차단. C2 = Web Push 우선 (SMS 신규 외부 API + 비용 spike). C4 = 전부 보류. 동시 금지: C1+C4 / C1 Edge+C2 push_subscriptions / C2+C4.
+
+**18:06 cost-monitor 재발언**
+SMS 정상 ₩16,200~27,000/월, 막누름 spike 시 ₩225,000/월. 안전가드 3종 필수 (toggle / 일 100건·5건 한도 / 잔액 ₩10,000 알림). Web Push 도달률 30~50% 사고 → 이중 운영비. 결론: **SMS 단독 + 가드 3종**.
+
+**18:08 education-expert 재발언**
+18:30 학생 하원 → 19:00 학부모 폰 SMS "오늘 미제출 2건" → 21:00 전 제출. Web Push 다음 날 아침. ₩2~3만원 = 학생 1명 결제액 5~10%, 재원 1명 유지로 흑자. 학생 본인은 별도 SMS 불필요. C4 = 보류 (시간 자원은 C2 에 투입).
+
+### 라운드 5 — chief-reviewer 2차 종합
+
+**18:15 chief-reviewer R3 종합 (최종)**
+**부분 개편 / GO-with-conditions**
+- **C1 = 단계적 혼합안** (DELETE 차단 → cool-down → INSERT Edge Function → anon INSERT 차단)
+- **C2 = SMS 단독 + 안전가드 3종** (4:1, academy-reviewer 만 Web Push)
+- **C4 = 전부 보류**
+
+새 작업 순서 (10단계): ① anon DELETE 차단 (30분) → ② SMS + 가드 3종 (반나절) → ③ cool-down 7일 → ④ INSERT Edge Function → ⑤ cool-down 1주 → ⑥ anon INSERT 차단 → ⑦ ESLint → ⑧~⑩ 별도 토의 (분할 / 학생 결과 열람 / 운영자 일괄 채점).
+
+**의뢰인 결제 요약**: 월 SMS ₩2~3만원 (가드 적용 시) / 작업 1.5일 + cool-down 2주 / 가드 누락 시 ₩22만 spike + RLS·SMS 동시 변경 금지.
+
+### 후속 변경
+- **결정 일자**: 2026-05-18
+- **결정**: GO-with-conditions, 10단계 순차 진행
+- **메모리 저장**: `feedback_plan_decision_discussion.md` (의사결정 매번 토의 룰), `feedback_plain_report_with_glossary.md` (쉬운 설명 + 용어 풀이 룰)
+- **페르소나 학습 노트 보강**: 9명 페르소나 `## 학습 노트` 섹션에 2026-05-18 룰 각 1~2건 추가
+- **작업 ① fact 정정 (18:30)**: 시스템 검증 결과 anon DELETE 는 `homework_submissions` / `grading_results` / `schedules` 모두 RLS 로 이미 차단됨. 의뢰인 결정 = **옵션 B 명시적 자물쇠 추가** (다층 방어). 진짜 보안 구멍 (homework_public_insert/read 본인 일치 검증 부재) 은 별도 토의 예약.
+- **작업 ① 산출물**: `migrations/0045_homework_anon_delete_revoke_20260518.sql` — `REVOKE DELETE ON ... FROM anon` 명령 3개 + 검증 SELECT 2개 + rollback 명령 (주석 내장)
+- **다음 작업**: 의뢰인이 ☁️ Supabase SQL Editor 적용 → 검증 결과 보고 → 라이브 24h 모니터링 → 작업 ② SMS 진행
+- **별도 토의 예약**: 진짜 RLS 보강 (homework_public_insert/read) / 자동 배정 매칭 / 카카오 알림톡 / homework/index.html 분할 / 학생 본인 결과 열람 / 운영자 일괄 채점 UI / D1 Drive↔DB 보상 트랜잭션
+- **plan 파일**: `C:\Users\mirun\.claude\plans\frolicking-snacking-peach.md`
+
+---
+
 ## 2026-05-18 16:00 해설제작지 — 현 상태 유지 vs 개편 [진행중]
 
 **의뢰인 요청**: "해설제작지(highroad-math-solution, Railway 라이브)를 지금처럼 운영할지 큰 개편을 할지 토의해주세요"
