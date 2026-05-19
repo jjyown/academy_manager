@@ -38,7 +38,9 @@ yarn-error.log
 .vercel/
 
 .venv/
+venv/
 grading-server/.venv/
+grading-server/venv/
 __pycache__/
 
 # 자동 생성된 cron 적용 SQL (CRON_SECRET 포함 — 절대 커밋 금지)
